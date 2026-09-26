@@ -106,6 +106,8 @@ mods-strict-judge = Katı değerlendirme modu
 mods-strict-judge-sub = Tüm değerlendirme aralıklarını yarıya indir
 mods-fullscreen-judge = Tam ekran değerlendirme
 mods-fullscreen-judge-sub = Ekranın herhangi bir yeri dokunuş sayılır
+mods-no-fail = Başarısızlık yok
+mods-no-fail-sub = Başarısızlıklar kaydedilir ama oyun bitmez
 
 rate-failed = Oylama başarısız
 rate-done = Başarıyla oylandı

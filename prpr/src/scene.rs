@@ -553,6 +553,16 @@ impl Main {
             if remove {
                 FULL_LOADING.take();
             }
+            // 左下角帧率：只有一个数字，无文字、无背景。
+            if crate::ui::SHOW_FPS.load(std::sync::atomic::Ordering::Relaxed) {
+                let fps = f32::from_bits(crate::ui::CURRENT_FPS.load(std::sync::atomic::Ordering::Relaxed));
+                if fps > 0. {
+                    // 由视口直接推算屏幕范围：覆盖层阶段 ui.top 与 screen_rect 都不可靠。
+                    let vp = crate::ext::get_viewport();
+                    let half_h = vp.3 as f32 / vp.2 as f32;
+                    ui.text(format!("{fps:.0}")).pos(-0.98, half_h - 0.05).size(0.4).draw();
+                }
+            }
             pop_camera_state();
         }
         Ok(())

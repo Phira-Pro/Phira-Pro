@@ -91,6 +91,8 @@ mods-strict-judge = Tryb surowego oceniania
 mods-strict-judge-sub = Zmniejsz o połowę wszystkie okna oceny
 mods-fullscreen-judge = Ocena na całym ekranie
 mods-fullscreen-judge-sub = Dotknięcie w dowolnym miejscu ekranu się liczy
+mods-no-fail = Bez porażki
+mods-no-fail-sub = Porażki są zapisywane, ale gra nie zostaje przerwana
 
 rate-failed = Nie oceniono
 rate-done = Oceniono pomyślnie

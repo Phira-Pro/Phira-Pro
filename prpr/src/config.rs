@@ -26,8 +26,11 @@ bitflags! {
         /// Phira Pro：忽略横向位置，点屏幕任意处即可判定到最近的音符。
         /// 会让成绩更容易，因此计入 `UNRATED`。
         const FULLSCREEN_JUDGE = 0x0400;
+        /// Phira Pro：失败只记录、不中止本局（练习用，血条与即时死亡都不会中断游玩）。
+        /// 会让成绩更容易，因此计入 `UNRATED`。
+        const NO_FAIL = 0x0800;
 
-        const UNRATED = Self::AUTOPLAY.bits() | Self::NO_SHADER.bits() | Self::FULLSCREEN_JUDGE.bits();
+        const UNRATED = Self::AUTOPLAY.bits() | Self::NO_SHADER.bits() | Self::FULLSCREEN_JUDGE.bits() | Self::NO_FAIL.bits();
     }
 }
 
@@ -46,8 +49,9 @@ impl Mods {
         match flag {
             Mods::FADE_IN => &[Mods::FADE_OUT],
             Mods::FADE_OUT => &[Mods::FADE_IN],
-            Mods::INSTANT_DEATH_AP => &[Mods::INSTANT_DEATH_FC],
-            Mods::INSTANT_DEATH_FC => &[Mods::INSTANT_DEATH_AP],
+            Mods::INSTANT_DEATH_AP => &[Mods::INSTANT_DEATH_FC, Mods::NO_FAIL],
+            Mods::INSTANT_DEATH_FC => &[Mods::INSTANT_DEATH_AP, Mods::NO_FAIL],
+            Mods::NO_FAIL => &[Mods::INSTANT_DEATH_AP, Mods::INSTANT_DEATH_FC],
             _ => &[],
         }
     }
@@ -77,6 +81,22 @@ pub struct Config {
     pub hp_height: f32,
     /// 血条长度。
     pub hp_width: f32,
+    /// 软件 UI 主题：强调色（十六进制 RRGGBB，例如 "2196f3"）。
+    pub ui_accent: String,
+    /// 软件 UI 主题：表面色（按钮与弹窗底色，十六进制 RRGGBB）。
+    pub ui_surface: String,
+    /// 是否在左下角显示当前帧率数字。
+    pub show_fps: bool,
+    /// 失败后自动重试的次数上限（0 表示关闭）。
+    pub auto_retry: f32,
+    /// 自动重试/续练的提前量（秒）：从「失败时刻 − 提前量」处重开，0 表示从头开始。
+    pub retry_lead: f32,
+    /// 变速练习：练习模式每完成一圈就提速一档。
+    pub practice_ramp: bool,
+    /// 变速练习的起始速度。
+    pub practice_speed_start: f32,
+    /// 变速练习每圈提升的速度。
+    pub practice_speed_step: f32,
     pub interactive: bool,
     pub lim_bad_ms: f32,
     pub lim_good_ms: f32,
@@ -135,6 +155,14 @@ impl Default for Config {
             hp_amount: 1.0,
             hp_height: 1.0,
             hp_width: 0.6,
+            ui_accent: "2196f3".to_owned(),
+            ui_surface: "2a323c".to_owned(),
+            show_fps: false,
+            auto_retry: 0.,
+            retry_lead: 0.,
+            practice_ramp: false,
+            practice_speed_start: 0.7,
+            practice_speed_step: 0.1,
             interactive: true,
             lim_bad_ms: (crate::judge::LIMIT_BAD * 1000.) as f32,
             lim_good_ms: (crate::judge::LIMIT_GOOD * 1000.) as f32,
@@ -195,6 +223,21 @@ impl Config {
         }
     }
 
+    /// 把当前主题色写入 `prpr::ui` 的全局量，供 `Ui::accent` / `Ui::background` 读取。
+    /// 数值非法（或为空）时回落到默认色，绝不 panic。
+    pub fn apply_ui_colors(&self) {
+        /// 解析 "rrggbb"（允许 `#` 前缀），非法值回落到 `def`。
+        fn parse_hex(s: &str, def: u32) -> u32 {
+            let s = s.trim().trim_start_matches('#');
+            if s.len() != 6 {
+                return def;
+            }
+            u32::from_str_radix(s, 16).unwrap_or(def)
+        }
+        crate::ui::UI_ACCENT.store(parse_hex(&self.ui_accent, 0x2196f3), std::sync::atomic::Ordering::Relaxed);
+        crate::ui::UI_SURFACE.store(parse_hex(&self.ui_surface, 0x2a323c), std::sync::atomic::Ordering::Relaxed);
+    }
+
     pub fn init(&mut self) {
         if let Some(flag) = self.autoplay {
             self.mods.set(Mods::AUTOPLAY, flag);
@@ -203,6 +246,8 @@ impl Config {
         self.hp_amount = self.hp_amount.clamp(0.2, 3.0);
         self.hp_width = self.hp_width.clamp(0.1, 1.0);
         self.hp_height = self.hp_height.clamp(0.5, 3.0);
+        self.apply_ui_colors();
+        crate::ui::SHOW_FPS.store(self.show_fps, std::sync::atomic::Ordering::Relaxed);
         #[cfg(target_env = "ohos")]
         {
             // Due to the fucking poor performance of the Maloon GPU, the sample count must be set to 1.
@@ -272,6 +317,16 @@ mod tests {
 
     /// 倒挂的配置即使没经过 `clamp_judge_windows` 也不会产出倒挂的窗口；
     /// 夹过之后配置本身也变合法。
+    #[test]
+    fn ui_colors_parse_and_fallback() {
+        let mut config = Config::default();
+        config.ui_accent = "#ff8800".to_owned();
+        config.ui_surface = "not-a-color".to_owned();
+        config.apply_ui_colors();
+        assert_eq!(crate::ui::UI_ACCENT.load(std::sync::atomic::Ordering::Relaxed), 0xff8800);
+        assert_eq!(crate::ui::UI_SURFACE.load(std::sync::atomic::Ordering::Relaxed), 0x2a323c);
+    }
+
     #[test]
     fn judge_windows_clamped_monotonic() {
         let mut conf = Config::default();

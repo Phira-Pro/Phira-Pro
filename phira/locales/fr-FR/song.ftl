@@ -108,6 +108,8 @@ mods-strict-judge = Jugement strict
 mods-strict-judge-sub = Diviser par deux toutes les fenêtres
 mods-fullscreen-judge = Jugement plein écran
 mods-fullscreen-judge-sub = N'importe quel endroit de l'écran compte comme un appui
+mods-no-fail = Sans échec
+mods-no-fail-sub = Les échecs sont enregistrés sans interrompre la partie
 
 rate-failed = Échec de la notation
 rate-done = Noté avec succès

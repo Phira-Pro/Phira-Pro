@@ -105,6 +105,8 @@ mods-strict-judge = Julgamento rigoroso
 mods-strict-judge-sub = Reduzir pela metade todas as janelas
 mods-fullscreen-judge = Julgamento em tela cheia
 mods-fullscreen-judge-sub = Qualquer lugar da tela conta como toque
+mods-no-fail = Sem falha
+mods-no-fail-sub = As falhas são registradas, mas não encerram a partida
 
 rate-failed = Falha na avaliação
 rate-done = Avaliado com sucesso

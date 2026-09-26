@@ -14,6 +14,14 @@ item-appearance-open = 열기
 item-appearance-import = 사용자 지정 일러스트
 item-appearance-import-btn = 가져오기
 item-appearance-imported = 일러스트를 가져왔습니다
+item-ui-theme = 인터페이스 테마
+item-ui-theme-sub = 앱 UI의 강조색과 표면색
+theme-blue = 클래식 블루
+theme-violet = 바이올렛
+theme-emerald = 에메랄드
+theme-sunset = 선셋
+theme-rose = 로즈
+theme-graphite = 그래파이트
 item-limit-perfect-plus = Perfect+ 판정 범위
 item-limit-perfect = Perfect 판정 범위
 item-limit-good = Good 판정 범위
@@ -22,6 +30,14 @@ item-hp-mode = 체력 바
 item-hp-mode-sub = 바가 0 이 되면 실패
 item-hp-amount = 피해 배율
 item-hp-width = 바 길이
+item-auto-retry = 자동 재시도 횟수
+item-auto-retry-sub = 실패 후 자동으로 다시 시작합니다 (0 = 사용 안 함)
+item-retry-lead = 재시도 되감기
+item-retry-lead-sub = 실패 지점 몇 초 전부터 다시 시작합니다 (0 = 처음부터)
+item-practice-ramp = 속도 증가
+item-practice-ramp-sub = 연습 한 바퀴마다 속도를 올립니다
+item-practice-speed = 시작 속도
+item-practice-step = 바퀴당 증가
 item-hp-height = 바 두께
 item-offline = 오프라인 모드
 item-offline-sub = 오프라인 모드에서는 플레이 기록을 업로드할 수 없습니다.
@@ -65,6 +81,8 @@ item-note-size = 노트 크기
 
 item-chart-debug = 비트맵 디버그 모드
 item-chart-debug-sub = 라인 번호 및 방향 표시
+item-show-fps = 프레임률 표시
+item-show-fps-sub = 화면 왼쪽 아래에 현재 프레임률을 표시합니다
 item-touch-debug = 터치 디버그 모드
 item-touch-debug-sub = 터치 지점 표시
 

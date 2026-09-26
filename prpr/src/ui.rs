@@ -55,6 +55,14 @@ use std::{
 
 pub static PREFER_REDUCED_MOTION: AtomicBool = AtomicBool::new(false);
 pub static UI_SFX_VOLUME: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
+/// 软件 UI 主题的强调色，打包为 0xRRGGBB。由配置在加载时写入。
+pub static UI_ACCENT: AtomicU32 = AtomicU32::new(0x2196f3);
+/// 软件 UI 主题的表面色（按钮、弹窗底色），打包为 0xRRGGBB。
+pub static UI_SURFACE: AtomicU32 = AtomicU32::new(0x2a323c);
+/// 主循环写入的当前帧率（`f32::to_bits` 的位模式），供界面显示。
+pub static CURRENT_FPS: AtomicU32 = AtomicU32::new(0);
+/// 是否在左下角显示帧率数字（由配置同步）。
+pub static SHOW_FPS: AtomicBool = AtomicBool::new(false);
 
 #[derive(Default, Clone, Copy)]
 pub struct Gravity(u8);
@@ -980,11 +988,11 @@ impl<'a> Ui<'a> {
     }
 
     pub fn accent(&self) -> Color {
-        Color::from_hex_rgb(0x2196f3)
+        Color::from_hex_rgb(UI_ACCENT.load(Ordering::Relaxed))
     }
 
     pub fn background(&self) -> Color {
-        Color::from_hex_rgb(0x2a323c)
+        Color::from_hex_rgb(UI_SURFACE.load(Ordering::Relaxed))
     }
 
     pub fn button(&mut self, id: &str, rect: Rect, text: impl Into<String>) -> bool {

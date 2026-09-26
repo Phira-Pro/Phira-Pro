@@ -12,6 +12,14 @@ item-appearance-open = Otwórz
 item-appearance-import = Własna ilustracja
 item-appearance-import-btn = Importuj
 item-appearance-imported = Zaimportowano ilustrację
+item-ui-theme = Motyw interfejsu
+item-ui-theme-sub = Kolor akcentu i tła interfejsu
+theme-blue = Klasyczny błękit
+theme-violet = Fiolet
+theme-emerald = Szmaragd
+theme-sunset = Zachód słońca
+theme-rose = Róża
+theme-graphite = Grafit
 item-limit-perfect-plus = Okno Perfect+
 item-limit-perfect = Okno Perfect
 item-limit-good = Okno Good
@@ -20,6 +28,14 @@ item-hp-mode = Pasek zdrowia
 item-hp-mode-sub = Gra kończy się, gdy pasek osiągnie 0
 item-hp-amount = Mnożnik obrażeń
 item-hp-width = Długość paska
+item-auto-retry = Automatyczne powtórzenia
+item-auto-retry-sub = Automatycznie wznów po porażce (0 = wyłączone)
+item-retry-lead = Wyprzedzenie powtórzenia
+item-retry-lead-sub = Wznów kilka sekund przed porażką (0 = od początku)
+item-practice-ramp = Wzrost prędkości
+item-practice-ramp-sub = Zwiększaj prędkość po każdym okrążeniu treningu
+item-practice-speed = Prędkość początkowa
+item-practice-step = Przyrost na okrążenie
 item-hp-height = Grubość paska
 item-offline = Tryb offline
 item-offline-sub = Nie możesz wysłać swojego rekordu w trybie offline
@@ -47,6 +63,8 @@ load-cali-failed = Nie załadowano plików audio
 
 item-chart-debug = Tryb debug
 item-chart-debug-sub = Pokazuje liczbe linii i orientację
+item-show-fps = Pokaż FPS
+item-show-fps-sub = Pokazuj aktualny FPS w lewym dolnym rogu
 item-touch-debug-sub = Pokazuje dotknięcia
 
 about-content =

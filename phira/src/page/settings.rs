@@ -30,6 +30,28 @@ const ITEM_HEIGHT: f32 = 0.15;
 const INTERACT_WIDTH: f32 = 0.26;
 const STATUS_PAGE: &str = "https://status.phira.cn";
 
+/// 软件 UI 主题预设：(强调色, 表面色)，均为 0xRRGGBB。
+const UI_PRESETS: [(u32, u32); 6] = [
+    (0x2196f3, 0x2a323c),
+    (0x9c6bff, 0x2e2a3c),
+    (0x22c55e, 0x243029),
+    (0xff7043, 0x3a2a26),
+    (0xf06292, 0x3a2833),
+    (0xb0bec5, 0x263238),
+];
+/// 主题预设的显示名。
+fn ui_preset_name(i: usize) -> String {
+    match i {
+        0 => tl!("theme-blue"),
+        1 => tl!("theme-violet"),
+        2 => tl!("theme-emerald"),
+        3 => tl!("theme-sunset"),
+        4 => tl!("theme-rose"),
+        _ => tl!("theme-graphite"),
+    }
+    .into_owned()
+}
+
 struct NameList(String);
 impl<'de> Deserialize<'de> for NameList {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -392,6 +414,8 @@ struct GeneralList {
 
     appearance_btn: DRectButton,
     appearance_import_btn: DRectButton,
+    /// 界面主题下拉框，用法与语言选择一致。
+    theme_btn: ChooseButton,
     cache_btn: DRectButton,
     offline_btn: DRectButton,
     server_status_btn: DRectButton,
@@ -429,6 +453,14 @@ impl GeneralList {
 
             appearance_btn: DRectButton::new(),
             appearance_import_btn: DRectButton::new(),
+            theme_btn: {
+                // 按当前配置的强调色定位到对应预设。
+                let cur = u32::from_str_radix(get_data().config.ui_accent.trim_start_matches('#'), 16).ok();
+                let idx = UI_PRESETS.iter().position(|it| Some(it.0) == cur).unwrap_or(0);
+                ChooseButton::new()
+                    .with_options((0..UI_PRESETS.len()).map(ui_preset_name).collect())
+                    .with_selected(idx)
+            },
             cache_btn: DRectButton::new(),
             offline_btn: DRectButton::new(),
             server_status_btn: DRectButton::new(),
@@ -450,6 +482,9 @@ impl GeneralList {
 
     pub fn top_touch(&mut self, touch: &Touch, t: f32) -> bool {
         if self.lang_btn.top_touch(touch, t) {
+            return true;
+        }
+        if self.theme_btn.top_touch(touch, t) {
             return true;
         }
         false
@@ -488,6 +523,9 @@ impl GeneralList {
         if self.appearance_btn.touch(touch, t) {
             let _ = open_url(&dir::appearance_open_path()?);
             return Ok(Some(true));
+        }
+        if self.theme_btn.touch(touch, t) {
+            return Ok(Some(false));
         }
         if self.appearance_import_btn.touch(touch, t) {
             // 系统文件对话框只在桌面平台可用。
@@ -566,6 +604,15 @@ impl GeneralList {
 
     pub fn update(&mut self, t: f32) -> Result<bool> {
         self.lang_btn.update(t);
+        self.theme_btn.update(t);
+        if self.theme_btn.changed() {
+            let (accent, surface) = UI_PRESETS[self.theme_btn.selected()];
+            let config = &mut get_data_mut().config;
+            config.ui_accent = format!("{accent:06x}");
+            config.ui_surface = format!("{surface:06x}");
+            config.apply_ui_colors();
+            return Ok(true);
+        }
         let data = get_data_mut();
         if self.lang_btn.changed() {
             data.language = Some(LANG_IDENTS[self.lang_btn.selected()].to_string());
@@ -632,6 +679,10 @@ impl GeneralList {
             render_title(ui, tl!("item-appearance-import"), None);
             self.appearance_import_btn.render_text(ui, rr, t, tl!("item-appearance-import-btn"), 0.5, true);
         }
+        item! {
+            render_title(ui, tl!("item-ui-theme"), Some(tl!("item-ui-theme-sub")));
+            self.theme_btn.render(ui, rr, t);
+        }
 
         #[cfg(all(any(target_os = "windows", target_os = "linux"), not(target_env = "ohos")))]
         item! {
@@ -688,6 +739,7 @@ impl GeneralList {
             self.anys_gateway_btn.render_text(ui, rr, t, &data.anys_gateway, 0.4, false);
         }
         self.lang_btn.render_top(ui, t, 1.);
+        self.theme_btn.render_top(ui, t, 1.);
         (w, h)
     }
 }
@@ -859,6 +911,11 @@ struct ChartList {
     limit_perfect_slider: Slider,
     limit_good_slider: Slider,
     limit_bad_slider: Slider,
+    auto_retry_slider: Slider,
+    retry_lead_slider: Slider,
+    practice_ramp_btn: DRectButton,
+    practice_speed_slider: Slider,
+    practice_step_slider: Slider,
     hp_mode_btn: DRectButton,
     hp_amount_slider: Slider,
     hp_width_slider: Slider,
@@ -881,6 +938,11 @@ impl ChartList {
             limit_perfect_slider: Slider::new(1.0..120.0, 1.0),
             limit_good_slider: Slider::new(1.0..250.0, 1.0),
             limit_bad_slider: Slider::new(1.0..400.0, 1.0),
+            auto_retry_slider: Slider::new(0.0..10.0, 1.0),
+            retry_lead_slider: Slider::new(0.0..10.0, 0.5),
+            practice_ramp_btn: DRectButton::new(),
+            practice_speed_slider: Slider::new(0.3..1.0, 0.05),
+            practice_step_slider: Slider::new(0.05..0.5, 0.05),
             hp_mode_btn: DRectButton::new(),
             hp_amount_slider: Slider::new(0.2..3.0, 0.1),
             hp_width_slider: Slider::new(0.1..1.0, 0.01),
@@ -928,6 +990,22 @@ impl ChartList {
         }
         if let wt @ Some(_) = self.size_slider.touch(touch, t, &mut config.note_scale) {
             return Ok(wt);
+        }
+        if let wt @ Some(_) = self.auto_retry_slider.touch(touch, t, &mut config.auto_retry) {
+            return Ok(wt);
+        }
+        if let wt @ Some(_) = self.retry_lead_slider.touch(touch, t, &mut config.retry_lead) {
+            return Ok(wt);
+        }
+        if let wt @ Some(_) = self.practice_speed_slider.touch(touch, t, &mut config.practice_speed_start) {
+            return Ok(wt);
+        }
+        if let wt @ Some(_) = self.practice_step_slider.touch(touch, t, &mut config.practice_speed_step) {
+            return Ok(wt);
+        }
+        if self.practice_ramp_btn.touch(touch, t) {
+            config.practice_ramp ^= true;
+            return Ok(Some(true));
         }
         if let wt @ Some(_) = self.limit_perfect_plus_slider.touch(touch, t, &mut config.lim_perfect_plus_ms) {
             config.clamp_judge_windows();
@@ -1034,6 +1112,26 @@ impl ChartList {
             self.limit_bad_slider.render(ui, rr, t, config.lim_bad_ms, format!("±{:.0} ms", config.lim_bad_ms));
         }
         ui.dy(0.04);
+        item! {
+            render_title(ui, tl!("item-auto-retry"), Some(tl!("item-auto-retry-sub")));
+            self.auto_retry_slider.render(ui, rr, t, config.auto_retry, format!("{}", config.auto_retry.round() as u32));
+        }
+        item! {
+            render_title(ui, tl!("item-retry-lead"), Some(tl!("item-retry-lead-sub")));
+            self.retry_lead_slider.render(ui, rr, t, config.retry_lead, format!("{:.1}s", config.retry_lead));
+        }
+        item! {
+            render_title(ui, tl!("item-practice-ramp"), Some(tl!("item-practice-ramp-sub")));
+            render_switch(ui, rr, t, &mut self.practice_ramp_btn, config.practice_ramp);
+        }
+        item! {
+            render_title(ui, tl!("item-practice-speed"), None);
+            self.practice_speed_slider.render(ui, rr, t, config.practice_speed_start, format!("{:.2}x", config.practice_speed_start));
+        }
+        item! {
+            render_title(ui, tl!("item-practice-step"), None);
+            self.practice_step_slider.render(ui, rr, t, config.practice_speed_step, format!("+{:.2}x", config.practice_speed_step));
+        }
         h += 0.04;
         item! {
             render_title(ui, tl!("item-hp-mode"), Some(tl!("item-hp-mode-sub")));
@@ -1058,6 +1156,7 @@ impl ChartList {
 struct DebugList {
     chart_debug_btn: DRectButton,
     touch_debug_btn: DRectButton,
+    show_fps_btn: DRectButton,
 }
 
 impl DebugList {
@@ -1065,6 +1164,7 @@ impl DebugList {
         Self {
             chart_debug_btn: DRectButton::new(),
             touch_debug_btn: DRectButton::new(),
+            show_fps_btn: DRectButton::new(),
         }
     }
 
@@ -1077,6 +1177,12 @@ impl DebugList {
         let config = &mut data.config;
         if self.chart_debug_btn.touch(touch, t) {
             config.chart_debug ^= true;
+            return Ok(Some(true));
+        }
+        if self.show_fps_btn.touch(touch, t) {
+            config.show_fps ^= true;
+            // 左下角帧率由 prpr 的全局覆盖层绘制，这里同步开关。
+            prpr::ui::SHOW_FPS.store(config.show_fps, Ordering::Relaxed);
             return Ok(Some(true));
         }
         if self.touch_debug_btn.touch(touch, t) {
@@ -1107,6 +1213,10 @@ impl DebugList {
         item! {
             render_title(ui, tl!("item-chart-debug"), Some(tl!("item-chart-debug-sub")));
             render_switch(ui, rr, t, &mut self.chart_debug_btn, config.chart_debug);
+        }
+        item! {
+            render_title(ui, tl!("item-show-fps"), Some(tl!("item-show-fps-sub")));
+            render_switch(ui, rr, t, &mut self.show_fps_btn, config.show_fps);
         }
         item! {
             render_title(ui, tl!("item-touch-debug"), Some(tl!("item-touch-debug-sub")));

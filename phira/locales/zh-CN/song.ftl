@@ -127,6 +127,8 @@ mods-strict-judge = 严格判定模式
 mods-strict-judge-sub = 所有判定窗口减半
 mods-fullscreen-judge = 全屏判定
 mods-fullscreen-judge-sub = 点击屏幕任意位置都能判定到最近的音符
+mods-no-fail = 无伤模式
+mods-no-fail-sub = 失败只记录，不中断本局
 
 rate-failed = 评分失败
 rate-done = 评分成功

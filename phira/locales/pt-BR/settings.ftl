@@ -14,6 +14,14 @@ item-appearance-open = Abrir
 item-appearance-import = Ilustração própria
 item-appearance-import-btn = Importar
 item-appearance-imported = Ilustração importada
+item-ui-theme = Tema da interface
+item-ui-theme-sub = Cor de destaque e de superfície da interface
+theme-blue = Azul clássico
+theme-violet = Violeta
+theme-emerald = Esmeralda
+theme-sunset = Pôr do sol
+theme-rose = Rosa
+theme-graphite = Grafite
 item-limit-perfect-plus = Janela Perfect+
 item-limit-perfect = Janela Perfect
 item-limit-good = Janela Good
@@ -22,6 +30,14 @@ item-hp-mode = Barra de vida
 item-hp-mode-sub = A partida termina quando a barra chega a 0
 item-hp-amount = Multiplicador de dano
 item-hp-width = Comprimento da barra
+item-auto-retry = Repetições automáticas
+item-auto-retry-sub = Reiniciar automaticamente após uma falha (0 = desativado)
+item-retry-lead = Antecedência da repetição
+item-retry-lead-sub = Reiniciar alguns segundos antes da falha (0 = desde o início)
+item-practice-ramp = Aumento de velocidade
+item-practice-ramp-sub = Aumentar a velocidade a cada volta de treino
+item-practice-speed = Velocidade inicial
+item-practice-step = Aumento por volta
 item-hp-height = Espessura da barra
 item-offline = Modo offline
 item-offline-sub = Você não pode fazer upload de recordes reproduzidos no modo off-line
@@ -57,6 +73,8 @@ item-note-size = Tamanho da nota
 
 item-chart-debug = Modo de depuração de Beatmap
 item-chart-debug-sub = Exibir número de linha e orientação
+item-show-fps = Mostrar FPS
+item-show-fps-sub = Mostrar a taxa de quadros atual no canto inferior esquerdo
 item-touch-debug = Mostrar toques na tela
 item-touch-debug-sub = Irá exibir toques na tela
 

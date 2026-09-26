@@ -1412,6 +1412,7 @@ impl SongScene {
             item(tl!("mods-instant-death-fc"), Some(tl!("mods-instant-death-fc-sub")), Mods::INSTANT_DEATH_FC);
             item(tl!("mods-strict-judge"), Some(tl!("mods-strict-judge-sub")), Mods::STRICT_JUDGE);
             item(tl!("mods-fullscreen-judge"), Some(tl!("mods-fullscreen-judge-sub")), Mods::FULLSCREEN_JUDGE);
+            item(tl!("mods-no-fail"), Some(tl!("mods-no-fail-sub")), Mods::NO_FAIL);
             item(tl!("mods-no-shader"), Some(tl!("mods-no-shader-sub")), Mods::NO_SHADER);
             (width, h + 0.2)
         });

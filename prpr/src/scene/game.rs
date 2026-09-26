@@ -253,6 +253,12 @@ pub struct GameScene {
     next_scene: Option<NextScene>,
     /// 失败（血条或即时死亡）发生的时刻，用于死亡过渡动画。
     death_time: f64,
+    /// 本次游玩已经自动重试了几次。
+    auto_retry_count: u32,
+    /// 断点续练的起始时刻；由 Starting -> BeforeMusic 的转场消费。
+    retry_from: Option<f64>,
+    /// 变速练习：已经完成的圈数。
+    practice_loops: u32,
 
     pub mode: GameMode,
     pub res: Resource,
@@ -447,6 +453,9 @@ impl GameScene {
             should_exit: false,
             next_scene: None,
             death_time: 0.,
+            auto_retry_count: 0,
+            retry_from: None,
+            practice_loops: 0,
 
             mode,
             res,
@@ -784,6 +793,8 @@ impl GameScene {
                         miniquad::native::set_interceptor_state(false);
                     }
                     Some(0) => {
+                        self.auto_retry_count = 0;
+                        self.practice_loops = 0;
                         reset!(self, res, tm);
                         if self.mode == GameMode::Exercise {
                             self.judge.advance_to(&mut self.chart, self.exercise_range.start);
@@ -1034,6 +1045,14 @@ impl Scene for GameScene {
             let state = self.state.clone();
             reset!(self, self.res, tm);
             self.state = state;
+            // 变速练习：每完成一圈提升一档速度并封顶在正常速度；谱面与音频同步变速。
+            if self.res.config.practice_ramp {
+                self.practice_loops += 1;
+                let cfg = &self.res.config;
+                let speed = (cfg.practice_speed_start + cfg.practice_speed_step * self.practice_loops as f32).clamp(0.1, cfg.speed.max(0.1));
+                tm.speed = speed as f64;
+                self.music.try_set_playback_rate(speed as f64);
+            }
             tm.seek_to(self.exercise_range.start);
             tm.pause();
             self.music.pause()?;
@@ -1048,11 +1067,21 @@ impl Scene for GameScene {
                     self.res.alpha = 1.;
                     self.state = State::BeforeMusic;
                     tm.reset();
-                    tm.seek_to(if self.mode == GameMode::Exercise {
+                    let mut start = if self.mode == GameMode::Exercise {
                         self.exercise_range.start
                     } else {
                         offset.min(0.) as f64
-                    });
+                    };
+                    let retry = self.retry_from.take();
+                    if let Some(target) = retry {
+                        start = target;
+                    }
+                    tm.seek_to(start);
+                    if retry.is_some() {
+                        // 断点续练：判定只能向前跳，这里正好是从头快进到目标时刻。
+                        self.music.seek_to(start)?;
+                        self.judge.advance_to(&mut self.chart, start);
+                    }
                     self.last_update_time = tm.real_time();
                     if self.first_in && self.mode == GameMode::Exercise {
                         tm.pause();
@@ -1195,6 +1224,7 @@ impl Scene for GameScene {
         };
         if !self.dead
             && matches!(self.state, State::Playing)
+            && !self.res.config.mods.contains(Mods::NO_FAIL)
             && (self.res.config.mods.contains(Mods::INSTANT_DEATH_AP) && counts[1] + counts[2] + counts[3] > 0
                 || self.res.config.mods.contains(Mods::INSTANT_DEATH_FC) && counts[2] + counts[3] > 0
                 || self.res.config.hp_mode && self.judge.hp() <= 0.)
@@ -1223,6 +1253,15 @@ impl Scene for GameScene {
             } else if !tm.paused() {
                 self.music.pause()?;
                 tm.pause();
+            } else if self.res.config.auto_retry as u32 > self.auto_retry_count && tm.real_time() - self.death_time >= DEATH_TIME + DEATH_FADE {
+                // 自动重试：沿用与手动重试完全相同的一条路径（reset! 会重置判定、时间与音乐）。
+                // 续练的起始时刻交给 Starting -> BeforeMusic 的转场统一处理——那里才是真正设定
+                // 起始时间的地方，在这里改会被随后的 tm.reset() 覆盖。
+                let target = (tm.now() - self.res.config.retry_lead as f64).max(0.);
+                self.auto_retry_count += 1;
+                self.retry_from = (target > 0.).then_some(target);
+                let res = &mut self.res;
+                reset!(self, res, tm);
             }
         }
         self.res.judge_line_color.a *= self.res.alpha;

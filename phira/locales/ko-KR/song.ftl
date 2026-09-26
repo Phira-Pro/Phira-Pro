@@ -106,6 +106,8 @@ mods-strict-judge = 엄격 판정 모드
 mods-strict-judge-sub = 모든 판정 범위를 절반으로
 mods-fullscreen-judge = 전체 화면 판정
 mods-fullscreen-judge-sub = 화면 아무 곳이나 터치해도 판정됩니다
+mods-no-fail = 실패 없음
+mods-no-fail-sub = 실패는 기록만 되고 게임이 중단되지 않습니다
 
 rate-failed = 평가 업로드 실패
 rate-done = 평가가 성공적으로 완료됨

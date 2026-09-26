@@ -324,6 +324,10 @@ async fn the_main() -> Result<()> {
             fps_time_sum += frame_time;
         }
         last_frame_start = frame_start as f32;
+        // 供界面显示的帧率：近 FPS_BUF_SIZE 帧的平均值。
+        let avg_frame_time = fps_time_sum / fps_times.len().max(1) as f32;
+        let cur_fps = if avg_frame_time > 0. { 1. / avg_frame_time } else { 0. };
+        prpr::ui::CURRENT_FPS.store(cur_fps.to_bits(), std::sync::atomic::Ordering::Relaxed);
         let res = || -> Result<()> {
             main.update()?;
             main.render(&mut painter)?;

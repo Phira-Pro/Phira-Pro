@@ -99,6 +99,8 @@ mods-strict-judge = Penilaian ketat
 mods-strict-judge-sub = Setengah dari semua jendela penilaian
 mods-fullscreen-judge = Penilaian layar penuh
 mods-fullscreen-judge-sub = Sentuhan di mana saja di layar dihitung
+mods-no-fail = Tanpa Gagal
+mods-no-fail-sub = Kegagalan hanya dicatat, permainan tidak berhenti
 
 rate-failed = Rate gagal
 rate-done = Rate berhasil

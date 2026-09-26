@@ -71,3 +71,5 @@ mods-strict-judge = 厳格判定モード
 mods-strict-judge-sub = すべての判定幅を半分にする
 mods-fullscreen-judge = 全画面判定
 mods-fullscreen-judge-sub = 画面のどこをタップしても判定される
+mods-no-fail = 失敗なし
+mods-no-fail-sub = 失敗は記録されるだけで、途中終了しません

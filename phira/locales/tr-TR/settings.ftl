@@ -14,6 +14,14 @@ item-appearance-open = Aç
 item-appearance-import = Özel illüstrasyon
 item-appearance-import-btn = İçe aktar
 item-appearance-imported = İllüstrasyon içe aktarıldı
+item-ui-theme = Arayüz teması
+item-ui-theme-sub = Arayüzün vurgu ve yüzey rengi
+theme-blue = Klasik mavi
+theme-violet = Menekşe
+theme-emerald = Zümrüt
+theme-sunset = Gün batımı
+theme-rose = Gül
+theme-graphite = Grafit
 item-limit-perfect-plus = Perfect+ aralığı
 item-limit-perfect = Perfect aralığı
 item-limit-good = Good aralığı
@@ -22,6 +30,14 @@ item-hp-mode = Can barı
 item-hp-mode-sub = Bar 0'a ulaştığında oyun biter
 item-hp-amount = Hasar çarpanı
 item-hp-width = Bar uzunluğu
+item-auto-retry = Otomatik tekrar
+item-auto-retry-sub = Başarısızlıktan sonra otomatik yeniden başlat (0 = kapalı)
+item-retry-lead = Tekrar geri sarma
+item-retry-lead-sub = Başarısızlıktan birkaç saniye önce başlat (0 = baştan)
+item-practice-ramp = Hız artışı
+item-practice-ramp-sub = Her alıştırma turunda hızı artır
+item-practice-speed = Başlangıç hızı
+item-practice-step = Tur başına artış
 item-hp-height = Bar kalınlığı
 item-offline = Çevrimdışı Mod
 item-offline-sub = Çevrimdışı moddayken müzik ekleyemezsiniz
@@ -57,6 +73,8 @@ item-note-size = Nota boyutu
 
 item-chart-debug = Ritim haritası hata ayıklama modu
 item-chart-debug-sub = Çizgi numarasını ve oryantasyonunu göster
+item-show-fps = FPS göster
+item-show-fps-sub = Geçerli kare hızını sol altta göster
 item-touch-debug = Dokunma hata ayıklama modu
 item-touch-debug-sub = Dokunulan noktaları göster.
 

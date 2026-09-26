@@ -14,6 +14,14 @@ item-appearance-open = Ouvrir
 item-appearance-import = Illustration personnalisée
 item-appearance-import-btn = Importer
 item-appearance-imported = Illustration importée
+item-ui-theme = Thème de l'interface
+item-ui-theme-sub = Couleurs d'accent et de surface de l'interface
+theme-blue = Bleu classique
+theme-violet = Violet
+theme-emerald = Émeraude
+theme-sunset = Coucher de soleil
+theme-rose = Rose
+theme-graphite = Graphite
 item-limit-perfect-plus = Fenêtre Perfect+
 item-limit-perfect = Fenêtre Perfect
 item-limit-good = Fenêtre Good
@@ -22,6 +30,14 @@ item-hp-mode = Barre de vie
 item-hp-mode-sub = La partie se termine quand la barre atteint 0
 item-hp-amount = Multiplicateur de dégâts
 item-hp-width = Longueur de la barre
+item-auto-retry = Reprises automatiques
+item-auto-retry-sub = Redémarrer automatiquement la partie après un échec (0 = désactivé)
+item-retry-lead = Décalage de reprise
+item-retry-lead-sub = Reprendre quelques secondes avant l'échec (0 = depuis le début)
+item-practice-ramp = Montée en vitesse
+item-practice-ramp-sub = Augmenter la vitesse à chaque boucle d'entraînement
+item-practice-speed = Vitesse de départ
+item-practice-step = Incrément par boucle
 item-hp-height = Épaisseur de la barre
 item-offline = Mode hors-ligne
 item-offline-sub = Vous ne pourrez pas publier vos notes en mode hors-ligne
@@ -70,6 +86,8 @@ item-note-size = Taille des notes
 
 item-chart-debug = Mode de débogage des partitions
 item-chart-debug-sub = Afficher le numéro et l'orientation des lignes de jugement
+item-show-fps = Afficher les FPS
+item-show-fps-sub = Afficher la fréquence d'images en bas à gauche
 item-touch-debug = Mode de débogage tactile
 item-touch-debug-sub = Afficher les points de contact
 

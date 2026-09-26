@@ -181,6 +181,8 @@ pub(crate) struct JudgeInner {
     early_kind: [u32; 5],
     late_kind: [u32; 5],
     recent: Vec<RecentHit>,
+    /// 本局所有有效命中的偏移（秒），供结算时的偏差统计使用。
+    offsets: Vec<f64>,
     /// 血条模式的当前血量（0..=1）。
     hp: f32,
     /// 血条扣血倍率。
@@ -200,6 +202,7 @@ impl JudgeInner {
             early_kind: [0; 5],
             late_kind: [0; 5],
             recent: Vec::new(),
+            offsets: Vec::new(),
             hp: 1.,
             hp_amount: 1.,
         }
@@ -215,6 +218,10 @@ impl JudgeInner {
 
     /// 记录一次命中的真实偏移。Miss 与拖拽/滑动音符没有有意义的偏移，不记录。
     pub fn push_recent(&mut self, offset: f64, judgement: Judgement, time: f64) {
+        // 累计本局所有有效命中的偏移；Miss 不代表击打精度，不入统计。
+        if !matches!(judgement, Judgement::Miss) {
+            self.offsets.push(offset);
+        }
         if matches!(judgement, Judgement::Miss) {
             return;
         }
@@ -226,6 +233,18 @@ impl JudgeInner {
 
     pub fn recent_hits(&self) -> &[RecentHit] {
         &self.recent
+    }
+
+    /// 本局所有有效命中的偏移统计，返回 `(命中数, 平均偏移, 标准差)`，单位：秒。
+    /// 没有任何有效命中时返回 `None`。
+    pub fn offset_stats(&self) -> Option<(usize, f64, f64)> {
+        let n = self.offsets.len();
+        if n == 0 {
+            return None;
+        }
+        let mean = self.offsets.iter().sum::<f64>() / n as f64;
+        let var = self.offsets.iter().map(|it| (it - mean).powi(2)).sum::<f64>() / n as f64;
+        Some((n, mean, var.sqrt()))
     }
 
     pub fn commit(&mut self, what: Judgement, diff: f64) {
@@ -269,6 +288,7 @@ impl JudgeInner {
         self.early_kind = [0; 5];
         self.late_kind = [0; 5];
         self.recent.clear();
+        self.offsets.clear();
         self.hp = 1.;
     }
 
@@ -360,6 +380,21 @@ mod tests {
         }
         assert_eq!(j.score(), 1000000);
         assert!((j.accuracy() - 1.).abs() < 1e-12);
+    }
+
+    #[test]
+    fn offset_stats_ignores_miss() {
+        let mut j = JudgeInner::new(64);
+        assert!(j.offset_stats().is_none());
+        j.push_recent(0.01, Judgement::Perfect, 1.);
+        j.push_recent(0.03, Judgement::Perfect, 2.);
+        j.push_recent(0.5, Judgement::Miss, 3.);
+        let (n, mean, sd) = j.offset_stats().unwrap();
+        assert_eq!(n, 2);
+        assert!((mean - 0.02).abs() < 1e-9);
+        assert!((sd - 0.01).abs() < 1e-9);
+        j.reset();
+        assert!(j.offset_stats().is_none());
     }
 
     /// 判定条只记录真实偏移：Miss 不入队，队列长度封顶。

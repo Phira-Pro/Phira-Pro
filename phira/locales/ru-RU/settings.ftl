@@ -5,6 +5,9 @@ chart = Игра
 debug = Отладка
 about = О игре
 item-lang = Язык
+item-appearance = Внешний вид
+item-appearance-sub = Свои значок, фон и иллюстрация
+item-appearance-open = Открыть
 item-offline = Оффлайн-режим
 item-offline-sub = Весь онлайн-доступ будет отключён.
 item-server-status = Состояние сервера
@@ -54,11 +57,13 @@ item-touch-debug = Отладка касаний
 item-touch-debug-sub = Точки нажатия отображаются
 load-cali-failed = Ошибка загрузки аудио
 about-content =
-    Phira v{ $version }
+    Phira Pro v{ $version }
 
     Phira является некоммерческой игрой на базе сообщества, вдохновлённой Phigros.
 
     Данный проект является неофициальным проектом игроков и не имеет никаких отношений авторизации, партнёрства или операционной деятельности ни с компанией Pigeon Games Co., Ltd., ни с официальной командой Phigros.
+
+    Phira Pro — некоммерческая сторонняя модификация на основе официального Phira.
 
     Аккаунт BiliBili: @Phira官方
     Чат QQ: r48eajexth
@@ -90,6 +95,10 @@ about-content =
 
     Локализация
     { $localization }
+
+    Модификация Phira Pro
+    Сопровождение
+    { $revision }
 
     И многие другие добровольные рецензенты чартов. Полный список см. на https://phira.moe/staff
 item-fullscreen = Полноэкранный режим

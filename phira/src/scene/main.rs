@@ -142,7 +142,10 @@ impl MainScene {
         load_sfx!(UI_BTN_HITSOUND, "button.ogg");
         load_sfx!(UI_SWITCH_SOUND, "switch.ogg");
 
-        let background: SafeTexture = load_texture("background.jpg").await?.into();
+        let background: SafeTexture = match dir::load_appearance_image("background") {
+            Some(image) => image.into(),
+            None => load_texture("background.jpg").await?.into(),
+        };
         let icon_back: SafeTexture = load_texture("back.png").await?.into();
 
         TEX_BACKGROUND.with(|it| *it.borrow_mut() = Some(background));

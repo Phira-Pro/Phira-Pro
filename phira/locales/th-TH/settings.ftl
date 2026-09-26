@@ -5,6 +5,9 @@ chart = Beatmap
 debug = Debug
 about = Info
 item-lang = ภาษา
+item-appearance = รูปลักษณ์
+item-appearance-sub = ไอคอน พื้นหลัง และภาพประกอบกำหนดเอง
+item-appearance-open = เปิด
 item-offline = Offline mode
 item-offline-sub = Score จะไม่ถูกส่งเมื่ออยู่ในโหมด Offline
 item-server-status = สถานะของ Server
@@ -53,11 +56,13 @@ item-touch-debug = Touch debug mode
 item-touch-debug-sub = แสดงจุดที่สัมผัส
 load-cali-failed = ไม่สามารถโหลดเสียงได้
 about-content =
-    Phira v{ $version }
+    Phira Pro v{ $version }
 
     Phira คือเกมรูทึมที่ไม่แสวงหาผลกำไรและขับเคลื่อนโดยชุมชน ได้รับแรงบันดาลใจจาก Phigros
 
     โปรเจกต์นี้เป็นโปรเจกต์ของผู้เล่นที่ไม่เป็นทางการ และไม่มีความสัมพันธ์ในด้านการอนุญาต การร่วมมือ หรือการดำเนินงานใด ๆ กับ Pigeon Games Co., Ltd. หรือทีมงานทางการของ Phigros
+
+    Phira Pro เป็นฉบับดัดแปลงโดยบุคคลที่สามเพื่อการไม่แสวงหากำไร โดยอ้างอิงจาก Phira ทางการ
 
     BiliBili Account: @Phira官方
     QQ Guild: r48eajexth
@@ -89,6 +94,10 @@ about-content =
 
     การแปลภาษา
     { $localization }
+
+    Phira Pro ฉบับดัดแปลง
+    การดูแล
+    { $revision }
 
     และผู้ตรวจสอบชาร์ตอาสาสมัครอีกมากมาย สำหรับรายการทั้งหมดโปรดดูที่ https://phira.moe/staff
 item-fullscreen = โหมด Fullscreen

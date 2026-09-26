@@ -8,6 +8,9 @@ debug = Debug
 about = Info
 
 item-lang = Language
+item-appearance = Appearance
+item-appearance-sub = Custom icon, background and illustration
+item-appearance-open = Open
 item-fullscreen = Fullscreen Mode
 item-offline = Offline Mode
 item-offline-sub = Disable all online functionality.
@@ -69,11 +72,13 @@ item-touch-debug-sub = Display user touch points.
 load-cali-failed = Failed to load calibration audio.
 
 about-content =
-  Phira v{ $version }
+  Phira Pro v{ $version }
 
   Phira is a non-commercial community-driven rhythm game inspired by Phigros.
 
   This is an unofficial player-run project, with no relationship of license, partnership, or operation with Pigeon Games Co., Ltd. or the official Phigros team.
+
+  Phira Pro is a third-party, non-commercial modification based on the official Phira.
 
   BiliBili Account: @Phira官方
   QQ Guild: r48eajexth
@@ -105,5 +110,9 @@ about-content =
 
   Localization
   { $localization }
+
+  Phira Pro Revision
+  Maintenance
+  { $revision }
 
   And many more voluntary chart reviewers. For a full list please refer to https://phira.moe/staff .

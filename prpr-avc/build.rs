@@ -33,9 +33,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     ensure_static_lib(&libs_dir, &target, &version)?;
 
     println!("cargo:rustc-link-search={}", target_dir.display());
-    println!("cargo:rustc-link-lib=z");
     if env::var("CARGO_CFG_WINDOWS").is_ok() {
         println!("cargo:rustc-link-lib=bcrypt");
+    } else {
+        // FFmpeg 静态库以 `--disable-autodetect` 构建且未启用 zlib，不含任何 zlib 引用。
+        // `-lz` 只在存在系统 zlib 的平台（Linux/macOS）有意义；Windows 无 `z.lib`。
+        println!("cargo:rustc-link-lib=z");
     }
     println!("cargo:rerun-if-changed={}", target_dir.display());
     Ok(())

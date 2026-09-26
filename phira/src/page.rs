@@ -351,7 +351,7 @@ impl Fader {
             let p = self.progress_scaled(t, 1.6);
             let tp = tp + h * p - h / 2.;
             let mut x = -0.87;
-            if s == "PHIRA" {
+            if s == HOME_LABEL {
                 x -= ui.back_rect().w;
             }
             for c in s.chars() {
@@ -365,8 +365,8 @@ impl Fader {
                     .w
                     + 0.012;
             }
-            if s == "PHIRA" {
-                ui.text(concat!('v', env!("CARGO_PKG_VERSION")))
+            if s == HOME_LABEL {
+                ui.text(crate::PRO_VERSION_TAG)
                     .pos(x + 0.01, tp + h - 0.027)
                     .anchor(0., 1.)
                     .color(semi_white(0.4))
@@ -376,6 +376,10 @@ impl Fader {
         });
     }
 }
+
+/// 主页标题文字。`render_title` 的版式（额外位移、版本号叠加）与它绑定，
+/// 因此改版品牌时只需改这一处，两处判定会自动跟随。
+pub const HOME_LABEL: &str = "PHIRA PRO";
 
 pub struct SFader {
     time: f32,

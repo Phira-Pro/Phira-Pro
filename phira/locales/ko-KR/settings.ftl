@@ -8,6 +8,9 @@ debug = 디버그
 about = 정보
 
 item-lang = 언어
+item-appearance = 사용자 지정 외형
+item-appearance-sub = 아이콘, 배경, 일러스트를 바꿀 수 있습니다
+item-appearance-open = 열기
 item-offline = 오프라인 모드
 item-offline-sub = 오프라인 모드에서는 플레이 기록을 업로드할 수 없습니다.
 item-server-status = 서버 상태
@@ -56,11 +59,13 @@ item-touch-debug-sub = 터치 지점 표시
 load-cali-failed = 오디오를 로드하는데 실패했습니다.
 
 about-content =
-  Phira v{ $version }
+  Phira Pro v{ $version }
 
   Phira는 Phigros에서 영감을 받은 비상업적 커뮤니티 중심의 리듬 게임입니다.
 
   본 프로젝트는 비공식 플레이어 프로젝트로, Pigeon Games(南京鸽游网络有限公司) 및 《Phigros》 공식 측과 그 어떠한 승인·협력·운영 관계도 존재하지 않습니다.
+
+  Phira Pro는 공식 Phira를 기반으로 한 비상업적 서드파티 개조판입니다.
 
   BiliBili 계정: @Phira官方
   QQ 길드: r48eajexth
@@ -92,5 +97,9 @@ about-content =
 
   현지화 기여자
   { $localization }
+
+  Phira Pro 개조판
+  유지보수
+  { $revision }
 
   그리고 많은 자원봉사 채보 리뷰어들에게 감사드립니다. 전체 목록은 https://phira.moe/staff 를 참조하세요.

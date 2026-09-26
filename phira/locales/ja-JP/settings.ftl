@@ -6,6 +6,9 @@ audio = オーディオ
 chart = ビートマップ
 
 item-lang = 言語
+item-appearance = カスタム外観
+item-appearance-sub = アイコン・背景・立ち絵を差し替えられます
+item-appearance-open = 開く
 item-offline = オフラインモード
 item-offline-sub = オフラインモードではリザルトはアップロードされません
 item-lowq = 低画質モード
@@ -45,11 +48,13 @@ item-touch-debug-sub = タップした点を表示します
 load-cali-failed = オーディオの読み込みに失敗しました
 
 about-content =
-  Phira v{ $version }
+  Phira Pro v{ $version }
 
   PhiraはPhigrosにインスパイアされた非商業のコミュニティ主導のリズムゲームです。
 
   本プロジェクトは非公式のプレイヤーによるプロジェクトであり、南京鸽游网络有限公司（Pigeon Games）および『Phigros』公式とは、許諾・協力・運営のいずれの関係も一切存在しません。
+
+  Phira Pro は公式 Phira を基にした非営利のサードパーティ改版です。
 
   BiliBiliアカウント: @Phira官方
   QQ Guild: r48eajexth
@@ -81,5 +86,9 @@ about-content =
 
   ローカライズ
   { $localization }
+
+  Phira Pro 改版
+  メンテナンス
+  { $revision }
 
   その他多くのボランティア譜面レビュアーの皆様に感謝します。完全なリストは https://phira.moe/staff をご覧ください。

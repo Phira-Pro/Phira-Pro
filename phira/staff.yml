@@ -54,6 +54,9 @@ community:
 - swordalt
 - YuevUwU
 
+revision:
+- Kenari_15
+
 localization:
   en-US: [dbxxx-ac, Mivik, swordalt, YuevUwU]
   fr-FR: [helloyanis, Luc-Webster, MrLemAud]

@@ -8,6 +8,9 @@ debug = 调试
 about = 关于
 
 item-lang = 语言
+item-appearance = 自定义外观
+item-appearance-sub = 支持自定义图标、背景与立绘
+item-appearance-open = 打开
 item-fullscreen = 全屏模式
 item-offline = 离线模式
 item-offline-sub = 在离线模式下将不能上传成绩
@@ -69,11 +72,13 @@ item-touch-debug-sub = 游玩过程中显示触摸点
 load-cali-failed = 加载音频失败
 
 about-content =
-  Phira v{ $version }
+  Phira Pro v{ $version }
 
   Phira 是一款玩法基于 Phigros 的非商业社区音乐游戏，使用 Rust 开发。
 
   本项目为非官方玩家项目，与南京鸽游网络有限公司及《Phigros》官方不存在授权、合作或运营关系。
+
+  Phira Pro 是基于官方 Phira 的第三方非商业改版。
 
   BiliBili 账号：@Phira官方
   QQ 频道：r48eajexth
@@ -104,5 +109,9 @@ about-content =
 
   本地化
   { $localization }
+
+  Phira Pro 改版
+  维护
+  { $revision }
 
   以及许多志愿谱面审核员！完整列表参见 https://phira.moe/staff

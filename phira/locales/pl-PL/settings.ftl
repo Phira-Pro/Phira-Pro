@@ -6,6 +6,9 @@ audio = Dźwięk
 chart = Beatmapa
 
 item-lang = Język
+item-appearance = Wygląd
+item-appearance-sub = Własna ikona, tło i ilustracja
+item-appearance-open = Otwórz
 item-offline = Tryb offline
 item-offline-sub = Nie możesz wysłać swojego rekordu w trybie offline
 item-lowq = Niska jakość
@@ -35,11 +38,13 @@ item-chart-debug-sub = Pokazuje liczbe linii i orientację
 item-touch-debug-sub = Pokazuje dotknięcia
 
 about-content =
-  Phira v{ $version }
+  Phira Pro v{ $version }
 
   Phira to niekomercyjna, oparta na społeczności gra rytmiczna, inspirowana grą Phigros.
 
   Jest to nieoficjalny projekt tworzony przez graczy; nie łączy go z firmą Pigeon Games Co., Ltd. ani z oficjalnym zespołem Phigros żadna relacja w zakresie autoryzacji, współpracy czy operowania.
+
+  Phira Pro to niekomercyjna modyfikacja strony trzeciej oparta na oficjalnym Phira.
 
   Konto BiliBili: @Phira官方
   Grupa QQ: r48eajexth
@@ -71,5 +76,9 @@ about-content =
 
   Lokalizacja
   { $localization }
+
+  Modyfikacja Phira Pro
+  Utrzymanie
+  { $revision }
 
   I wielu innych dobrowolnych recenzentów chartów. Pełną listę można znaleźć na https://phira.moe/staff

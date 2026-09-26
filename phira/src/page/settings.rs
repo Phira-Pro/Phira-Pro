@@ -119,6 +119,7 @@ struct StaffList {
     music: NameList,
     audio: NameList,
     community: NameList,
+    revision: NameList,
     localization: LocalizationList,
 }
 
@@ -294,7 +295,7 @@ fn render_about(ui: &mut Ui, mut r: Rect, icon: &SafeTexture) -> (f32, f32) {
     let staff = &*STAFF_LIST;
     let text = tl!(
         "about-content",
-        "version" => format!("{} ({})", env!("CARGO_PKG_VERSION"), env!("GIT_HASH")),
+        "version" => format!("{} ({})", crate::PRO_VERSION, env!("GIT_HASH")),
 
         "development" => &staff.development.0,
         "operations" => &staff.operations.0,
@@ -303,6 +304,7 @@ fn render_about(ui: &mut Ui, mut r: Rect, icon: &SafeTexture) -> (f32, f32) {
         "music" => &staff.music.0,
         "audio" => &staff.audio.0,
         "community" => &staff.community.0,
+        "revision" => &staff.revision.0,
         "localization" => &staff.localization.0
     );
     let (first, text) = text.split_once('\n').unwrap();
@@ -388,6 +390,7 @@ struct GeneralList {
     #[cfg(all(any(target_os = "windows", target_os = "linux"), not(target_env = "ohos")))]
     fullscreen_btn: DRectButton,
 
+    appearance_btn: DRectButton,
     cache_btn: DRectButton,
     offline_btn: DRectButton,
     server_status_btn: DRectButton,
@@ -423,6 +426,7 @@ impl GeneralList {
             #[cfg(all(any(target_os = "windows", target_os = "linux"), not(target_env = "ohos")))]
             fullscreen_btn: DRectButton::new(),
 
+            appearance_btn: DRectButton::new(),
             cache_btn: DRectButton::new(),
             offline_btn: DRectButton::new(),
             server_status_btn: DRectButton::new(),
@@ -477,6 +481,11 @@ impl GeneralList {
         let config = &mut data.config;
         if self.lang_btn.touch(touch, t) {
             return Ok(Some(false));
+        }
+
+        if self.appearance_btn.touch(touch, t) {
+            let _ = open_url(&dir::appearance_open_path()?);
+            return Ok(Some(true));
         }
 
         #[cfg(all(any(target_os = "windows", target_os = "linux"), not(target_env = "ohos")))]
@@ -593,6 +602,11 @@ impl GeneralList {
             let r = Rect::new(rt + 0.01, (ITEM_HEIGHT - w) / 2., w, w);
             ui.fill_rect(r, (*self.icon_lang, r));
             self.lang_btn.render(ui, rr, t);
+        }
+
+        item! {
+            render_title(ui, tl!("item-appearance"), Some(tl!("item-appearance-sub")));
+            self.appearance_btn.render_text(ui, rr, t, tl!("item-appearance-open"), 0.5, true);
         }
 
         #[cfg(all(any(target_os = "windows", target_os = "linux"), not(target_env = "ohos")))]

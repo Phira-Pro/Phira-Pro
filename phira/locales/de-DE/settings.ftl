@@ -5,6 +5,9 @@ chart = Level
 debug = Debug
 about = Info
 item-lang = Sprache
+item-appearance = Aussehen
+item-appearance-sub = Eigenes Symbol, Hintergrund und Artwork
+item-appearance-open = Öffnen
 item-offline = Offline Modus
 item-offline-sub = Alle Online-Funktionen deaktivieren
 item-server-status = Serverstatus
@@ -53,11 +56,13 @@ item-touch-debug = Berührungspunkte anzeigen
 item-touch-debug-sub = Zeigt die Nutzer-Touchpunkte an
 load-cali-failed = Kalibrierungs-Audio konnte nicht geladen werden
 about-content =
-    Phira v{ $version }
+    Phira Pro v{ $version }
 
     Phira ist ein nicht-kommerzielles, von der Community getragenes Rhythmusspiel, dessen Gameplay auf Phigros basiert und das mit Rust entwickelt wurde.
 
     Dies ist ein inoffizielles Projekt von Spielern und steht in keinerlei Lizenz-, Kooperations- oder Betriebsbeziehung zu Pigeon Games Co., Ltd. oder zum offiziellen Phigros-Team.
+
+    Phira Pro ist eine nicht kommerzielle Drittanbieter-Modifikation auf Basis des offiziellen Phira.
 
     Bilibili-Konto: @Phira官方
     QQ-Kanal: r48eajexth
@@ -88,6 +93,10 @@ about-content =
 
     Lokalisierung
     { $localization }
+
+    Phira Pro-Überarbeitung
+    Wartung
+    { $revision }
 
     Sowie viele freiwillige Level-Prüfer! Die vollständige Liste findest du unter https://phira.moe/staff
 item-fullscreen = Vollbildmodus

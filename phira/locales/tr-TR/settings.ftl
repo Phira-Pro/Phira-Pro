@@ -8,6 +8,9 @@ debug = Hata Ayıklama
 about = Bilgi
 
 item-lang = Dil
+item-appearance = Görünüm
+item-appearance-sub = Özel simge, arka plan ve illüstrasyon
+item-appearance-open = Aç
 item-offline = Çevrimdışı Mod
 item-offline-sub = Çevrimdışı moddayken müzik ekleyemezsiniz
 item-mp = Çoklu Oyunculu
@@ -48,11 +51,13 @@ item-touch-debug-sub = Dokunulan noktaları göster.
 load-cali-failed = Ses yüklenemedi
 
 about-content =
-  Phira v{ $version }
+  Phira Pro v{ $version }
 
   Phira, Phigros'tan ilham alınmış ticari olmayan topluluk odaklı bir ritim oyunudur.
 
   Bu proje gayri resmî bir oyuncu projesidir ve Pigeon Games Co., Ltd. ya da resmî Phigros ekibiyle hiçbir yetkilendirme, iş birliği veya işletme ilişkisi bulunmamaktadır.
+
+  Phira Pro, resmî Phira temel alınarak hazırlanmış, ticari olmayan bir üçüncü taraf düzenlemesidir.
 
   BiliBili Hesabı: @Phira官方
   QQ Loncası: r48eajexth
@@ -84,5 +89,9 @@ about-content =
 
   Yerelleştirme
   { $localization }
+
+  Phira Pro Düzenlemesi
+  Bakım
+  { $revision }
 
   Ve daha birçok gönüllü chart incelemecisi. Tam liste için https://phira.moe/staff adresine bakın

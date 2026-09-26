@@ -45,7 +45,7 @@ use std::{
     collections::VecDeque,
     sync::{mpsc, Mutex},
 };
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[cfg(target_os = "android")]
 use jni::{
@@ -166,6 +166,51 @@ mod dir {
     pub fn respacks() -> Result<String> {
         ensure("data/respack")
     }
+
+    pub fn appearance() -> Result<String> {
+        ensure("data/appearance")
+    }
+
+    /// `data/appearance` 的只读定位。采用与 `prpr::core::init_assets` 相同的
+    /// 「向上查找包含 `assets` 的目录」策略，因此在 cwd 尚未初始化的早期阶段
+    /// （如 `build_global_window_conf`）也能指向与运行时一致的位置，且不创建目录。
+    pub fn appearance_root() -> Option<std::path::PathBuf> {
+        let mut exe = std::env::current_exe().ok()?;
+        while exe.pop() {
+            if exe.join("assets").is_dir() {
+                return Some(exe.join("data").join("appearance"));
+            }
+        }
+        None
+    }
+
+    /// 在 `data/appearance` 下按候选扩展名探测自定义外观资源文件。
+    pub fn find_appearance(stem: &str) -> Option<std::path::PathBuf> {
+        let root = appearance_root()?;
+        ["png", "jpg", "jpeg", "webp", "bmp"]
+            .into_iter()
+            .map(|ext| root.join(format!("{stem}.{ext}")))
+            .find(|it| it.is_file())
+    }
+
+    /// 载入 `data/appearance/{stem}.*`；文件不存在或无法解码时返回 `None`。
+    pub fn load_appearance_image(stem: &str) -> Option<image::DynamicImage> {
+        let path = find_appearance(stem)?;
+        match image::load_from_memory(&std::fs::read(&path).ok()?) {
+            Ok(image) => Some(image),
+            Err(err) => {
+                tracing::warn!(?err, ?path, "failed to decode appearance image");
+                None
+            }
+        }
+    }
+
+    /// 「打开外观目录」按钮使用的路径：优先返回绝对路径，便于系统文件管理器
+    /// 正确定位；取不到时回落到相对路径。
+    pub fn appearance_open_path() -> Result<String> {
+        let fallback = appearance()?;
+        Ok(appearance_root().map(|it| it.to_string_lossy().into_owned()).unwrap_or(fallback))
+    }
 }
 
 async fn the_main() -> Result<()> {
@@ -205,6 +250,9 @@ async fn the_main() -> Result<()> {
     set_data(data);
     sync_data();
     save_data()?;
+    if let Err(err) = dir::appearance() {
+        warn!(?err, "failed to create appearance directory");
+    }
 
     // Warm up the offline banned-word automaton so local edits can check
     // synchronously. No-op without the `aa` feature.
@@ -298,14 +346,16 @@ async fn the_main() -> Result<()> {
     Ok(())
 }
 
+/// 界面显示的改版版本号。仅用于本地展示，绝不上报服务端：
+/// 与服务器交互的版本号一律仍取 `CARGO_PKG_VERSION`（见 `client.rs`、`home.rs`、`event.rs`）。
+pub const PRO_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-pro.1");
+/// 带 `v` 前缀的展示用版本号。
+pub const PRO_VERSION_TAG: &str = concat!("v", env!("CARGO_PKG_VERSION"), "-pro.1");
+
 fn build_global_window_conf() -> Conf {
     let mut conf = build_conf();
-    conf.window_title = "Phira".to_owned();
-    conf.icon = Some(miniquad::conf::Icon {
-        small: *include_bytes!("../icon/small"),
-        medium: *include_bytes!("../icon/medium"),
-        big: *include_bytes!("../icon/big"),
-    });
+    conf.window_title = "Phira Pro".to_owned();
+    conf.icon = Some(custom_window_icon().unwrap_or_else(default_window_icon));
 
     #[cfg(target_os = "windows")]
     {
@@ -317,6 +367,36 @@ fn build_global_window_conf() -> Conf {
     }
 
     conf
+}
+
+/// 内置窗口图标（与官方一致）。
+fn default_window_icon() -> miniquad::conf::Icon {
+    miniquad::conf::Icon {
+        small: *include_bytes!("../icon/small"),
+        medium: *include_bytes!("../icon/medium"),
+        big: *include_bytes!("../icon/big"),
+    }
+}
+
+/// 载入 `data/appearance/icon.*` 作为窗口图标；文件缺失或无法解码时返回 `None`，
+/// 由调用方回落到 [`default_window_icon`]。窗口图标只在创建窗口时设置一次。
+fn custom_window_icon() -> Option<miniquad::conf::Icon> {
+    let image = dir::load_appearance_image("icon")?;
+
+    fn scaled<const N: usize>(image: &image::DynamicImage, size: u32) -> Option<[u8; N]> {
+        image
+            .resize_exact(size, size, image::imageops::FilterType::Lanczos3)
+            .into_rgba8()
+            .into_raw()
+            .try_into()
+            .ok()
+    }
+
+    Some(miniquad::conf::Icon {
+        small: scaled(&image, 16)?,
+        medium: scaled(&image, 32)?,
+        big: scaled(&image, 64)?,
+    })
 }
 
 #[no_mangle]

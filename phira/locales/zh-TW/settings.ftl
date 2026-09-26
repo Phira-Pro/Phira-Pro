@@ -5,6 +5,9 @@ chart = 譜面
 debug = 除錯
 about = 關於
 item-lang = 語言
+item-appearance = 自訂外觀
+item-appearance-sub = 支援自訂圖示、背景與立繪
+item-appearance-open = 開啟
 item-fullscreen = 全螢幕模式
 item-offline = 離線模式
 item-offline-sub = 離線模式下無法上傳成績
@@ -61,11 +64,13 @@ item-touch-debug = 觸摸除錯
 item-touch-debug-sub = 遊玩過程中顯示觸摸點
 load-cali-failed = 載入音訊失敗
 about-content =
-    Phira v{ $version }
+    Phira Pro v{ $version }
 
     Phira 是一款玩法基於 Phigros 的非商業社區音樂遊戲，使用 Rust 開發。
 
     本專案為非官方玩家專案，與南京鴿遊網路有限公司及《Phigros》官方不存在授權、合作或營運關係。
+
+    Phira Pro 是基於官方 Phira 的第三方非商業改版。
 
     BiliBili 帳號：@Phira官方
     QQ 頻道：r48eajexth
@@ -97,5 +102,9 @@ about-content =
 
     在地化
     { $localization }
+
+    Phira Pro 改版
+    維護
+    { $revision }
 
     以及許多志願譜面審核員！完整列表參見 https://phira.moe/staff

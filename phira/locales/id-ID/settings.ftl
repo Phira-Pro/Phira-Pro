@@ -8,6 +8,9 @@ debug = Debug
 about = Tentang
 
 item-lang = Bahasa
+item-appearance = Tampilan
+item-appearance-sub = Ikon, latar, dan ilustrasi khusus
+item-appearance-open = Buka
 item-offline = Mode Offline
 item-offline-sub = Anda tidak bisa mengupload skor anda di Mode Offline.
 item-mp = Multiplayer
@@ -43,11 +46,13 @@ item-note-size = Ukuran note
 load-cali-failed = Gagal memuat audio
 
 about-content =
-  Phira v{ $version }
+  Phira Pro v{ $version }
 
   Phira adalah game ritme berbasis komunitas non-komersial, terinspirasi oleh Phigros.
 
   Proyek ini adalah proyek pemain yang tidak resmi, dan tidak memiliki hubungan lisensi, kemitraan, maupun operasional dengan Pigeon Games Co., Ltd. maupun dengan tim resmi Phigros.
+
+  Phira Pro adalah modifikasi pihak ketiga non-komersial yang didasarkan pada Phira resmi.
 
   Akun BiliBili: @Phira官方
   QQ Guild: r48eajexth
@@ -79,5 +84,9 @@ about-content =
 
   Lokalisasi
   { $localization }
+
+  Modifikasi Phira Pro
+  Pemeliharaan
+  { $revision }
 
   Dan banyak lagi peninjau chart sukarela. Untuk daftar lengkap, silakan merujuk ke https://phira.moe/staff

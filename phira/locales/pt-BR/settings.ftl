@@ -8,6 +8,9 @@ debug = Depurar
 about = Informações
 
 item-lang = Linguagem
+item-appearance = Aparência
+item-appearance-sub = Ícone, plano de fundo e ilustração próprios
+item-appearance-open = Abrir
 item-offline = Modo offline
 item-offline-sub = Você não pode fazer upload de recordes reproduzidos no modo off-line
 item-mp = Multijogador
@@ -48,11 +51,13 @@ item-touch-debug-sub = Irá exibir toques na tela
 load-cali-failed = Falha ao carregar áudio
 
 about-content =
-  Phira v{ $version }
+  Phira Pro v{ $version }
 
   Phira é um jogo de ritmo não comercial voltado para a comunidade, inspirado em Phigros.
 
   Este é um projeto não oficial feito por jogadores, e não possui qualquer relação de autorização, parceria ou operação com a Pigeon Games Co., Ltd. ou com a equipe oficial de Phigros.
+
+  Phira Pro é uma modificação de terceiros, não comercial, baseada no Phira oficial.
 
   Conta BiliBili: @Phira官方
   Guilda QQ: r48eajexth
@@ -84,5 +89,9 @@ about-content =
 
   Localização
   { $localization }
+
+  Modificação Phira Pro
+  Manutenção
+  { $revision }
 
   E muitos outros revisores de charts voluntários. Para uma lista completa, consulte https://phira.moe/staff

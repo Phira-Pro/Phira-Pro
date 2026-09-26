@@ -266,6 +266,13 @@ impl HomePage {
             self.char_illu_task =
                 Some(Task::new(async move { Ok(image::load_from_memory(&crate::inner::resolve_data(file.fetch().await?.to_vec()))?) }));
         }
+
+        // 开源构建无法解码官方的 `res/*.char` 立绘，因此这里允许用
+        // `data/appearance/character.*` 提供一个自定义主页立绘。
+        #[cfg(not(closed))]
+        if let Some(path) = crate::dir::find_appearance("character") {
+            self.char_illu_task = Some(Task::new(async move { Ok(image::load_from_memory(&std::fs::read(path)?)?) }));
+        }
     }
 
     fn fetch_has_new(&mut self) {
@@ -386,7 +393,7 @@ impl HomePage {
 
 impl Page for HomePage {
     fn label(&self) -> Cow<'static, str> {
-        "PHIRA".into()
+        crate::page::HOME_LABEL.into()
     }
 
     fn enter(&mut self, s: &mut SharedState) -> Result<()> {

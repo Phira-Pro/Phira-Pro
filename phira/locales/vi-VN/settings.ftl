@@ -5,6 +5,9 @@ chart = Chart
 debug = Gỡ lỗi
 about = Giới thiệu
 item-lang = Ngôn ngữ
+item-appearance = Giao diện
+item-appearance-sub = Biểu tượng, nền và hình minh họa tùy chỉnh
+item-appearance-open = Mở
 item-offline = Chế độ Offline
 item-offline-sub = Tắt tất cả các chức năng trực tuyến.
 item-server-status = Tình trạng máy chủ
@@ -53,11 +56,13 @@ item-touch-debug = Hiển thị điểm chạm
 item-touch-debug-sub = Hiển thị điểm chạm khi bạn chạm vào màn hình
 load-cali-failed = Không thể tải âm thanh hiệu chỉnh
 about-content =
-    Phira v{ $version }
+    Phira Pro v{ $version }
 
     Phira là một trò chơi nhịp điệu phi thương mại do cộng đồng điều hành, lấy cảm hứng từ Phigros.
 
     Đây là một dự án không chính thức do người chơi thực hiện, và không tồn tại bất kỳ quan hệ ủy quyền, hợp tác hay vận hành nào với Pigeon Games Co., Ltd. hay với đội ngũ chính thức của Phigros.
+
+    Phira Pro là bản sửa đổi phi thương mại của bên thứ ba dựa trên Phira chính thức.
 
     Tài khoản BiliBili: @Phira官方
     QQ Guild: r48eajexth
@@ -89,6 +94,10 @@ about-content =
 
     Địa phương hóa
     { $localization }
+
+    Bản sửa đổi Phira Pro
+    Bảo trì
+    { $revision }
 
     Và nhiều người đánh giá chart tình nguyện khác. Để xem danh sách đầy đủ, vui lòng tham khảo https://phira.moe/staff
 item-fullscreen = Chế độ toàn màn hình

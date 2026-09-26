@@ -63,6 +63,9 @@ pub struct EndingScene {
     tr_start: f32,
 
     avg_fps: Option<f32>,
+
+    /// Phira Pro：本局是否已经点过「应用推荐偏移」，避免重复叠加。
+    offset_applied: bool,
 }
 
 impl EndingScene {
@@ -149,7 +152,110 @@ impl EndingScene {
             tr_start: f32::NAN,
 
             avg_fps,
+
+            offset_applied: false,
         })
+    }
+
+    /// Phira Pro：判定偏差统计带——直方图 + 平均偏移 + 一键应用推荐偏移。
+    ///
+    /// 横轴是偏差（左偏早、右偏晚），竖轴是各档命中的次数分布，白线标出平均值。
+    /// 推荐偏移直接取平均偏差：由 `game.rs` 中 `res.time = tm.now() - offset()` 可知，
+    /// 把 `config.offset` 增加平均偏差即可让本局的手感重新对齐谱面。
+    fn render_deviation(&mut self, ui: &mut Ui) {
+        let n = self.result.offsets.len();
+        // 自动游玩是合成击打、没有真实手感，不展示偏差统计。
+        if n == 0 || self.autoplay {
+            return;
+        }
+        let ui_top = ui.top;
+        // 统计带塞在标题栏底边与判定列表顶边之间的空隙里。
+        // 判定列表起点为 `-ui_top + 0.4 + ui_top * 0.3`，标题栏底边为 `-ui_top + 0.46`，
+        // 两者之差只取决于 ui_top；太窄（超宽屏）就整体不画，免得压到列表。
+        let gap = ui_top * 0.3 - 0.06;
+        if gap < 0.05 {
+            return;
+        }
+        let hh = (gap * 0.78).min(0.1);
+        let bar_bottom = -ui_top + 0.46;
+        // 右侧要给标题栏下方的「详情」按钮留位（各语言里最长可占到 x≈0.64），
+        // 所以统计带整体停在 x≈0.58 以内。
+        let area = Rect::new(-0.95, bar_bottom + (gap - hh) / 2., 0.60, hh);
+
+        const BINS: usize = 24;
+        // 以数据里的最大绝对偏差为半宽，夹在 30ms..300ms 之间，保证图形不会退化成一条线。
+        let half = self.result.offsets.iter().fold(0.0f64, |a, o| a.max(o.abs())).clamp(0.03, 0.3);
+        let mut bins = [0u32; BINS];
+        for &o in &self.result.offsets {
+            let p = ((o + half) / (2. * half)).clamp(0., 1.);
+            bins[((p * BINS as f64) as usize).min(BINS - 1)] += 1;
+        }
+        let max_bin = bins.iter().copied().max().unwrap_or(1).max(1) as f32;
+
+        ui.fill_rect(area, semi_black(0.22));
+        let zero_x = area.x + area.w / 2.;
+        let bw = area.w / BINS as f32;
+        let inner_h = area.h - 0.006;
+        for (i, &c) in bins.iter().enumerate() {
+            if c == 0 {
+                continue;
+            }
+            let h = c as f32 / max_bin * inner_h;
+            let x = area.x + bw * i as f32;
+            // 早的一半用浅蓝、晚的一半用浅橙，与结算界面其它提前/延后配色一致。
+            let color = if (i as f32 + 0.5) < BINS as f32 / 2. {
+                Color::from_hex_rgb(0x81d4fa)
+            } else {
+                Color::from_hex_rgb(0xffab91)
+            };
+            ui.fill_rect(Rect::new(x + bw * 0.12, area.bottom() - h, bw * 0.76, h), color);
+        }
+        // 零点与平均值参考线。
+        ui.fill_rect(Rect::new(zero_x - 0.0008, area.y, 0.0016, area.h), semi_white(0.3));
+        let mean = self.result.mean as f64;
+        let mean_x = zero_x + (mean / (2. * half)).clamp(-1., 1.) as f32 * area.w;
+        ui.fill_rect(Rect::new(mean_x - 0.0016, area.y - 0.004, 0.0032, area.h + 0.008), WHITE);
+
+        // 右侧：平均偏移读数 + 一键应用按钮。
+        let ms = (self.result.mean * 1000.).round() as i32;
+        let mut text = format!("{} {:+}ms", tl!("mean-offset"), ms);
+        if ms < 0 {
+            text.push_str(" · ");
+            text.push_str(&tl!("deviation-early"));
+        } else if ms > 0 {
+            text.push_str(" · ");
+            text.push_str(&tl!("deviation-late"));
+        }
+        let cy = area.center().y;
+        if self.offset_applied {
+            ui.text(tl!("offset-applied"))
+                .pos(0.72, cy)
+                .anchor(0.5, 0.5)
+                .no_baseline()
+                .size(0.46)
+                .color(semi_white(0.55))
+                .draw_using(&BOLD_FONT);
+        } else {
+            ui.text(text)
+                .pos(-0.32, cy)
+                .anchor(0., 0.5)
+                .no_baseline()
+                .max_width(0.42)
+                .size(0.42)
+                .color(semi_white(0.85))
+                .draw_using(&BOLD_FONT);
+            let btn = Rect::new(0.14, area.y + 0.003, 0.44, area.h - 0.006);
+            // 自动游玩没有真实击打；样本太少或偏差过小时推荐值没有意义，此时只展示不提供按钮。
+            if n >= 8 && ms.abs() >= 1 {
+                let label = format!("{} {:+}ms", tl!("apply-offset"), ms);
+                if ui.button("pro-apply-offset", btn, label) {
+                    button_hit();
+                    crate::config::request_offset_delta(self.result.mean);
+                    self.offset_applied = true;
+                    show_message(tl!("offset-applied")).ok();
+                }
+            }
+        }
     }
 }
 
@@ -628,6 +734,8 @@ impl Scene for EndingScene {
                     current_x = para_right + 0.02;
                 }
             }
+
+            self.render_deviation(ui);
         }
         clip_sector(ui, ct, sector_start, sector_start + center_angle, |ui| {
             ui.fill_rect(sr, (*self.illustration, sr));

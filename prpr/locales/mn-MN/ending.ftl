@@ -12,3 +12,9 @@ upload-cancel = Байршуулахыг цуцлах
 upload-retry = Дахин байршуулах
 still-uploading = Үр дүнг байршуулж байна, түр хүлээнэ үү...
 detail = ДЭЛГЭРЭНГҮЙ
+
+mean-offset = Дундаж зөрүү
+apply-offset = Зөрүүг хэрэглэх
+offset-applied = Санал болгосон зөрүү хэрэглэгдсэн
+deviation-early = эрт
+deviation-late = орой

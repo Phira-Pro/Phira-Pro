@@ -321,6 +321,10 @@ impl JudgeInner {
 
     pub fn result(&self) -> PlayResult {
         let early = self.diffs.iter().filter(|it| **it < 0.).count() as u32;
+        let (mean, std) = match self.offset_stats() {
+            Some((_, mean, std)) => (mean as f32, std as f32),
+            None => (0., 0.),
+        };
         PlayResult {
             score: self.score(),
             accuracy: self.accuracy(),
@@ -329,7 +333,9 @@ impl JudgeInner {
             counts: self.counts,
             early,
             late: self.diffs.len() as u32 - early,
-            std: 0.,
+            std,
+            mean,
+            offsets: self.offsets.clone(),
             early_kind: self.early_kind,
             late_kind: self.late_kind,
         }
@@ -1252,7 +1258,12 @@ pub struct PlayResult {
     pub counts: [u32; 5],
     pub early: u32,
     pub late: u32,
+    /// 本局所有有效命中偏差的标准差（秒）。无有效命中时为 0。
     pub std: f32,
+    /// 本局所有有效命中偏差的平均值（秒），负数偏早、正数偏晚。
+    pub mean: f32,
+    /// 本局所有有效命中的偏移（秒），供结算界面绘制偏差分布直方图。
+    pub offsets: Vec<f64>,
     pub early_kind: [u32; 5],
     pub late_kind: [u32; 5],
 }

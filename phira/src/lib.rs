@@ -330,6 +330,13 @@ async fn the_main() -> Result<()> {
         prpr::ui::CURRENT_FPS.store(cur_fps.to_bits(), std::sync::atomic::Ordering::Relaxed);
         let res = || -> Result<()> {
             main.update()?;
+            // 结算界面的「应用推荐偏移」请求：落到全局配置并持久化。
+            // `prpr` 拿不到客户端的 Data，只能通过这条单向通道把增量递过来。
+            if let Some(delta) = prpr::config::take_offset_delta() {
+                let config = &mut get_data_mut().config;
+                config.offset = (config.offset + delta).clamp(-0.5, 0.5);
+                save_data()?;
+            }
             main.render(&mut painter)?;
             if let Ok(paused) = rx.try_recv() {
                 if paused {

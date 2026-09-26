@@ -12,3 +12,9 @@ upload-cancel = 업로드 취소
 upload-retry = 재시도
 still-uploading = 결과를 업로드 중입니다, 기다려주세요…
 detail = 세부사항
+
+mean-offset = 평균 오프셋
+apply-offset = 오프셋 적용
+offset-applied = 권장 오프셋을 적용했습니다
+deviation-early = 빠름
+deviation-late = 느림

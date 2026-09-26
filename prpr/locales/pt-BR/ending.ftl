@@ -15,3 +15,9 @@ upload-cancel = Cancelar envio
 upload-retry = Tentar de novo
 
 still-uploading = Carregando resultado, aguarde…
+
+mean-offset = Offset médio
+apply-offset = Aplicar offset
+offset-applied = Offset sugerido aplicado
+deviation-early = adiantado
+deviation-late = atrasado

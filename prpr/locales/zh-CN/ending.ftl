@@ -16,3 +16,9 @@ upload-cancel = 取消上传
 upload-retry = 重试
 
 still-uploading = 尚在上传成绩
+
+mean-offset = 平均偏移
+apply-offset = 应用偏移
+offset-applied = 已应用推荐偏移
+deviation-early = 偏早
+deviation-late = 偏晚

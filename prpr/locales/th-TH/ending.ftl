@@ -12,3 +12,9 @@ max-combo = MAX COMBO
 rks-delta = RKS CHANGE
 accuracy = Accuracy
 error = Error
+
+mean-offset = ออฟเซ็ตเฉลี่ย
+apply-offset = ใช้ออฟเซ็ต
+offset-applied = ใช้ออฟเซ็ตที่แนะนำแล้ว
+deviation-early = เร็ว
+deviation-late = ช้า

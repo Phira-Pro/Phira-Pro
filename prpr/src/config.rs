@@ -4,8 +4,33 @@
 use bitflags::bitflags;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 pub static TIPS: Lazy<Vec<String>> = Lazy::new(|| include_str!("tips.txt").split('\n').map(str::to_owned).collect());
+
+/// Phira Pro：结算界面「应用推荐偏移」请求的落点。
+///
+/// `prpr` 拿不到客户端持有的全局配置，因此这里放一个单向通道：结算界面把要叠加到
+/// `config.offset` 的增量（秒）写入，客户端主循环取出后写回配置并持久化。
+static OFFSET_DELTA_PENDING: AtomicBool = AtomicBool::new(false);
+static PENDING_OFFSET_DELTA: AtomicU32 = AtomicU32::new(0);
+
+/// 请求把 `delta`（秒）叠加到全局 `config.offset`。`delta` 为 0 时忽略。
+pub fn request_offset_delta(delta: f32) {
+    if delta != 0. {
+        PENDING_OFFSET_DELTA.store(delta.to_bits(), Ordering::Relaxed);
+        OFFSET_DELTA_PENDING.store(true, Ordering::Relaxed);
+    }
+}
+
+/// 取出并清除待应用的偏移增量；返回 `None` 表示没有待处理请求。
+pub fn take_offset_delta() -> Option<f32> {
+    if OFFSET_DELTA_PENDING.swap(false, Ordering::Relaxed) {
+        Some(f32::from_bits(PENDING_OFFSET_DELTA.load(Ordering::Relaxed)))
+    } else {
+        None
+    }
+}
 
 bitflags! {
     #[derive(Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq, Debug)]

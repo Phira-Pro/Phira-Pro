@@ -12,3 +12,9 @@ upload-cancel = Отменить загрузку
 upload-retry = Повторить
 still-uploading = Загружаем в таблицу лидеров
 detail = ПОДРОБНОСТИ
+
+mean-offset = Средний сдвиг
+apply-offset = Применить сдвиг
+offset-applied = Рекомендуемый сдвиг применён
+deviation-early = рано
+deviation-late = поздно

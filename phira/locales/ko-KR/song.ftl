@@ -102,6 +102,10 @@ mods-flip-x = X축 뒤집기
 mods-flip-x-sub = X 축을 기준으로 뒤집기
 mods-fade-out = 페이드 아웃
 mods-fade-out-sub = 라인에 가까워질 때 노트가 사라집니다.
+mods-strict-judge = 엄격 판정 모드
+mods-strict-judge-sub = 모든 판정 범위를 절반으로
+mods-fullscreen-judge = 전체 화면 판정
+mods-fullscreen-judge-sub = 화면 아무 곳이나 터치해도 판정됩니다
 
 rate-failed = 평가 업로드 실패
 rate-done = 평가가 성공적으로 완료됨

@@ -402,7 +402,7 @@ impl Scene for EndingScene {
             let mut x = -0.26 + (1.2 - y) / 1.9 * 0.4;
             let lf = x;
             let s = 0.64;
-            for (id, title) in ["PERFECT", "GOOD", "BAD", "MISS"].into_iter().enumerate() {
+            for (id, title) in [(4usize, "PERFECT+"), (0, "PERFECT"), (1, "GOOD"), (2, "BAD"), (3, "MISS")] {
                 ui.text(title)
                     .pos(x, y)
                     .anchor(1., 0.)
@@ -543,7 +543,7 @@ impl Scene for EndingScene {
             } else {
                 format!("{:.2}x", self.speed)
             };
-            let status_text = if !self.rated && !self.autoplay && !self.use_keyboard {
+            let mut status_text = if !self.rated && !self.autoplay && !self.use_keyboard {
                 if spd.is_empty() {
                     "UNRATED".to_string()
                 } else {
@@ -552,6 +552,12 @@ impl Scene for EndingScene {
             } else {
                 spd
             };
+            if self.mods.contains(Mods::STRICT_JUDGE) {
+                if !status_text.is_empty() {
+                    status_text.push(' ');
+                }
+                status_text.push_str("STRICT");
+            }
             let status_text = status_text.trim();
             // mod_icons order: FLIP_X, FADE_OUT, FADE_IN, NIGHTCORE, RAINBOW
             let active_mod_indices: Vec<usize> = [

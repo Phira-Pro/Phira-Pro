@@ -104,6 +104,10 @@ mods-flip-x = Inverser sur X
 mods-flip-x-sub = Inversion de la partition sur l'axe X
 mods-fade-out = Disparition
 mods-fade-out-sub = Les notes disparaissent à l'approche de la ligne de jugement
+mods-strict-judge = Jugement strict
+mods-strict-judge-sub = Diviser par deux toutes les fenêtres
+mods-fullscreen-judge = Jugement plein écran
+mods-fullscreen-judge-sub = N'importe quel endroit de l'écran compte comme un appui
 
 rate-failed = Échec de la notation
 rate-done = Noté avec succès

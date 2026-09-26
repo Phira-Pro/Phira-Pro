@@ -87,6 +87,10 @@ mods-flip-x = Obrót osi X
 mods-flip-x-sub = Obróc na osi X
 mods-fade-out = Zanikanie
 mods-fade-out-sub = Nuty znikają po dotarciu na linię
+mods-strict-judge = Tryb surowego oceniania
+mods-strict-judge-sub = Zmniejsz o połowę wszystkie okna oceny
+mods-fullscreen-judge = Ocena na całym ekranie
+mods-fullscreen-judge-sub = Dotknięcie w dowolnym miejscu ekranu się liczy
 
 rate-failed = Nie oceniono
 rate-done = Oceniono pomyślnie

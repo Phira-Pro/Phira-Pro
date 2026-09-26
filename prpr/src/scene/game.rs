@@ -15,7 +15,7 @@ use crate::{
     ext::{parse_time, screen_aspect, semi_white, RectExt, SafeTexture, ScaleType},
     fs::FileSystem,
     info::{ChartFormat, ChartInfo},
-    judge::Judge,
+    judge::{Judge, Judgement, RecentHit},
     parse::{parse_extra, parse_pec, parse_phigros, parse_rpe},
     task::Task,
     time::TimeManager,
@@ -37,11 +37,146 @@ use std::{
     process::{Command, Stdio},
     rc::Rc,
     sync::Arc,
+    thread_local,
     time::Duration,
 };
 use tracing::{debug, warn};
 
+/// 判定条指针的缓动状态（照搬皮肤里 `pointerMoveDuration = 500ms` 的指针动画）。
+#[derive(Default)]
+struct OffsetPointer {
+    /// 已经缓动到的命中时刻，用来识别「出现新命中」。
+    hit_time: f64,
+    from: f32,
+    to: f32,
+    start: f64,
+    now: f32,
+}
+
+impl OffsetPointer {
+    const DURATION: f64 = 0.5;
+
+    /// 缓动到最近一次命中的位置；`target` 为 `None`（本局没有命中，例如重开后）时归零。
+    fn update(&mut self, time: f64, target: Option<(f64, f32)>) {
+        match target {
+            Some((hit_time, to)) => {
+                if hit_time != self.hit_time {
+                    self.hit_time = hit_time;
+                    self.from = self.now;
+                    self.to = to;
+                    self.start = time;
+                }
+            }
+            None => {
+                if self.hit_time != 0. {
+                    *self = Self::default();
+                }
+                return;
+            }
+        }
+        let p = ((time - self.start) / Self::DURATION).clamp(0., 1.);
+        let p = 1. - (1. - p).powi(3);
+        self.now = self.from + (self.to - self.from) * p as f32;
+    }
+}
+
+thread_local! {
+    static OFFSET_POINTER: RefCell<OffsetPointer> = RefCell::default();
+}
+
+/// 局内 early/late 判定条。
+///
+/// 样式照搬 Malody 皮肤 "6513_Elaina_PC_4K" 的 `OFFSET_INDICATOR`：
+/// 一条中线参考线 + 停在最近一次命中位置上的下指箭头 + 每次命中留下的竖条残影。
+/// 残影按判定档着色、整体随时间淡出：大 P 用贴图原始的三段渐变，其余档用单色。
+/// 配色取自该皮肤的 `info.asm` 与 `shadow0_1.png` 实测值：
+/// 渐变 #99D4EF→#F9CBF7→#FDE7BC、shadow1(#99D4EF)、shadow2(#D7A5C3)、shadow3(#EABE93)。
+/// 指针用皮肤提供的下指箭头贴图 `assets/offset_indicator.png`。
+fn draw_offset_indicator(ui: &mut Ui, res: &Resource, recent: &[RecentHit], top: f32) {
+    /// 判定条横向覆盖的毫秒范围（中线两侧各一半）。
+    const SPAN_MS: f64 = 100.;
+    /// 整体尺寸缩放系数（相对最初版本）。
+    const SCALE: f32 = 0.25;
+    const BAR_W: f32 = 0.56 * SCALE;
+    const BAR_H: f32 = 0.05 * SCALE;
+    const LINE_H: f32 = 0.09 * SCALE;
+    /// 竖线类元件按比例缩放后会不到一个像素，这里给一个可见性下限。
+    const MIN_STROKE: f32 = 0.003;
+    const POINTER_W: f32 = 0.1 * SCALE;
+    const POINTER_ASPECT: f32 = 198. / 303.;
+    const FADE: f64 = 3.;
+    const MAX_ALPHA: f32 = 0.7;
+
+    const C_GRAD_TOP: Color = Color { r: 0.6, g: 0.831, b: 0.937, a: 1. };
+    const C_GRAD_MID: Color = Color { r: 0.976, g: 0.796, b: 0.969, a: 1. };
+    const C_GRAD_BOTTOM: Color = Color { r: 0.992, g: 0.906, b: 0.737, a: 1. };
+    const C_PERFECT: Color = Color { r: 0.6, g: 0.831, b: 0.937, a: 1. };
+    const C_GOOD: Color = Color { r: 0.843, g: 0.647, b: 0.765, a: 1. };
+    const C_BAD: Color = Color { r: 0.918, g: 0.745, b: 0.576, a: 1. };
+
+    let cy = top + BAR_H / 2.;
+    let to_x = |offset: f64| ((offset * 1000. / SPAN_MS).clamp(-1., 1.) as f32) * (BAR_W / 2.);
+    let fill_v = |ui: &mut Ui, r: Rect, top: Color, bottom: Color, alpha: f32| {
+        ui.fill_rect(
+            r,
+            (
+                Color { a: top.a * alpha, ..top },
+                (r.x, r.y),
+                Color { a: bottom.a * alpha, ..bottom },
+                (r.x, r.y + r.h),
+            ),
+        );
+    };
+
+    // 只有中线，没有背景板。
+    fill_v(
+        ui,
+        Rect::new(-MIN_STROKE / 2., cy - LINE_H / 2., MIN_STROKE, LINE_H),
+        WHITE,
+        WHITE,
+        0.45,
+    );
+
+    for hit in recent {
+        let age = res.time - hit.time;
+        if !(0. ..=FADE).contains(&age) {
+            continue;
+        }
+        let alpha = (1. - age / FADE) as f32 * MAX_ALPHA;
+        let x = to_x(hit.offset);
+        let rect = Rect::new(x - MIN_STROKE / 2., cy - BAR_H / 2., MIN_STROKE, BAR_H);
+        if matches!(hit.judgement, Judgement::PerfectPlus) {
+            let mid = rect.y + rect.h * 0.5;
+            fill_v(ui, Rect::new(rect.x, rect.y, rect.w, mid - rect.y), C_GRAD_TOP, C_GRAD_MID, alpha);
+            fill_v(ui, Rect::new(rect.x, mid, rect.w, rect.y + rect.h - mid), C_GRAD_MID, C_GRAD_BOTTOM, alpha);
+        } else {
+            let color = match hit.judgement {
+                Judgement::Perfect => C_PERFECT,
+                Judgement::Good => C_GOOD,
+                _ => C_BAD,
+            };
+            fill_v(ui, rect, color, color, alpha);
+        }
+    }
+
+    let target = recent.last().map(|hit| (hit.time, to_x(hit.offset)));
+    let px = OFFSET_POINTER.with(|it| {
+        let mut it = it.borrow_mut();
+        it.update(res.time, target);
+        it.now
+    });
+    let pw = POINTER_W;
+    let ph = pw * POINTER_ASPECT;
+    let pr = Rect::new(px - pw / 2., cy - BAR_H / 2. - 0.004 - ph, pw, ph);
+    ui.fill_rect(pr, (*res.offset_indicator, pr, ScaleType::Fit));
+}
+
 const PAUSE_CLICK_INTERVAL: f32 = 0.7;
+
+/// 死亡过渡时长：谱面继续前进但逐渐减速的时长（秒）。
+const DEATH_TIME: f64 = 2.;
+/// 死亡过渡结束后，失败遮罩与按钮渐显的时长（秒）。
+const DEATH_FADE: f64 = 0.5;
 
 #[rustfmt::skip]
 #[cfg(closed)]
@@ -116,6 +251,8 @@ enum State {
 pub struct GameScene {
     should_exit: bool,
     next_scene: Option<NextScene>,
+    /// 失败（血条或即时死亡）发生的时刻，用于死亡过渡动画。
+    death_time: f64,
 
     pub mode: GameMode,
     pub res: Resource,
@@ -302,12 +439,14 @@ impl GameScene {
 
         let exercise_range = (chart.offset + info_offset + res.config.offset) as f64..res.track_length;
 
-        let judge = Judge::new(&chart);
+        let mut judge = Judge::new(&chart);
+        judge.set_hp_amount(res.config.hp_amount);
 
         let music = Self::new_music(&mut res)?;
         Ok(Self {
             should_exit: false,
             next_scene: None,
+            death_time: 0.,
 
             mode,
             res,
@@ -513,6 +652,19 @@ impl GameScene {
                     });
                 }
             }
+            // 判定条独立于 combo 是否显示；位置取屏高的 1/6 处（`-top` 即 ui 空间里的半个屏高）。
+            draw_offset_indicator(ui, res, self.judge.recent_hits(), top + (-top) / 3.);
+            // 血条模式：与暂停按钮同高、紧贴其右侧；长度由配置控制，高度是相对暂停按钮的倍率。
+            if res.config.hp_mode {
+                let h = pause_h * res.config.hp_height;
+                let w = res.config.hp_width;
+                let r = Rect::new(pause_center.x + pause_w * 1.5 + 0.04, pause_center.y - h / 2., w, h);
+                ui.fill_rect(r, Color::new(0., 0., 0., 0.35));
+                ui.fill_rect(
+                    Rect::new(r.x, r.y, r.w * self.judge.hp().clamp(0., 1.), r.h),
+                    Color::new(0.35, 0.85, 0.45, 0.9),
+                );
+            }
             // magic to make score visible, refer to phira/src/rate.rs#L219
             ui.text("").draw_using(&PGR_FONT);
             let lf = -1. + margin;
@@ -552,11 +704,17 @@ impl GameScene {
     }
 
     fn overlay_ui(&mut self, ui: &mut Ui, tm: &mut TimeManager) -> Result<()> {
-        let c = semi_white(self.res.alpha);
+        // 失败时，遮罩与按钮在减速过渡结束后渐显；普通暂停保持原样。
+        let fade = if self.dead {
+            (((tm.real_time() - self.death_time) - DEATH_TIME) / DEATH_FADE).clamp(0., 1.) as f32
+        } else {
+            1.
+        };
+        let c = semi_white(self.res.alpha * fade);
         let res = &mut self.res;
         if tm.paused() {
             let h = 1. / res.aspect_ratio;
-            draw_rectangle(-1., -h, 2., h * 2., Color::new(0., 0., 0., 0.6));
+            draw_rectangle(-1., -h, 2., h * 2., Color::new(0., 0., 0., 0.6 * fade));
             let o = if self.mode == GameMode::Exercise { -0.3 } else { 0. };
             let s = 0.06;
             let w = 0.05;
@@ -572,7 +730,7 @@ impl GameScene {
                 },
             );
             let r = Rect::new(0., o, 0., 0.).feather(s);
-            let disabled_color = semi_white(res.alpha * 0.4);
+            let disabled_color = semi_white(res.alpha * 0.4 * fade);
             ui.fill_rect(r, (*res.icon_retry, r.feather(0.02), ScaleType::Fit, if no_retry { disabled_color } else { c }));
             draw_texture_ex(
                 *res.icon_resume,
@@ -1038,16 +1196,34 @@ impl Scene for GameScene {
         if !self.dead
             && matches!(self.state, State::Playing)
             && (self.res.config.mods.contains(Mods::INSTANT_DEATH_AP) && counts[1] + counts[2] + counts[3] > 0
-                || self.res.config.mods.contains(Mods::INSTANT_DEATH_FC) && counts[2] + counts[3] > 0)
+                || self.res.config.mods.contains(Mods::INSTANT_DEATH_FC) && counts[2] + counts[3] > 0
+                || self.res.config.hp_mode && self.judge.hp() <= 0.)
         {
-            if !self.music.paused() {
-                self.music.pause()?;
-            }
-            tm.pause();
+            // 这里不立刻冻结：交给下面的死亡过渡，让谱面减速后再停下。
             self.dead = true;
+            self.death_time = tm.real_time();
             #[cfg(target_env = "ohos")]
             miniquad::native::set_interceptor_state(false);
             show_message(tl!("game-over")).error();
+        }
+        if self.dead {
+            // 死亡过渡：谱面与音乐同步减速；结束后冻结，失败 UI 由 overlay_ui 渐显。
+            let p = ((tm.real_time() - self.death_time) / DEATH_TIME).clamp(0., 1.);
+            if p < 1. {
+                let factor = (1. - p).powi(2);
+                let speed = self.res.config.speed as f64 * factor;
+                if (tm.speed - speed).abs() > 1e-6 {
+                    // TimeManager 的时间是「真实流逝时间 × speed」，所以改速度必须重锚
+                    // start_time，否则整条时间轴会被重新缩放，表现为跳回开头。
+                    let now = tm.now();
+                    tm.speed = speed;
+                    tm.seek_to(now);
+                }
+                self.music.try_set_playback_rate(speed.max(0.01));
+            } else if !tm.paused() {
+                self.music.pause()?;
+                tm.pause();
+            }
         }
         self.res.judge_line_color.a *= self.res.alpha;
         self.chart.update(&mut self.res);

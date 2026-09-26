@@ -101,6 +101,10 @@ mods-flip-x = Virar X
 mods-flip-x-sub = Virar no eixo X
 mods-fade-out = Desaparecer
 mods-fade-out-sub = As notas desaparecem quando se aproximam da linha
+mods-strict-judge = Julgamento rigoroso
+mods-strict-judge-sub = Reduzir pela metade todas as janelas
+mods-fullscreen-judge = Julgamento em tela cheia
+mods-fullscreen-judge-sub = Qualquer lugar da tela conta como toque
 
 rate-failed = Falha na avaliação
 rate-done = Avaliado com sucesso

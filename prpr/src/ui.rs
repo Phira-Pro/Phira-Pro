@@ -578,7 +578,8 @@ impl Slider {
             .no_baseline()
             .size(0.6)
             .draw();
-        let p = (p - self.range.start) / (self.range.end - self.range.start);
+        // 配置值可能落在滑条范围之外（例如旧配置残留），夹一下，否则旋钮会跑到轨道外面。
+        let p = ((p - self.range.start) / (self.range.end - self.range.start)).clamp(0., 1.);
         let pos = (r.x + r.w * p, cy);
         self.pos = ui.to_global(pos).0;
         use lyon::math::point;

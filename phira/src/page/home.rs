@@ -712,6 +712,11 @@ impl Page for HomePage {
                 self.char_fetch_task = None;
             }
         }
+        if crate::scene::APPEARANCE_UPDATED.swap(false, Ordering::Relaxed) {
+            // 立绘被导入/替换：清掉记忆键强制重新加载。
+            self.char_last_illu = None;
+            self.load_char_illu();
+        }
         if JUST_LOADED_TOS.fetch_and(false, Ordering::Relaxed) {
             check_read_tos_and_policy(true, true);
         }

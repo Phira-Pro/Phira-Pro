@@ -1,6 +1,6 @@
 use super::{MSRenderTarget, Matrix, Point, NOTE_WIDTH_RATIO_BASE};
 use crate::{
-    config::Config,
+    config::{Config, JudgeWindows},
     ext::{create_audio_manger, nalgebra_to_glm, SafeTexture},
     fs::FileSystem,
     info::ChartInfo,
@@ -406,6 +406,7 @@ pub type SfxMap = HashMap<String, Sfx>;
 
 pub struct Resource {
     pub config: Config,
+    pub windows: JudgeWindows,
     pub info: ChartInfo,
     pub aspect_ratio: f32,
     pub dpi: u32,
@@ -429,6 +430,7 @@ pub struct Resource {
     pub icon_retry: SafeTexture,
     pub icon_resume: SafeTexture,
     pub icon_proceed: SafeTexture,
+    pub offset_indicator: SafeTexture,
 
     pub emitter: ParticleEmitter,
 
@@ -525,8 +527,10 @@ impl Resource {
         let no_effect = config.disable_effect || has_no_effect;
 
         macroquad::window::gl_set_drawcall_buffer_capacity(MAX_SIZE * 4, MAX_SIZE * 6);
+        let windows = config.judge_windows();
         Ok(Self {
             config,
+            windows,
             info,
             aspect_ratio,
             dpi: DPI_VALUE.load(std::sync::atomic::Ordering::SeqCst),
@@ -550,6 +554,7 @@ impl Resource {
             icon_retry: load_tex!("retry.png").with_mipmap(),
             icon_resume: load_tex!("resume.png"),
             icon_proceed: load_tex!("proceed.png").with_mipmap(),
+            offset_indicator: load_tex!("offset_indicator.png"),
 
             emitter,
 

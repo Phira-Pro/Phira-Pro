@@ -1,7 +1,7 @@
 use super::{chart::ChartSettings, BpmList, CtrlObject, JudgeLine, Matrix, Object, Point, Resource};
 pub use crate::{
     config::Mods,
-    judge::{HitSound, JudgeStatus, LIMIT_BAD},
+    judge::{HitSound, JudgeStatus},
     parse::RPE_HEIGHT,
 };
 use macroquad::prelude::*;
@@ -246,9 +246,9 @@ impl Note {
             &res.res_pack.note_style
         };
         let mod_alpha = if res.config.has_mod(Mods::FADE_OUT) {
-            ((self.time - res.time - LIMIT_BAD) / LIMIT_BAD).clamp(0., 1.)
+            ((self.time - res.time - res.windows.bad) / res.windows.bad).clamp(0., 1.)
         } else if res.config.has_mod(Mods::FADE_IN) {
-            (1. - (self.time - res.time - LIMIT_BAD) / LIMIT_BAD).clamp(0., 1.)
+            (1. - (self.time - res.time - res.windows.bad) / res.windows.bad).clamp(0., 1.)
         } else {
             1.
         };

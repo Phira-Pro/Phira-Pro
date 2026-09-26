@@ -391,6 +391,7 @@ struct GeneralList {
     fullscreen_btn: DRectButton,
 
     appearance_btn: DRectButton,
+    appearance_import_btn: DRectButton,
     cache_btn: DRectButton,
     offline_btn: DRectButton,
     server_status_btn: DRectButton,
@@ -427,6 +428,7 @@ impl GeneralList {
             fullscreen_btn: DRectButton::new(),
 
             appearance_btn: DRectButton::new(),
+            appearance_import_btn: DRectButton::new(),
             cache_btn: DRectButton::new(),
             offline_btn: DRectButton::new(),
             server_status_btn: DRectButton::new(),
@@ -485,6 +487,24 @@ impl GeneralList {
 
         if self.appearance_btn.touch(touch, t) {
             let _ = open_url(&dir::appearance_open_path()?);
+            return Ok(Some(true));
+        }
+        if self.appearance_import_btn.touch(touch, t) {
+            // 系统文件对话框只在桌面平台可用。
+            #[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
+            if let Some(path) = rfd::FileDialog::new()
+                .set_title(tl!("item-appearance-import"))
+                .add_filter("image", &["png", "jpg", "jpeg", "webp", "bmp"])
+                .pick_file()
+            {
+                match dir::import_appearance("character", &path) {
+                    Ok(()) => {
+                        crate::scene::APPEARANCE_UPDATED.store(true, Ordering::Relaxed);
+                        show_message(tl!("item-appearance-imported")).ok();
+                    }
+                    Err(err) => show_error(err),
+                }
+            }
             return Ok(Some(true));
         }
 
@@ -607,6 +627,10 @@ impl GeneralList {
         item! {
             render_title(ui, tl!("item-appearance"), Some(tl!("item-appearance-sub")));
             self.appearance_btn.render_text(ui, rr, t, tl!("item-appearance-open"), 0.5, true);
+        }
+        item! {
+            render_title(ui, tl!("item-appearance-import"), None);
+            self.appearance_import_btn.render_text(ui, rr, t, tl!("item-appearance-import-btn"), 0.5, true);
         }
 
         #[cfg(all(any(target_os = "windows", target_os = "linux"), not(target_env = "ohos")))]
@@ -831,6 +855,14 @@ struct ChartList {
     use_keyboard_btn: DRectButton,
     speed_slider: Slider,
     size_slider: Slider,
+    limit_perfect_plus_slider: Slider,
+    limit_perfect_slider: Slider,
+    limit_good_slider: Slider,
+    limit_bad_slider: Slider,
+    hp_mode_btn: DRectButton,
+    hp_amount_slider: Slider,
+    hp_width_slider: Slider,
+    hp_height_slider: Slider,
 }
 
 impl ChartList {
@@ -845,6 +877,14 @@ impl ChartList {
             use_keyboard_btn: DRectButton::new(),
             speed_slider: Slider::new(0.5..2., 0.05),
             size_slider: Slider::new(0.8..1.2, 0.005),
+            limit_perfect_plus_slider: Slider::new(1.0..80.0, 1.0),
+            limit_perfect_slider: Slider::new(1.0..120.0, 1.0),
+            limit_good_slider: Slider::new(1.0..250.0, 1.0),
+            limit_bad_slider: Slider::new(1.0..400.0, 1.0),
+            hp_mode_btn: DRectButton::new(),
+            hp_amount_slider: Slider::new(0.2..3.0, 0.1),
+            hp_width_slider: Slider::new(0.1..1.0, 0.01),
+            hp_height_slider: Slider::new(0.5..3.0, 0.1),
         }
     }
 
@@ -887,6 +927,35 @@ impl ChartList {
             return Ok(wt);
         }
         if let wt @ Some(_) = self.size_slider.touch(touch, t, &mut config.note_scale) {
+            return Ok(wt);
+        }
+        if let wt @ Some(_) = self.limit_perfect_plus_slider.touch(touch, t, &mut config.lim_perfect_plus_ms) {
+            config.clamp_judge_windows();
+            return Ok(wt);
+        }
+        if let wt @ Some(_) = self.limit_perfect_slider.touch(touch, t, &mut config.lim_perfect_ms) {
+            config.clamp_judge_windows();
+            return Ok(wt);
+        }
+        if let wt @ Some(_) = self.limit_good_slider.touch(touch, t, &mut config.lim_good_ms) {
+            config.clamp_judge_windows();
+            return Ok(wt);
+        }
+        if let wt @ Some(_) = self.limit_bad_slider.touch(touch, t, &mut config.lim_bad_ms) {
+            config.clamp_judge_windows();
+            return Ok(wt);
+        }
+        if self.hp_mode_btn.touch(touch, t) {
+            config.hp_mode ^= true;
+            return Ok(Some(true));
+        }
+        if let wt @ Some(_) = self.hp_amount_slider.touch(touch, t, &mut config.hp_amount) {
+            return Ok(wt);
+        }
+        if let wt @ Some(_) = self.hp_width_slider.touch(touch, t, &mut config.hp_width) {
+            return Ok(wt);
+        }
+        if let wt @ Some(_) = self.hp_height_slider.touch(touch, t, &mut config.hp_height) {
             return Ok(wt);
         }
         Ok(None)
@@ -945,6 +1014,42 @@ impl ChartList {
         item! {
             render_title(ui, tl!("item-note-size"), None);
             self.size_slider.render(ui, rr, t, config.note_scale, format!("{:.3}", config.note_scale));
+        }
+        ui.dy(0.04);
+        h += 0.04;
+        item! {
+            render_title(ui, tl!("item-limit-perfect-plus"), None);
+            self.limit_perfect_plus_slider.render(ui, rr, t, config.lim_perfect_plus_ms, format!("±{:.0} ms", config.lim_perfect_plus_ms));
+        }
+        item! {
+            render_title(ui, tl!("item-limit-perfect"), None);
+            self.limit_perfect_slider.render(ui, rr, t, config.lim_perfect_ms, format!("±{:.0} ms", config.lim_perfect_ms));
+        }
+        item! {
+            render_title(ui, tl!("item-limit-good"), None);
+            self.limit_good_slider.render(ui, rr, t, config.lim_good_ms, format!("±{:.0} ms", config.lim_good_ms));
+        }
+        item! {
+            render_title(ui, tl!("item-limit-bad"), None);
+            self.limit_bad_slider.render(ui, rr, t, config.lim_bad_ms, format!("±{:.0} ms", config.lim_bad_ms));
+        }
+        ui.dy(0.04);
+        h += 0.04;
+        item! {
+            render_title(ui, tl!("item-hp-mode"), Some(tl!("item-hp-mode-sub")));
+            render_switch(ui, rr, t, &mut self.hp_mode_btn, config.hp_mode);
+        }
+        item! {
+            render_title(ui, tl!("item-hp-amount"), None);
+            self.hp_amount_slider.render(ui, rr, t, config.hp_amount, format!("{:.1}x", config.hp_amount));
+        }
+        item! {
+            render_title(ui, tl!("item-hp-width"), None);
+            self.hp_width_slider.render(ui, rr, t, config.hp_width, format!("{:.2}", config.hp_width));
+        }
+        item! {
+            render_title(ui, tl!("item-hp-height"), None);
+            self.hp_height_slider.render(ui, rr, t, config.hp_height, format!("{:.1}x", config.hp_height));
         }
         (w, h)
     }

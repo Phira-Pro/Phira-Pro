@@ -949,6 +949,7 @@ impl SongScene {
                                 use phira_mp_common::Judgement::*;
                                 use prpr::judge::Judgement as OJ;
                                 match it.3 {
+                                    Ok(OJ::PerfectPlus) => Perfect,
                                     Ok(OJ::Perfect) => Perfect,
                                     Ok(OJ::Good) => Good,
                                     Ok(OJ::Bad) => Bad,
@@ -1409,6 +1410,8 @@ impl SongScene {
             item(tl!("mods-rainbow"), Some(tl!("mods-rainbow-sub")), Mods::RAINBOW);
             item(tl!("mods-instant-death-ap"), Some(tl!("mods-instant-death-ap-sub")), Mods::INSTANT_DEATH_AP);
             item(tl!("mods-instant-death-fc"), Some(tl!("mods-instant-death-fc-sub")), Mods::INSTANT_DEATH_FC);
+            item(tl!("mods-strict-judge"), Some(tl!("mods-strict-judge-sub")), Mods::STRICT_JUDGE);
+            item(tl!("mods-fullscreen-judge"), Some(tl!("mods-fullscreen-judge-sub")), Mods::FULLSCREEN_JUDGE);
             item(tl!("mods-no-shader"), Some(tl!("mods-no-shader-sub")), Mods::NO_SHADER);
             (width, h + 0.2)
         });

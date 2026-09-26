@@ -45,6 +45,9 @@ const LOW_PASS: f32 = 0.95;
 
 pub static BGM_VOLUME_UPDATED: AtomicBool = AtomicBool::new(false);
 
+/// 外观资源（例如立绘）被导入或替换后置位；主页在 `update` 里消费它并重新加载。
+pub static APPEARANCE_UPDATED: AtomicBool = AtomicBool::new(false);
+
 thread_local! {
     static RESPACK_ITEM: RefCell<Option<ResPackItem>> = RefCell::default();
     pub static MP_PANEL: RefCell<Option<MPPanel>> = RefCell::default();
@@ -53,6 +56,98 @@ thread_local! {
 #[inline]
 fn position_file() -> Result<String> {
     Ok(format!("{}/mp-pos", dir::root()?))
+}
+
+#[cfg(target_os = "windows")]
+#[link(name = "user32")]
+extern "system" {
+    fn GetForegroundWindow() -> *mut std::ffi::c_void;
+    fn GetWindowThreadProcessId(hwnd: *mut std::ffi::c_void, pid: *mut u32) -> u32;
+}
+
+/// 当前前台窗口是否属于本进程（仅 Windows 可判定；其它平台视为始终聚焦）。
+#[cfg(target_os = "windows")]
+fn window_focused() -> bool {
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_null() {
+            return false;
+        }
+        let mut pid = 0;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        pid == std::process::id()
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn window_focused() -> bool {
+    true
+}
+
+/// 菜单静置降帧。
+///
+/// 满帧时（本机 165Hz）菜单静置也要占约 13% 单核 CPU，且其中大部分开销随帧数线性
+/// 增长（事件轮询、缓冲交换、驱动工作线程）。因此这里按「有没有人在看」分四档：
+/// - 有输入 → 满帧；
+/// - 前台静置 → `TARGET_PERIOD`；
+/// - 不在前台（可能被遮挡或在副屏）→ `BACKGROUND_PERIOD`；
+/// - 已最小化（帧缓冲塌缩为 1×1，完全不可见）→ `MINIMIZED_PERIOD`。
+///
+/// 该逻辑只挂在 `MainScene`（菜单）上，谱面游玩场景 `SongScene` 完全不受影响。
+struct IdleFps {
+    last_frame_at: Instant,
+    last_input_at: Instant,
+    last_sleep: Duration,
+    mouse: (f32, f32),
+}
+
+impl IdleFps {
+    const IDLE_AFTER: Duration = Duration::from_secs(2);
+    const TARGET_PERIOD: Duration = Duration::from_millis(16);
+    const BACKGROUND_PERIOD: Duration = Duration::from_millis(33);
+    const MINIMIZED_PERIOD: Duration = Duration::from_millis(100);
+
+    fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            last_frame_at: now,
+            last_input_at: now,
+            last_sleep: Duration::ZERO,
+            mouse: mouse_position(),
+        }
+    }
+
+    fn settle(&mut self) {
+        let now = Instant::now();
+        let mouse = mouse_position();
+        let touching = !touches().is_empty();
+        let down = is_mouse_button_down(MouseButton::Left) || is_mouse_button_down(MouseButton::Right);
+        let key = get_last_key_pressed().is_some();
+        if touching || down || key || mouse != self.mouse {
+            self.last_input_at = now;
+        }
+        self.mouse = mouse;
+
+        let period = now.saturating_duration_since(self.last_frame_at);
+        self.last_frame_at = now;
+
+        // 扣掉上一次的睡眠，剩下的就是本帧真实耗时；据此把帧周期补足到目标值。
+        let work = period.saturating_sub(self.last_sleep);
+        let target = if now.saturating_duration_since(self.last_input_at) < Self::IDLE_AFTER {
+            Duration::ZERO
+        } else if screen_width() <= 1. || screen_height() <= 1. {
+            Self::MINIMIZED_PERIOD
+        } else if !window_focused() {
+            Self::BACKGROUND_PERIOD
+        } else {
+            Self::TARGET_PERIOD
+        };
+        let sleep = target.saturating_sub(work);
+        self.last_sleep = sleep;
+        if !sleep.is_zero() {
+            std::thread::sleep(sleep);
+        }
+    }
 }
 
 pub struct MainScene {
@@ -65,6 +160,8 @@ pub struct MainScene {
     icon_back: SafeTexture,
 
     pages: Vec<Box<dyn Page>>,
+
+    idle_fps: IdleFps,
 
     import_task: Option<Task<Result<(LocalChart, ParseWarnings)>>>,
 
@@ -198,6 +295,8 @@ impl MainScene {
             batch_import_rx: None,
             batch_imported_charts: Vec::new(),
             batch_import_total: 0,
+
+            idle_fps: IdleFps::new(),
         })
     }
 
@@ -838,6 +937,8 @@ impl Scene for MainScene {
             let total = self.batch_import_total;
             ui.full_loading(itl!("batch-importing", "current" => current, "total" => total), s.t);
         }
+
+        self.idle_fps.settle();
 
         Ok(())
     }

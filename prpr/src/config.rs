@@ -20,8 +20,14 @@ bitflags! {
         const NO_SHADER = 0x0040;
         const INSTANT_DEATH_AP = 0x0080;
         const INSTANT_DEATH_FC = 0x0100;
+        /// Phira Pro：所有判定窗口减半（更严格的判定）。因为只会让成绩更难，
+        /// 所以不计入 `UNRATED`。
+        const STRICT_JUDGE = 0x0200;
+        /// Phira Pro：忽略横向位置，点屏幕任意处即可判定到最近的音符。
+        /// 会让成绩更容易，因此计入 `UNRATED`。
+        const FULLSCREEN_JUDGE = 0x0400;
 
-        const UNRATED = Self::AUTOPLAY.bits() | Self::NO_SHADER.bits();
+        const UNRATED = Self::AUTOPLAY.bits() | Self::NO_SHADER.bits() | Self::FULLSCREEN_JUDGE.bits();
     }
 }
 
@@ -63,7 +69,19 @@ pub struct Config {
     pub double_hint: bool,
     pub fullscreen_mode: bool,
     pub fxaa: bool,
+    /// Phira Pro：血条模式。
+    pub hp_mode: bool,
+    /// 血条模式的扣血倍率（越大越难）。
+    pub hp_amount: f32,
+    /// 血条厚度相对暂停按钮高度的倍率。
+    pub hp_height: f32,
+    /// 血条长度。
+    pub hp_width: f32,
     pub interactive: bool,
+    pub lim_bad_ms: f32,
+    pub lim_good_ms: f32,
+    pub lim_perfect_plus_ms: f32,
+    pub lim_perfect_ms: f32,
     pub mods: Mods,
     pub mp_address: String,
     pub mp_enabled: bool,
@@ -89,6 +107,17 @@ pub struct Config {
     autoplay: Option<bool>,
 }
 
+/// 一次游玩实际使用的判定窗口（单位：秒）。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct JudgeWindows {
+    pub perfect_plus: f64,
+    pub perfect: f64,
+    pub good: f64,
+    pub bad: f64,
+    /// 是否开启「全屏判定」（忽略横向位置）。
+    pub fullscreen: bool,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -102,7 +131,15 @@ impl Default for Config {
             double_click_to_pause: true,
             double_hint: true,
             fxaa: false,
+            hp_mode: false,
+            hp_amount: 1.0,
+            hp_height: 1.0,
+            hp_width: 0.6,
             interactive: true,
+            lim_bad_ms: (crate::judge::LIMIT_BAD * 1000.) as f32,
+            lim_good_ms: (crate::judge::LIMIT_GOOD * 1000.) as f32,
+            lim_perfect_plus_ms: (crate::judge::LIMIT_PERFECT_PLUS * 1000.) as f32,
+            lim_perfect_ms: (crate::judge::LIMIT_PERFECT * 1000.) as f32,
             mods: Mods::default(),
             mp_address: "mp2.phira.cn:12345".to_owned(),
             mp_enabled: false,
@@ -131,10 +168,41 @@ impl Default for Config {
 }
 
 impl Config {
+    /// 强制各档窗口单调不减（perfect+ ≤ perfect ≤ good ≤ bad）。滑块越界或
+    /// `data.json` 被手改成倒挂后，都会回到合法状态。
+    pub fn clamp_judge_windows(&mut self) {
+        self.lim_perfect_ms = self.lim_perfect_ms.max(self.lim_perfect_plus_ms);
+        self.lim_good_ms = self.lim_good_ms.max(self.lim_perfect_ms);
+        self.lim_bad_ms = self.lim_bad_ms.max(self.lim_good_ms);
+    }
+
+    /// 把配置里的毫秒窗口折算成判定用的秒数；开启 `Mods::STRICT_JUDGE` 时各档整体减半。
+    ///
+    /// 这里会再夹一次单调性，因此即使配置倒挂也不会影响实际判定。
+    pub fn judge_windows(&self) -> JudgeWindows {
+        let perfect_plus = self.lim_perfect_plus_ms;
+        let perfect = self.lim_perfect_ms.max(perfect_plus);
+        let good = self.lim_good_ms.max(perfect);
+        let bad = self.lim_bad_ms.max(good);
+        let scale = if self.mods.contains(Mods::STRICT_JUDGE) { 0.5 } else { 1. };
+        let secs = |ms: f32| ms as f64 / 1000. * scale;
+        JudgeWindows {
+            perfect_plus: secs(perfect_plus),
+            perfect: secs(perfect),
+            good: secs(good),
+            bad: secs(bad),
+            fullscreen: self.mods.contains(Mods::FULLSCREEN_JUDGE),
+        }
+    }
+
     pub fn init(&mut self) {
         if let Some(flag) = self.autoplay {
             self.mods.set(Mods::AUTOPLAY, flag);
         }
+        // 兼容旧配置：血条的三项数值换过量纲（厚度曾是绝对值），这里夹回滑块区间。
+        self.hp_amount = self.hp_amount.clamp(0.2, 3.0);
+        self.hp_width = self.hp_width.clamp(0.1, 1.0);
+        self.hp_height = self.hp_height.clamp(0.5, 3.0);
         #[cfg(target_env = "ohos")]
         {
             // Due to the fucking poor performance of the Maloon GPU, the sample count must be set to 1.
@@ -155,5 +223,76 @@ impl Config {
     #[inline]
     pub fn flip_x(&self) -> bool {
         self.has_mod(Mods::FLIP_X)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Config, Mods};
+
+    /// 默认配置必须与接入配置前的硬编码窗口完全一致（±80/160/220 ms），否则就是行为变更。
+    #[test]
+    fn judge_windows_default_unchanged() {
+        let conf = Config::default();
+        assert_eq!(conf.lim_perfect_ms, 80.0);
+        assert_eq!(conf.lim_good_ms, 160.0);
+        assert_eq!(conf.lim_bad_ms, 220.0);
+        assert_eq!(conf.lim_perfect_plus_ms, 16.0);
+        let w = conf.judge_windows();
+        assert!((w.perfect_plus - 0.016).abs() < 1e-12);
+        assert!((w.perfect - 0.08).abs() < 1e-12);
+        assert!((w.good - 0.16).abs() < 1e-12);
+        assert!((w.bad - 0.22).abs() < 1e-12);
+    }
+
+    /// 严格判定 Mod 在各档基础上整体减半。
+    #[test]
+    fn judge_windows_strict_halves() {
+        let mut conf = Config::default();
+        conf.mods.insert(Mods::STRICT_JUDGE);
+        let w = conf.judge_windows();
+        assert!((w.perfect_plus - 0.008).abs() < 1e-12);
+        assert!((w.perfect - 0.04).abs() < 1e-12);
+        assert!((w.good - 0.08).abs() < 1e-12);
+        assert!((w.bad - 0.11).abs() < 1e-12);
+    }
+
+    /// 自定义毫秒窗口按比例生效。
+    #[test]
+    fn judge_windows_custom() {
+        let mut conf = Config::default();
+        conf.lim_perfect_ms = 40.0;
+        conf.lim_good_ms = 100.0;
+        conf.lim_bad_ms = 150.0;
+        let w = conf.judge_windows();
+        assert!((w.perfect - 0.04).abs() < 1e-12);
+        assert!((w.good - 0.1).abs() < 1e-12);
+        assert!((w.bad - 0.15).abs() < 1e-12);
+    }
+
+    /// 倒挂的配置即使没经过 `clamp_judge_windows` 也不会产出倒挂的窗口；
+    /// 夹过之后配置本身也变合法。
+    #[test]
+    fn judge_windows_clamped_monotonic() {
+        let mut conf = Config::default();
+        conf.lim_perfect_ms = 200.0;
+        conf.lim_good_ms = 100.0;
+        conf.lim_bad_ms = 50.0;
+        let w = conf.judge_windows();
+        assert!(w.perfect_plus <= w.perfect && w.perfect <= w.good && w.good <= w.bad);
+        assert!((w.bad - 0.2).abs() < 1e-12);
+
+        conf.clamp_judge_windows();
+        assert_eq!(conf.lim_good_ms, 200.0);
+        assert_eq!(conf.lim_bad_ms, 200.0);
+    }
+
+    /// 全屏判定由 Mod 控制。
+    #[test]
+    fn judge_windows_fullscreen_flag() {
+        let mut conf = Config::default();
+        assert!(!conf.judge_windows().fullscreen);
+        conf.mods.insert(Mods::FULLSCREEN_JUDGE);
+        assert!(conf.judge_windows().fullscreen);
     }
 }

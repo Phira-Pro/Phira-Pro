@@ -205,6 +205,24 @@ mod dir {
         }
     }
 
+    /// 把任意图片导入为 `data/appearance/{stem}.{ext}`。会先清掉同名的其它扩展名，
+    /// 保证探测时命中的是新文件；并且在覆盖前先验证能被解码，避免选中非图片文件后
+    /// 把原有资源弄丢。
+    pub fn import_appearance(stem: &str, src: &std::path::Path) -> Result<()> {
+        image::open(src)?;
+        let root = std::path::PathBuf::from(appearance()?);
+        // 只允许探测得到的那几种扩展名；其它一律按 png 存（解码是按内容嗅探的）。
+        let ext = match src.extension().and_then(|it| it.to_str()).map(|it| it.to_ascii_lowercase()) {
+            Some(it) if ["png", "jpg", "jpeg", "webp", "bmp"].contains(&it.as_str()) => it,
+            _ => "png".to_owned(),
+        };
+        for old in ["png", "jpg", "jpeg", "webp", "bmp"] {
+            let _ = std::fs::remove_file(root.join(format!("{stem}.{old}")));
+        }
+        std::fs::copy(src, root.join(format!("{stem}.{ext}")))?;
+        Ok(())
+    }
+
     /// 「打开外观目录」按钮使用的路径：优先返回绝对路径，便于系统文件管理器
     /// 正确定位；取不到时回落到相对路径。
     pub fn appearance_open_path() -> Result<String> {

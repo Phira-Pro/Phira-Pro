@@ -67,3 +67,7 @@ mods-nightcore = ナイトコア
 mods-nightcore-sub = より高速で譜面をプレイします
 mods-rainbow = レインボー
 mods-rainbow-sub = ゲームを *少しだけ* カラフルにします
+mods-strict-judge = 厳格判定モード
+mods-strict-judge-sub = すべての判定幅を半分にする
+mods-fullscreen-judge = 全画面判定
+mods-fullscreen-judge-sub = 画面のどこをタップしても判定される

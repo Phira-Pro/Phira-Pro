@@ -123,6 +123,10 @@ mods-instant-death-fc = 突然死亡（FC）
 mods-instant-death-fc-sub = 连击中断立即失败
 mods-no-shader = 无着色器
 mods-no-shader-sub = 禁用着色器特效。*启用此 Mod 后无法上传成绩*
+mods-strict-judge = 严格判定模式
+mods-strict-judge-sub = 所有判定窗口减半
+mods-fullscreen-judge = 全屏判定
+mods-fullscreen-judge-sub = 点击屏幕任意位置都能判定到最近的音符
 
 rate-failed = 评分失败
 rate-done = 评分成功

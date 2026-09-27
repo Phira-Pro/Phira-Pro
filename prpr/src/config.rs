@@ -125,6 +125,8 @@ pub struct Config {
     pub flick_protect: bool,
     /// 连击数下方显示的文字；留空则回退到「COMBO / AUTOPLAY」。
     pub combo_text: String,
+    /// 结算画面是否画判定时间分布图（早 ← → 晚）。
+    pub ending_judge_chart: bool,
     /// 软件 UI 主题：强调色（十六进制 RRGGBB，例如 "2196f3"）。
     pub ui_accent: String,
     /// 软件 UI 主题：表面色（按钮与弹窗底色，十六进制 RRGGBB）。
@@ -203,6 +205,7 @@ impl Default for Config {
             drag_protect: false,
             flick_protect: false,
             combo_text: "COMBO".to_owned(),
+            ending_judge_chart: false,
             ui_accent: "2196f3".to_owned(),
             ui_surface: "2a323c".to_owned(),
             show_fps: false,

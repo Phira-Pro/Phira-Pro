@@ -6,7 +6,7 @@ use crate::{
     core::{BOLD_FONT, PGR_FONT},
     ext::{create_audio_manger, rect_shadow, semi_black, semi_white, RectExt, SafeTexture, ScaleType},
     info::ChartInfo,
-    judge::{icon_index, PlayResult},
+    judge::{icon_index, PlayResult, HIST_BUCKETS},
     scene::show_message,
     task::Task,
     time::TimeManager,
@@ -47,6 +47,8 @@ pub struct EndingScene {
     player_name: String,
     player_rks: Option<f32>,
     autoplay: bool,
+    /// 是否绘制结算判定分布图（配置 `ending_judge_chart`）。
+    judge_chart: bool,
     use_keyboard: bool,
     speed: f32,
     mods: Mods,
@@ -142,6 +144,7 @@ impl EndingScene {
             player_name: config.player_name.clone(),
             player_rks,
             autoplay: config.autoplay(),
+            judge_chart: config.ending_judge_chart,
             use_keyboard: config.use_keyboard,
             speed: config.speed,
             mods: config.mods,
@@ -663,6 +666,38 @@ impl Scene for EndingScene {
                 .color(if self.detail_mode { semi_white(0.4) } else { WHITE })
                 .draw_using(&BOLD_FONT);
             self.btn_detail.set(ui, dr.feather(0.02));
+
+            // 结算判定分布图（早 ← → 晚）：21 个桶、0ms 居中，左蓝右橙。
+            // 画在曲绘之后（和「详情」同一层），所以不会被曲绘扇形遮住；无背景无边框。
+            if self.judge_chart && !self.autoplay {
+                let hist = &self.result.hist;
+                if hist.iter().any(|it| *it > 0) {
+                    let w = 0.9;
+                    let h = 0.085;
+                    let x0 = -w / 2.;
+                    // 落位：标题栏底边（-top + 0.46）与判定列表顶边之间那条空隙的正中。
+                    let cy = -top + 0.43 + top * 0.15;
+                    let base = cy + h / 2.;
+                    let bw = w / HIST_BUCKETS as f32;
+                    let mid = HIST_BUCKETS as f32 / 2.;
+                    let max = hist.iter().copied().max().unwrap_or(1).max(1) as f32;
+                    for (i, count) in hist.iter().enumerate() {
+                        let bh = h * (*count as f32 / max);
+                        let d = i as f32 - mid;
+                        let color = if d.abs() < 0.5 {
+                            Color::new(1., 0.95, 0.6, 0.95)
+                        } else if d < 0. {
+                            Color::new(0.45, 0.75, 1., 0.9)
+                        } else {
+                            Color::new(1., 0.62, 0.35, 0.9)
+                        };
+                        ui.fill_rect(Rect::new(x0 + bw * i as f32 + bw * 0.1, base - bh, bw * 0.8, bh), color);
+                    }
+                    // 0ms 参考线
+                    let zx = x0 + bw * mid;
+                    ui.fill_rect(Rect::new(zx - 0.0008, cy - h / 2., 0.0016, h), semi_white(0.4));
+                }
+            }
 
             // 「已应用推荐偏移」提示：与「详情」同高、右对齐在其左侧，显示 5 秒后淡出。
             if self.offset_applied {

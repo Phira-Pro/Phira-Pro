@@ -156,3 +156,5 @@ item-combo-text-sub = The text shown under the combo counter in game (up to 16 c
 combo-text-default = Default
 item-late-leniency = Late Leniency
 item-late-leniency-sub = Subtracts this much from late hits when judging; 0 = perfectly symmetric with early (upstream silently allowed 70ms, making late hits too forgiving)
+item-judge-chart = Judgement Chart
+item-judge-chart-sub = Draw a judgement timing distribution chart on the ending screen (early <- -> late)

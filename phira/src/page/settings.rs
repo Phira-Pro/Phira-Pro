@@ -932,6 +932,7 @@ struct ChartList {
     drag_protect_btn: DRectButton,
     flick_protect_btn: DRectButton,
     combo_text_btn: DRectButton,
+    judge_chart_btn: DRectButton,
 }
 
 impl ChartList {
@@ -963,6 +964,7 @@ impl ChartList {
             drag_protect_btn: DRectButton::new(),
             flick_protect_btn: DRectButton::new(),
             combo_text_btn: DRectButton::new(),
+            judge_chart_btn: DRectButton::new(),
         }
     }
 
@@ -1053,6 +1055,10 @@ impl ChartList {
         }
         if self.combo_text_btn.touch(touch, t) {
             request_input("combo_text", InputBox::new().default_text(&config.combo_text));
+            return Ok(Some(true));
+        }
+        if self.judge_chart_btn.touch(touch, t) {
+            config.ending_judge_chart ^= true;
             return Ok(Some(true));
         }
         if self.hp_mode_btn.touch(touch, t) {
@@ -1202,6 +1208,10 @@ impl ChartList {
                 config.combo_text.clone()
             };
             self.combo_text_btn.render_text_left(ui, rr, t, 1., label, 0.5, false);
+        }
+        item! {
+            render_title(ui, tl!("item-judge-chart"), Some(tl!("item-judge-chart-sub")));
+            render_switch(ui, rr, t, &mut self.judge_chart_btn, config.ending_judge_chart);
         }
         (w, h)
     }

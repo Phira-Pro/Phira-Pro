@@ -24,6 +24,10 @@ pub const LIMIT_GOOD: f64 = 0.16;
 pub const LIMIT_BAD: f64 = 0.22;
 pub const UP_TOLERANCE: f64 = 0.05;
 pub const DIST_FACTOR: f64 = 0.2;
+/// 结算判定分布图的桶数。
+pub const HIST_BUCKETS: usize = 21;
+/// 结算判定分布图的半宽（毫秒）：横轴覆盖 -HIST_MAX_MS .. +HIST_MAX_MS。
+pub const HIST_MAX_MS: f64 = 200.;
 
 #[derive(Debug, Clone)]
 pub enum HitSound {
@@ -181,6 +185,8 @@ pub(crate) struct JudgeInner {
     recent: Vec<RecentHit>,
     /// 本局所有有效命中的偏移（秒），供结算时的偏差统计使用。
     offsets: Vec<f64>,
+    /// 判定时间误差分布（-HIST_MAX_MS .. +HIST_MAX_MS，共 HIST_BUCKETS 个桶）。
+    hist: [u32; HIST_BUCKETS],
     /// 血条模式的当前血量（0..=1）。
     hp: f32,
     /// 血条扣血倍率。
@@ -201,6 +207,7 @@ impl JudgeInner {
             late_kind: [0; 5],
             recent: Vec::new(),
             offsets: Vec::new(),
+            hist: [0; HIST_BUCKETS],
             hp: 1.,
             hp_amount: 1.,
         }
@@ -219,6 +226,8 @@ impl JudgeInner {
         // 累计本局所有有效命中的偏移；Miss 不代表击打精度，不入统计。
         if !matches!(judgement, Judgement::Miss) {
             self.offsets.push(offset);
+            // 同一批「真实计时」的命中同时进结算分布图。
+            self.push_hist(offset);
         }
         if matches!(judgement, Judgement::Miss) {
             return;
@@ -227,6 +236,13 @@ impl JudgeInner {
             self.recent.remove(0);
         }
         self.recent.push(RecentHit { offset, judgement, time });
+    }
+
+    /// 记录一次真实计时的判定误差（秒），用于结算画面的判定分布图。
+    pub fn push_hist(&mut self, diff: f64) {
+        let width = HIST_MAX_MS * 2. / HIST_BUCKETS as f64;
+        let idx = ((diff * 1000. + HIST_MAX_MS) / width).clamp(0., HIST_BUCKETS as f64 - 1.) as usize;
+        self.hist[idx] += 1;
     }
 
     pub fn recent_hits(&self) -> &[RecentHit] {
@@ -287,6 +303,7 @@ impl JudgeInner {
         self.late_kind = [0; 5];
         self.recent.clear();
         self.offsets.clear();
+        self.hist = [0; HIST_BUCKETS];
         self.hp = 1.;
     }
 
@@ -337,6 +354,7 @@ impl JudgeInner {
             std,
             mean,
             offsets: self.offsets.clone(),
+            hist: self.hist,
             early_kind: self.early_kind,
             late_kind: self.late_kind,
         }
@@ -1281,6 +1299,8 @@ pub struct PlayResult {
     pub mean: f32,
     /// 本局所有有效命中的偏移（秒），供结算界面绘制偏差分布直方图。
     pub offsets: Vec<f64>,
+    /// 判定时间误差分布（-HIST_MAX_MS .. +HIST_MAX_MS，共 HIST_BUCKETS 个桶）。
+    pub hist: [u32; HIST_BUCKETS],
     pub early_kind: [u32; 5],
     pub late_kind: [u32; 5],
 }

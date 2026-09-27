@@ -160,3 +160,6 @@ still-loading = 仍在加载中…
 
 export = 导出
 exporting = 导出中…
+
+mods-no-combo-score = 去连击分
+mods-no-combo-score-sub = 分数不计入最大连击（分数 = 准确率 × 1000000）。*启用此 Mod 后无法上传成绩*

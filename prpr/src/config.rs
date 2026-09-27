@@ -54,8 +54,18 @@ bitflags! {
         /// Phira Pro：失败只记录、不中止本局（练习用，血条与即时死亡都不会中断游玩）。
         /// 会让成绩更容易，因此计入 `UNRATED`。
         const NO_FAIL = 0x0800;
+        /// 去连击分：连击不再计入分数，`score = accuracy * 1_000_000`。
+        /// 会让成绩更容易，因此计入 `UNRATED`。
+        ///
+        /// 注：上游改版 Phirc Mod++ 把这个标志放在 `0x0200`，但我们的 `0x0200` 已被
+        /// `STRICT_JUDGE` 占用，所以顺延到 `0x1000`（两边配置互不通用）。
+        const NO_COMBO_SCORE = 0x1000;
 
-        const UNRATED = Self::AUTOPLAY.bits() | Self::NO_SHADER.bits() | Self::FULLSCREEN_JUDGE.bits() | Self::NO_FAIL.bits();
+        const UNRATED = Self::AUTOPLAY.bits()
+            | Self::NO_SHADER.bits()
+            | Self::FULLSCREEN_JUDGE.bits()
+            | Self::NO_FAIL.bits()
+            | Self::NO_COMBO_SCORE.bits();
     }
 }
 
@@ -106,6 +116,15 @@ pub struct Config {
     pub hp_height: f32,
     /// 血条长度。
     pub hp_width: f32,
+    /// 晚按补偿（毫秒）：晚按（偏差为负）时额外放宽的量，默认 0 = 早/晚完全对称。
+    /// 上游把 70ms 写死在代码里且只作用在晚按一侧（等于「晚按白送 70ms」），这里改为可配置。
+    pub late_leniency_ms: f32,
+    /// 黄键保护：点击（蓝键）不会被叠在附近的 Drag（黄键）抢走判定。
+    pub drag_protect: bool,
+    /// 红键保护：点击（蓝键）不会被叠在附近的 Flick（红键）抢走判定。
+    pub flick_protect: bool,
+    /// 连击数下方显示的文字；留空则回退到「COMBO / AUTOPLAY」。
+    pub combo_text: String,
     /// 软件 UI 主题：强调色（十六进制 RRGGBB，例如 "2196f3"）。
     pub ui_accent: String,
     /// 软件 UI 主题：表面色（按钮与弹窗底色，十六进制 RRGGBB）。
@@ -180,6 +199,10 @@ impl Default for Config {
             hp_amount: 1.0,
             hp_height: 1.0,
             hp_width: 0.6,
+            late_leniency_ms: 0.,
+            drag_protect: false,
+            flick_protect: false,
+            combo_text: "COMBO".to_owned(),
             ui_accent: "2196f3".to_owned(),
             ui_surface: "2a323c".to_owned(),
             show_fps: false,
@@ -229,6 +252,18 @@ impl Config {
         self.lim_bad_ms = self.lim_bad_ms.max(self.lim_good_ms);
     }
 
+    /// 晚按补偿的上限（毫秒）。
+    pub const LATE_LENIENCY_MAX: f32 = 200.;
+
+    /// 晚按补偿（秒），夹在 0..=200ms；默认 0 = 早按晚按完全对称。
+    #[inline]
+    pub fn late_leniency(&self) -> f64 {
+        if !self.late_leniency_ms.is_finite() {
+            return 0.;
+        }
+        (self.late_leniency_ms.clamp(0., Self::LATE_LENIENCY_MAX) as f64) / 1000.
+    }
+
     /// 把配置里的毫秒窗口折算成判定用的秒数；开启 `Mods::STRICT_JUDGE` 时各档整体减半。
     ///
     /// 这里会再夹一次单调性，因此即使配置倒挂也不会影响实际判定。
@@ -271,6 +306,12 @@ impl Config {
         self.hp_amount = self.hp_amount.clamp(0.2, 3.0);
         self.hp_width = self.hp_width.clamp(0.1, 1.0);
         self.hp_height = self.hp_height.clamp(0.5, 3.0);
+        // 晚按补偿：NaN / 越界都夹回合法区间。
+        self.late_leniency_ms = if self.late_leniency_ms.is_finite() {
+            self.late_leniency_ms.clamp(0., Self::LATE_LENIENCY_MAX)
+        } else {
+            0.
+        };
         self.apply_ui_colors();
         crate::ui::SHOW_FPS.store(self.show_fps, std::sync::atomic::Ordering::Relaxed);
         #[cfg(target_env = "ohos")]

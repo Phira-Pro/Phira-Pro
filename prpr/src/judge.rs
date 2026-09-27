@@ -25,8 +25,6 @@ pub const LIMIT_BAD: f64 = 0.22;
 pub const UP_TOLERANCE: f64 = 0.05;
 pub const DIST_FACTOR: f64 = 0.2;
 
-const EARLY_OFFSET: f64 = 0.07;
-
 #[derive(Debug, Clone)]
 pub enum HitSound {
     None,
@@ -309,24 +307,27 @@ impl JudgeInner {
         (self.perfect_count() as f64 + self.counts[1] as f64 * 0.65) / cnt as f64
     }
 
-    pub fn score(&self) -> u32 {
+    /// `no_combo_score` 为真时不把最大连击计入分数（分数 = 准确率 × 1,000,000）。
+    pub fn score(&self, no_combo_score: bool) -> u32 {
         const TOTAL: u32 = 1000000;
         if self.perfect_count() == self.num_of_notes {
             TOTAL
+        } else if no_combo_score {
+            (self.accuracy() * TOTAL as f64).round() as u32
         } else {
             let score = (0.9 * self.accuracy() + self.max_combo as f64 / self.num_of_notes as f64 * 0.1) * TOTAL as f64;
             score.round() as u32
         }
     }
 
-    pub fn result(&self) -> PlayResult {
+    pub fn result(&self, no_combo_score: bool) -> PlayResult {
         let early = self.diffs.iter().filter(|it| **it < 0.).count() as u32;
         let (mean, std) = match self.offset_stats() {
             Some((_, mean, std)) => (mean as f32, std as f32),
             None => (0., 0.),
         };
         PlayResult {
-            score: self.score(),
+            score: self.score(no_combo_score),
             accuracy: self.accuracy(),
             max_combo: self.max_combo,
             num_of_notes: self.num_of_notes,
@@ -372,9 +373,9 @@ mod tests {
         assert_eq!(a.counts(), [3, 1, 0, 0, 0]);
         assert_eq!(b.counts(), [0, 1, 0, 0, 3]);
         assert_eq!(a.accuracy(), b.accuracy());
-        assert_eq!(a.score(), b.score());
+        assert_eq!(a.score(false), b.score(false));
         assert_eq!(a.combo(), b.combo());
-        assert_eq!(a.score(), 921250);
+        assert_eq!(a.score(false), 921250);
     }
 
     /// 全 Perfect+ 与全 Perfect 一样拿满分。
@@ -384,7 +385,7 @@ mod tests {
         for _ in 0..10 {
             j.commit(Judgement::PerfectPlus, 0.0);
         }
-        assert_eq!(j.score(), 1000000);
+        assert_eq!(j.score(false), 1000000);
         assert!((j.accuracy() - 1.).abs() < 1e-12);
     }
 
@@ -545,8 +546,8 @@ impl Judge {
     }
 
     #[inline]
-    pub fn score(&self) -> u32 {
-        self.inner.score()
+    pub fn score(&self, no_combo_score: bool) -> u32 {
+        self.inner.score(no_combo_score)
     }
 
     pub(crate) fn on_new_frame() {
@@ -601,6 +602,11 @@ impl Judge {
         }
         const X_DIFF_MAX: f64 = 0.21 / (16. / 9.) * 2.;
         let spd = res.config.speed as f64;
+        // 晚按补偿（秒）：晚按一侧额外放宽；默认 0 = 与早按完全对称。
+        let late_leniency = res.config.late_leniency();
+        // 黄键 / 红键保护：蓝键不会被叠在附近的黄 / 红键抢走判定。
+        let drag_protect = res.config.drag_protect;
+        let flick_protect = res.config.flick_protect;
 
         let uptime = get_uptime();
 
@@ -759,11 +765,22 @@ impl Judge {
                     if !click && matches!(note.kind, NoteKind::Click | NoteKind::Hold { .. }) {
                         continue;
                     }
+                    // 保护机制：点击（蓝键）不被叠在附近的 Drag（黄键）/ Flick（红键）抢走，
+                    // 直接跳过它们，继续找真正要判定的 Tap / Hold。
+                    if click {
+                        if drag_protect && matches!(note.kind, NoteKind::Drag) {
+                            continue;
+                        }
+                        if flick_protect && matches!(note.kind, NoteKind::Flick) {
+                            continue;
+                        }
+                    }
                     let dt = (note.time - t) / spd;
                     if dt >= closest.3 {
                         break;
                     }
-                    let dt = if dt < 0. { (dt + EARLY_OFFSET).min(0.).abs() } else { dt };
+                    // 晚按（dt < 0）时按配置放宽；默认 0 → 和早按完全对称。
+                    let dt = if dt < 0. { (dt + late_leniency).min(0.).abs() } else { dt };
                     let x = &mut note.object.translation.0;
                     x.set_time(t);
                     let dist = if limits.fullscreen {
@@ -1148,8 +1165,8 @@ impl Judge {
     }
 
     #[inline]
-    pub fn result(&self) -> PlayResult {
-        self.inner.result()
+    pub fn result(&self, no_combo_score: bool) -> PlayResult {
+        self.inner.result(no_combo_score)
     }
 
     #[inline]

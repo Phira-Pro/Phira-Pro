@@ -636,6 +636,14 @@ impl GeneralList {
                     data.anys_gateway = text.trim_end_matches('/').to_string();
                     return Ok(true);
                 }
+            } else if id == "combo_text" {
+                // 连击文字：去掉首尾空白并截断到 16 个字符（与上游改版一致）。
+                let mut text = text.trim().to_owned();
+                if text.chars().count() > 16 {
+                    text = text.chars().take(16).collect();
+                }
+                data.config.combo_text = text;
+                return Ok(true);
             } else {
                 return_input(id, text);
             }
@@ -920,6 +928,10 @@ struct ChartList {
     hp_amount_slider: Slider,
     hp_width_slider: Slider,
     hp_height_slider: Slider,
+    late_leniency_slider: Slider,
+    drag_protect_btn: DRectButton,
+    flick_protect_btn: DRectButton,
+    combo_text_btn: DRectButton,
 }
 
 impl ChartList {
@@ -947,6 +959,10 @@ impl ChartList {
             hp_amount_slider: Slider::new(0.2..3.0, 0.1),
             hp_width_slider: Slider::new(0.1..1.0, 0.01),
             hp_height_slider: Slider::new(0.5..3.0, 0.1),
+            late_leniency_slider: Slider::new(0.0..200.0, 5.0),
+            drag_protect_btn: DRectButton::new(),
+            flick_protect_btn: DRectButton::new(),
+            combo_text_btn: DRectButton::new(),
         }
     }
 
@@ -1022,6 +1038,22 @@ impl ChartList {
         if let wt @ Some(_) = self.limit_bad_slider.touch(touch, t, &mut config.lim_bad_ms) {
             config.clamp_judge_windows();
             return Ok(wt);
+        }
+        if let wt @ Some(_) = self.late_leniency_slider.touch(touch, t, &mut config.late_leniency_ms) {
+            config.late_leniency_ms = config.late_leniency_ms.clamp(0., prpr::config::Config::LATE_LENIENCY_MAX);
+            return Ok(wt);
+        }
+        if self.drag_protect_btn.touch(touch, t) {
+            config.drag_protect ^= true;
+            return Ok(Some(true));
+        }
+        if self.flick_protect_btn.touch(touch, t) {
+            config.flick_protect ^= true;
+            return Ok(Some(true));
+        }
+        if self.combo_text_btn.touch(touch, t) {
+            request_input("combo_text", InputBox::new().default_text(&config.combo_text));
+            return Ok(Some(true));
         }
         if self.hp_mode_btn.touch(touch, t) {
             config.hp_mode ^= true;
@@ -1148,6 +1180,28 @@ impl ChartList {
         item! {
             render_title(ui, tl!("item-hp-height"), None);
             self.hp_height_slider.render(ui, rr, t, config.hp_height, format!("{:.1}x", config.hp_height));
+        }
+        h += 0.04;
+        item! {
+            render_title(ui, tl!("item-late-leniency"), Some(tl!("item-late-leniency-sub")));
+            self.late_leniency_slider.render(ui, rr, t, config.late_leniency_ms, format!("{:.0} ms", config.late_leniency_ms));
+        }
+        item! {
+            render_title(ui, tl!("item-drag-protect"), Some(tl!("item-drag-protect-sub")));
+            render_switch(ui, rr, t, &mut self.drag_protect_btn, config.drag_protect);
+        }
+        item! {
+            render_title(ui, tl!("item-flick-protect"), Some(tl!("item-flick-protect-sub")));
+            render_switch(ui, rr, t, &mut self.flick_protect_btn, config.flick_protect);
+        }
+        item! {
+            render_title(ui, tl!("item-combo-text"), Some(tl!("item-combo-text-sub")));
+            let label = if config.combo_text.is_empty() {
+                tl!("combo-text-default").into_owned()
+            } else {
+                config.combo_text.clone()
+            };
+            self.combo_text_btn.render_text_left(ui, rr, t, 1., label, 0.5, false);
         }
         (w, h)
     }

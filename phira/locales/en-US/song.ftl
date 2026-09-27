@@ -139,3 +139,6 @@ fav-added = Added to favorites (long press to manage)
 still-loading = Still loading...
 export = Export
 exporting = Exporting...
+
+mods-no-combo-score = No Combo Score
+mods-no-combo-score-sub = Score no longer takes max combo into account (score = accuracy * 1000000). *YOU CAN'T UPLOAD SCORES WITH THIS MOD ENABLED*

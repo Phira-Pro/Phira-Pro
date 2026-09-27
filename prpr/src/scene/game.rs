@@ -178,6 +178,21 @@ const DEATH_TIME: f64 = 2.;
 /// 死亡过渡结束后，失败遮罩与按钮渐显的时长（秒）。
 const DEATH_FADE: f64 = 0.5;
 
+/// 连击数下方显示的文字。
+///
+/// 开启 AUTOPLAY 时**硬编码**为 `AUTOPLAY`：绝不允许被配置改写成 `combo` / `C0MB0`
+/// 这类形似「手动游玩」的变体 —— 否则可以用自动演奏录出看起来像手元 / 屏元的视频。
+/// 其余情况用配置里的自定义文字，留空则回退到 `COMBO`。
+fn combo_label(config: &crate::config::Config) -> &str {
+    if config.autoplay() {
+        "AUTOPLAY"
+    } else if !config.combo_text.is_empty() {
+        config.combo_text.as_str()
+    } else {
+        "COMBO"
+    }
+}
+
 #[rustfmt::skip]
 #[cfg(closed)]
 mod inner;
@@ -577,7 +592,7 @@ impl GameScene {
             let h = 0.07;
             let score_top = top + eps * 2.2 - (1. - p) * 0.4;
             let score_right = 1. - margin;
-            let score = format!("{:07}", self.judge.score());
+            let score = format!("{:07}", self.judge.score(res.config.has_mod(Mods::NO_COMBO_SCORE)));
             let scale_point = legacy_aui.then(|| {
                 let ct = ui.text(&score).size(0.8).measure_using(&PGR_FONT).center();
                 (score_right - ct.x, score_top + ct.y)
@@ -629,7 +644,7 @@ impl GameScene {
                     let combo_top = btm + 0.01;
                     self.chart
                         .with_element(ui, res, UIElement::Combo, None, (0., combo_top + unit_h * 0.2), |ui, c| {
-                            ui.text(if res.config.autoplay() { "AUTOPLAY" } else { "COMBO" })
+                            ui.text(combo_label(&res.config))
                                 .pos(0., combo_top)
                                 .anchor(0.5, 0.)
                                 .size(0.4)
@@ -652,7 +667,7 @@ impl GameScene {
                     let ct = ui.text("COMBO").size(0.4).measure().center();
                     let combo_top = btm + 0.01 + ct.y;
                     self.chart.with_element(ui, res, UIElement::Combo, None, (0., combo_top), |ui, c| {
-                        ui.text(if res.config.autoplay() { "AUTOPLAY" } else { "COMBO" })
+                        ui.text(combo_label(&res.config))
                             .pos(0., combo_top)
                             .anchor(0.5, 0.5)
                             .size(0.4)
@@ -1146,7 +1161,7 @@ impl Scene for GameScene {
                             }
                         }
                     }
-                    let result = self.judge.result();
+                    let result = self.judge.result(self.res.config.has_mod(Mods::NO_COMBO_SCORE));
                     let record = if self.res.config.mods.intersects(Mods::UNRATED) || self.res.config.speed < 1.0 - 1e-3 {
                         None
                     } else {
@@ -1183,7 +1198,7 @@ impl Scene for GameScene {
                                 self.res.icon_proceed.clone(),
                                 self.res.mod_icons.clone(),
                                 self.res.info.clone(),
-                                self.judge.result(),
+                                self.judge.result(self.res.config.has_mod(Mods::NO_COMBO_SCORE)),
                                 &self.res.config,
                                 self.res.res_pack.ending.clone(),
                                 self.upload_fn.as_ref().map(Arc::clone),

@@ -145,3 +145,13 @@ about-content =
   { $revision }
 
   以及许多志愿谱面审核员！完整列表参见 https://phira.moe/staff
+
+item-drag-protect = 黄键保护
+item-drag-protect-sub = 点击（蓝键）不会被叠在附近的黄键（Drag）吃掉
+item-flick-protect = 红键保护
+item-flick-protect-sub = 点击（蓝键）不会被叠在附近的红键（Flick）吃掉
+item-combo-text = 连击文字
+item-combo-text-sub = 游戏里连击数下面那行显示的文字（最长 16 个字符）
+combo-text-default = 默认
+item-late-leniency = 晚按补偿
+item-late-leniency-sub = 判定时把「按晚了」的误差减掉这么多；0 = 和早按完全对称（上游默认偷偷给了 70ms，late 会明显偏松）

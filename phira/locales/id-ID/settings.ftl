@@ -120,3 +120,40 @@ about-content =
   { $revision }
 
   Dan banyak lagi peninjau chart sukarela. Untuk daftar lengkap, silakan merujuk ke https://phira.moe/staff
+item-drag-protect = Proteksi Drag
+item-drag-protect-sub = Ketukan tidak lagi dimakan oleh not Drag yang bertumpuk
+item-flick-protect = Proteksi Flick
+item-flick-protect-sub = Ketukan tidak lagi dimakan oleh not Flick yang bertumpuk
+item-combo-text = Teks kombo
+item-combo-text-sub = Teks di bawah penghitung kombo (maks 16 karakter)
+combo-text-default = Bawaan
+item-late-leniency = Toleransi telat
+item-late-leniency-sub = Dikurangi sebanyak ini untuk ketukan telat; 0 = simetris dengan awal
+item-judge-chart = Distribusi penilaian
+item-judge-chart-sub = Menggambar distribusi waktu di layar hasil (awal ke telat)
+item-hp-scale = Pengali bilah nyawa
+item-hp-color = Warna bilah nyawa
+item-upload = Unggah skor
+item-upload-sub = [Tidak didukung di build ini] Sakelar tidak berpengaruh; skor tetap lokal
+item-upload-consent = Persetujuan unggah
+item-upload-consent-open = Lihat
+item-history = Riwayat skor
+item-history-sub = Setiap permainan disimpan lokal: daftar / tren / perbandingan PB / distribusi penilaian / impor & ekspor
+item-history-open = Buka
+item-debug-line = Debug garis
+item-debug-line-sub = Menampilkan ID / tinggi / z-index di tiap garis; garis tersembunyi tetap tampak samar
+item-debug-note = Debug not
+item-debug-note-sub = Menampilkan nomor garis / waktu / tinggi / jenis dan area penilaian horizontal
+item-font = Font khusus
+item-font-sub = Impor ttf/otf sebagai font antarmuka. *Berlaku setelah restart*
+import-font = Impor
+item-font-reset = Reset font
+item-font-reset-sub = Hapus font yang diimpor dan pakai font bawaan. *Berlaku setelah restart*
+font-reset-btn = Reset
+font-imported = Font diimpor; restart untuk menerapkan
+font-import-failed = Gagal mengimpor font
+font-reset-done = Font bawaan dipulihkan; restart untuk menerapkan
+upload-consent-title = Unggah skor: persetujuan dan penafian
+upload-consent-accept = Saya sudah membaca dan setuju
+upload-consent-deny = Tidak setuju
+upload-consent-text = Jika aktif, skor babak ini (ID chart, skor / akurasi / penilaian, stempel versi, kredensial akun) dikirim ke server resmi Phira; tidak ada data perangkat atau berkas lain yang dikirim. Jika mati, semua tetap lokal. Catatan: di build ini saluran unggah dinonaktifkan saat kompilasi. Build tidak resmi, tanpa afiliasi dengan TeamFlos / Phira; jika berbeda dari klien resmi, pengguna menanggung akibatnya.

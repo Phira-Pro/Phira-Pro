@@ -138,3 +138,40 @@ about-content =
     { $revision }
 
     以及許多志願譜面審核員！完整列表參見 https://phira.moe/staff
+item-drag-protect = 黃鍵保護
+item-drag-protect-sub = 點擊（藍鍵）不會被疊在附近的黃鍵吃掉
+item-flick-protect = 紅鍵保護
+item-flick-protect-sub = 點擊（藍鍵）不會被疊在附近的紅鍵吃掉
+item-combo-text = 連擊文字
+item-combo-text-sub = 連擊數下方顯示的文字（最長 16 個字元）
+combo-text-default = 預設
+item-late-leniency = 晚按補償
+item-late-leniency-sub = 判定時把「按晚了」的誤差減掉這麼多；0 = 與早按完全對稱
+item-judge-chart = 結算判定分布圖
+item-judge-chart-sub = 結算畫面畫一張判定時間分布圖（早 ← → 晚），0ms 居中、左藍右橙
+item-hp-scale = 血條整體倍率
+item-hp-color = 血條顏色
+item-upload = 上傳成績
+item-upload-sub = 【本建置不支援上傳】開關目前無實際作用，成績只存本機
+item-upload-consent = 成績上傳協議
+item-upload-consent-open = 檢視
+item-history = 成績歷史
+item-history-sub = 本機保存的每次遊玩記錄：列表 / 趨勢 / PB 對比 / 判定分布對比 / 匯入匯出
+item-history-open = 開啟
+item-debug-line = 判定線除錯
+item-debug-line-sub = 在每條判定線旁顯示編號 / 線高 / z-index，原本會隱藏的線以淡影保留
+item-debug-note = 音符除錯
+item-debug-note-sub = 在音符旁顯示線號 / 時間 / 高度 / 類型，並畫出橫向判定範圍
+item-font = 自訂字型
+item-font-sub = 匯入 ttf/otf 字型作為介面字型。*重啟 App 後生效*
+import-font = 匯入
+item-font-reset = 恢復預設字型
+item-font-reset-sub = 刪除已匯入的字型改用內建字型。*重啟 App 後生效*
+font-reset-btn = 恢復預設
+font-imported = 字型已匯入，重啟 App 後生效
+font-import-failed = 匯入字型失敗
+font-reset-done = 已恢復預設字型，重啟 App 後生效
+upload-consent-title = 成績上傳：知情同意與免責聲明
+upload-consent-accept = 我已閱讀並同意
+upload-consent-deny = 不同意
+upload-consent-text = 開啟後會把這局成績（譜面 ID、分數 / 準確率 / 判定、譜面版本時間戳、帳號憑證）上傳到 Phira 官方伺服器，不上傳裝置資訊或其它檔案；關閉後成績只存本機。注意本建置的上傳通道在編譯期是關閉的，開關目前只宣告意願、成績實際只存本機。本改版為非官方改版，與 TeamFlos / Phira 官方無關；若成績與官方客戶端不一致，後果由使用者自行承擔。

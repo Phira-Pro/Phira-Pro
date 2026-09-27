@@ -133,3 +133,40 @@ about-content =
   { $revision }
 
   그리고 많은 자원봉사 채보 리뷰어들에게 감사드립니다. 전체 목록은 https://phira.moe/staff 를 참조하세요.
+item-drag-protect = 황색 노트 보호
+item-drag-protect-sub = 탭이 겹친 황색 노트에 먹히지 않습니다
+item-flick-protect = 적색 노트 보호
+item-flick-protect-sub = 탭이 겹친 적색 노트에 먹히지 않습니다
+item-combo-text = 콤보 문구
+item-combo-text-sub = 콤보 수 아래에 표시할 문구 (최대 16자)
+combo-text-default = 기본
+item-late-leniency = 늦은 입력 보정
+item-late-leniency-sub = 늦은 입력의 오차를 이만큼 빼줍니다; 0 = 빠른 입력과 완전 대칭
+item-judge-chart = 판정 분포도
+item-judge-chart-sub = 결과 화면에 판정 타이밍 분포를 그립니다 (빠름 ← → 늦음)
+item-hp-scale = 체력바 배율
+item-hp-color = 체력바 색상
+item-upload = 점수 업로드
+item-upload-sub = [이 빌드에서는 미지원] 이 스위치는 효과가 없고 점수는 기기에만 저장됩니다
+item-upload-consent = 업로드 동의
+item-upload-consent-open = 보기
+item-history = 점수 기록
+item-history-sub = 모든 플레이를 기기에 저장: 목록 / 추세 / PB 비교 / 판정 분포 / 가져오기·내보내기
+item-history-open = 열기
+item-debug-line = 판정선 디버그
+item-debug-line-sub = 각 판정선에 ID / 높이 / z-index를 표시하고, 숨겨질 선은 흐리게 남깁니다
+item-debug-note = 노트 디버그
+item-debug-note-sub = 노트에 선 번호 / 시각 / 높이 / 종류와 가로 판정 범위를 표시합니다
+item-font = 사용자 글꼴
+item-font-sub = ttf/otf를 UI 글꼴로 불러옵니다. *재시작 후 적용*
+import-font = 불러오기
+item-font-reset = 글꼴 초기화
+item-font-reset-sub = 불러온 글꼴을 지우고 기본 글꼴로 돌아갑니다. *재시작 후 적용*
+font-reset-btn = 초기화
+font-imported = 글꼴을 불러왔습니다. 재시작 후 적용
+font-import-failed = 글꼴을 불러오지 못했습니다
+font-reset-done = 기본 글꼴로 되돌렸습니다. 재시작 후 적용
+upload-consent-title = 점수 업로드: 동의 및 면책
+upload-consent-accept = 읽었으며 동의합니다
+upload-consent-deny = 동의하지 않음
+upload-consent-text = 켜면 이번 플레이의 점수(채보 ID, 점수 / 정확도 / 판정, 채보 버전 시각, 계정 정보)를 Phira 공식 서버로 보냅니다. 기기 정보나 다른 파일은 보내지 않습니다. 끄면 기기에만 저장됩니다. 참고로 이 빌드에서는 업로드 경로가 컴파일 시점에 꺼져 있습니다. 비공식 빌드이며 TeamFlos / Phira와 무관합니다. 공식 클라이언트와 차이가 생기면 책임은 사용자에게 있습니다.

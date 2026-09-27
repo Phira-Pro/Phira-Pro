@@ -130,3 +130,5 @@ stabilize-approved = Aprovado
 stabilize-approved-passed = Aprovado, o beatmap está estabilizado
 stabilize-denied = Negado
 stabilize-denied-passed = Negado, o beatmap foi rejeitado
+mods-no-combo-score = Sem pontos de combo
+mods-no-combo-score-sub = O combo máximo não entra na pontuação (pontuação = precisão × 1000000). *Não é possível enviar pontuações com este mod*

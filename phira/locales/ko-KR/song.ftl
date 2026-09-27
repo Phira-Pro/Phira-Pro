@@ -131,3 +131,5 @@ stabilize-approved = 승인됨
 stabilize-approved-passed = 승인됨, 비트맵이 안정화되었습니다.
 stabilize-denied = 거부됨
 stabilize-denied-passed = 거부됨, 비트맵이 거부되었습니다.
+mods-no-combo-score = 콤보 점수 제외
+mods-no-combo-score-sub = 최대 콤보를 점수에 넣지 않습니다 (점수 = 정확도 × 1000000). *이 MOD로는 점수 업로드 불가*

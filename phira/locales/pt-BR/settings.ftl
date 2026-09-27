@@ -125,3 +125,40 @@ about-content =
   { $revision }
 
   E muitos outros revisores de charts voluntários. Para uma lista completa, consulte https://phira.moe/staff
+item-drag-protect = Proteção de Drag
+item-drag-protect-sub = O toque não é mais consumido por uma nota Drag sobreposta
+item-flick-protect = Proteção de Flick
+item-flick-protect-sub = O toque não é mais consumido por uma nota Flick sobreposta
+item-combo-text = Texto do combo
+item-combo-text-sub = Texto exibido sob o contador de combo (até 16 caracteres)
+combo-text-default = Padrão
+item-late-leniency = Tolerância de atraso
+item-late-leniency-sub = Subtrai isso dos toques atrasados; 0 = simétrico aos adiantados
+item-judge-chart = Distribuição de julgamentos
+item-judge-chart-sub = Desenha a distribuição de tempo na tela de resultado (adiantado → atrasado)
+item-hp-scale = Multiplicador da barra de vida
+item-hp-color = Cor da barra de vida
+item-upload = Enviar pontuações
+item-upload-sub = [Não suportado nesta versão] O interruptor não tem efeito; as pontuações ficam locais
+item-upload-consent = Consentimento de envio
+item-upload-consent-open = Ver
+item-history = Histórico de pontuações
+item-history-sub = Cada partida salva localmente: lista / tendência / comparação de PB / distribuição de julgamentos / importar e exportar
+item-history-open = Abrir
+item-debug-line = Debug de linhas
+item-debug-line-sub = Mostra ID / altura / z-index em cada linha; linhas ocultas ficam como fantasma
+item-debug-note = Debug de notas
+item-debug-note-sub = Mostra número da linha / tempo / altura / tipo e a área de julgamento horizontal
+item-font = Fonte personalizada
+item-font-sub = Importe um ttf/otf como fonte da interface. *Efeito após reiniciar*
+import-font = Importar
+item-font-reset = Restaurar fonte
+item-font-reset-sub = Apaga a fonte importada e volta à embutida. *Efeito após reiniciar*
+font-reset-btn = Restaurar
+font-imported = Fonte importada; reinicie para aplicar
+font-import-failed = Falha ao importar a fonte
+font-reset-done = Fonte embutida restaurada; reinicie para aplicar
+upload-consent-title = Envio de pontuações: consentimento e isenção
+upload-consent-accept = Li e concordo
+upload-consent-deny = Discordo
+upload-consent-text = Se ativado, a pontuação desta partida (ID do chart, pontuação / precisão / julgamentos, carimbo de versão, credenciais) vai para o servidor oficial do Phira; dados do dispositivo ou outros arquivos não são enviados. Se desativado, tudo fica local. Obs.: nesta versão o envio é desativado em tempo de compilação. Versão não oficial, sem vínculo com TeamFlos / Phira; se divergir do cliente oficial, o usuário assume as consequências.

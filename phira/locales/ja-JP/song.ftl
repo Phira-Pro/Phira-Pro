@@ -73,3 +73,5 @@ mods-fullscreen-judge = 全画面判定
 mods-fullscreen-judge-sub = 画面のどこをタップしても判定される
 mods-no-fail = 失敗なし
 mods-no-fail-sub = 失敗は記録されるだけで、途中終了しません
+mods-no-combo-score = コンボスコアなし
+mods-no-combo-score-sub = 最大コンボをスコアに含めません（スコア = 精度 × 1000000）。*この MOD ではスコア送信不可*

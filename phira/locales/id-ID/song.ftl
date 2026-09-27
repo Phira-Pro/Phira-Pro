@@ -124,3 +124,5 @@ stabilize-approved = Approved
 stabilize-approved-passed = Approved, beatmap telah stabil
 stabilize-denied = Denied
 stabilize-denied-passed = Denied, beatmap ditolak
+mods-no-combo-score = Tanpa skor kombo
+mods-no-combo-score-sub = Kombo maks tidak dihitung (skor = akurasi × 1000000). *Tidak bisa mengunggah skor dengan mod ini*

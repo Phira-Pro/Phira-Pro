@@ -125,3 +125,40 @@ about-content =
   { $revision }
 
   Ve daha birçok gönüllü chart incelemecisi. Tam liste için https://phira.moe/staff adresine bakın
+item-drag-protect = Sarı koruması
+item-drag-protect-sub = Dokunma artık üst üste binen sarı nota tarafından yenmiyor
+item-flick-protect = Kırmızı koruması
+item-flick-protect-sub = Dokunma artık üst üste binen kırmızı nota tarafından yenmiyor
+item-combo-text = Combo metni
+item-combo-text-sub = Combo sayacının altında gösterilen metin (en fazla 16 karakter)
+combo-text-default = Varsayılan
+item-late-leniency = Geç toleransı
+item-late-leniency-sub = Geç vuruşlardan bu kadar düşülür; 0 = erken ile tam simetrik
+item-judge-chart = Yargı dağılımı
+item-judge-chart-sub = Sonuç ekranına zamanlama dağılımı çizer (erken → geç)
+item-hp-scale = Can barı çarpanı
+item-hp-color = Can barı rengi
+item-upload = Skor yükle
+item-upload-sub = [Bu sürümde desteklenmiyor] Anahtar etkisizdir; skorlar cihazda kalır
+item-upload-consent = Yükleme onayı
+item-upload-consent-open = Görüntüle
+item-history = Skor geçmişi
+item-history-sub = Her oyun yerel olarak kaydedilir: liste / eğilim / PB karşılaştırması / yargı dağılımı / içe ve dışa aktarma
+item-history-open = Aç
+item-debug-line = Çizgi hata ayıklama
+item-debug-line-sub = Her çizginin yanında kimlik / yükseklik / z-index gösterir; gizlenen çizgiler silik kalır
+item-debug-note = Nota hata ayıklama
+item-debug-note-sub = Notaların çizgi numarası / zamanı / yüksekliği / türünü ve yatay yargı aralığını gösterir
+item-font = Özel yazı tipi
+item-font-sub = Arayüz yazı tipi olarak ttf/otf içe aktar. *Yeniden başlatınca geçerli*
+import-font = İçe aktar
+item-font-reset = Yazı tipini sıfırla
+item-font-reset-sub = İçe aktarılan yazı tipini silip yerleşiğe döner. *Yeniden başlatınca geçerli*
+font-reset-btn = Sıfırla
+font-imported = Yazı tipi içe aktarıldı; uygulamayı yeniden başlatın
+font-import-failed = Yazı tipi içe aktarılamadı
+font-reset-done = Yerleşik yazı tipine dönüldü; uygulamayı yeniden başlatın
+upload-consent-title = Skor yükleme: onay ve sorumluluk reddi
+upload-consent-accept = Okudum ve kabul ediyorum
+upload-consent-deny = Kabul etmiyorum
+upload-consent-text = Etkinleştirilirse bu oyunun skoru (chart kimliği, skor / isabet / yargılar, sürüm zaman damgası, hesap bilgileri) resmî Phira sunucusuna gönderilir; cihaz bilgisi veya başka dosya gönderilmez. Kapatılırsa her şey cihazda kalır. Not: bu sürümde yükleme, derleme sırasında kapalıdır. Resmî olmayan sürüm, TeamFlos / Phira ile ilgisi yoktur; resmî istemciden farklı sonuçlarda sorumluluk kullanıcıdadır.

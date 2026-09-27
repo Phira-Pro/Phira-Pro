@@ -115,3 +115,5 @@ stabilize-approved-passed = Zatwierdzono, beatmapa jest ustabilizowana
 stabilize-denied = Nie zatwierdzono
 stabilize-denied-passed = Nie zatwierdzono, beatmapa została odrzucona
 
+mods-no-combo-score = Bez punktów za combo
+mods-no-combo-score-sub = Maks. combo nie liczy się do wyniku (wynik = celność × 1000000). *Z tym modem nie można wysyłać wyników*

@@ -131,3 +131,5 @@ stabilize-approved = Onaylandı
 stabilize-approved-passed = Onaylandı, bu ritim dengelendi
 stabilize-denied = Reddedildi
 stabilize-denied-passed = Reddedildi, bu ritim reddedildi.
+mods-no-combo-score = Combo puanı yok
+mods-no-combo-score-sub = En yüksek combo skora katılmaz (skor = isabet × 1000000). *Bu modla skor yüklenemez*

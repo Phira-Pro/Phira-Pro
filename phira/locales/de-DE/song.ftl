@@ -138,3 +138,5 @@ collab-autocomplete-title = Abschluss durch Mitwirkende
 collab-autocomplete-content = Mitwirkende ohne Benutzer-ID erkannt: { $mentions }. Automatisch vervollständigen?
 collab-autocomplete-failed = „@{ $name }“ konnte nicht aufgelöst werden: Der Benutzer existiert nicht oder es gibt mehrere Treffer.
 collab-autocomplete-done = Mitwirkende wurden hinzugefügt
+mods-no-combo-score = Ohne Combo-Punkte
+mods-no-combo-score-sub = Max. Combo zählt nicht mehr (Punkte = Genauigkeit × 1000000). *Mit diesem Mod ist kein Hochladen möglich*

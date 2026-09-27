@@ -122,3 +122,40 @@ about-content =
   { $revision }
 
   その他多くのボランティア譜面レビュアーの皆様に感謝します。完全なリストは https://phira.moe/staff をご覧ください。
+item-drag-protect = 黄ノーツ保護
+item-drag-protect-sub = タップが重なった黄ノーツに取られなくなります
+item-flick-protect = 赤ノーツ保護
+item-flick-protect-sub = タップが重なった赤ノーツに取られなくなります
+item-combo-text = コンボ文字
+item-combo-text-sub = コンボ数の下に表示する文字（最大 16 文字）
+combo-text-default = 既定
+item-late-leniency = 遅押し補正
+item-late-leniency-sub = 遅押しの誤差をこれだけ差し引きます；0 = 早押しと完全に対称
+item-judge-chart = 判定分布図
+item-judge-chart-sub = リザルトに判定タイミングの分布図を描画（早 ← → 遅）
+item-hp-scale = ライフバー倍率
+item-hp-color = ライフバーの色
+item-upload = スコア送信
+item-upload-sub = 【このビルドでは非対応】このスイッチは効果がなく、スコアは端末内のみに保存されます
+item-upload-consent = 送信の同意
+item-upload-consent-open = 表示
+item-history = スコア履歴
+item-history-sub = 各プレイを端末内に保存：一覧 / 推移 / PB 比較 / 判定分布 / インポート・エクスポート
+item-history-open = 開く
+item-debug-line = 判定線デバッグ
+item-debug-line-sub = 各判定線の ID / 高さ / z-index を表示し、消える線は淡く残します
+item-debug-note = ノーツデバッグ
+item-debug-note-sub = ノーツの線番号 / 時刻 / 高さ / 種類と横判定範囲を表示します
+item-font = カスタムフォント
+item-font-sub = ttf/otf を UI フォントとして読み込みます。*再起動後に有効*
+import-font = 読み込み
+item-font-reset = フォントを初期化
+item-font-reset-sub = 読み込んだフォントを削除し組み込みに戻します。*再起動後に有効*
+font-reset-btn = 初期化
+font-imported = フォントを読み込みました。再起動後に有効
+font-import-failed = フォントの読み込みに失敗
+font-reset-done = 組み込みフォントに戻しました。再起動後に有効
+upload-consent-title = スコア送信：同意と免責事項
+upload-consent-accept = 読み、同意します
+upload-consent-deny = 同意しない
+upload-consent-text = 有効にすると、このプレイのスコア（譜面 ID、スコア / 精度 / 判定、譜面バージョンの時刻、アカウント情報）を Phira 公式サーバーへ送信します。端末情報やその他のファイルは送信しません。無効なら端末内にのみ保存されます。なお本ビルドでは送信経路がコンパイル時に無効化されています。非公式ビルドであり TeamFlos / Phira とは無関係です。公式クライアントと差異が出た場合の責任は利用者が負います。

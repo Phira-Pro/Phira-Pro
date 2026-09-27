@@ -112,3 +112,40 @@ about-content =
   { $revision }
 
   I wielu innych dobrowolnych recenzentów chartów. Pełną listę można znaleźć na https://phira.moe/staff
+item-drag-protect = Ochrona żółtych
+item-drag-protect-sub = Dotknięcie nie jest już zabierane przez nachodzącą żółtą nutę
+item-flick-protect = Ochrona czerwonych
+item-flick-protect-sub = Dotknięcie nie jest już zabierane przez nachodzącą czerwoną nutę
+item-combo-text = Tekst combo
+item-combo-text-sub = Tekst pod licznikiem combo (maks. 16 znaków)
+combo-text-default = Domyślny
+item-late-leniency = Tolerancja spóźnień
+item-late-leniency-sub = Tyle odejmuje się od spóźnionych trafień; 0 = symetrycznie do wczesnych
+item-judge-chart = Rozkład ocen
+item-judge-chart-sub = Rysuje rozkład czasów ocen na ekranie wyniku (wcześnie → późno)
+item-hp-scale = Mnożnik paska życia
+item-hp-color = Kolor paska życia
+item-upload = Wysyłanie wyników
+item-upload-sub = [Nieobsługiwane w tej wersji] Przełącznik nic nie robi; wyniki zostają lokalnie
+item-upload-consent = Zgoda na wysyłanie
+item-upload-consent-open = Zobacz
+item-history = Historia wyników
+item-history-sub = Każda rozgrywka zapisana lokalnie: lista / trend / porównanie PB / rozkład ocen / import i eksport
+item-history-open = Otwórz
+item-debug-line = Debug linii
+item-debug-line-sub = Pokazuje ID / wysokość / z-index przy każdej linii; ukrywane linie zostają jako widmo
+item-debug-note = Debug nut
+item-debug-note-sub = Pokazuje numer linii / czas / wysokość / typ oraz poziomy zakres oceny
+item-font = Własna czcionka
+item-font-sub = Zaimportuj ttf/otf jako czcionkę interfejsu. *Działa po restarcie*
+import-font = Importuj
+item-font-reset = Przywróć czcionkę
+item-font-reset-sub = Usuwa zaimportowaną czcionkę i wraca do wbudowanej. *Działa po restarcie*
+font-reset-btn = Przywróć
+font-imported = Czcionka zaimportowana; uruchom ponownie
+font-import-failed = Nie udało się zaimportować czcionki
+font-reset-done = Przywrócono wbudowaną czcionkę; uruchom ponownie
+upload-consent-title = Wysyłanie wyników: zgoda i wyłączenie odpowiedzialności
+upload-consent-accept = Przeczytałem i zgadzam się
+upload-consent-deny = Nie zgadzam się
+upload-consent-text = Po włączeniu wynik tej rozgrywki (ID mapy, wynik / celność / oceny, znacznik wersji, dane konta) trafia na oficjalny serwer Phira; dane urządzenia ani inne pliki nie są wysyłane. Po wyłączeniu wszystko zostaje lokalnie. Uwaga: w tej wersji wysyłanie jest wyłączone na etapie kompilacji. To nieoficjalna wersja, niezwiązana z TeamFlos / Phira; przy różnicach wobec oficjalnego klienta konsekwencje ponosi użytkownik.

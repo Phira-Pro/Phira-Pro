@@ -138,3 +138,40 @@ about-content =
   { $revision }
 
   Et beaucoup d'autres réviseurs de charts bénévoles. Pour une liste complète, veuillez consulter https://phira.moe/staff
+item-drag-protect = Protection des Drag
+item-drag-protect-sub = Un appui n'est plus mangé par une note Drag qui se chevauche
+item-flick-protect = Protection des Flick
+item-flick-protect-sub = Un appui n'est plus mangé par une note Flick qui se chevauche
+item-combo-text = Texte de combo
+item-combo-text-sub = Texte affiché sous le compteur de combo (16 caractères max)
+combo-text-default = Par défaut
+item-late-leniency = Tolérance tardive
+item-late-leniency-sub = Retire autant aux frappes tardives ; 0 = symétrique avec tôt
+item-judge-chart = Distribution des jugements
+item-judge-chart-sub = Dessine une distribution temporelle sur l'écran de résultat (tôt → tard)
+item-hp-scale = Multiplicateur de vie
+item-hp-color = Couleur de la barre de vie
+item-upload = Envoyer les scores
+item-upload-sub = [Non pris en charge dans cette version] Ce réglage est sans effet ; les scores restent locaux
+item-upload-consent = Accord d'envoi
+item-upload-consent-open = Voir
+item-history = Historique des scores
+item-history-sub = Chaque partie enregistrée en local : liste / tendance / comparaison PB / répartition des jugements / import-export
+item-history-open = Ouvrir
+item-debug-line = Debug des lignes
+item-debug-line-sub = Affiche ID / hauteur / z-index près de chaque ligne ; les lignes masquées restent en fantôme
+item-debug-note = Debug des notes
+item-debug-note-sub = Affiche numéro de ligne / temps / hauteur / type et la zone de jugement horizontale
+item-font = Police personnalisée
+item-font-sub = Importez un ttf/otf comme police d'interface. *Effectif après redémarrage*
+import-font = Importer
+item-font-reset = Réinitialiser la police
+item-font-reset-sub = Supprime la police importée et reprend celle intégrée. *Effectif après redémarrage*
+font-reset-btn = Réinitialiser
+font-imported = Police importée ; redémarrez pour l'appliquer
+font-import-failed = Échec de l'import de la police
+font-reset-done = Police intégrée restaurée ; redémarrez pour l'appliquer
+upload-consent-title = Envoi des scores : consentement et clause de non-responsabilité
+upload-consent-accept = J'ai lu et j'accepte
+upload-consent-deny = Refuser
+upload-consent-text = Si activé, le score de cette partie (ID du chart, score / précision / jugements, horodatage de version, identifiants) est envoyé au serveur officiel Phira ; aucune donnée d'appareil ni autre fichier n'est envoyé. Désactivé, tout reste local. Note : dans cette version l'envoi est désactivé à la compilation. Version non officielle, sans lien avec TeamFlos / Phira ; en cas d'écart avec le client officiel, l'utilisateur en assume les conséquences.

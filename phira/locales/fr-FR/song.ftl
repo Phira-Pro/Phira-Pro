@@ -133,3 +133,5 @@ stabilize-approved = Approuvé
 stabilize-approved-passed = La partition est stabilisée.
 stabilize-denied = Refusé
 stabilize-denied-passed = La partition est rejetée.
+mods-no-combo-score = Sans points de combo
+mods-no-combo-score-sub = Le combo max ne compte plus (score = précision × 1000000). *Impossible d'envoyer les scores avec ce mod*

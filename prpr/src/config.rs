@@ -137,6 +137,10 @@ pub struct Config {
     pub aspect_ratio: Option<f32>,
     pub audio_buffer_size: Option<u32>,
     pub chart_debug: bool,
+    /// 判定线调试：把本该隐藏/淡出的判定线以淡影保留，并在线旁显示编号 / 线高 / z / 类型。
+    pub chart_debug_line: bool,
+    /// 音符调试：在音符旁显示线号 / 时间 / 高度 / 类型，并画出它的横向判定范围。
+    pub chart_debug_note: bool,
     pub disable_effect: bool,
     pub double_click_to_pause: bool,
     pub double_hint: bool,
@@ -235,6 +239,8 @@ impl Default for Config {
             aspect_ratio: None,
             audio_buffer_size: None,
             chart_debug: false,
+            chart_debug_line: false,
+            chart_debug_note: false,
             disable_effect: false,
             double_click_to_pause: true,
             double_hint: true,

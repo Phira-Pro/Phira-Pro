@@ -11,7 +11,7 @@ use super::{
 use crate::{
     bin::BinaryReader,
     config::{Config, Mods},
-    core::{copy_fbo, BadNote, Chart, ChartExtra, Effect, Point, Resource, UIElement, Vector, PGR_FONT},
+    core::{copy_fbo, BadNote, Chart, ChartExtra, Effect, JudgeLineKind, NoteKind, Point, Resource, UIElement, Vector, PGR_FONT},
     ext::{parse_time, screen_aspect, semi_white, RectExt, SafeTexture, ScaleType},
     fs::FileSystem,
     info::{ChartFormat, ChartInfo},
@@ -177,6 +177,73 @@ const PAUSE_CLICK_INTERVAL: f32 = 0.7;
 const DEATH_TIME: f64 = 2.;
 /// 死亡过渡结束后，失败遮罩与按钮渐显的时长（秒）。
 const DEATH_FADE: f64 = 0.5;
+
+/// 谱面调试叠加层：判定线的编号 / 线高 / z-index / 类型，以及音符的时间 / 高度 / 类型
+/// 与横向判定范围。移植自上游改版 Phirc Mod++。
+fn debug_overlay(res: &Resource, chart: &Chart, ui: &mut Ui) {
+    /// 与判定用的横向容差同源（见 `prpr::judge`）。
+    const X_DIFF_MAX: f64 = 0.21 / (16. / 9.) * 2.;
+    let lines = &chart.lines;
+    if res.config.chart_debug_line {
+        for (id, line) in lines.iter().enumerate() {
+            let tr = line.now_transform(res, lines);
+            let pos = tr.transform_point(&Point::new(0., 0.));
+            let h = line.height.now();
+            // f32 的 ULP：越大说明这个线高在浮点上越不可靠（速度快到丢精度）。
+            let ulp = if h == 0. { 0. } else { f32::from_bits(h.to_bits() + 1) - h };
+            let color = if ulp > 0.018518519 {
+                RED
+            } else if ulp > 0.0018518519 {
+                YELLOW
+            } else {
+                WHITE
+            };
+            let kind = match &line.kind {
+                JudgeLineKind::Normal => "",
+                JudgeLineKind::Texture(..) => " img",
+                JudgeLineKind::TextureGif(..) => " gif",
+                JudgeLineKind::Text(..) => " text",
+                JudgeLineKind::Paint(..) => " paint",
+            };
+            let attach = if line.attach_ui.is_some() { " +ui" } else { "" };
+            ui.text(format!("[{id}] h:{h:.2} z:{}{attach}{kind}", line.z_index))
+                .pos(pos.x, pos.y - 0.012)
+                .anchor(0.5, 1.)
+                .size(0.045)
+                .color(color)
+                .draw_using(&PGR_FONT);
+        }
+    }
+    if res.config.chart_debug_note {
+        let x_diff = X_DIFF_MAX as f32;
+        for (id, line) in lines.iter().enumerate() {
+            let tr = line.now_transform(res, lines);
+            for note in &line.notes {
+                if (note.time - res.time).abs() > 0.35 {
+                    continue;
+                }
+                let mat = tr * note.object.now(res);
+                let pos = mat.transform_point(&Point::new(0., 0.));
+                let half = x_diff * note.judge_area;
+                let a = mat.transform_point(&Point::new(-half, 0.));
+                let b = mat.transform_point(&Point::new(half, 0.));
+                ui.fill_rect(Rect::new(a.x, pos.y - 0.005, b.x - a.x, 0.01), Color::new(1., 0.6, 0.2, 0.3));
+                let kind = match &note.kind {
+                    NoteKind::Click => "click",
+                    NoteKind::Hold { .. } => "hold",
+                    NoteKind::Flick => "flick",
+                    NoteKind::Drag => "drag",
+                };
+                ui.text(format!("[{id}] t:{:.2} h:{:.0} {kind}", note.time, note.height))
+                    .pos(pos.x, pos.y - 0.008)
+                    .anchor(0.5, 1.)
+                    .size(0.04)
+                    .color(WHITE)
+                    .draw_using(&PGR_FONT);
+            }
+        }
+    }
+}
 
 /// 连击数下方显示的文字。
 ///
@@ -699,6 +766,10 @@ impl GameScene {
                     Color::new(cr, cg, cb, 0.9),
                 );
             }
+            // 谱面调试叠加层（判定线 / 音符的编号、线高、时间、横向判定范围）。
+            if res.config.chart_debug_line || res.config.chart_debug_note {
+                debug_overlay(res, &self.chart, ui);
+            }
             // magic to make score visible, refer to phira/src/rate.rs#L219
             ui.text("").draw_using(&PGR_FONT);
             let lf = -1. + margin;
@@ -735,6 +806,10 @@ impl GameScene {
                 });
         });
         Ok(())
+    }
+
+    fn debug_overlay(&self, ui: &mut Ui) {
+        debug_overlay(&self.res, &self.chart, ui);
     }
 
     fn overlay_ui(&mut self, ui: &mut Ui, tm: &mut TimeManager) -> Result<()> {

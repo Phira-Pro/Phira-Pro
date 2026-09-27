@@ -148,6 +148,11 @@ mod dir {
         ensure("data")
     }
 
+    /// 自定义界面字体的路径（用户导入的，位于 `<data>/font.ttf`）。
+    pub fn custom_font_path() -> Result<String> {
+        Ok(format!("{}/font.ttf", root()?))
+    }
+
     pub fn charts() -> Result<String> {
         ensure("data/charts")
     }
@@ -291,8 +296,18 @@ async fn the_main() -> Result<()> {
     let pgr_font = FontArc::try_from_vec(load_file("phigros.ttf").await?)?;
     PGR_FONT.with(move |it| *it.borrow_mut() = Some(TextPainter::new(pgr_font, None)));
 
-    let font = FontArc::try_from_vec(load_file("font.ttf").await?)?;
-    let mut painter = TextPainter::new(font.clone(), None);
+    // 界面字体：优先用用户导入的 <data>/font.ttf；否则用内置的 HarmonyOS Sans。
+    // 用自定义字体时把内置字体作为逐字回退，缺字不会变成方块。
+    let builtin_font = load_file("harmonyos.ttf").await?;
+    let custom_font = dir::custom_font_path()
+        .ok()
+        .map(std::path::PathBuf::from)
+        .filter(|it| it.exists())
+        .and_then(|it| std::fs::read(it).ok());
+    let has_custom_font = custom_font.is_some();
+    let font = FontArc::try_from_vec(custom_font.unwrap_or_else(|| builtin_font.clone()))?;
+    let fallback = if has_custom_font { FontArc::try_from_vec(builtin_font).ok() } else { None };
+    let mut painter = TextPainter::new(font.clone(), fallback);
 
     let mut main = Main::new(Box::new(MainScene::new(font).await?), TimeManager::default(), None).await?;
 

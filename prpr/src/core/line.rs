@@ -72,6 +72,15 @@ impl GifFrames {
     }
 }
 
+/// 调试用：`debug` 为真时把 alpha 抬到至少 `min_alpha`，让本该隐藏的线以淡影保留。
+pub fn parse_alpha(alpha: f32, force_alpha: f32, min_alpha: f32, debug: bool) -> f32 {
+    if debug {
+        (min_alpha + (1. - min_alpha) * alpha) * force_alpha
+    } else {
+        alpha * force_alpha
+    }
+}
+
 #[derive(Default)]
 pub enum JudgeLineKind {
     #[default]
@@ -247,7 +256,8 @@ impl JudgeLine {
                 res.apply_model(|res| match &self.kind {
                     JudgeLineKind::Normal => {
                         let mut color = color.unwrap_or(res.judge_line_color);
-                        color.a *= alpha.max(0.0);
+                        // 判定线调试：本该淡出的线抬到至少 0.15 保留淡影。
+                        color.a = parse_alpha(color.a, alpha.max(0.0), 0.15, res.config.chart_debug_line);
                         let len = res.info.line_length;
                         draw_line(-len, 0., len, 0., if line_scaled { 0.0076 } else { 0.01 }, color);
                     }

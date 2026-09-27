@@ -440,6 +440,10 @@ struct GeneralList {
 
     appearance_btn: DRectButton,
     appearance_import_btn: DRectButton,
+    font_btn: DRectButton,
+    font_reset_btn: DRectButton,
+    /// 当前是否已导入自定义界面字体（每次进设置页时探测一次）。
+    has_custom_font: bool,
     /// 界面主题下拉框，用法与语言选择一致。
     theme_btn: ChooseButton,
     cache_btn: DRectButton,
@@ -479,6 +483,9 @@ impl GeneralList {
 
             appearance_btn: DRectButton::new(),
             appearance_import_btn: DRectButton::new(),
+            font_btn: DRectButton::new(),
+            font_reset_btn: DRectButton::new(),
+            has_custom_font: dir::custom_font_path().map(|it| PathBuf::from(it).exists()).unwrap_or(false),
             theme_btn: {
                 // 按当前配置的强调色定位到对应预设。
                 let cur = u32::from_str_radix(get_data().config.ui_accent.trim_start_matches('#'), 16).ok();
@@ -568,6 +575,32 @@ impl GeneralList {
                     }
                     Err(err) => show_error(err),
                 }
+            }
+            return Ok(Some(true));
+        }
+        if self.font_btn.touch(touch, t) {
+            // 系统文件对话框只在桌面平台可用。
+            #[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
+            if let Some(path) = rfd::FileDialog::new()
+                .set_title(tl!("import-font"))
+                .add_filter("font", &["ttf", "otf", "ttc"])
+                .pick_file()
+            {
+                match std::fs::copy(&path, dir::custom_font_path()?) {
+                    Ok(_) => {
+                        self.has_custom_font = true;
+                        show_message(tl!("font-imported")).ok();
+                    }
+                    Err(err) => show_error(anyhow::Error::new(err).context(tl!("font-import-failed"))),
+                }
+            }
+            return Ok(Some(true));
+        }
+        if self.font_reset_btn.touch(touch, t) {
+            if self.has_custom_font {
+                let _ = std::fs::remove_file(dir::custom_font_path()?);
+                self.has_custom_font = false;
+                show_message(tl!("font-reset-done")).ok();
             }
             return Ok(Some(true));
         }
@@ -712,6 +745,14 @@ impl GeneralList {
         item! {
             render_title(ui, tl!("item-appearance-import"), None);
             self.appearance_import_btn.render_text(ui, rr, t, tl!("item-appearance-import-btn"), 0.5, true);
+        }
+        item! {
+            render_title(ui, tl!("item-font"), Some(tl!("item-font-sub")));
+            self.font_btn.render_text(ui, rr, t, tl!("import-font"), 0.5, self.has_custom_font);
+        }
+        item! {
+            render_title(ui, tl!("item-font-reset"), Some(tl!("item-font-reset-sub")));
+            self.font_reset_btn.render_text(ui, rr, t, tl!("font-reset-btn"), 0.5, false);
         }
         item! {
             render_title(ui, tl!("item-ui-theme"), Some(tl!("item-ui-theme-sub")));
@@ -1317,6 +1358,8 @@ impl ChartList {
 
 struct DebugList {
     chart_debug_btn: DRectButton,
+    chart_debug_line_btn: DRectButton,
+    chart_debug_note_btn: DRectButton,
     touch_debug_btn: DRectButton,
     show_fps_btn: DRectButton,
 }
@@ -1325,6 +1368,8 @@ impl DebugList {
     pub fn new() -> Self {
         Self {
             chart_debug_btn: DRectButton::new(),
+            chart_debug_line_btn: DRectButton::new(),
+            chart_debug_note_btn: DRectButton::new(),
             touch_debug_btn: DRectButton::new(),
             show_fps_btn: DRectButton::new(),
         }
@@ -1339,6 +1384,14 @@ impl DebugList {
         let config = &mut data.config;
         if self.chart_debug_btn.touch(touch, t) {
             config.chart_debug ^= true;
+            return Ok(Some(true));
+        }
+        if self.chart_debug_line_btn.touch(touch, t) {
+            config.chart_debug_line ^= true;
+            return Ok(Some(true));
+        }
+        if self.chart_debug_note_btn.touch(touch, t) {
+            config.chart_debug_note ^= true;
             return Ok(Some(true));
         }
         if self.show_fps_btn.touch(touch, t) {
@@ -1375,6 +1428,14 @@ impl DebugList {
         item! {
             render_title(ui, tl!("item-chart-debug"), Some(tl!("item-chart-debug-sub")));
             render_switch(ui, rr, t, &mut self.chart_debug_btn, config.chart_debug);
+        }
+        item! {
+            render_title(ui, tl!("item-debug-line"), Some(tl!("item-debug-line-sub")));
+            render_switch(ui, rr, t, &mut self.chart_debug_line_btn, config.chart_debug_line);
+        }
+        item! {
+            render_title(ui, tl!("item-debug-note"), Some(tl!("item-debug-note-sub")));
+            render_switch(ui, rr, t, &mut self.chart_debug_note_btn, config.chart_debug_note);
         }
         item! {
             render_title(ui, tl!("item-show-fps"), Some(tl!("item-show-fps-sub")));

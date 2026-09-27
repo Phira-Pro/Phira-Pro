@@ -10,6 +10,7 @@ mod charts_view;
 mod client;
 mod data;
 pub mod deeplink;
+mod history;
 mod icons;
 mod images;
 mod login;

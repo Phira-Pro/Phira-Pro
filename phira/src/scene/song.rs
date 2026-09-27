@@ -738,6 +738,22 @@ impl SongScene {
     }
 
     fn update_record(&mut self, new_rec: SimpleRecord) -> Result<()> {
+        // 本地成绩历史：每一局都记一条（和「最佳成绩」的更新逻辑互相独立）。
+        if new_rec.num_of_notes > 0 {
+            let _ = crate::history::record_play(
+                self.info.id,
+                self.local_path.as_deref(),
+                &self.info.name,
+                &self.info.level,
+                self.info.difficulty,
+                new_rec.score.max(0) as u32,
+                new_rec.accuracy as f64,
+                new_rec.max_combo,
+                new_rec.num_of_notes,
+                new_rec.counts,
+                &new_rec.hist,
+            );
+        }
         let rec = get_data_mut()
             .charts
             .iter_mut()

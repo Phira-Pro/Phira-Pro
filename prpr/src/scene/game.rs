@@ -202,12 +202,20 @@ use inner::*;
 const WAIT_TIME: f64 = 0.5;
 const AFTER_TIME: f64 = 0.7;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
 pub struct SimpleRecord {
     pub score: i32,
     pub accuracy: f32,
     pub full_combo: bool,
+    /// 最大连击（供本地成绩历史使用）。
+    pub max_combo: u32,
+    /// 总音符数（供本地成绩历史使用）。
+    pub num_of_notes: u32,
+    /// Perfect / Good / Bad / Miss（Perfect+ 已并入 Perfect）。
+    pub counts: [u32; 4],
+    /// 判定误差分布（早 ← → 晚）。
+    pub hist: Vec<u32>,
 }
 
 impl SimpleRecord {
@@ -1171,6 +1179,16 @@ impl Scene for GameScene {
                             score: result.score as _,
                             accuracy: result.accuracy as _,
                             full_combo: result.max_combo == result.num_of_notes,
+                            max_combo: result.max_combo,
+                            num_of_notes: result.num_of_notes,
+                            // Perfect+ 并入 Perfect，让历史记录保持官方那套 4 档。
+                            counts: [
+                                result.counts[0] + result.counts[4],
+                                result.counts[1],
+                                result.counts[2],
+                                result.counts[3],
+                            ],
+                            hist: result.hist.to_vec(),
                         })
                     };
                     self.next_scene = match self.mode {

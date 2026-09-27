@@ -155,13 +155,13 @@ item-combo-text = Combo Label
 item-combo-text-sub = The text shown under the combo counter in game (up to 16 characters)
 combo-text-default = Default
 item-late-leniency = Late Leniency
-item-late-leniency-sub = Subtracts this much from late hits when judging; 0 = perfectly symmetric with early (upstream silently allowed 70ms, making late hits too forgiving)
+item-late-leniency-sub = Subtracts this much from late hits when judging; 0 = symmetric with early
 item-judge-chart = Judgement Chart
 item-judge-chart-sub = Draw a judgement timing distribution chart on the ending screen (early <- -> late)
 item-hp-scale = Health Bar Rate
 item-hp-color = Health Bar Color
 item-upload = Upload Scores
-item-upload-sub = [THIS BUILD CANNOT UPLOAD] In this open build the upload channel is disabled at compile time (official upload needs the closed-source score encoder), so this switch currently has no effect and scores are kept only on this device. Use the official client if you want to upload.
+item-upload-sub = [THIS BUILD CANNOT UPLOAD] The switch has no effect; scores are kept on this device only
 item-upload-consent = Upload Consent
 item-upload-consent-open = View
 item-history = Score History
@@ -170,4 +170,4 @@ item-history-open = Open
 upload-consent-title = Score Upload: Informed Consent and Disclaimer
 upload-consent-accept = I have read and agree
 upload-consent-deny = Disagree
-upload-consent-text = When enabled, finishing an official chart uploads this run's score to the Phira official server: the chart ID, the run's score data (score / accuracy / judgement, in the official format) and the chart version timestamp, plus your account credentials in the request header. It does NOT upload device info, location, photos or any other file, collects no extra statistics, sends nothing to third parties, and there is no self-hosted server. Once uploaded the score appears on the Phira cloud leaderboard and your profile; RKS / EXP are settled by the official server. When disabled, scores stay only on this device (the local score history still records them), are not ranked and do not update cloud RKS. Note: in THIS build the upload channel is disabled at compile time (official upload relies on the closed-source score encoder), so this switch currently only records your intent and keeps the pipeline ready — scores are in fact kept locally. Disclaimer: this is an unofficial community build with no affiliation to TeamFlos / Phira. It modifies judging and presentation; options that would clearly affect score fairness are marked UNRATED and are never uploaded, but if you bypass those limits or combine them, your uploaded score may differ from the official client and you bear the consequences alone. This build is provided as is, without warranty of any kind. You can turn this switch off in the settings at any time.
+upload-consent-text = When enabled, this run's score (chart ID, score / accuracy / judgement, chart version timestamp, account credentials) is uploaded to the Phira official server; no device info or other files are uploaded, and when disabled scores stay on this device. Note that this build's upload channel is disabled at compile time, so the switch only records your intent and scores are in fact kept locally. This is an unofficial build with no affiliation to TeamFlos / Phira; if a score differs from the official client, you bear the consequences alone.

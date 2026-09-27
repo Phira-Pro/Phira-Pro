@@ -164,7 +164,9 @@ impl Page for HistoryPage {
             return Ok(true);
         }
         if self.btn_all.touch(touch, t) {
+            // 「全部」是彻底重置：既取消单曲筛选，也关掉「只看全连」。
             self.selected = None;
+            self.only_fc = false;
             return Ok(true);
         }
         if self.btn_fc.touch(touch, t) {

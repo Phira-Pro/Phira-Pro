@@ -1274,7 +1274,7 @@ impl ChartList {
             } else {
                 config.combo_text.clone()
             };
-            self.combo_text_btn.render_text_left(ui, rr, t, 1., label, 0.5, false);
+            self.combo_text_btn.render_text(ui, rr, t, label, 0.5, false);
         }
         item! {
             render_title(ui, tl!("item-judge-chart"), Some(tl!("item-judge-chart-sub")));
@@ -1289,7 +1289,8 @@ impl ChartList {
             // 按钮本体只画底衬，色块由上面覆一层填充色表示当前颜色。
             self.hp_color_btn.render_text(ui, rr, t, "", 0.5, false);
             let (cr, cg, cb) = config.hp_color.rgb();
-            ui.fill_rect(rr.feather(0.12), Color::new(cr, cg, cb, 0.95));
+            // feather 正数向外扩、负数才向内收；这里要的是按钮内的一小块色块预览。
+            ui.fill_rect(rr.feather(-0.012), Color::new(cr, cg, cb, 0.95));
         }
         h += 0.04;
         item! {

@@ -10,10 +10,6 @@
 //!
 //! 移植自上游改版 Phirc Mod++ 的 `phira/src/history.rs`。
 
-// 查询 / 导入导出这些小接口要等「成绩历史」页面接进来才会被用到，
-// 在那之前先压掉 dead_code 警告（页面落地后应当移除这一行）。
-#![allow(dead_code)]
-
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};

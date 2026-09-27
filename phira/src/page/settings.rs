@@ -1,6 +1,6 @@
 prpr_l10n::tl_file!("settings");
 
-use super::{NextPage, OffsetPage, Page, SharedState};
+use super::{HistoryPage, NextPage, OffsetPage, Page, SharedState};
 use crate::{
     dir, get_data, get_data_mut,
     popup::ChooseButton,
@@ -298,6 +298,9 @@ impl Page for SettingsPage {
     fn next_page(&mut self) -> NextPage {
         if matches!(self.tabs.selected(), SettingListType::Audio) {
             return self.list_audio.next_page().unwrap_or_default();
+        }
+        if matches!(self.tabs.selected(), SettingListType::Chart) {
+            return self.list_chart.next_page().unwrap_or_default();
         }
         NextPage::None
     }
@@ -960,6 +963,8 @@ struct ChartList {
     judge_chart_btn: DRectButton,
     upload_btn: DRectButton,
     upload_consent_btn: DRectButton,
+    history_btn: DRectButton,
+    next_page: Option<NextPage>,
 }
 
 impl ChartList {
@@ -996,6 +1001,8 @@ impl ChartList {
             judge_chart_btn: DRectButton::new(),
             upload_btn: DRectButton::new(),
             upload_consent_btn: DRectButton::new(),
+            history_btn: DRectButton::new(),
+            next_page: None,
         }
     }
 
@@ -1115,6 +1122,10 @@ impl ChartList {
         }
         if self.upload_consent_btn.touch(touch, t) {
             show_upload_consent(false);
+            return Ok(Some(true));
+        }
+        if self.history_btn.touch(touch, t) {
+            self.next_page = Some(NextPage::Overlay(Box::new(HistoryPage::new())));
             return Ok(Some(true));
         }
         if self.hp_mode_btn.touch(touch, t) {
@@ -1289,7 +1300,17 @@ impl ChartList {
             render_title(ui, tl!("item-upload-consent"), None);
             self.upload_consent_btn.render_text(ui, rr, t, tl!("item-upload-consent-open"), 0.5, false);
         }
+        item! {
+            render_title(ui, tl!("item-history"), Some(tl!("item-history-sub")));
+            self.history_btn.render_text(ui, rr, t, tl!("item-history-open"), 0.5, false);
+        }
         (w, h)
+    }
+}
+
+impl ChartList {
+    pub fn next_page(&mut self) -> Option<NextPage> {
+        self.next_page.take()
     }
 }
 

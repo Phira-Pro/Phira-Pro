@@ -7,6 +7,9 @@ pub use event::EventPage;
 pub mod favorites;
 pub use favorites::FavoritesPage;
 
+mod history;
+pub use history::HistoryPage;
+
 mod home;
 pub use home::HomePage;
 

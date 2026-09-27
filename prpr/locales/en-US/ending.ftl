@@ -17,8 +17,5 @@ upload-retry = Retry Upload
 
 still-uploading = Uploading record to leaderboard…
 
-mean-offset = Avg Offset
 apply-offset = Apply Offset
 offset-applied = Suggested offset applied
-deviation-early = early
-deviation-late = late

@@ -18,6 +18,10 @@ use sasa::{AudioClip, AudioManager, Music, MusicParams};
 use serde::Deserialize;
 use std::{cell::RefCell, ops::DerefMut};
 
+/// 「已应用推荐偏移」提示：停留 5 秒后淡出。
+const TOAST_HOLD: f32 = 5.0;
+const TOAST_FADE: f32 = 0.8;
+
 #[derive(Deserialize)]
 pub struct RecordUpdateState {
     pub best: bool,
@@ -57,7 +61,9 @@ pub struct EndingScene {
 
     btn_retry: DRectButton,
     btn_proceed: DRectButton,
+    btn_apply: DRectButton,
     btn_detail: RectButton,
+    /// 点「详情」时展开每档判定的提前/延后计数。
     detail_mode: bool,
 
     tr_start: f32,
@@ -66,6 +72,8 @@ pub struct EndingScene {
 
     /// Phira Pro：本局是否已经点过「应用推荐偏移」，避免重复叠加。
     offset_applied: bool,
+    /// 点下「应用推荐偏移」的时刻（场景时间），用于提示字样在 5 秒后淡出。
+    applied_t: f32,
 }
 
 impl EndingScene {
@@ -143,120 +151,28 @@ impl EndingScene {
             upload_task,
             record_data,
             best_record,
-            detail_mode: false,
 
             btn_retry: DRectButton::new(),
             btn_proceed: DRectButton::new(),
+            btn_apply: DRectButton::new(),
             btn_detail: RectButton::new(),
+
+            detail_mode: false,
 
             tr_start: f32::NAN,
 
             avg_fps,
 
             offset_applied: false,
+            applied_t: 0.,
         })
     }
 
-    /// Phira Pro：判定偏差统计带——直方图 + 平均偏移 + 一键应用推荐偏移。
-    ///
-    /// 横轴是偏差（左偏早、右偏晚），竖轴是各档命中的次数分布，白线标出平均值。
-    /// 推荐偏移直接取平均偏差：由 `game.rs` 中 `res.time = tm.now() - offset()` 可知，
-    /// 把 `config.offset` 增加平均偏差即可让本局的手感重新对齐谱面。
-    fn render_deviation(&mut self, ui: &mut Ui) {
-        let n = self.result.offsets.len();
-        // 自动游玩是合成击打、没有真实手感，不展示偏差统计。
-        if n == 0 || self.autoplay {
-            return;
-        }
-        let ui_top = ui.top;
-        // 统计带塞在标题栏底边与判定列表顶边之间的空隙里。
-        // 判定列表起点为 `-ui_top + 0.4 + ui_top * 0.3`，标题栏底边为 `-ui_top + 0.46`，
-        // 两者之差只取决于 ui_top；太窄（超宽屏）就整体不画，免得压到列表。
-        let gap = ui_top * 0.3 - 0.06;
-        if gap < 0.05 {
-            return;
-        }
-        let hh = (gap * 0.78).min(0.1);
-        let bar_bottom = -ui_top + 0.46;
-        // 右侧要给标题栏下方的「详情」按钮留位（各语言里最长可占到 x≈0.64），
-        // 所以统计带整体停在 x≈0.58 以内。
-        let area = Rect::new(-0.95, bar_bottom + (gap - hh) / 2., 0.60, hh);
-
-        const BINS: usize = 24;
-        // 以数据里的最大绝对偏差为半宽，夹在 30ms..300ms 之间，保证图形不会退化成一条线。
-        let half = self.result.offsets.iter().fold(0.0f64, |a, o| a.max(o.abs())).clamp(0.03, 0.3);
-        let mut bins = [0u32; BINS];
-        for &o in &self.result.offsets {
-            let p = ((o + half) / (2. * half)).clamp(0., 1.);
-            bins[((p * BINS as f64) as usize).min(BINS - 1)] += 1;
-        }
-        let max_bin = bins.iter().copied().max().unwrap_or(1).max(1) as f32;
-
-        ui.fill_rect(area, semi_black(0.22));
-        let zero_x = area.x + area.w / 2.;
-        let bw = area.w / BINS as f32;
-        let inner_h = area.h - 0.006;
-        for (i, &c) in bins.iter().enumerate() {
-            if c == 0 {
-                continue;
-            }
-            let h = c as f32 / max_bin * inner_h;
-            let x = area.x + bw * i as f32;
-            // 早的一半用浅蓝、晚的一半用浅橙，与结算界面其它提前/延后配色一致。
-            let color = if (i as f32 + 0.5) < BINS as f32 / 2. {
-                Color::from_hex_rgb(0x81d4fa)
-            } else {
-                Color::from_hex_rgb(0xffab91)
-            };
-            ui.fill_rect(Rect::new(x + bw * 0.12, area.bottom() - h, bw * 0.76, h), color);
-        }
-        // 零点与平均值参考线。
-        ui.fill_rect(Rect::new(zero_x - 0.0008, area.y, 0.0016, area.h), semi_white(0.3));
-        let mean = self.result.mean as f64;
-        let mean_x = zero_x + (mean / (2. * half)).clamp(-1., 1.) as f32 * area.w;
-        ui.fill_rect(Rect::new(mean_x - 0.0016, area.y - 0.004, 0.0032, area.h + 0.008), WHITE);
-
-        // 右侧：平均偏移读数 + 一键应用按钮。
-        let ms = (self.result.mean * 1000.).round() as i32;
-        let mut text = format!("{} {:+}ms", tl!("mean-offset"), ms);
-        if ms < 0 {
-            text.push_str(" · ");
-            text.push_str(&tl!("deviation-early"));
-        } else if ms > 0 {
-            text.push_str(" · ");
-            text.push_str(&tl!("deviation-late"));
-        }
-        let cy = area.center().y;
-        if self.offset_applied {
-            ui.text(tl!("offset-applied"))
-                .pos(0.72, cy)
-                .anchor(0.5, 0.5)
-                .no_baseline()
-                .size(0.46)
-                .color(semi_white(0.55))
-                .draw_using(&BOLD_FONT);
-        } else {
-            ui.text(text)
-                .pos(-0.32, cy)
-                .anchor(0., 0.5)
-                .no_baseline()
-                .max_width(0.42)
-                .size(0.42)
-                .color(semi_white(0.85))
-                .draw_using(&BOLD_FONT);
-            let btn = Rect::new(0.14, area.y + 0.003, 0.44, area.h - 0.006);
-            // 自动游玩没有真实击打；样本太少或偏差过小时推荐值没有意义，此时只展示不提供按钮。
-            if n >= 8 && ms.abs() >= 1 {
-                let label = format!("{} {:+}ms", tl!("apply-offset"), ms);
-                if ui.button("pro-apply-offset", btn, label) {
-                    button_hit();
-                    crate::config::request_offset_delta(self.result.mean);
-                    self.offset_applied = true;
-                    show_message(tl!("offset-applied")).ok();
-                }
-            }
-        }
+    /// 是否适合给出「应用推荐偏移」：自动游玩没有真实击打，样本太少或偏差过小时推荐值也没意义。
+    fn can_apply(&self) -> bool {
+        !self.autoplay && self.result.offsets.len() >= 8 && (self.result.mean * 1000.).round().abs() >= 1.
     }
+
 }
 
 thread_local! {
@@ -301,6 +217,13 @@ impl Scene for EndingScene {
                 self.tr_start = t;
                 self.next = 2;
             }
+            return Ok(true);
+        }
+        if self.btn_apply.touch(touch, t) && self.can_apply() && !self.offset_applied {
+            button_hit();
+            crate::config::request_offset_delta(self.result.mean);
+            self.offset_applied = true;
+            self.applied_t = t;
             return Ok(true);
         }
         if self.btn_detail.touch(touch) {
@@ -382,15 +305,6 @@ impl Scene for EndingScene {
             let y = -top + 0.12;
             let br = Rect::new(-1., y, 2., 0.34);
             ui.fill_rect(br, (c, (-1., y), Color { a: 0.1, ..c }, (1., y + 0.3)));
-
-            let r = ui
-                .text(tl!("detail"))
-                .pos(1. - 0.02, br.bottom() + 0.02)
-                .anchor(1., 0.)
-                .size(0.5)
-                .color(if self.detail_mode { semi_white(0.4) } else { WHITE })
-                .draw_using(&BOLD_FONT);
-            self.btn_detail.set(ui, r.feather(0.02));
 
             let res = &self.result;
 
@@ -616,34 +530,6 @@ impl Scene for EndingScene {
             };
             ui.text(text).pos(r.right() + 0.03, y).size(s).draw_using(&BOLD_FONT);
 
-            let mut r = Rect::new(0.96, ui.top - 0.04, 0.25, 0.1);
-            r.x -= r.w;
-            r.y -= r.h;
-            self.btn_proceed.render_shadow(ui, r, t, |ui, path| {
-                ui.fill_path(&path, Color::from_hex_rgb(0x3f51b5));
-                let ir = Rect::new(r.x + 0.05, r.center().y, 0., 0.).feather(0.03);
-                ui.fill_rect(ir, (*self.icon_proceed, ir));
-                ui.text(tl!("proceed"))
-                    .pos((ir.right() + r.right() - 0.01) / 2., r.center().y)
-                    .anchor(0.5, 0.5)
-                    .no_baseline()
-                    .size(0.44)
-                    .draw_using(&BOLD_FONT);
-            });
-
-            r.x -= r.w + 0.02;
-            self.btn_retry.render_shadow(ui, r, t, |ui, path| {
-                ui.fill_path(&path, Color::from_hex_rgb(0x78909c));
-                let ir = Rect::new(r.x + 0.05, r.center().y, 0., 0.).feather(0.03);
-                ui.fill_rect(ir, (*self.icon_retry, ir));
-                ui.text(tl!("retry"))
-                    .pos((ir.right() + r.right() - 0.01) / 2., r.center().y)
-                    .anchor(0.5, 0.5)
-                    .no_baseline()
-                    .size(0.44)
-                    .draw_using(&BOLD_FONT);
-            });
-
             let spd = if (self.speed - 1.).abs() <= 1e-4 {
                 String::new()
             } else {
@@ -734,8 +620,6 @@ impl Scene for EndingScene {
                     current_x = para_right + 0.02;
                 }
             }
-
-            self.render_deviation(ui);
         }
         clip_sector(ui, ct, sector_start, sector_start + center_angle, |ui| {
             ui.fill_rect(sr, (*self.illustration, sr));
@@ -767,6 +651,75 @@ impl Scene for EndingScene {
             .color(semi_white(0.7))
             .draw();
         });
+
+        // —— 顶部「详情」入口、底部操作按钮、以及应用偏移后的淡出提示 ——
+        if project_y < top {
+            let detail_y = -top + 0.48;
+            let dr = ui
+                .text(tl!("detail"))
+                .pos(1. - 0.02, detail_y)
+                .anchor(1., 0.)
+                .size(0.5)
+                .color(if self.detail_mode { semi_white(0.4) } else { WHITE })
+                .draw_using(&BOLD_FONT);
+            self.btn_detail.set(ui, dr.feather(0.02));
+
+            // 「已应用推荐偏移」提示：与「详情」同高、右对齐在其左侧，显示 5 秒后淡出。
+            if self.offset_applied {
+                let a = ((TOAST_HOLD + TOAST_FADE - (t - self.applied_t)) / TOAST_FADE).clamp(0., 1.);
+                if a > 0. {
+                    ui.text(tl!("offset-applied"))
+                        .pos(dr.x - 0.03, dr.y)
+                        .anchor(1., 0.)
+                        .max_width(0.34)
+                        .size(0.5)
+                        .color(semi_white(a * 0.9))
+                        .draw_using(&BOLD_FONT);
+                }
+            }
+
+            let mut r = Rect::new(0.96, ui.top - 0.04, 0.25, 0.1);
+            r.x -= r.w;
+            r.y -= r.h;
+            self.btn_proceed.render_shadow(ui, r, t, |ui, path| {
+                ui.fill_path(&path, Color::from_hex_rgb(0x3f51b5));
+                let ir = Rect::new(r.x + 0.05, r.center().y, 0., 0.).feather(0.03);
+                ui.fill_rect(ir, (*self.icon_proceed, ir));
+                ui.text(tl!("proceed"))
+                    .pos((ir.right() + r.right() - 0.01) / 2., r.center().y)
+                    .anchor(0.5, 0.5)
+                    .no_baseline()
+                    .size(0.44)
+                    .draw_using(&BOLD_FONT);
+            });
+
+            r.x -= r.w + 0.02;
+            self.btn_retry.render_shadow(ui, r, t, |ui, path| {
+                ui.fill_path(&path, Color::from_hex_rgb(0x78909c));
+                let ir = Rect::new(r.x + 0.05, r.center().y, 0., 0.).feather(0.03);
+                ui.fill_rect(ir, (*self.icon_retry, ir));
+                ui.text(tl!("retry"))
+                    .pos((ir.right() + r.right() - 0.01) / 2., r.center().y)
+                    .anchor(0.5, 0.5)
+                    .no_baseline()
+                    .size(0.44)
+                    .draw_using(&BOLD_FONT);
+            });
+
+            // 「应用推荐偏移」放在「重试」左侧，样式与重试一致（灰底 + 投影）。
+            r.x -= r.w + 0.02;
+            if !self.offset_applied && self.can_apply() {
+                self.btn_apply.render_shadow(ui, r, t, |ui, path| {
+                    ui.fill_path(&path, Color::from_hex_rgb(0x78909c));
+                    ui.text(tl!("apply-offset"))
+                        .pos(r.center().x, r.center().y)
+                        .anchor(0.5, 0.5)
+                        .no_baseline()
+                        .size(0.44)
+                        .draw_using(&BOLD_FONT);
+                });
+            }
+        }
 
         if !self.tr_start.is_nan() {
             let p = ((t - self.tr_start) / 0.5).min(1.);

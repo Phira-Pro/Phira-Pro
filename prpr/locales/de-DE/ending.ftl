@@ -13,8 +13,5 @@ upload-retry = Hochladen erneut versuchen
 still-uploading = Punktestand wird weiterhin in die Bestenliste hochgeladen
 detail = DETAILS
 
-mean-offset = Mittlerer Versatz
 apply-offset = Versatz anwenden
 offset-applied = Empfohlener Versatz angewendet
-deviation-early = zu früh
-deviation-late = zu spät

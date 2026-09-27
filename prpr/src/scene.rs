@@ -558,9 +558,16 @@ impl Main {
                 let fps = f32::from_bits(crate::ui::CURRENT_FPS.load(std::sync::atomic::Ordering::Relaxed));
                 if fps > 0. {
                     // 由视口直接推算屏幕范围：覆盖层阶段 ui.top 与 screen_rect 都不可靠。
+                    // 贴到左下角最边缘并减小字号，避开游玩界面左下角的曲名。
+                    // 用 anchor(0,1) 把整行字贴在 pos 上方；否则默认从 pos 往下排版，
+                    // 会被顶出屏幕底边而看不见。
                     let vp = crate::ext::get_viewport();
                     let half_h = vp.3 as f32 / vp.2 as f32;
-                    ui.text(format!("{fps:.0}")).pos(-0.98, half_h - 0.05).size(0.4).draw();
+                    ui.text(format!("{fps:.0}"))
+                        .pos(-0.99, half_h - 0.006)
+                        .anchor(0., 1.)
+                        .size(0.25)
+                        .draw();
                 }
             }
             pop_camera_state();

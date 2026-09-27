@@ -17,8 +17,5 @@ upload-retry = 重試
 
 still-uploading = 仍在上傳成績，請稍候…
 
-mean-offset = 平均偏移
 apply-offset = 套用偏移
 offset-applied = 已套用建議偏移
-deviation-early = 偏早
-deviation-late = 偏晚

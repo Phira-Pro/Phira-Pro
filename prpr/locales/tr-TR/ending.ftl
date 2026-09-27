@@ -13,8 +13,5 @@ upload-retry = Yeniden dene
 still-uploading = Sonuç yükleniyor, lütfen bekleyin...
 detail = DETAYLAR
 
-mean-offset = Ortalama kayma
 apply-offset = Kaymayı uygula
 offset-applied = Önerilen kayma uygulandı
-deviation-early = erken
-deviation-late = geç

@@ -13,8 +13,5 @@ upload-cancel = Batal unggahan
 upload-retry = Menggunggah ulang
 still-uploading = Sedang di unggah
 
-mean-offset = Offset rata-rata
 apply-offset = Terapkan offset
 offset-applied = Offset yang disarankan diterapkan
-deviation-early = lebih awal
-deviation-late = lebih lambat

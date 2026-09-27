@@ -13,8 +13,5 @@ upload-retry = Thử lại
 still-uploading = Đang tải lên, vui lòng chờ…
 detail = Thông tin chi tiết
 
-mean-offset = Độ lệch TB
 apply-offset = Áp dụng độ lệch
 offset-applied = Đã áp dụng độ lệch đề xuất
-deviation-early = sớm
-deviation-late = muộn

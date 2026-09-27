@@ -165,6 +165,10 @@ pub struct Config {
     pub combo_text: String,
     /// 结算画面是否画判定时间分布图（早 ← → 晚）。
     pub ending_judge_chart: bool,
+    /// 是否上传成绩到 Phira 官方服务器（默认关；打开前需先同意上传协议）。
+    pub upload_record: bool,
+    /// 是否已阅读并同意「成绩上传知情同意与免责声明」。
+    pub upload_agreed: bool,
     /// 软件 UI 主题：强调色（十六进制 RRGGBB，例如 "2196f3"）。
     pub ui_accent: String,
     /// 软件 UI 主题：表面色（按钮与弹窗底色，十六进制 RRGGBB）。
@@ -246,6 +250,8 @@ impl Default for Config {
             flick_protect: false,
             combo_text: "COMBO".to_owned(),
             ending_judge_chart: false,
+            upload_record: false,
+            upload_agreed: false,
             ui_accent: "2196f3".to_owned(),
             ui_surface: "2a323c".to_owned(),
             show_fps: false,

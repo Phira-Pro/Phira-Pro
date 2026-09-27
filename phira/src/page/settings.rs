@@ -19,7 +19,7 @@ use prpr::{
     ext::{open_url, poll_future, semi_white, LocalTask, RectExt, SafeTexture},
     scene::{request_input, return_input, show_error, show_message, take_input},
     task::Task,
-    ui::{DRectButton, Scroll, Slider, Ui, PREFER_REDUCED_MOTION, UI_SFX_VOLUME},
+    ui::{DRectButton, Dialog, Scroll, Slider, Ui, PREFER_REDUCED_MOTION, UI_SFX_VOLUME},
 };
 use prpr_l10n::{LanguageIdentifier, LANG_IDENTS, LANG_NAMES};
 use reqwest::Url;
@@ -396,6 +396,29 @@ fn render_title<'a>(ui: &mut Ui, title: impl Into<Cow<'a, str>>, subtitle: Optio
 #[inline]
 fn render_switch(ui: &mut Ui, r: Rect, t: f32, btn: &mut DRectButton, on: bool) {
     btn.render_text(ui, r, t, if on { ttl!("switch-on") } else { ttl!("switch-off") }, 0.5, on);
+}
+
+/// 成绩上传协议弹窗。
+///
+/// `ask` = true：这是「要打开上传」的流程，两个按钮，点了同意才继续；`false`：只是查看协议。
+fn show_upload_consent(ask: bool) {
+    let mut dialog = Dialog::plain(tl!("upload-consent-title"), tl!("upload-consent-text").into_owned());
+    if ask {
+        dialog = dialog
+            .buttons(vec![tl!("upload-consent-deny").into_owned(), tl!("upload-consent-accept").into_owned()])
+            .listener(move |_dialog, pos| {
+                if pos == 1 {
+                    let config = &mut get_data_mut().config;
+                    config.upload_agreed = true;
+                    config.upload_record = true;
+                    let _ = save_data();
+                }
+                false
+            });
+    } else {
+        dialog = dialog.buttons(vec![tl!("ok").into_owned()]);
+    }
+    dialog.show();
 }
 
 #[inline]
@@ -935,6 +958,8 @@ struct ChartList {
     flick_protect_btn: DRectButton,
     combo_text_btn: DRectButton,
     judge_chart_btn: DRectButton,
+    upload_btn: DRectButton,
+    upload_consent_btn: DRectButton,
 }
 
 impl ChartList {
@@ -969,6 +994,8 @@ impl ChartList {
             flick_protect_btn: DRectButton::new(),
             combo_text_btn: DRectButton::new(),
             judge_chart_btn: DRectButton::new(),
+            upload_btn: DRectButton::new(),
+            upload_consent_btn: DRectButton::new(),
         }
     }
 
@@ -1071,6 +1098,23 @@ impl ChartList {
         }
         if self.hp_color_btn.touch(touch, t) {
             config.hp_color = config.hp_color.next();
+            return Ok(Some(true));
+        }
+        if self.upload_btn.touch(touch, t) {
+            if config.upload_record {
+                // 已经开着：直接关掉
+                config.upload_record = false;
+            } else if config.upload_agreed {
+                // 之前同意过：直接打开
+                config.upload_record = true;
+            } else {
+                // 第一次打开：先看协议，同意了才真正打开
+                show_upload_consent(true);
+            }
+            return Ok(Some(true));
+        }
+        if self.upload_consent_btn.touch(touch, t) {
+            show_upload_consent(false);
             return Ok(Some(true));
         }
         if self.hp_mode_btn.touch(touch, t) {
@@ -1235,6 +1279,15 @@ impl ChartList {
             self.hp_color_btn.render_text(ui, rr, t, "", 0.5, false);
             let (cr, cg, cb) = config.hp_color.rgb();
             ui.fill_rect(rr.feather(0.12), Color::new(cr, cg, cb, 0.95));
+        }
+        h += 0.04;
+        item! {
+            render_title(ui, tl!("item-upload"), Some(tl!("item-upload-sub")));
+            render_switch(ui, rr, t, &mut self.upload_btn, config.upload_record);
+        }
+        item! {
+            render_title(ui, tl!("item-upload-consent"), None);
+            self.upload_consent_btn.render_text(ui, rr, t, tl!("item-upload-consent-open"), 0.5, false);
         }
         (w, h)
     }

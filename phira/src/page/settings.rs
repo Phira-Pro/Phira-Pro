@@ -928,6 +928,8 @@ struct ChartList {
     hp_amount_slider: Slider,
     hp_width_slider: Slider,
     hp_height_slider: Slider,
+    hp_scale_slider: Slider,
+    hp_color_btn: DRectButton,
     late_leniency_slider: Slider,
     drag_protect_btn: DRectButton,
     flick_protect_btn: DRectButton,
@@ -960,6 +962,8 @@ impl ChartList {
             hp_amount_slider: Slider::new(0.2..3.0, 0.1),
             hp_width_slider: Slider::new(0.1..1.0, 0.01),
             hp_height_slider: Slider::new(0.5..3.0, 0.1),
+            hp_scale_slider: Slider::new(0.2..3.0, 0.1),
+            hp_color_btn: DRectButton::new(),
             late_leniency_slider: Slider::new(0.0..200.0, 5.0),
             drag_protect_btn: DRectButton::new(),
             flick_protect_btn: DRectButton::new(),
@@ -1059,6 +1063,14 @@ impl ChartList {
         }
         if self.judge_chart_btn.touch(touch, t) {
             config.ending_judge_chart ^= true;
+            return Ok(Some(true));
+        }
+        if let wt @ Some(_) = self.hp_scale_slider.touch(touch, t, &mut config.hp_scale) {
+            config.hp_scale = config.hp_scale.clamp(0.2, 3.0);
+            return Ok(wt);
+        }
+        if self.hp_color_btn.touch(touch, t) {
+            config.hp_color = config.hp_color.next();
             return Ok(Some(true));
         }
         if self.hp_mode_btn.touch(touch, t) {
@@ -1212,6 +1224,17 @@ impl ChartList {
         item! {
             render_title(ui, tl!("item-judge-chart"), Some(tl!("item-judge-chart-sub")));
             render_switch(ui, rr, t, &mut self.judge_chart_btn, config.ending_judge_chart);
+        }
+        item! {
+            render_title(ui, tl!("item-hp-scale"), None);
+            self.hp_scale_slider.render(ui, rr, t, config.hp_scale, format!("{:.1}x", config.hp_scale));
+        }
+        item! {
+            render_title(ui, tl!("item-hp-color"), None);
+            // 按钮本体只画底衬，色块由上面覆一层填充色表示当前颜色。
+            self.hp_color_btn.render_text(ui, rr, t, "", 0.5, false);
+            let (cr, cg, cb) = config.hp_color.rgb();
+            ui.fill_rect(rr.feather(0.12), Color::new(cr, cg, cb, 0.95));
         }
         (w, h)
     }

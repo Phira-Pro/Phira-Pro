@@ -32,6 +32,40 @@ pub fn take_offset_delta() -> Option<f32> {
     }
 }
 
+/// 血条颜色的可选值（对齐上游改版 Phirc Mod++ 的 `HealthBarColor`）。
+#[derive(Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq, Debug)]
+pub enum HealthBarColor {
+    #[default]
+    White,
+    Green,
+    Blue,
+    Red,
+    Golden,
+    Rainbow,
+}
+
+impl HealthBarColor {
+    pub const ALL: [HealthBarColor; 6] = [Self::White, Self::Green, Self::Blue, Self::Red, Self::Golden, Self::Rainbow];
+
+    /// 血条填充色（RGB，0..=1）。
+    pub fn rgb(self) -> (f32, f32, f32) {
+        match self {
+            Self::White => (1., 1., 1.),
+            Self::Green => (0.35, 0.85, 0.45),
+            Self::Blue => (0.4, 0.65, 1.),
+            Self::Red => (1., 0.42, 0.42),
+            Self::Golden => (1., 0.85, 0.35),
+            Self::Rainbow => (0.8, 0.55, 1.),
+        }
+    }
+
+    /// 轮换到下一个颜色（设置页的色块按钮用）。
+    pub fn next(self) -> Self {
+        let i = Self::ALL.iter().position(|it| *it == self).unwrap_or(0);
+        Self::ALL[(i + 1) % Self::ALL.len()]
+    }
+}
+
 bitflags! {
     #[derive(Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq, Debug)]
     #[serde(transparent)]
@@ -116,6 +150,10 @@ pub struct Config {
     pub hp_height: f32,
     /// 血条长度。
     pub hp_width: f32,
+    /// 血条整体倍率：回血与扣血同乘（对齐上游改版的 `health_scale`）。
+    pub hp_scale: f32,
+    /// 血条颜色。
+    pub hp_color: HealthBarColor,
     /// 晚按补偿（毫秒）：晚按（偏差为负）时额外放宽的量，默认 0 = 早/晚完全对称。
     /// 上游把 70ms 写死在代码里且只作用在晚按一侧（等于「晚按白送 70ms」），这里改为可配置。
     pub late_leniency_ms: f32,
@@ -201,6 +239,8 @@ impl Default for Config {
             hp_amount: 1.0,
             hp_height: 1.0,
             hp_width: 0.6,
+            hp_scale: 1.0,
+            hp_color: HealthBarColor::default(),
             late_leniency_ms: 0.,
             drag_protect: false,
             flick_protect: false,
@@ -309,6 +349,11 @@ impl Config {
         self.hp_amount = self.hp_amount.clamp(0.2, 3.0);
         self.hp_width = self.hp_width.clamp(0.1, 1.0);
         self.hp_height = self.hp_height.clamp(0.5, 3.0);
+        self.hp_scale = if self.hp_scale.is_finite() {
+            self.hp_scale.clamp(0.2, 3.0)
+        } else {
+            1.0
+        };
         // 晚按补偿：NaN / 越界都夹回合法区间。
         self.late_leniency_ms = if self.late_leniency_ms.is_finite() {
             self.late_leniency_ms.clamp(0., Self::LATE_LENIENCY_MAX)

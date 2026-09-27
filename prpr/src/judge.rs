@@ -191,6 +191,8 @@ pub(crate) struct JudgeInner {
     hp: f32,
     /// 血条扣血倍率。
     hp_amount: f32,
+    /// 血条整体倍率（回血与扣血同乘）。
+    hp_scale: f32,
 }
 
 #[cfg(not(closed))]
@@ -210,11 +212,16 @@ impl JudgeInner {
             hist: [0; HIST_BUCKETS],
             hp: 1.,
             hp_amount: 1.,
+            hp_scale: 1.,
         }
     }
 
     pub fn set_hp_amount(&mut self, amount: f32) {
         self.hp_amount = amount.max(0.);
+    }
+
+    pub fn set_hp_scale(&mut self, scale: f32) {
+        self.hp_scale = if scale.is_finite() { scale.max(0.) } else { 1. };
     }
 
     pub fn hp(&self) -> f32 {
@@ -272,15 +279,17 @@ impl JudgeInner {
             self.late_kind[what as usize] += 1;
         }
         self.counts[what as usize] += 1;
-        // 血条：大 P / Perfect 回血，Good 微增，Bad 小扣，Miss 大扣；扣血部分再乘倍率。
-        let delta = match what {
+        // 血条：大 P / Perfect 回血，Good 微增，Bad 小扣，Miss 大扣。
+        let base = match what {
             PerfectPlus => 0.02,
             Perfect => 0.01,
             Good => 0.002,
             Bad => -0.06,
             Miss => -0.12,
         };
-        self.hp = (self.hp + if delta < 0. { delta * self.hp_amount } else { delta }).clamp(0., 1.);
+        // 扣血再乘 hp_amount；回血 / 扣血统一再乘 hp_scale（总体倍率）。
+        let delta = base * self.hp_scale * if base < 0. { self.hp_amount } else { 1. };
+        self.hp = (self.hp + delta).clamp(0., 1.);
         match what {
             Perfect | PerfectPlus | Good => {
                 self.combo += 1;
@@ -1207,6 +1216,10 @@ impl Judge {
 
     pub fn set_hp_amount(&mut self, amount: f32) {
         self.inner.set_hp_amount(amount);
+    }
+
+    pub fn set_hp_scale(&mut self, scale: f32) {
+        self.inner.set_hp_scale(scale);
     }
 }
 

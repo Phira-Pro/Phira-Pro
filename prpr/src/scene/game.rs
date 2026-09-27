@@ -462,6 +462,7 @@ impl GameScene {
 
         let mut judge = Judge::new(&chart);
         judge.set_hp_amount(res.config.hp_amount);
+        judge.set_hp_scale(res.config.hp_scale);
 
         let music = Self::new_music(&mut res)?;
         Ok(Self {
@@ -684,9 +685,10 @@ impl GameScene {
                 let w = res.config.hp_width;
                 let r = Rect::new(pause_center.x + pause_w * 1.5 + 0.04, pause_center.y - h / 2., w, h);
                 ui.fill_rect(r, Color::new(0., 0., 0., 0.35));
+                let (cr, cg, cb) = res.config.hp_color.rgb();
                 ui.fill_rect(
                     Rect::new(r.x, r.y, r.w * self.judge.hp().clamp(0., 1.), r.h),
-                    Color::new(0.35, 0.85, 0.45, 0.9),
+                    Color::new(cr, cg, cb, 0.9),
                 );
             }
             // magic to make score visible, refer to phira/src/rate.rs#L219

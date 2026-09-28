@@ -1,30 +1,80 @@
-# Phira
+# Phira Pro
 
-![Phira Showcase](https://phira.5wyxi.com/files/github-showcase.png)
+Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非官方改版**。
 
-[中文版本](./README-zh_CN.md)
+它在尽量不改变原有玩法与手感的前提下，补充了大量**练习、调试、外观自定义与本地成绩管理**相关的功能，适合练习高难谱面、研究判定手感或自建外观。
 
-## Download
+> **本项目为非官方改版，与 TeamFlos / Phira 官方没有任何关系。**
+> 使用本改版产生的一切后果由使用者自行承担，请勿将本改版的问题反馈给官方。
 
-- [GitHub Release](https://github.com/TeamFlos/phira/releases): For Android, Windows and Linux
-- [616.sb mirror](https://616.sb/#phira): Android only
-- [App Store](https://apps.apple.com/us/app/phira/id6447435864): For iOS
-- ~~[.ipa Release](https://github.com/F-Unction/phira_ipa/releases): For iOS~~
+## 下载
 
-## Contribution
+在 [Releases](https://github.com/baiji666/Phira-Pro/releases) 页面下载最新的 `PhiraPro-v0.8.2-pro.x-win64.zip`，解压后运行 `phira-main.exe`。
 
-Issues & pull requests are welcome! Also check these good first [issues](https://github.com/TeamFlos/phira/issues?q=label%3A%22good+first+issue%22) and [pull requests](https://github.com/TeamFlos/phira/issues?q=label%3A%22good+first+issue%22).
+## 相对官方版新增的功能
 
-If you want to talk with us in depth, email [contact@phira.cn](mailto://contact@phira.cn). Currently we are looking for **Rust** Programmers *with rhythm/music game experience*.
+### 判定与手感
 
-## Translation
+- **判定窗口自定义**：Perfect+ / Perfect / Good / Bad 的判定窗口可分别调整。
+- **晚按补偿**：把「按晚了」的误差整体减掉若干毫秒；设为 0 时与早按完全对称。
+- **黄键保护**：点击（蓝键）不会被叠在附近的黄键（Drag）吃掉。
+- **红键保护**：点击（蓝键）不会被叠在附近的红键（Flick）吃掉。
+- **连击文字**：自定义连击数下方那行文字（最长 16 个字符）。
 
-See our [Weblate](https://hosted.weblate.org/engage/phira/) page for the latest translation progress. You can easily contribute to translations there.
+### 练习与失败处理
 
-![Translation Progress](https://hosted.weblate.org/widget/phira/svg-badge.svg)
+- **自动重试**：失败后自动重开本局，可设置次数（0 为关闭）。
+- **续练提前量**：重开时从失败前若干秒处开始，而不是从头开始。
+- **变速练习**：练习时每完成一圈自动提速，可设置起始速度与每圈增幅。
 
-![Translation Status](https://hosted.weblate.org/widget/phira/multi-auto.svg)
+### 血条
 
-## Star History
+- 血条模式（扣到 0 本局失败）、扣血倍率、血条长度、厚度、整体倍率、颜色。
 
-[![Stargazers over time](https://starchart.cc/TeamFlos/phira.svg?variant=adaptive)](https://starchart.cc/TeamFlos/phira)
+### 外观与界面
+
+- **自定义外观**：图标、背景、立绘可自行导入替换。
+- **界面主题**：自定义软件界面的强调色与表面色。
+- **自定义字体**：导入 ttf/otf 作为界面字体，可一键恢复默认（重启后生效）。
+- **显示帧率**：在左下角显示当前帧率。
+
+### 谱面调试
+
+- **判定线调试**：在每条判定线旁显示编号 / 线高 / z-index，本该隐藏的线以淡影保留。
+- **音符调试**：在音符旁显示线号 / 时间 / 高度 / 类型，并画出横向判定范围。
+
+### 结算与偏移
+
+- **结算判定分布图**：以 0ms 居中画一张判定时间分布图（早 ← → 晚），左蓝右橙。
+- **一键应用推荐偏移**：分析本局判定后直接应用推荐的整体偏移。
+
+### 本地成绩
+
+- **成绩历史**：本机保存每一次游玩记录，可查看列表、趋势、PB 对比、判定分布对比，并支持导入 / 导出。
+
+### 其他
+
+- 修正 Windows 构建问题；内置 HarmonyOS Sans 作为回退字体；补齐新增文案的多语言翻译。
+
+## 成绩与隐私
+
+- 成绩**只保存在本机**，本改版**不会向任何服务器上传成绩**，也不收集设备信息。
+- 公开源码中与上传相关的 UI 由 `cfg(record)` 门控，默认构建不会编译；仓库内不存在 `inner.rs` 等闭源模块（见 [.gitignore](.gitignore)）。
+
+## 从源码构建
+
+需要 Rust（版本锁定见 `rust-toolchain.toml`，nightly）：
+
+```bash
+cargo build --release -p phira-main
+```
+
+> 按上游约定，仓库不包含部分资源文件（`assets/res`、`assets/font.ttf`、`assets/background.jpg` 等，见 [.gitignore](.gitignore)）。自行构建后需要补齐这些资源才能完整运行。
+
+## 授权与致谢
+
+本项目以 **GNU GPL-3.0** 授权（与上游一致），见 [LICENSE](LICENSE)。
+
+- 基于 [TeamFlos/Phira](https://github.com/TeamFlos/phira) 开发，感谢 Phira 及其贡献者；
+- 部分判定手感与血条设计参考了 Phirc Mod++；
+- 内置字体 HarmonyOS Sans。

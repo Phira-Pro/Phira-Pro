@@ -1,5 +1,3 @@
-# 闭源模块（上游 Phira 的约定）：任何目录下的 inner.rs 都不入库。
-# 源码里对它的引用都带 `#[cfg(closed)]` / `#[cfg(record)]`，公开构建不需要也不会编译它。
 inner.rs
 
 /target

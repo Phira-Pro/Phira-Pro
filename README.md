@@ -59,7 +59,6 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 ## 成绩与隐私
 
 - 成绩**只保存在本机**，本改版**不会向任何服务器上传成绩**，也不收集设备信息。
-- 公开源码中与上传相关的 UI 由 `cfg(record)` 门控，默认构建不会编译；仓库内不存在 `inner.rs` 等闭源模块（见 [.gitignore](.gitignore)）。
 
 ## 从源码构建
 
@@ -76,5 +75,4 @@ cargo build --release -p phira-main
 本项目以 **GNU GPL-3.0** 授权（与上游一致），见 [LICENSE](LICENSE)。
 
 - 基于 [TeamFlos/Phira](https://github.com/TeamFlos/phira) 开发，感谢 Phira 及其贡献者；
-- 部分判定手感与血条设计参考了 Phirc Mod++；
 - 内置字体 HarmonyOS Sans。

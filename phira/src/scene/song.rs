@@ -1076,9 +1076,10 @@ impl SongScene {
                     })
                 })
             }));
-            // 成绩上传默认关（上游改版同为默认关）：关掉时 upload_fn 置 None。
+            // 成绩上传默认关（上游同为默认关）：关掉时 upload_fn 置 None。
             // 引擎那边本来就是 `if let Some(upload_fn) = &self.upload_fn` 才上传，
             // 所以关掉后成绩只留在本机（本地成绩历史照常记录）。
+            #[cfg(record)]
             let upload_fn = upload_fn.filter(|_| get_data().config.upload_record);
             if is_unlock {
                 #[cfg(not(feature = "video"))]

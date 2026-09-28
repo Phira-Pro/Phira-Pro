@@ -19,8 +19,11 @@ use prpr::{
     ext::{open_url, poll_future, semi_white, LocalTask, RectExt, SafeTexture},
     scene::{request_input, return_input, show_error, show_message, take_input},
     task::Task,
-    ui::{DRectButton, Dialog, Scroll, Slider, Ui, PREFER_REDUCED_MOTION, UI_SFX_VOLUME},
+    ui::{DRectButton, Scroll, Slider, Ui, PREFER_REDUCED_MOTION, UI_SFX_VOLUME},
 };
+// `Dialog` 只被「成绩上传协议」弹窗用到（仅 record 构建存在）。
+#[cfg(record)]
+use prpr::ui::Dialog;
 use prpr_l10n::{LanguageIdentifier, LANG_IDENTS, LANG_NAMES};
 use reqwest::Url;
 use serde::Deserialize;
@@ -404,6 +407,7 @@ fn render_switch(ui: &mut Ui, r: Rect, t: f32, btn: &mut DRectButton, on: bool) 
 /// 成绩上传协议弹窗。
 ///
 /// `ask` = true：这是「要打开上传」的流程，两个按钮，点了同意才继续；`false`：只是查看协议。
+#[cfg(record)]
 fn show_upload_consent(ask: bool) {
     let mut dialog = Dialog::plain(tl!("upload-consent-title"), tl!("upload-consent-text").into_owned());
     if ask {
@@ -1002,7 +1006,9 @@ struct ChartList {
     flick_protect_btn: DRectButton,
     combo_text_btn: DRectButton,
     judge_chart_btn: DRectButton,
+    #[cfg(record)]
     upload_btn: DRectButton,
+    #[cfg(record)]
     upload_consent_btn: DRectButton,
     history_btn: DRectButton,
     next_page: Option<NextPage>,
@@ -1040,7 +1046,9 @@ impl ChartList {
             flick_protect_btn: DRectButton::new(),
             combo_text_btn: DRectButton::new(),
             judge_chart_btn: DRectButton::new(),
+            #[cfg(record)]
             upload_btn: DRectButton::new(),
+            #[cfg(record)]
             upload_consent_btn: DRectButton::new(),
             history_btn: DRectButton::new(),
             next_page: None,
@@ -1148,6 +1156,7 @@ impl ChartList {
             config.hp_color = config.hp_color.next();
             return Ok(Some(true));
         }
+        #[cfg(record)]
         if self.upload_btn.touch(touch, t) {
             if config.upload_record {
                 // 已经开着：直接关掉
@@ -1161,6 +1170,7 @@ impl ChartList {
             }
             return Ok(Some(true));
         }
+        #[cfg(record)]
         if self.upload_consent_btn.touch(touch, t) {
             show_upload_consent(false);
             return Ok(Some(true));
@@ -1334,13 +1344,16 @@ impl ChartList {
             ui.fill_rect(rr.feather(-0.012), Color::new(cr, cg, cb, 0.95));
         }
         h += 0.04;
-        item! {
-            render_title(ui, tl!("item-upload"), Some(tl!("item-upload-sub")));
-            render_switch(ui, rr, t, &mut self.upload_btn, config.upload_record);
-        }
-        item! {
-            render_title(ui, tl!("item-upload-consent"), None);
-            self.upload_consent_btn.render_text(ui, rr, t, tl!("item-upload-consent-open"), 0.5, false);
+        #[cfg(record)]
+        {
+            item! {
+                render_title(ui, tl!("item-upload"), Some(tl!("item-upload-sub")));
+                render_switch(ui, rr, t, &mut self.upload_btn, config.upload_record);
+            }
+            item! {
+                render_title(ui, tl!("item-upload-consent"), None);
+                self.upload_consent_btn.render_text(ui, rr, t, tl!("item-upload-consent-open"), 0.5, false);
+            }
         }
         item! {
             render_title(ui, tl!("item-history"), Some(tl!("item-history-sub")));

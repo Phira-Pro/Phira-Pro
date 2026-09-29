@@ -28,3 +28,7 @@ transfer-prompt = Địa chỉ email của tài khoản cũ cần được chuy�
 transfer-requesting = Nộp đơn xin chuyển đổi
 transfer-email-sent = Một email xác nhận đã được gửi, Vui lòng kiểm tra email của bạn và nhấp vào liên kết để hoàn tất quá trình chuyển đổi
 transfer-failed = Yêu cầu chuyển đổi thất bại
+block = Chặn
+unblock = Bỏ chặn
+blocked = Đã chặn người chơi
+unblocked = Đã bỏ chặn

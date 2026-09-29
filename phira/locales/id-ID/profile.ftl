@@ -11,3 +11,7 @@ last-login = Terakhir login: { $time }
 badge-admin = Admin
 badge-sponsor = Sponsor
 hykb-login-cancelled = Login hykb dibatalkan
+block = Blokir
+unblock = Buka blokir
+blocked = Pemain diblokir
+unblocked = Blokir dibuka

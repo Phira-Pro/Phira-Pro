@@ -1,0 +1,12 @@
+label = Daftar blokir
+count = { $count } diblokir
+add = Blokir pemain
+add-title = Blokir pemain
+add-hint = Masukkan ID angka Phira pemain
+add-done = Pemain diblokir
+add-exists = Sudah diblokir
+add-invalid = ID pemain tidak valid
+save-failed = Gagal menyimpan daftar blokir
+remove = Buka blokir
+removed = Blokir dibuka
+empty = Belum ada pemain yang diblokir

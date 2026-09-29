@@ -1,0 +1,15 @@
+hud-page-home = Beranda
+hud-page-library = Pustaka
+hud-page-settings = Pengaturan
+hud-snap-on = Snap: AKTIF
+hud-snap-off = Snap: NONAKTIF
+hud-reset-page = Reset halaman ini
+hud-reset-all = Reset semua
+hud-done = Selesai
+hud-cols = Kolom
+hud-row-h = Tinggi sel
+hud-page-favorites = Favorit
+hud-page-message = Informasi
+hud-page-history = Riwayat
+hud-page-respack = Paket Skin
+hud-page-blacklist = Daftar blokir

@@ -1,0 +1,12 @@
+label = 玩家黑名单
+count = 已拉黑 { $count } 人
+add = 拉黑玩家
+add-title = 拉黑玩家
+add-hint = 输入玩家的 Phira 数字 ID
+add-done = 已拉黑该玩家
+add-exists = 该玩家已在黑名单中
+add-invalid = 玩家 ID 不合法
+save-failed = 黑名单保存失败
+remove = 解除
+removed = 已解除拉黑
+empty = 还没有拉黑任何人

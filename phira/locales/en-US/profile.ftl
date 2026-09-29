@@ -36,3 +36,7 @@ transfer-prompt = Email of the old account to migrate
 transfer-requesting = Requesting migration...
 transfer-email-sent = Confirmation email sent. Please click the link in your inbox to complete the migration.
 transfer-failed = Failed to request migration.
+block = Block
+unblock = Unblock
+blocked = Player blocked
+unblocked = Unblocked

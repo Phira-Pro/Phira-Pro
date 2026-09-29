@@ -12,3 +12,7 @@ last-login = Login ล่าสุด: { $time }
 badge-admin = Admin
 badge-sponsor = Sponsor
 name-copied = ชื่อถูกใช้ไปแล้ว
+block = บล็อก
+unblock = ปลดบล็อก
+blocked = บล็อกผู้เล่นแล้ว
+unblocked = ปลดบล็อกแล้ว

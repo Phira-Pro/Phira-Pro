@@ -1,0 +1,12 @@
+label = Czarna lista
+count = Zablokowano { $count }
+add = Zablokuj gracza
+add-title = Zablokuj gracza
+add-hint = Wpisz numeryczne ID gracza w Phira
+add-done = Gracz zablokowany
+add-exists = Już zablokowany
+add-invalid = Nieprawidłowe ID gracza
+save-failed = Nie udało się zapisać czarnej listy
+remove = Odblokuj
+removed = Odblokowano
+empty = Brak zablokowanych graczy

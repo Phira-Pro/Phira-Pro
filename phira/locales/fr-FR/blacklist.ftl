@@ -1,0 +1,12 @@
+label = Liste noire
+count = { $count } bloqués
+add = Bloquer un joueur
+add-title = Bloquer un joueur
+add-hint = Entrez l'ID numérique Phira du joueur
+add-done = Joueur bloqué
+add-exists = Déjà bloqué
+add-invalid = ID de joueur invalide
+save-failed = Échec de l'enregistrement de la liste noire
+remove = Débloquer
+removed = Débloqué
+empty = Aucun joueur bloqué

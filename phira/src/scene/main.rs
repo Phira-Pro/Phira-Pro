@@ -201,6 +201,7 @@ impl MainScene {
     // shall be call exactly once
     pub async fn new(fallback: FontArc) -> Result<Self> {
         Self::init().await?;
+        crate::hud::selftest();
 
         #[cfg(closed)]
         let bgm = {
@@ -418,6 +419,9 @@ impl Scene for MainScene {
 
         let s = &mut self.state;
         s.update(tm);
+        if crate::hud::edit_active() {
+            return Ok(crate::hud::editor_touch(touch));
+        }
         if self.pages.last_mut().unwrap().touch(touch, s)? {
             return Ok(true);
         }
@@ -437,6 +441,51 @@ impl Scene for MainScene {
     }
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
+        /// HUD 编辑器请求切页：重建页面栈（根页面保留、不重建，因此不需要异步）。
+        fn goto_hud_page(
+            pages: &mut Vec<Box<dyn Page>>,
+            icons: &Arc<Icons>,
+            state: &mut SharedState,
+            p: crate::hud::PageId,
+        ) -> Result<()> {
+            use crate::hud::PageId;
+            pages.truncate(1);
+            crate::hud::set_cur_page(p);
+            match p {
+                PageId::Home => {}
+                PageId::Library => {
+                    let page = crate::page::LibraryPage::new(Arc::clone(icons), state.icons.clone())?;
+                    pages.push(Box::new(page));
+                }
+                PageId::Settings => {
+                    let page = crate::page::SettingsPage::new(icons.icon.clone(), icons.lang.clone());
+                    pages.push(Box::new(page));
+                }
+                PageId::Favorites => {
+                    let page = crate::page::FavoritesPage::new(Arc::clone(icons), state.icons.clone(), None, None);
+                    pages.push(Box::new(page));
+                }
+                PageId::Message => {
+                    let page = crate::page::MessagePage::new(Arc::clone(icons), state.icons.clone());
+                    pages.push(Box::new(page));
+                }
+                PageId::History => {
+                    pages.push(Box::new(crate::page::HistoryPage::new()));
+                }
+                PageId::Respack => {
+                    let page = crate::page::ResPackPage::new(Arc::clone(icons))?;
+                    pages.push(Box::new(page));
+                }
+                PageId::Blacklist => {
+                    pages.push(Box::new(crate::page::BlacklistPage::new()));
+                }
+            }
+            pages.last_mut().unwrap().enter(state)?;
+            Ok(())
+        }
+        if let Some(p) = crate::hud::take_goto() {
+            goto_hud_page(&mut self.pages, &self.icons, &mut self.state, p)?;
+        }
         UI_AUDIO.with(|it| it.borrow_mut().recover_if_needed())?;
         if get_data().config.mp_enabled {
             MP_PANEL.with(|it| {
@@ -879,6 +928,7 @@ impl Scene for MainScene {
         }
         s.fader.sub = true;
         s.fader.reset();
+        crate::hud::begin_frame();
         self.pages.last_mut().unwrap().render(ui, s)?;
         s.fader.sub = false;
 
@@ -905,6 +955,9 @@ impl Scene for MainScene {
         }
 
         self.pages.last_mut().unwrap().render_top(ui, s)?;
+        if crate::hud::edit_active() {
+            crate::hud::editor_render(ui);
+        }
 
         if get_data().config.mp_enabled {
             let r = 0.06;

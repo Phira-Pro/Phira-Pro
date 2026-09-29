@@ -224,18 +224,25 @@ fn debug_overlay(res: &Resource, chart: &Chart, ui: &mut Ui) {
                 }
                 let mat = tr * note.object.now(res);
                 let pos = mat.transform_point(&Point::new(0., 0.));
+                // 横向判定半宽：与判定逻辑同源（见 `prpr::judge`）。
                 let half = x_diff * note.judge_area;
                 let a = mat.transform_point(&Point::new(-half, 0.));
                 let b = mat.transform_point(&Point::new(half, 0.));
-                ui.fill_rect(Rect::new(a.x, pos.y - 0.005, b.x - a.x, 0.01), Color::new(1., 0.6, 0.2, 0.3));
-                let kind = match &note.kind {
-                    NoteKind::Click => "click",
-                    NoteKind::Hold { .. } => "hold",
-                    NoteKind::Flick => "flick",
-                    NoteKind::Drag => "drag",
+                // 判定区域画成一整块填充的矩形（不是只描边），按音符类型上色：
+                // tap / hold 淡蓝、flick 淡红、drag 淡黄。
+                let (tint, kind) = match &note.kind {
+                    NoteKind::Click => (Color::new(0.55, 0.78, 1.0, 1.), "click"),
+                    NoteKind::Hold { .. } => (Color::new(0.55, 0.78, 1.0, 1.), "hold"),
+                    NoteKind::Flick => (Color::new(1.0, 0.55, 0.55, 1.), "flick"),
+                    NoteKind::Drag => (Color::new(1.0, 0.9, 0.5, 1.), "drag"),
                 };
+                let half_h = 0.05;
+                let rect = Rect::new(a.x, pos.y - half_h, b.x - a.x, half_h * 2.);
+                let path = rect.rounded(0.006);
+                ui.fill_path(&path, Color { a: 0.28, ..tint });
+                ui.stroke_path(&path, 0.0015, Color { a: 0.85, ..tint });
                 ui.text(format!("[{id}] t:{:.2} h:{:.0} {kind}", note.time, note.height))
-                    .pos(pos.x, pos.y - 0.008)
+                    .pos(pos.x, rect.y - 0.004)
                     .anchor(0.5, 1.)
                     .size(0.04)
                     .color(WHITE)
@@ -535,7 +542,7 @@ impl GameScene {
 
         let exercise_range = (chart.offset + info_offset + res.config.offset) as f64..res.track_length;
 
-        let mut judge = Judge::new(&chart);
+        let mut judge = Judge::new(&chart, res.config.hold_tail_judge);
         judge.set_hp_amount(res.config.hp_amount);
         judge.set_hp_scale(res.config.hp_scale);
 

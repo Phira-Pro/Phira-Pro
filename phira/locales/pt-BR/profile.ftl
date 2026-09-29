@@ -17,3 +17,7 @@ load-record-failed = Falha ao carregar registros
 last-login = Último Login : { $time }
 badge-admin = Administrador
 badge-sponsor = Patrocinador
+block = Bloquear
+unblock = Desbloquear
+blocked = Jogador bloqueado
+unblocked = Desbloqueado

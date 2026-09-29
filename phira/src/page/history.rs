@@ -212,7 +212,10 @@ impl Page for HistoryPage {
             .map(|it| it.name.clone());
 
         s.render_fader(ui, |ui| {
-            let outer = cr.feather(-0.005);
+            // HUD 自定义：整页作为一个「列表大框」，可整体移动/缩放；行高可在编辑模式里调。
+            let key = crate::hud::cur_page().key();
+            let outer = crate::hud::slot_or(ui, key, "list", crate::hud::Cap(true, true, true), cr.feather(-0.005));
+            let row_h = crate::hud::param("history", "row_h", ROW_H).clamp(0.05, 0.2);
             self.scroll.size((outer.w, outer.h));
             ui.dx(outer.x);
             ui.dy(outer.y);
@@ -411,7 +414,7 @@ impl Page for HistoryPage {
                     self.row_btns.push(RectButton::new());
                 }
                 for (i, rec) in visible.iter().enumerate() {
-                    let r = row(y, ROW_H);
+                    let r = row(y, row_h);
                     self.row_btns[i].set(ui, r);
                     let is_selected = self.selected.as_deref() == Some(rec.key.as_str());
                     ui.fill_path(&r.rounded(0.010), if is_selected { semi_white(0.10) } else { semi_black(0.30) });
@@ -472,7 +475,7 @@ impl Page for HistoryPage {
                         .color(semi_white(0.5))
                         .no_baseline()
                         .draw();
-                    y += ROW_H + 0.008;
+                    y += row_h + 0.008;
                 }
                 if visible.len() < records.len() {
                     ui.text(tl!("list-more", "count" => (records.len() - visible.len()).to_string()))

@@ -1,0 +1,15 @@
+hud-page-home = Ana sayfa
+hud-page-library = Kitaplık
+hud-page-settings = Ayarlar
+hud-snap-on = Izgara: AÇIK
+hud-snap-off = Izgara: KAPALI
+hud-reset-page = Bu sayfayı sıfırla
+hud-reset-all = Tümünü sıfırla
+hud-done = Bitti
+hud-cols = Sütun
+hud-row-h = Hücre yüksekliği
+hud-page-favorites = Favoriler
+hud-page-message = Mesajlar
+hud-page-history = Geçmiş
+hud-page-respack = Kaynaklar
+hud-page-blacklist = Engelli listesi

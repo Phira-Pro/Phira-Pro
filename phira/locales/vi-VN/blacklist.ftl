@@ -1,0 +1,12 @@
+label = Danh sách chặn
+count = Đã chặn { $count } người
+add = Chặn người chơi
+add-title = Chặn người chơi
+add-hint = Nhập ID số Phira của người chơi
+add-done = Đã chặn người chơi
+add-exists = Đã bị chặn
+add-invalid = ID người chơi không hợp lệ
+save-failed = Không lưu được danh sách chặn
+remove = Bỏ chặn
+removed = Đã bỏ chặn
+empty = Chưa chặn ai

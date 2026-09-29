@@ -1,0 +1,15 @@
+hud-page-home = Trang chính
+hud-page-library = Thư viện
+hud-page-settings = Cài đặt
+hud-snap-on = Bám lưới: BẬT
+hud-snap-off = Bám lưới: TẮT
+hud-reset-page = Đặt lại trang này
+hud-reset-all = Đặt lại tất cả
+hud-done = Xong
+hud-cols = Số cột
+hud-row-h = Chiều cao ô
+hud-page-favorites = Yêu thích
+hud-page-message = Hộp thư
+hud-page-history = Lịch sử
+hud-page-respack = Respacks
+hud-page-blacklist = Danh sách chặn

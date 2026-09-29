@@ -27,3 +27,7 @@ transfer-prompt = 要遷移的舊帳號郵箱
 transfer-requesting = 正在申請遷移
 transfer-email-sent = 確認郵件已發送，請前往郵箱點擊連結完成遷移
 transfer-failed = 申請遷移失敗
+block = 封鎖
+unblock = 解除封鎖
+blocked = 已封鎖該玩家
+unblocked = 已解除封鎖

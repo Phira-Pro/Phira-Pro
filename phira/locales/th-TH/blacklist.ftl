@@ -1,0 +1,12 @@
+label = บัญชีดำผู้เล่น
+count = บล็อกแล้ว { $count } คน
+add = บล็อกผู้เล่น
+add-title = บล็อกผู้เล่น
+add-hint = กรอก ID ตัวเลขของ Phira
+add-done = บล็อกผู้เล่นแล้ว
+add-exists = บล็อกอยู่แล้ว
+add-invalid = ID ผู้เล่นไม่ถูกต้อง
+save-failed = บันทึกบัญชีดำไม่สำเร็จ
+remove = ปลดบล็อก
+removed = ปลดบล็อกแล้ว
+empty = ยังไม่ได้บล็อกใคร

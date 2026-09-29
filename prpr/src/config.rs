@@ -169,9 +169,9 @@ pub struct Config {
     pub combo_text: String,
     /// 结算画面是否画判定时间分布图（早 ← → 晚）。
     pub ending_judge_chart: bool,
+    /// 尾判：开启后 hold 与 osu!mania 一样头尾各判一次（偏移条也会显示两次）。
+    pub hold_tail_judge: bool,
     /// 是否上传成绩到 Phira 官方服务器（默认关；打开前需先同意上传协议）。
-    ///
-    /// 仅 `record` 构建存在；开源构建里整个「成绩上传」功能都不存在。
     #[cfg(record)]
     pub upload_record: bool,
     /// 是否已阅读并同意「成绩上传知情同意与免责声明」。
@@ -260,6 +260,7 @@ impl Default for Config {
             flick_protect: false,
             combo_text: "COMBO".to_owned(),
             ending_judge_chart: false,
+            hold_tail_judge: false,
             #[cfg(record)]
             upload_record: false,
             #[cfg(record)]
@@ -311,6 +312,42 @@ impl Config {
         self.lim_perfect_ms = self.lim_perfect_ms.max(self.lim_perfect_plus_ms);
         self.lim_good_ms = self.lim_good_ms.max(self.lim_perfect_ms);
         self.lim_bad_ms = self.lim_bad_ms.max(self.lim_good_ms);
+    }
+
+    /// 各档窗口的填写范围（毫秒），顺序为 perfect+ / perfect / good / bad。
+    pub const JUDGE_WINDOW_RANGES: [(f32, f32); 4] = [(1., 80.), (1., 120.), (1., 250.), (1., 400.)];
+
+    /// 按序号（0=perfect+, 1=perfect, 2=good, 3=bad）改写某一档判定窗口。
+    ///
+    /// 会保证 `perfect+ < perfect < good < bad` 严格递增：改动沿链条把不合规的
+    /// 相邻档自动推到 `相邻值 ± 1ms`（往后加、往前减），最后再夹回各自的范围。
+    pub fn set_judge_window(&mut self, idx: usize, value: f32) {
+        let mut v = [self.lim_perfect_plus_ms, self.lim_perfect_ms, self.lim_good_ms, self.lim_bad_ms];
+        let ranges = Self::JUDGE_WINDOW_RANGES;
+        let idx = idx.min(3);
+        v[idx] = if value.is_finite() { value } else { ranges[idx].0 };
+        v[idx] = v[idx].clamp(ranges[idx].0, ranges[idx].1);
+        // 后面的档必须依次更大
+        for j in (idx + 1)..4 {
+            v[j] = v[j].max(v[j - 1] + 1.);
+        }
+        // 前面的档必须依次更小
+        for j in (0..idx).rev() {
+            v[j] = v[j].min(v[j + 1] - 1.);
+        }
+        for j in 0..4 {
+            v[j] = v[j].clamp(ranges[j].0, ranges[j].1);
+        }
+        // 夹取可能把两档重新拉平，最后再拉开一次
+        for j in 1..4 {
+            if v[j] <= v[j - 1] {
+                v[j] = v[j - 1] + 1.;
+            }
+        }
+        self.lim_perfect_plus_ms = v[0];
+        self.lim_perfect_ms = v[1];
+        self.lim_good_ms = v[2];
+        self.lim_bad_ms = v[3];
     }
 
     /// 晚按补偿的上限（毫秒）。
@@ -481,5 +518,31 @@ mod tests {
         assert!(!conf.judge_windows().fullscreen);
         conf.mods.insert(Mods::FULLSCREEN_JUDGE);
         assert!(conf.judge_windows().fullscreen);
+    }
+
+    /// 改某一档时其它档会被连带调整，保证 perfect+ < perfect < good < bad 严格递增。
+    #[test]
+    fn judge_window_strict_order_on_edit() {
+        let mut conf = Config::default();
+
+        // 把 perfect 顶到上限：后面的档被连带顶上去。
+        conf.set_judge_window(1, 200.);
+        assert_eq!(conf.lim_perfect_ms, 120.);
+        assert!(conf.lim_perfect_plus_ms < conf.lim_perfect_ms);
+        assert!(conf.lim_perfect_ms < conf.lim_good_ms);
+        assert!(conf.lim_good_ms < conf.lim_bad_ms);
+
+        // 把 good 压到很小：前面的档被连带压下来。
+        conf.set_judge_window(2, 3.);
+        assert!(conf.lim_perfect_plus_ms < conf.lim_perfect_ms);
+        assert!(conf.lim_perfect_ms < conf.lim_good_ms);
+        assert!(conf.lim_good_ms < conf.lim_bad_ms);
+
+        // 越界值会被夹回范围，且仍然严格递增。
+        conf.set_judge_window(0, 999.);
+        assert_eq!(conf.lim_perfect_plus_ms, 80.);
+        assert!(conf.lim_perfect_plus_ms < conf.lim_perfect_ms);
+        conf.set_judge_window(3, -5.);
+        assert!(conf.lim_good_ms < conf.lim_bad_ms);
     }
 }

@@ -1,0 +1,15 @@
+hud-page-home = Главная
+hud-page-library = Библиотека
+hud-page-settings = Настройки
+hud-snap-on = Привязка: ВКЛ
+hud-snap-off = Привязка: ВЫКЛ
+hud-reset-page = Сбросить страницу
+hud-reset-all = Сбросить всё
+hud-done = Готово
+hud-cols = Столбцы
+hud-row-h = Высота ячейки
+hud-page-favorites = Избранное
+hud-page-message = Сообщения
+hud-page-history = История
+hud-page-respack = Скины
+hud-page-blacklist = Чёрный список

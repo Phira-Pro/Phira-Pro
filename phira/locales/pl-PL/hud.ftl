@@ -1,0 +1,15 @@
+hud-page-home = Strona główna
+hud-page-library = Biblioteka
+hud-page-settings = Ustawienia
+hud-snap-on = Przyciąganie: WŁ.
+hud-snap-off = Przyciąganie: WYŁ.
+hud-reset-page = Zresetuj stronę
+hud-reset-all = Zresetuj wszystko
+hud-done = Gotowe
+hud-cols = Kolumny
+hud-row-h = Wysokość komórek
+hud-page-favorites = Ulubione
+hud-page-message = Wiadomości
+hud-page-history = Historia
+hud-page-respack = Paczki zasobów
+hud-page-blacklist = Czarna lista

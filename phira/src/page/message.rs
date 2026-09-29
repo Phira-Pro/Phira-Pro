@@ -220,7 +220,10 @@ impl Page for MessagePage {
         let d = 0.29;
         cr.x += d;
         cr.w -= d;
-        let r = Rect::new(-0.92, cr.y, 0.47, cr.h);
+        // HUD 自定义：左侧消息列表 + 右侧正文，都可整块移动 / 缩放。
+        let key = crate::hud::cur_page().key();
+        let r = crate::hud::slot_or(ui, key, "list", crate::hud::Cap(true, true, true), Rect::new(-0.92, cr.y, 0.47, cr.h));
+        let cr = crate::hud::slot_or(ui, key, "content", crate::hud::Cap(true, true, true), cr);
         s.render_fader(ui, |ui| {
             ui.fill_path(&r.rounded(0.005), semi_black(0.4));
             let ct = r.center();

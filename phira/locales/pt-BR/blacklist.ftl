@@ -1,0 +1,12 @@
+label = Lista de bloqueio
+count = { $count } bloqueados
+add = Bloquear jogador
+add-title = Bloquear jogador
+add-hint = Digite o ID numérico Phira do jogador
+add-done = Jogador bloqueado
+add-exists = Já bloqueado
+add-invalid = ID de jogador inválido
+save-failed = Falha ao salvar a lista de bloqueio
+remove = Desbloquear
+removed = Desbloqueado
+empty = Nenhum jogador bloqueado

@@ -1,6 +1,9 @@
 pub mod coll;
 pub use coll::CollectionPage;
 
+mod blacklist;
+pub use blacklist::BlacklistPage;
+
 mod event;
 pub use event::EventPage;
 

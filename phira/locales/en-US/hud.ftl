@@ -1,0 +1,15 @@
+hud-page-home = Home
+hud-page-library = Library
+hud-page-settings = Settings
+hud-snap-on = Snap: ON
+hud-snap-off = Snap: OFF
+hud-reset-page = Reset page
+hud-reset-all = Reset all
+hud-done = Done
+hud-cols = Columns
+hud-row-h = Cell height
+hud-page-favorites = Favorites
+hud-page-message = Messages
+hud-page-history = History
+hud-page-respack = Respacks
+hud-page-blacklist = Blacklist

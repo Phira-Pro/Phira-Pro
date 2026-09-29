@@ -55,6 +55,8 @@ pub struct ProfileScene {
     btn_open_web: DRectButton,
     btn_logout: DRectButton,
     btn_delete: DRectButton,
+    /// 查看他人时显示的「拉黑 / 解除拉黑」按钮。
+    btn_block: DRectButton,
     #[cfg(feature = "hykb")]
     btn_hykb: DRectButton,
     #[cfg(feature = "hykb")]
@@ -105,6 +107,7 @@ impl ProfileScene {
             btn_open_web: DRectButton::new(),
             btn_logout: DRectButton::new(),
             btn_delete: DRectButton::new(),
+            btn_block: DRectButton::new(),
             #[cfg(feature = "hykb")]
             btn_hykb: DRectButton::new(),
             #[cfg(feature = "hykb")]
@@ -356,6 +359,17 @@ impl Scene for ProfileScene {
             open_url(&format!("https://phira.moe/user/{}", self.id))?;
             return Ok(true);
         }
+        if !get_data().me.as_ref().is_some_and(|it| it.id == self.id) && self.btn_block.touch(touch, t) {
+            let name = self.user.as_ref().map(|it| it.name.as_str()).unwrap_or("");
+            if crate::blacklist::contains(self.id) {
+                let _ = crate::blacklist::remove(self.id);
+                show_message(tl!("unblocked")).ok();
+            } else {
+                let _ = crate::blacklist::add(self.id, name);
+                show_message(tl!("blocked")).ok();
+            }
+            return Ok(true);
+        }
         if self.btn_logout.touch(touch, t) {
             hykb_logout();
             get_data_mut().me = None;
@@ -534,6 +548,12 @@ impl Scene for ProfileScene {
                                 self.btn_transfer.render_text(ui, r, t, tl!("hykb-transfer"), 0.6, true);
                             }
                         }
+                    } else {
+                        // 他人主页：拉黑 / 解除拉黑（只影响本机显示）。
+                        let blocked = crate::blacklist::contains(self.id);
+                        self.btn_block
+                            .render_text(ui, r, t, if blocked { tl!("unblock") } else { tl!("block") }, 0.6, true);
+                        r.y += r.h + 0.02;
                     }
                     (ow, r.bottom() - oy + 0.04)
                 });

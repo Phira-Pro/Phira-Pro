@@ -1,0 +1,15 @@
+hud-page-home = 홈
+hud-page-library = 채보 라이브러리
+hud-page-settings = 설정
+hud-snap-on = 스냅: 켜기
+hud-snap-off = 스냅: 끄기
+hud-reset-page = 이 페이지 초기화
+hud-reset-all = 전체 초기화
+hud-done = 완료
+hud-cols = 열 수
+hud-row-h = 칸 높이
+hud-page-favorites = 즐겨찾기
+hud-page-message = 메시지
+hud-page-history = 기록
+hud-page-respack = 리소스 패키지
+hud-page-blacklist = 플레이어 차단 목록

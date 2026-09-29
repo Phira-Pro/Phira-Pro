@@ -17,3 +17,7 @@ load-record-failed = Échec du chargement de l'historique du jeu.
 last-login = Dernière connexion : { $time }
 badge-admin = Admin
 badge-sponsor = Sponsor
+block = Bloquer
+unblock = Débloquer
+blocked = Joueur bloqué
+unblocked = Débloqué

@@ -1,0 +1,12 @@
+label = Blacklist
+count = { $count } blocked
+add = Block a player
+add-title = Block player
+add-hint = Enter the player's numeric Phira ID
+add-done = Player blocked
+add-exists = Already blocked
+add-invalid = Invalid player ID
+save-failed = Failed to save the blacklist
+remove = Unblock
+removed = Unblocked
+empty = No blocked players yet

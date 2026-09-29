@@ -452,6 +452,9 @@ impl ChartsView {
     }
 
     pub fn render(&mut self, ui: &mut Ui, r: Rect, t: f32) {
+        // HUD 自定义：谱面列表的「列数 / 格高」由设置覆盖（默认值与原来一致）。
+        self.row_num = crate::hud::param("library", "cols", 4.).round().clamp(1., 12.) as u32;
+        self.row_height = crate::hud::param("library", "row_h", 0.3).clamp(0.12, 0.6);
         let content_size = (r.w, r.h);
         let range = self.charts_display_range(content_size);
         let Some(charts) = &mut self.charts else {

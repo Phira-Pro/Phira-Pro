@@ -1,0 +1,12 @@
+label = Engelli listesi
+count = { $count } engellendi
+add = Oyuncuyu engelle
+add-title = Oyuncuyu engelle
+add-hint = Oyuncunun sayısal Phira kimliğini girin
+add-done = Oyuncu engellendi
+add-exists = Zaten engelli
+add-invalid = Geçersiz oyuncu kimliği
+save-failed = Engelli listesi kaydedilemedi
+remove = Engeli kaldır
+removed = Engel kaldırıldı
+empty = Henüz kimse engellenmedi

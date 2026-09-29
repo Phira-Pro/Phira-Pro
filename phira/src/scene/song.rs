@@ -352,6 +352,8 @@ pub struct SongScene {
     ldb_fader: Fader,
     ldb_type_btn: DRectButton,
     ldb_std: bool,
+    /// 上次同步黑名单时的版本号；黑名单增删后据此重新拉取榜单。
+    ldb_bl_ver: u32,
 
     info_btn: RectButton,
     info_scroll: Scroll,
@@ -530,6 +532,7 @@ impl SongScene {
             ldb_fader: Fader::new().with_distance(0.12),
             ldb_type_btn: DRectButton::new(),
             ldb_std: false,
+            ldb_bl_ver: crate::blacklist::version(),
 
             info_btn: RectButton::new(),
             info_scroll: Scroll::new(),
@@ -1076,7 +1079,7 @@ impl SongScene {
                     })
                 })
             }));
-            // 成绩上传默认关（上游同为默认关）：关掉时 upload_fn 置 None。
+            // 成绩上传默认关（上游改版同为默认关）：关掉时 upload_fn 置 None。
             // 引擎那边本来就是 `if let Some(upload_fn) = &self.upload_fn` 才上传，
             // 所以关掉后成绩只留在本机（本地成绩历史照常记录）。
             #[cfg(record)]
@@ -1517,7 +1520,7 @@ impl SongScene {
             for (start, end, name) in unresolved {
                 let name_owned = name.clone();
                 let (users, _) = Client::query::<User>().search(name_owned).send().await?;
-                let matched = users.into_iter().find(|u| u.name == name);
+                let matched = users.into_iter().find(|u| u.name == name && !crate::blacklist::contains(u.id));
                 let Some(user) = matched else {
                     bail!(tl!("collab-autocomplete-failed", "name" => name));
                 };
@@ -2305,6 +2308,14 @@ impl Scene for SongScene {
                 self.edit_scroll.update(t);
             }
             SideContent::Leaderboard => {
+                // 黑名单若在别处（比如玩家主页）被改动过，就把榜单重新拉一遍，
+                // 否则会一直显示已经加载好的旧列表。
+                if crate::blacklist::version() != self.ldb_bl_ver {
+                    self.ldb_bl_ver = crate::blacklist::version();
+                    if self.ldb.is_some() {
+                        self.load_ldb();
+                    }
+                }
                 if self.ldb_scroll.y_scroller.pulled {
                     self.ldb_scroll.y_scroller.offset = 0.;
                     self.load_ldb();
@@ -2431,7 +2442,12 @@ impl Scene for SongScene {
                     Err(err) => {
                         show_error(err.context(tl!("ldb-load-failed")));
                     }
-                    Ok(items) => {
+                    Ok(mut items) => {
+                        // 黑名单：把名单内的玩家从榜单里剔掉，再按可见顺序重新连续编号。
+                        items.retain(|it| !crate::blacklist::contains(it.inner.player.id));
+                        for (i, it) in items.iter_mut().enumerate() {
+                            it.rank = (i + 1) as u32;
+                        }
                         let rank = get_data()
                             .me
                             .as_ref()
@@ -2440,6 +2456,7 @@ impl Scene for SongScene {
                             UserManager::request(item.inner.player.id);
                         }
                         self.ldb = Some((rank, items));
+                        self.ldb_bl_ver = crate::blacklist::version();
                         self.ldb_fader.sub(tm.real_time() as _);
                     }
                 }

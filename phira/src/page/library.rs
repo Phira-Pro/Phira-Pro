@@ -1410,17 +1410,36 @@ impl Page for LibraryPage {
         if chosen != ChartListType::Local {
             r.h -= 0.08;
         }
+        // HUD 自定义：谱面列表整体大框。只支持整体移动 / 缩放，
+        // 里面的小格由容器尺寸自动排布（不单独拖动某一格）。
+        const SLOT_LIST: crate::hud::SlotDef = crate::hud::SlotDef::centered("list", [0., 0., 1.67, 1.2], crate::hud::Cap(true, true, true));
+        if crate::hud::has("library", "list") {
+            r = crate::hud::slot(ui, "library", SLOT_LIST);
+            if chosen != ChartListType::Local {
+                r.h -= 0.08;
+            }
+        } else {
+            crate::hud::register("library", SLOT_LIST, r);
+        }
         s.render_fader(ui, |ui| {
             self.tabs.render(ui, rt, r, |ui, list| {
                 list.view.render(ui, r.feather(-0.01), t);
                 Ok(())
             })
         })?;
+        // HUD 自定义：右上按钮排（整体移动 / 缩放；排内按钮仍等距自动排列）。
+        const SLOT_TOPBAR: crate::hud::SlotDef = crate::hud::SlotDef::centered("topbar", [0., 0., 0.09, 0.09], crate::hud::Cap(true, true, true));
+        let bar = if crate::hud::has("library", "topbar") {
+            crate::hud::slot(ui, "library", SLOT_TOPBAR)
+        } else {
+            let r0 = Rect::new(r.right() - 0.09, -ui.top + 0.04, 0.09, 0.09);
+            crate::hud::register("library", SLOT_TOPBAR, r0);
+            r0
+        };
         if chosen != ChartListType::Popular {
             s.render_fader(ui, |ui| {
                 let multi_select = self.tabs.selected().view.multi_select.is_some();
-                let mut r = Rect::new(r.right(), -ui.top + 0.04, 0., r.y + ui.top - 0.06);
-                r.w = r.h;
+                let mut r = Rect::new(bar.right(), bar.y, bar.h, bar.h);
                 r.x -= r.w;
 
                 // 多选模式操作按钮
@@ -1443,7 +1462,8 @@ impl Page for LibraryPage {
                     let text = tl!("multi-select-status", "count" => selected.len());
                     let tw = ui.text(&text).size(0.5).measure().w;
                     let w = tw + 0.1;
-                    let sr = Rect::new(r.x - w - 0.02, r.y, w, r.h);
+                    // HUD 自定义：多选按钮（可单独拖动缩放）。
+                let sr = crate::hud::slot_or(ui, "library", "multi", crate::hud::Cap(true, true, true), Rect::new(r.x - w - 0.02, r.y, w, r.h));
                     self.multi_select_btn.render_shadow(ui, sr, t, |ui, path| {
                         ui.fill_path(&path, WHITE);
                         let ir = Rect::new(sr.x + 0.04, sr.center().y, 0., 0.).feather(0.025);
@@ -1462,39 +1482,45 @@ impl Page for LibraryPage {
                             .set_auto_adjust(Some(ui.screen_rect().nonuniform_feather(-0.03, -0.05)));
                         self.multi_select_menu.set_bottom(true);
                         self.multi_select_menu.set_selected(usize::MAX);
-                        self.multi_select_menu.show(ui, t, Rect::new(r.x, r.bottom() + 0.02, 0.3, 0.2));
+                        self.multi_select_menu.show(ui, t, Rect::new(sr.x, sr.bottom() + 0.02, 0.3, 0.2));
                     }
                     r.x = sr.x - r.w - 0.02;
 
-                    self.multi_select_cancel_btn.render_shadow(ui, r, t, |ui, path| {
+                    // HUD 自定义：多选「关闭」按钮。
+                    let dr = crate::hud::slot_or(ui, "library", "close", crate::hud::Cap(true, true, true), r);
+                    self.multi_select_cancel_btn.render_shadow(ui, dr, t, |ui, path| {
                         ui.fill_path(&path, WHITE);
-                        let cr = r.feather(-0.01);
+                        let cr = dr.feather(-0.01);
                         ui.fill_rect(cr, (*self.icons.close, cr, ScaleType::Fit, BLACK));
                     });
                     r.x -= r.w + 0.02;
                 }
 
                 if chosen == ChartListType::Local && !multi_select {
-                    self.import_btn.render_shadow(ui, r, t, |ui, path| {
+                    // HUD 自定义：导入按钮。
+                    let dr = crate::hud::slot_or(ui, "library", "import", crate::hud::Cap(true, true, true), r);
+                    self.import_btn.render_shadow(ui, dr, t, |ui, path| {
                         ui.fill_path(&path, semi_black(0.4));
-                        let cr = r.feather(-0.01);
+                        let cr = dr.feather(-0.01);
                         ui.fill_rect(cr, (*self.icons.plus, cr, ScaleType::Fit));
                     });
                     r.x -= r.w + 0.02;
                 }
 
+                // HUD 自定义：收藏夹 / 筛选按钮（可在编辑模式里单独拖动缩放）。
+                let fr = crate::hud::slot_or(ui, "library", "fav", crate::hud::Cap(true, true, true), r);
                 if chosen != ChartListType::Local {
-                    self.filter_btn.render_shadow(ui, r, t, |ui, path| {
+                    self.filter_btn.render_shadow(ui, fr, t, |ui, path| {
                         ui.fill_path(&path, semi_black(0.4));
-                        let cr = r.feather(-0.01);
+                        let cr = fr.feather(-0.01);
                         ui.fill_rect(cr, (*self.icons.filter, cr, ScaleType::Fit));
                     });
                     r.x -= r.w + 0.02;
                 } else if !multi_select {
                     let active = self.current_fav_index.is_some();
-                    self.fav_btn.render_shadow(ui, r, t, |ui, path| {
+                    self.fav_btn.render_shadow(ui, fr, t, |ui, path| {
                         ui.fill_path(&path, if active { WHITE } else { semi_black(0.4) });
-                        let cr = r.feather(-0.01);
+                        let cr = fr.feather(-0.01);
                         if active {
                             ui.fill_rect(cr, (*self.icons.star, cr, ScaleType::Fit, Color::from_rgba(255, 193, 7, 255)));
                         } else {
@@ -1504,9 +1530,11 @@ impl Page for LibraryPage {
                     r.x -= r.w + 0.02;
                 }
 
-                self.order_btn.render_shadow(ui, r, t, |ui, path| {
+                // HUD 自定义：排序按钮。
+                let or = crate::hud::slot_or(ui, "library", "order", crate::hud::Cap(true, true, true), r);
+                self.order_btn.render_shadow(ui, or, t, |ui, path| {
                     ui.fill_path(&path, semi_black(0.4));
-                    let cr = r.feather(-0.01);
+                    let cr = or.feather(-0.01);
                     ui.fill_rect(cr, (*self.icons.order, cr, ScaleType::Fit));
                 });
                 if self.need_show_order_meta_menu {
@@ -1522,7 +1550,7 @@ impl Page for LibraryPage {
                     self.order_meta_menu.set_auto_dismiss(false);
                     self.update_order_meta_menu_options();
                     self.order_meta_menu.set_selected(usize::MAX);
-                    self.order_meta_menu.show(ui, t, Rect::new(r.x, r.bottom() + 0.02, 0.35, 0.2));
+                    self.order_meta_menu.show(ui, t, Rect::new(or.x, or.bottom() + 0.02, 0.35, 0.2));
                 }
 
                 let empty = self.search_str.is_empty();
@@ -1532,34 +1560,46 @@ impl Page for LibraryPage {
                     r.x += r.h;
                     r.w -= r.h;
                 }
-                let rt = r.right();
-                self.search_btn.render_shadow(ui, r, t, |ui, path| {
-                    ui.fill_path(&path, semi_black(0.4));
-                });
-                let mut r = r.feather(-0.01);
-                r.w = r.h;
-                if !empty {
-                    ui.fill_rect(r, (*self.icons.close, r, ScaleType::Fit));
-                    self.search_clr_btn.set(ui, r);
-                    r.x += r.w;
-                }
-                ui.fill_rect(r, (*self.icons.search, r, ScaleType::Fit));
+                let (sr, ir) = {
+                    // HUD 自定义：搜索框（可单独拖动缩放）；文字跟随搜索框。
+                    let sr = crate::hud::slot_or(ui, "library", "search", crate::hud::Cap(true, true, true), r);
+                    self.search_btn.render_shadow(ui, sr, t, |ui, path| {
+                        ui.fill_path(&path, semi_black(0.4));
+                    });
+                    let mut r = sr.feather(-0.01);
+                    r.w = r.h;
+                    if !empty {
+                        ui.fill_rect(r, (*self.icons.close, r, ScaleType::Fit));
+                        self.search_clr_btn.set(ui, r);
+                        r.x += r.w;
+                    }
+                    ui.fill_rect(r, (*self.icons.search, r, ScaleType::Fit));
+                    (sr, r)
+                };
                 ui.text(&self.search_str)
-                    .pos(r.right() + 0.01, r.center().y)
+                    .pos(ir.right() + 0.01, sr.center().y)
                     .anchor(0., 0.5)
                     .no_baseline()
                     .size(0.6)
-                    .max_width(rt - r.right() - 0.02)
+                    .max_width((sr.right() - ir.right() - 0.03).max(0.02))
                     .draw();
             });
         }
         if chosen != ChartListType::Local {
             let total_page = self.total_page();
             s.render_fader(ui, |ui| {
+                // HUD 自定义：页码与翻页按钮（切到在线/热门分页后即可编辑）。
                 let cx = r.center().x;
-                let r = ui
-                    .text(tl!("page", "current" => self.current_page + 1, "total" => total_page))
-                    .pos(cx, r.bottom() + 0.034)
+                let py = r.bottom() + 0.034;
+                let pager = crate::hud::slot_or(
+                    ui,
+                    "library",
+                    "pager",
+                    crate::hud::Cap(true, false, false),
+                    Rect::new(cx - 0.25, py, 0.5, 0.06),
+                );
+                ui.text(tl!("page", "current" => self.current_page + 1, "total" => total_page))
+                    .pos(pager.center().x, pager.y)
                     .anchor(0.5, 0.)
                     .no_baseline()
                     .size(0.5)
@@ -1567,11 +1607,13 @@ impl Page for LibraryPage {
                 let dist = 0.3;
                 let ft = 0.024;
                 let prev_page = tl!("prev-page");
-                let r = ui.text(prev_page.deref()).pos(cx - dist, r.y).anchor(0.5, 0.).size(0.5).measure();
-                self.prev_page_btn.render_text(ui, r.feather(ft), t, prev_page, 0.5, false);
+                let pr = ui.text(prev_page.deref()).pos(cx - dist, py).anchor(0.5, 0.).size(0.5).measure();
+                let pr = crate::hud::slot_or(ui, "library", "prev-page", crate::hud::Cap(true, false, false), pr.feather(ft));
+                self.prev_page_btn.render_text(ui, pr, t, prev_page, 0.5, false);
                 let next_page = tl!("next-page");
-                let r = ui.text(next_page.deref()).pos(cx + dist, r.y).anchor(0.5, 0.).size(0.5).measure();
-                self.next_page_btn.render_text(ui, r.feather(ft), t, next_page, 0.5, false);
+                let nr = ui.text(next_page.deref()).pos(cx + dist, py).anchor(0.5, 0.).size(0.5).measure();
+                let nr = crate::hud::slot_or(ui, "library", "next-page", crate::hud::Cap(true, false, false), nr.feather(ft));
+                self.next_page_btn.render_text(ui, nr, t, next_page, 0.5, false);
             });
         }
         self.order_menu.render(ui, t, 1.);

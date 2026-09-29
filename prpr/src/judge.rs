@@ -1,7 +1,7 @@
 //! Judgement system
 
 use crate::{
-    config::Config,
+    config::{Config, JudgeWindows},
     core::{BadNote, Chart, NoteKind, Point, Resource, Vector, NOTE_WIDTH_RATIO_BASE},
     ext::{get_viewport, NotNanExt},
 };
@@ -160,6 +160,62 @@ pub enum Judgement {
 
 /// 局内 early/late 判定条保留的最近命中数。
 pub const MAX_RECENT_HITS: usize = 24;
+
+/// 把一个时间偏移（秒，负=偏早）按判定窗口折算成判定等级；超出 bad 窗即 Miss。
+///
+/// 尾判（mania 风格的松手判定）也走这套口径。
+pub fn judgement_of_offset(off: f64, limits: &JudgeWindows) -> Judgement {
+    let d = off.abs();
+    if d <= limits.perfect_plus {
+        Judgement::PerfectPlus
+    } else if d <= limits.perfect {
+        Judgement::Perfect
+    } else if d <= limits.good {
+        Judgement::Good
+    } else if d <= limits.bad {
+        Judgement::Bad
+    } else {
+        Judgement::Miss
+    }
+}
+
+/// 两个音符时间差小于这个值（秒）就视为「同一时刻」，越位保护不会把同拍的键互相挡住。
+const SAME_TIME_EPS: f64 = 1e-3;
+
+/// 键盘「越位保护」：在目标音符之前，是否还存在更早、尚未判定、且受保护的
+/// 红键（Flick）/ 黄键（Drag）？
+///
+/// 键盘的一次按下只能判到蓝键 / 长条。如果它前面还压着一个键盘按不掉的红 / 黄键，
+/// 这次按下就不该「越位」去判后面的蓝键——否则会把本该留给红 / 黄键的时机漏给更晚的音符。
+/// 同一时刻的音符不算「更早」（见 [`SAME_TIME_EPS`]），所以同拍的蓝键依旧能正常按下。
+#[allow(clippy::too_many_arguments)]
+fn has_earlier_protected(
+    chart: &Chart,
+    notes: &[(Vec<u32>, usize)],
+    t: f64,
+    spd: f64,
+    bad: f64,
+    target_time: f64,
+    drag_protect: bool,
+    flick_protect: bool,
+) -> bool {
+    if !(drag_protect || flick_protect) {
+        return false;
+    }
+    for (line, (idx, st)) in chart.lines.iter().zip(notes) {
+        for id in &idx[*st..] {
+            let n = &line.notes[*id as usize];
+            if n.fake || !matches!(n.judge, JudgeStatus::NotJudged) {
+                continue;
+            }
+            let protected = (flick_protect && matches!(n.kind, NoteKind::Flick)) || (drag_protect && matches!(n.kind, NoteKind::Drag));
+            if protected && n.time + SAME_TIME_EPS < target_time && (t - n.time) / spd <= bad {
+                return true;
+            }
+        }
+    }
+    false
+}
 
 /// 一次命中的真实时间偏移，供局内 early/late 判定条绘制。
 #[derive(Debug, Clone, Copy)]
@@ -380,7 +436,28 @@ impl JudgeInner {
 
 #[cfg(test)]
 mod tests {
-    use super::{JudgeInner, Judgement, MAX_RECENT_HITS};
+    use super::{judgement_of_offset, JudgeInner, Judgement, MAX_RECENT_HITS};
+    use crate::config::JudgeWindows;
+
+    /// 时间偏移 → 判定等级的分档，早/晚对称，超过 bad 窗即 Miss。尾判走同一口径。
+    #[test]
+    fn offset_tiering() {
+        let limits = JudgeWindows {
+            perfect_plus: 0.016,
+            perfect: 0.08,
+            good: 0.16,
+            bad: 0.22,
+            fullscreen: false,
+        };
+        assert!(matches!(judgement_of_offset(0.0, &limits), Judgement::PerfectPlus));
+        assert!(matches!(judgement_of_offset(0.016, &limits), Judgement::PerfectPlus));
+        assert!(matches!(judgement_of_offset(0.05, &limits), Judgement::Perfect));
+        assert!(matches!(judgement_of_offset(-0.05, &limits), Judgement::Perfect));
+        assert!(matches!(judgement_of_offset(0.12, &limits), Judgement::Good));
+        assert!(matches!(judgement_of_offset(0.20, &limits), Judgement::Bad));
+        assert!(matches!(judgement_of_offset(0.30, &limits), Judgement::Miss));
+        assert!(matches!(judgement_of_offset(-0.30, &limits), Judgement::Miss));
+    }
 
     /// Perfect+ 与 Perfect 同权：同样的「完美」个数落在哪一档，准确率、分数、连击都应一致。
     #[test]
@@ -512,7 +589,7 @@ pub fn take_wheel() -> (f32, f32) {
 }
 
 impl Judge {
-    pub fn new(chart: &Chart) -> Self {
+    pub fn new(chart: &Chart, hold_tail_judge: bool) -> Self {
         let notes = chart
             .lines
             .iter()
@@ -522,6 +599,15 @@ impl Judge {
                 (idx, 0)
             })
             .collect();
+        let mut num_of_notes: u32 = chart.lines.iter().map(|it| it.notes.iter().filter(|it| !it.fake).count() as u32).sum();
+        if hold_tail_judge {
+            // 尾判模式下每个 hold 头尾各判一次，谱面音符数也相应增加。
+            num_of_notes += chart
+                .lines
+                .iter()
+                .map(|it| it.notes.iter().filter(|it| !it.fake && matches!(it.kind, NoteKind::Hold { .. })).count() as u32)
+                .sum::<u32>();
+        }
         Self {
             notes,
             trackers: HashMap::new(),
@@ -529,7 +615,7 @@ impl Judge {
 
             key_down_count: 0,
 
-            inner: JudgeInner::new(chart.lines.iter().map(|it| it.notes.iter().filter(|it| !it.fake).count() as u32).sum()),
+            inner: JudgeInner::new(num_of_notes),
             judgements: RefCell::new(Vec::new()),
         }
     }
@@ -770,6 +856,9 @@ impl Judge {
         };
         let limits = res.windows;
         let mut judgements = Vec::new();
+        // 尾判模式：hold 的尾判需要额外结算一次（`(line_id, note_id, 尾判偏移)`）。
+        // 和 `judgements` 分开收集，避免在后面那个循环里再借 `self.notes`。
+        let mut tail_judgements: Vec<(usize, u32, f64)> = Vec::new();
         // clicks & flicks
         for (id, touch) in touches.iter().enumerate() {
             let click = touch.phase == TouchPhase::Started;
@@ -867,6 +956,21 @@ impl Judge {
                             NoteKind::Hold { .. } => {
                                 note.hitsound.play(res);
                                 self.judgements.borrow_mut().push((t, line_id as _, id, Err(perfect)));
+                                // 头判的偏移：按下时就进判定条（原来要等按住结束才显示）。
+                                let head_j = if perfect {
+                                    if (t - note.time).abs() / spd <= limits.perfect_plus {
+                                        Judgement::PerfectPlus
+                                    } else {
+                                        Judgement::Perfect
+                                    }
+                                } else {
+                                    Judgement::Good
+                                };
+                                self.inner.push_recent((t - note.time) / spd, head_j, t);
+                                // 尾判模式：头判在按下时立即结算，尾判等松手 / 结尾再结算。
+                                if res.config.hold_tail_judge {
+                                    self.commit(t, head_j, line_id as _, id, (t - note.time) / spd);
+                                }
                                 note.judge = JudgeStatus::Hold(perfect, t, t, false, f64::INFINITY);
                             }
                             _ => unreachable!(),
@@ -907,6 +1011,11 @@ impl Judge {
                 })
                 .min_by_key(|(line_id, id)| chart.lines[*line_id].notes[*id as usize].time.not_nan())
             {
+                // 越位保护：前面还压着一个键盘按不掉的红 / 黄键时，这次按下不去判后面的音符。
+                let target_time = chart.lines[line_id].notes[id as usize].time;
+                if has_earlier_protected(chart, &self.notes, t, spd, limits.bad, target_time, drag_protect, flick_protect) {
+                    break;
+                }
                 let note = &mut chart.lines[line_id].notes[id as usize];
                 let dt = (t - note.time).abs() / spd;
                 if dt <= if matches!(note.kind, NoteKind::Click) { limits.bad } else { limits.good } {
@@ -932,6 +1041,21 @@ impl Judge {
                         NoteKind::Hold { .. } => {
                             note.hitsound.play(res);
                             self.judgements.borrow_mut().push((t, line_id as _, id, Err(perfect)));
+                            // 头判的偏移：按下时就进判定条（原来要等按住结束才显示）。
+                            let head_j = if perfect {
+                                if (t - note.time).abs() / spd <= limits.perfect_plus {
+                                    Judgement::PerfectPlus
+                                } else {
+                                    Judgement::Perfect
+                                }
+                            } else {
+                                Judgement::Good
+                            };
+                            self.inner.push_recent((t - note.time) / spd, head_j, t);
+                            // 尾判模式：头判在按下时立即结算，尾判等松手 / 结尾再结算。
+                            if res.config.hold_tail_judge {
+                                self.commit(t, head_j, line_id as _, id, (t - note.time) / spd);
+                            }
                             note.judge = JudgeStatus::Hold(perfect, t, t, false, f64::INFINITY);
                         }
                         _ => unreachable!(),
@@ -946,6 +1070,33 @@ impl Judge {
             for id in &idx[*st..] {
                 let note = &mut line.notes[*id as usize];
                 if let NoteKind::Hold { end_time, .. } = &note.kind {
+                    if res.config.hold_tail_judge {
+                        // 尾判（mania 风格）：头判在按下时已结算，这里只跟踪「松手时刻」，
+                        // 到结尾时刻再按松手早晚结算尾判（见下面的 `tail_judgements`）。
+                        if let JudgeStatus::Hold(_, _, _, _, ref mut up_time) = note.judge {
+                            let x = &mut note.object.translation.0;
+                            x.set_time(t);
+                            let x = x.now();
+                            let on_note = self.key_down_count != 0
+                                || limits.fullscreen
+                                || pos.iter().any(|it| {
+                                    it.is_some_and(|it| (it.x - x).abs() as f64 / note.judge_area as f64 <= X_DIFF_MAX)
+                                });
+                            if on_note {
+                                *up_time = f64::INFINITY;
+                            } else {
+                                if up_time.is_infinite() {
+                                    *up_time = t;
+                                }
+                                // 松手位置离结尾还远（超出 bad 窗）→ 尾判直接 Miss。
+                                if t > *up_time + UP_TOLERANCE && (*end_time - t) / spd > limits.bad {
+                                    note.judge = JudgeStatus::Judged;
+                                    judgements.push((Judgement::Miss, line_id, *id, None));
+                                }
+                            }
+                            continue;
+                        }
+                    }
                     if let JudgeStatus::Hold(.., ref mut pre_judge, ref mut up_time) = note.judge {
                         if (*end_time - t) / spd <= limits.bad {
                             *pre_judge = true;
@@ -980,6 +1131,10 @@ impl Judge {
                 if dt > limits.bad {
                     note.judge = JudgeStatus::Judged;
                     judgements.push((Judgement::Miss, line_id, *id, None));
+                    if res.config.hold_tail_judge && matches!(note.kind, NoteKind::Hold { .. }) {
+                        // 尾判模式下 hold 头尾各算一次
+                        judgements.push((Judgement::Miss, line_id, *id, None));
+                    }
                     continue;
                 }
                 if -dt > limits.bad {
@@ -1013,6 +1168,19 @@ impl Judge {
             line.object.set_time(t);
             for id in &idx[*st..] {
                 let note = &mut line.notes[*id as usize];
+                // 尾判模式：按松手时刻相对结尾的早晚结算尾判（头判已在按下时结算）。
+                if res.config.hold_tail_judge {
+                    if let JudgeStatus::Hold(_, _, _, _, up) = note.judge {
+                        if let NoteKind::Hold { end_time, .. } = note.kind {
+                            if end_time <= t {
+                                note.judge = JudgeStatus::Judged;
+                                let off = if up.is_infinite() { 0. } else { (up - end_time) / spd };
+                                tail_judgements.push((line_id, *id, off));
+                                continue;
+                            }
+                        }
+                    }
+                }
                 if let JudgeStatus::Hold(perfect, .., diff, true, _) = note.judge {
                     if let NoteKind::Hold { end_time, .. } = &note.kind {
                         if *end_time <= t {
@@ -1073,8 +1241,9 @@ impl Judge {
             } else {
                 (diff.unwrap_or(t) - note.time) / spd
             };
-            // 拖拽/滑动的偏移是补齐出来的合成值，不进判定条。
-            if !matches!(note.kind, NoteKind::Drag | NoteKind::Flick) {
+            // 拖拽/滑动的偏移是补齐出来的合成值，不进判定条；
+            // hold 的头判偏移在按下时已经进过判定条了，这里不再重复。
+            if !matches!(note.kind, NoteKind::Drag | NoteKind::Flick | NoteKind::Hold { .. }) {
                 self.inner.push_recent(offset, judgement, t);
             }
             self.commit(t, judgement, line_id as _, id, offset);
@@ -1130,6 +1299,12 @@ impl Judge {
                 *st += 1;
             }
         }
+        // 尾判模式：hold 的尾判统一在这里结算——按松手时刻相对结尾的早晚定档。
+        for (line_id, id, off) in tail_judgements {
+            let j = judgement_of_offset(off, &limits);
+            self.inner.push_recent(off, j, t);
+            self.commit(t, j, line_id as _, id, off);
+        }
         self.last_time = t / spd;
     }
 
@@ -1173,6 +1348,10 @@ impl Judge {
         }
         for (line_id, id) in judgements.into_iter() {
             self.commit(t, Judgement::PerfectPlus, line_id as _, id, 0.);
+            // 尾判模式：hold 头尾各算一次。
+            if res.config.hold_tail_judge && matches!(chart.lines[line_id].notes[id as usize].kind, NoteKind::Hold { .. }) {
+                self.commit(t, Judgement::PerfectPlus, line_id as _, id, 0.);
+            }
             let (note_transform, note_hitsound) = {
                 let line = &mut chart.lines[line_id];
                 let note = &mut line.notes[id as usize];

@@ -12,3 +12,7 @@ last-login = Сүүлчийн нэвтрэлт: { $time }
 badge-admin = Админ
 badge-sponsor = Ивээн тэтгэгч
 hykb-login-cancelled = 3839 Games рүү нэвтрэх үйл цуцлагдлаа
+block = Хориглох
+unblock = Хориг цуцлах
+blocked = Тоглогчийг хориглолоо
+unblocked = Хоригийг цуцаллаа

@@ -17,3 +17,7 @@ load-record-failed = 기록을 불러오는 데 실패했습니다.
 last-login = 마지막 로그인: { $time }
 badge-admin = 관리자
 badge-sponsor = 후원자
+block = 차단
+unblock = 차단 해제
+blocked = 차단했습니다
+unblocked = 차단을 해제했습니다

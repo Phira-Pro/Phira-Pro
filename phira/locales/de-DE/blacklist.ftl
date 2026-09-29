@@ -1,0 +1,12 @@
+label = Spieler-Blacklist
+count = { $count } blockiert
+add = Spieler sperren
+add-title = Spieler sperren
+add-hint = Numerische Phira-ID des Spielers eingeben
+add-done = Spieler blockiert
+add-exists = Bereits blockiert
+add-invalid = Ungültige Spieler-ID
+save-failed = Blacklist konnte nicht gespeichert werden
+remove = Entsperren
+removed = Entsperrt
+empty = Noch keine Spieler blockiert

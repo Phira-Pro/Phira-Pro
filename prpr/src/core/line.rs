@@ -248,8 +248,10 @@ impl JudgeLine {
         let line_scaled = (self.object.scale.1.now() - 1.).abs() > 1e-4;
         res.with_model(self.now_transform(res, lines), |res| {
             if res.config.chart_debug {
-                res.apply_model(|_| {
-                    ui.text(id.to_string()).pos(0., -0.01).anchor(0.5, 1.).size(0.8).draw();
+                // 谱面坐标系整体带 y 轴翻转，直接画文字会变成镜像；这里像 Text 音符那样
+                // 再翻一次抵消。（原来的 `apply_model` 会把当前模型再叠一层，位置也会错。）
+                res.apply_model_of(&Matrix::identity().append_nonuniform_scaling(&Vector::new(1., -1.)), |_| {
+                    ui.text(id.to_string()).pos(0., -0.012).anchor(0.5, 1.).size(0.1).color(WHITE).draw();
                 });
             }
             res.with_model(self.object.now_scale(Vector::default()), |res| {

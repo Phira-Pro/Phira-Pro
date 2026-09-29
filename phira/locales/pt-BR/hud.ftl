@@ -1,0 +1,15 @@
+hud-page-home = Início
+hud-page-library = Biblioteca
+hud-page-settings = Configurações
+hud-snap-on = Encaixe: ATIVO
+hud-snap-off = Encaixe: DESATIVADO
+hud-reset-page = Redefinir página
+hud-reset-all = Redefinir tudo
+hud-done = Concluir
+hud-cols = Colunas
+hud-row-h = Altura da célula
+hud-page-favorites = Favoritos
+hud-page-message = Mensagens
+hud-page-history = Histórico
+hud-page-respack = Pacotes de Skin
+hud-page-blacklist = Lista de bloqueio

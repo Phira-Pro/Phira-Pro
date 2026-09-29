@@ -296,11 +296,18 @@ impl HomePage {
     }
 
     fn render_not_char(&mut self, ui: &mut Ui, s: &mut SharedState) {
+        // HUD 自定义：主菜单顶层组件（默认矩形与改造前逐像素一致）。
+        const SLOT_PLAY: crate::hud::SlotDef = crate::hud::SlotDef::centered("play", [0., -0.33, 0.83, 0.45], crate::hud::Cap(true, true, true));
+        const SLOT_EVENT: crate::hud::SlotDef = crate::hud::SlotDef::centered("event", [0., 0.17, 0.38, 0.23], crate::hud::Cap(true, true, true));
+        const SLOT_RESPACK: crate::hud::SlotDef = crate::hud::SlotDef::centered("respack", [0.4, 0.17, 0.29, 0.23], crate::hud::Cap(true, true, true));
+        const SLOT_MSG: crate::hud::SlotDef = crate::hud::SlotDef::centered("msg", [0.71, 0.17, 0.11, 0.11], crate::hud::Cap(true, false, false));
+        const SLOT_SETTINGS: crate::hud::SlotDef = crate::hud::SlotDef::centered("settings", [0.71, 0.29, 0.11, 0.11], crate::hud::Cap(true, false, false));
+
         let t = s.t;
 
         let pad = 0.04;
         // play button
-        let r = Rect::new(0., -0.33, 0.83, 0.45);
+        let r = crate::hud::slot(ui, "home", SLOT_PLAY);
         let mat = self.btn_play_3d.now(ui, r, t);
         let top = ui.with_gl(mat, |ui| {
             s.render_fader(ui, |ui| {
@@ -358,18 +365,18 @@ impl HomePage {
             });
         };
 
+        let r_event = crate::hud::slot(ui, "home", SLOT_EVENT);
+        let r_respack = crate::hud::slot(ui, "home", SLOT_RESPACK);
+        let r_msg = crate::hud::slot(ui, "home", SLOT_MSG);
+        let r_settings = crate::hud::slot(ui, "home", SLOT_SETTINGS);
+
         let mat = self.btn_other_3d.now(ui, Rect::new(0., top - 0.4, 0.83, 0.23), t);
         ui.with_gl(mat, |ui| {
-            let r = Rect::new(0., top, 0.38, 0.23);
-            text_and_icon(s, ui, r, &mut self.btn_event, tl!("event"), *self.icons.medal);
-
-            let r = Rect::new(r.right() + 0.02, top, 0.29, 0.23);
-            text_and_icon(s, ui, r, &mut self.btn_respack, tl!("respack"), *self.icons.respack);
-
-            let lf = r.right() + 0.02;
+            text_and_icon(s, ui, r_event, &mut self.btn_event, tl!("event"), *self.icons.medal);
+            text_and_icon(s, ui, r_respack, &mut self.btn_respack, tl!("respack"), *self.icons.respack);
 
             s.render_fader(ui, |ui| {
-                let r = Rect::new(lf, top, 0.11, 0.11);
+                let r = r_msg;
                 self.btn_msg.render_shadow(ui, r, t, |ui, path| {
                     ui.fill_path(&path, semi_black(0.4));
                     let r = r.feather(-0.01);
@@ -380,7 +387,7 @@ impl HomePage {
                     }
                 });
 
-                let r = Rect::new(lf, top + 0.12, 0.11, 0.11);
+                let r = r_settings;
                 self.btn_settings.render_shadow(ui, r, t, |ui, path| {
                     ui.fill_path(&path, semi_black(0.4));
                     let r = r.feather(0.004);
@@ -730,7 +737,16 @@ impl Page for HomePage {
 
         let cp = self.char_screen_p.now(rt);
         s.render_fader(ui, |ui| {
-            let r = Rect::new(-1. + 0.14 * cp, -ui.top + 0.12, 1., 1.7);
+            // HUD 自定义：立绘（锚在左下，换宽高比时贴合底边）。
+            const SLOT_CHAR_ILLU: crate::hud::SlotDef = crate::hud::SlotDef::at(
+                "char_illu",
+                crate::hud::Anchor::BottomLeft,
+                [0.5, 0.97],
+                [1., 1.7],
+                crate::hud::Cap(true, true, true),
+            );
+            let mut r = crate::hud::slot(ui, "home", SLOT_CHAR_ILLU);
+            r.x += 0.14 * cp;
             if let Some(illu) = &self.char_illu {
                 let p = self.char_appear_p.now(t);
                 let (ox, oy, ow, oh) = self.character.illu_adjust;

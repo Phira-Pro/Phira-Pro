@@ -1,0 +1,15 @@
+hud-page-home = Startseite
+hud-page-library = Chart-Bibliothek
+hud-page-settings = Einstellungen
+hud-snap-on = Raster: AN
+hud-snap-off = Raster: AUS
+hud-reset-page = Seite zurücksetzen
+hud-reset-all = Alles zurücksetzen
+hud-done = Fertig
+hud-cols = Spalten
+hud-row-h = Zellenhöhe
+hud-page-favorites = Favoriten
+hud-page-message = Nachrichten
+hud-page-history = Verlauf
+hud-page-respack = Skin
+hud-page-blacklist = Spieler-Blacklist

@@ -12,3 +12,7 @@ last-login = Был(а) в сети { $time }
 badge-admin = Администратор
 badge-sponsor = Спонсор
 name-copied = Название скопировано
+block = Заблокировать
+unblock = Разблокировать
+blocked = Игрок заблокирован
+unblocked = Разблокировано

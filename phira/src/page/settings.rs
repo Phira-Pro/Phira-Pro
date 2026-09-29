@@ -1,6 +1,6 @@
 prpr_l10n::tl_file!("settings");
 
-use super::{HistoryPage, NextPage, OffsetPage, Page, SharedState};
+use super::{BlacklistPage, HistoryPage, NextPage, OffsetPage, Page, SharedState};
 use crate::{
     dir, get_data, get_data_mut,
     popup::ChooseButton,
@@ -21,7 +21,6 @@ use prpr::{
     task::Task,
     ui::{DRectButton, Scroll, Slider, Ui, PREFER_REDUCED_MOTION, UI_SFX_VOLUME},
 };
-// `Dialog` 只被「成绩上传协议」弹窗用到（仅 record 构建存在）。
 #[cfg(record)]
 use prpr::ui::Dialog;
 use prpr_l10n::{LanguageIdentifier, LANG_IDENTS, LANG_NAMES};
@@ -29,7 +28,10 @@ use reqwest::Url;
 use serde::Deserialize;
 use std::{borrow::Cow, fs, io, path::PathBuf, sync::atomic::Ordering};
 
-const ITEM_HEIGHT: f32 = 0.15;
+/// HUD 自定义：设置列表的行高（默认 0.15，可在编辑模式里调）。
+fn item_row_h() -> f32 {
+    crate::hud::param("settings", "row_h", 0.15).clamp(0.1, 0.3)
+}
 const INTERACT_WIDTH: f32 = 0.26;
 const STATUS_PAGE: &str = "https://status.phira.cn";
 
@@ -277,7 +279,15 @@ impl Page for SettingsPage {
         s.fader.render(ui, s.t, |ui| {
             let r = ui.content_rect();
             self.tabs.render(ui, rt, r, |ui, item| {
-                let r = r.feather(-0.01);
+                // HUD 自定义：设置列表区域（整体移动 / 缩放；行高仍是固定的 item_row_h()）。
+                const SLOT_LIST: crate::hud::SlotDef = crate::hud::SlotDef::centered("list", [0., 0., 1.65, 1.1], crate::hud::Cap(true, true, true));
+                let r = if crate::hud::has("settings", "list") {
+                    crate::hud::slot(ui, "settings", SLOT_LIST)
+                } else {
+                    let r0 = r.feather(-0.01);
+                    crate::hud::register("settings", SLOT_LIST, r0);
+                    r0
+                };
                 self.scroll.size((r.w, r.h));
                 ui.scope(|ui| {
                     ui.dx(r.x);
@@ -299,6 +309,9 @@ impl Page for SettingsPage {
     }
 
     fn next_page(&mut self) -> NextPage {
+        if matches!(self.tabs.selected(), SettingListType::General) {
+            return self.list_general.next_page().unwrap_or_default();
+        }
         if matches!(self.tabs.selected(), SettingListType::Audio) {
             return self.list_audio.next_page().unwrap_or_default();
         }
@@ -373,7 +386,7 @@ fn render_title<'a>(ui: &mut Ui, title: impl Into<Cow<'a, str>>, subtitle: Optio
         let h = r1.h + PAD + r2.h;
         let r1 = ui
             .text(subtitle)
-            .pos(LEFT, (ITEM_HEIGHT + h) / 2.)
+            .pos(LEFT, (item_row_h() + h) / 2.)
             .anchor(0., 1.)
             .size(SUBTITLE_SIZE)
             .max_width(SUB_MAX_WIDTH)
@@ -382,7 +395,7 @@ fn render_title<'a>(ui: &mut Ui, title: impl Into<Cow<'a, str>>, subtitle: Optio
             .right();
         let r2 = ui
             .text(title)
-            .pos(LEFT, (ITEM_HEIGHT - h) / 2.)
+            .pos(LEFT, (item_row_h() - h) / 2.)
             .no_baseline()
             .size(TITLE_SIZE)
             .draw()
@@ -390,7 +403,7 @@ fn render_title<'a>(ui: &mut Ui, title: impl Into<Cow<'a, str>>, subtitle: Optio
         r1.max(r2)
     } else {
         ui.text(title.into())
-            .pos(LEFT, ITEM_HEIGHT / 2.)
+            .pos(LEFT, item_row_h() / 2.)
             .anchor(0., 0.5)
             .no_baseline()
             .size(TITLE_SIZE)
@@ -430,8 +443,8 @@ fn show_upload_consent(ask: bool) {
 
 #[inline]
 fn right_rect(w: f32) -> Rect {
-    let rh = ITEM_HEIGHT * 2. / 3.;
-    Rect::new(w - 0.3, (ITEM_HEIGHT - rh) / 2., INTERACT_WIDTH, rh)
+    let rh = item_row_h() * 2. / 3.;
+    Rect::new(w - 0.3, (item_row_h() - rh) / 2., INTERACT_WIDTH, rh)
 }
 
 struct GeneralList {
@@ -461,6 +474,11 @@ struct GeneralList {
     insecure_btn: DRectButton,
     enable_anys_btn: DRectButton,
     anys_gateway_btn: DRectButton,
+    /// 打开「玩家黑名单」管理页。
+    blacklist_btn: DRectButton,
+    /// 进入 HUD 自定义编辑模式。
+    hud_btn: DRectButton,
+    next_page: Option<NextPage>,
 
     cache_size: Option<u64>,
     cache_task: Option<Task<Result<u64>>>,
@@ -509,6 +527,9 @@ impl GeneralList {
             insecure_btn: DRectButton::new(),
             enable_anys_btn: DRectButton::new(),
             anys_gateway_btn: DRectButton::new(),
+            blacklist_btn: DRectButton::new(),
+            hud_btn: DRectButton::new(),
+            next_page: None,
 
             cache_size: None,
             cache_task: None,
@@ -525,6 +546,10 @@ impl GeneralList {
             return true;
         }
         false
+    }
+
+    pub fn next_page(&mut self) -> Option<NextPage> {
+        self.next_page.take()
     }
 
     fn dir_size(path: impl Into<PathBuf>) -> io::Result<u64> {
@@ -662,6 +687,17 @@ impl GeneralList {
             request_input("anys_gateway", InputBox::new().default_text(&data.anys_gateway));
             return Ok(Some(true));
         }
+        if self.blacklist_btn.touch(touch, t) {
+            self.next_page = Some(NextPage::Overlay(Box::new(BlacklistPage::new())));
+            return Ok(Some(true));
+        }
+        if self.hud_btn.touch(touch, t) {
+            // 关掉设置页、回到主菜单并进入编辑模式（切页由 MainScene 处理）。
+            crate::hud::set_edit(true);
+            crate::hud::request_goto(crate::hud::PageId::Home);
+            self.next_page = Some(NextPage::Pop);
+            return Ok(Some(true));
+        }
         Ok(None)
     }
 
@@ -726,8 +762,8 @@ impl GeneralList {
         macro_rules! item {
             ($($b:tt)*) => {{
                 $($b)*
-                ui.dy(ITEM_HEIGHT);
-                h += ITEM_HEIGHT;
+                ui.dy(item_row_h());
+                h += item_row_h();
             }}
         }
         let rr = right_rect(w);
@@ -737,7 +773,7 @@ impl GeneralList {
         item! {
             let rt = render_title(ui, tl!("item-lang"), None);
             let w = 0.06;
-            let r = Rect::new(rt + 0.01, (ITEM_HEIGHT - w) / 2., w, w);
+            let r = Rect::new(rt + 0.01, (item_row_h() - w) / 2., w, w);
             ui.fill_rect(r, (*self.icon_lang, r));
             self.lang_btn.render(ui, rr, t);
         }
@@ -816,6 +852,14 @@ impl GeneralList {
         item! {
             render_title(ui, tl!("item-anys-gateway"), Some(tl!("item-anys-gateway-sub")));
             self.anys_gateway_btn.render_text(ui, rr, t, &data.anys_gateway, 0.4, false);
+        }
+        item! {
+            render_title(ui, tl!("item-blacklist"), Some(tl!("item-blacklist-sub")));
+            self.blacklist_btn.render_text(ui, rr, t, tl!("item-blacklist-open"), 0.5, false);
+        }
+        item! {
+            render_title(ui, tl!("item-hud"), Some(tl!("item-hud-sub")));
+            self.hud_btn.render_text(ui, rr, t, tl!("item-hud-open"), 0.5, false);
         }
         self.lang_btn.render_top(ui, t, 1.);
         self.theme_btn.render_top(ui, t, 1.);
@@ -924,8 +968,8 @@ impl AudioList {
         macro_rules! item {
             ($($b:tt)*) => {{
                 $($b)*
-                ui.dy(ITEM_HEIGHT);
-                h += ITEM_HEIGHT;
+                ui.dy(item_row_h());
+                h += item_row_h();
             }}
         }
         let rr = right_rect(w);
@@ -986,10 +1030,11 @@ struct ChartList {
     use_keyboard_btn: DRectButton,
     speed_slider: Slider,
     size_slider: Slider,
-    limit_perfect_plus_slider: Slider,
-    limit_perfect_slider: Slider,
-    limit_good_slider: Slider,
-    limit_bad_slider: Slider,
+    limit_perfect_plus_btn: DRectButton,
+    limit_perfect_btn: DRectButton,
+    limit_good_btn: DRectButton,
+    limit_bad_btn: DRectButton,
+    hold_tail_btn: DRectButton,
     auto_retry_slider: Slider,
     retry_lead_slider: Slider,
     practice_ramp_btn: DRectButton,
@@ -1026,10 +1071,11 @@ impl ChartList {
             use_keyboard_btn: DRectButton::new(),
             speed_slider: Slider::new(0.5..2., 0.05),
             size_slider: Slider::new(0.8..1.2, 0.005),
-            limit_perfect_plus_slider: Slider::new(1.0..80.0, 1.0),
-            limit_perfect_slider: Slider::new(1.0..120.0, 1.0),
-            limit_good_slider: Slider::new(1.0..250.0, 1.0),
-            limit_bad_slider: Slider::new(1.0..400.0, 1.0),
+            limit_perfect_plus_btn: DRectButton::new(),
+            limit_perfect_btn: DRectButton::new(),
+            limit_good_btn: DRectButton::new(),
+            limit_bad_btn: DRectButton::new(),
+            hold_tail_btn: DRectButton::new(),
             auto_retry_slider: Slider::new(0.0..10.0, 1.0),
             retry_lead_slider: Slider::new(0.0..10.0, 0.5),
             practice_ramp_btn: DRectButton::new(),
@@ -1112,21 +1158,26 @@ impl ChartList {
             config.practice_ramp ^= true;
             return Ok(Some(true));
         }
-        if let wt @ Some(_) = self.limit_perfect_plus_slider.touch(touch, t, &mut config.lim_perfect_plus_ms) {
-            config.clamp_judge_windows();
-            return Ok(wt);
+        // 判定窗口：点按钮直接填数值（不再用滑块）。
+        if self.limit_perfect_plus_btn.touch(touch, t) {
+            request_input("lim_perfect_plus", InputBox::new().default_text(format!("{:.0}", config.lim_perfect_plus_ms)));
+            return Ok(Some(true));
         }
-        if let wt @ Some(_) = self.limit_perfect_slider.touch(touch, t, &mut config.lim_perfect_ms) {
-            config.clamp_judge_windows();
-            return Ok(wt);
+        if self.limit_perfect_btn.touch(touch, t) {
+            request_input("lim_perfect", InputBox::new().default_text(format!("{:.0}", config.lim_perfect_ms)));
+            return Ok(Some(true));
         }
-        if let wt @ Some(_) = self.limit_good_slider.touch(touch, t, &mut config.lim_good_ms) {
-            config.clamp_judge_windows();
-            return Ok(wt);
+        if self.limit_good_btn.touch(touch, t) {
+            request_input("lim_good", InputBox::new().default_text(format!("{:.0}", config.lim_good_ms)));
+            return Ok(Some(true));
         }
-        if let wt @ Some(_) = self.limit_bad_slider.touch(touch, t, &mut config.lim_bad_ms) {
-            config.clamp_judge_windows();
-            return Ok(wt);
+        if self.limit_bad_btn.touch(touch, t) {
+            request_input("lim_bad", InputBox::new().default_text(format!("{:.0}", config.lim_bad_ms)));
+            return Ok(Some(true));
+        }
+        if self.hold_tail_btn.touch(touch, t) {
+            config.hold_tail_judge ^= true;
+            return Ok(Some(true));
         }
         if let wt @ Some(_) = self.late_leniency_slider.touch(touch, t, &mut config.late_leniency_ms) {
             config.late_leniency_ms = config.late_leniency_ms.clamp(0., prpr::config::Config::LATE_LENIENCY_MAX);
@@ -1196,6 +1247,30 @@ impl ChartList {
     }
 
     pub fn update(&mut self, _t: f32) -> Result<bool> {
+        // 判定窗口的数值输入：解析后交给 `Config::set_judge_window`，
+        // 由它保证 perfect+ < perfect < good < bad 并做连带调整。
+        if let Some((id, text)) = take_input() {
+            let idx = match id.as_str() {
+                "lim_perfect_plus" => Some(0),
+                "lim_perfect" => Some(1),
+                "lim_good" => Some(2),
+                "lim_bad" => Some(3),
+                _ => None,
+            };
+            if let Some(idx) = idx {
+                return match text.trim().parse::<f32>() {
+                    Ok(v) => {
+                        get_data_mut().config.set_judge_window(idx, v);
+                        Ok(true)
+                    }
+                    Err(_) => {
+                        show_error(anyhow::anyhow!(tl!("judge-window-invalid").into_owned()));
+                        Ok(false)
+                    }
+                };
+            }
+            return_input(id, text);
+        }
         Ok(false)
     }
 
@@ -1205,8 +1280,8 @@ impl ChartList {
         macro_rules! item {
             ($($b:tt)*) => {{
                 $($b)*
-                ui.dy(ITEM_HEIGHT);
-                h += ITEM_HEIGHT;
+                ui.dy(item_row_h());
+                h += item_row_h();
             }}
         }
         let rr = right_rect(w);
@@ -1253,19 +1328,27 @@ impl ChartList {
         h += 0.04;
         item! {
             render_title(ui, tl!("item-limit-perfect-plus"), None);
-            self.limit_perfect_plus_slider.render(ui, rr, t, config.lim_perfect_plus_ms, format!("±{:.0} ms", config.lim_perfect_plus_ms));
+            self.limit_perfect_plus_btn
+                .render_text(ui, rr, t, format!("±{:.0} ms", config.lim_perfect_plus_ms), 0.42, false);
         }
         item! {
             render_title(ui, tl!("item-limit-perfect"), None);
-            self.limit_perfect_slider.render(ui, rr, t, config.lim_perfect_ms, format!("±{:.0} ms", config.lim_perfect_ms));
+            self.limit_perfect_btn
+                .render_text(ui, rr, t, format!("±{:.0} ms", config.lim_perfect_ms), 0.42, false);
         }
         item! {
             render_title(ui, tl!("item-limit-good"), None);
-            self.limit_good_slider.render(ui, rr, t, config.lim_good_ms, format!("±{:.0} ms", config.lim_good_ms));
+            self.limit_good_btn
+                .render_text(ui, rr, t, format!("±{:.0} ms", config.lim_good_ms), 0.42, false);
         }
         item! {
             render_title(ui, tl!("item-limit-bad"), None);
-            self.limit_bad_slider.render(ui, rr, t, config.lim_bad_ms, format!("±{:.0} ms", config.lim_bad_ms));
+            self.limit_bad_btn
+                .render_text(ui, rr, t, format!("±{:.0} ms", config.lim_bad_ms), 0.42, false);
+        }
+        item! {
+            render_title(ui, tl!("item-hold-tail-judge"), Some(tl!("item-hold-tail-judge-sub")));
+            render_switch(ui, rr, t, &mut self.hold_tail_btn, config.hold_tail_judge);
         }
         ui.dy(0.04);
         item! {
@@ -1430,8 +1513,8 @@ impl DebugList {
         macro_rules! item {
             ($($b:tt)*) => {{
                 $($b)*
-                ui.dy(ITEM_HEIGHT);
-                h += ITEM_HEIGHT;
+                ui.dy(item_row_h());
+                h += item_row_h();
             }}
         }
         let rr = right_rect(w);

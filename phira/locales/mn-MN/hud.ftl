@@ -1,0 +1,15 @@
+hud-page-home = Нүүр хуудас
+hud-page-library = Дууны сан
+hud-page-settings = Тохиргоо
+hud-snap-on = Торны наалт: АСААЛТТАЙ
+hud-snap-off = Торны наалт: УНТРААЛТТАЙ
+hud-reset-page = Энэ хуудсыг сэргээх
+hud-reset-all = Бүгдийг сэргээх
+hud-done = Болсон
+hud-cols = Баганын тоо
+hud-row-h = Нүдний өндөр
+hud-page-favorites = Дуртай
+hud-page-message = Мэссэжүүд
+hud-page-history = Түүх
+hud-page-respack = Скин
+hud-page-blacklist = Тоглогчийн хориг жагсаалт

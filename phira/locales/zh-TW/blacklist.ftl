@@ -1,0 +1,12 @@
+label = 玩家黑名單
+count = 已封鎖 { $count } 人
+add = 封鎖玩家
+add-title = 封鎖玩家
+add-hint = 輸入玩家的 Phira 數字 ID
+add-done = 已封鎖該玩家
+add-exists = 該玩家已在黑名單中
+add-invalid = 玩家 ID 不合法
+save-failed = 黑名單儲存失敗
+remove = 解除
+removed = 已解除封鎖
+empty = 還沒有封鎖任何人

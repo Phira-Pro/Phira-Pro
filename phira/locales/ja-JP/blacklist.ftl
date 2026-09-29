@@ -1,0 +1,12 @@
+label = プレイヤーブロックリスト
+count = { $count } 人をブロック中
+add = プレイヤーをブロック
+add-title = プレイヤーをブロック
+add-hint = プレイヤーの Phira 数字 ID を入力
+add-done = ブロックしました
+add-exists = すでにブロック済み
+add-invalid = プレイヤー ID が無効です
+save-failed = ブロックリストの保存に失敗
+remove = 解除
+removed = ブロックを解除しました
+empty = まだ誰もブロックしていません

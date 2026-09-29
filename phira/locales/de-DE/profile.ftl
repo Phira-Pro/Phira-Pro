@@ -24,3 +24,7 @@ transfer-prompt = E-Mail-Adresse des alten Kontos, das migriert werden soll
 transfer-requesting = Migration läuft
 transfer-email-sent = Eine Bestätigungs-E-Mail wurde versendet; bitte überprüfe deinen Posteingang und klicke auf den Link, um die Migration abzuschließen
 transfer-failed = Migrationsanfrage fehlgeschlagen
+block = Blockieren
+unblock = Entsperren
+blocked = Spieler blockiert
+unblocked = Entsperrt

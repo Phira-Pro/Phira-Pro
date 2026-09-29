@@ -36,3 +36,7 @@ transfer-prompt = 要迁移的旧账号邮箱
 transfer-requesting = 正在申请迁移
 transfer-email-sent = 确认邮件已发送，请前往邮箱点击链接完成迁移
 transfer-failed = 申请迁移失败
+block = 拉黑
+unblock = 解除拉黑
+blocked = 已拉黑该玩家
+unblocked = 已解除拉黑

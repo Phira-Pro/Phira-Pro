@@ -7,3 +7,7 @@ edit-avatar-success = アバターを更新しました
 edit-avatar-failed = アバターが更新できませんでした
 
 uploading-avatar = アバターをアップロードしています
+block = ブロック
+unblock = ブロック解除
+blocked = ブロックしました
+unblocked = ブロックを解除しました

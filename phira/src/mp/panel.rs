@@ -778,7 +778,15 @@ impl MPPanel {
         if p > 1e-4 {
             ui.abs_scope(|ui| {
                 ui.alpha(p, |ui| {
-                    let users: Vec<_> = client.blocking_state().unwrap().users.values().cloned().collect();
+                    // 黑名单：房间玩家列表里也不显示名单内的玩家。
+                    let users: Vec<_> = client
+                        .blocking_state()
+                        .unwrap()
+                        .users
+                        .values()
+                        .filter(|u| !crate::blacklist::contains(u.id))
+                        .cloned()
+                        .collect();
                     let n = users.len();
                     let columns = n.clamp(2, 4);
                     let rn = n.div_ceil(columns);

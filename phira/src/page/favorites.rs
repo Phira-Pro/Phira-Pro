@@ -1116,9 +1116,12 @@ impl Page for FavoritesPage {
             let content_h = bottom - top;
 
             if let Some(index) = self.active_folder {
+                // HUD 自定义：右上图标排（整体移动）。
+                let def0 = Rect::new(1. - 0.03 - 0.52, -ui.top + 0.03, 0.52, 0.08);
+                let bar = crate::hud::slot_or(ui, "favorites", "topbar", crate::hud::Cap(true, false, false), def0);
                 ui.scope(|ui| {
-                    ui.dx(1. - 0.03);
-                    ui.dy(-ui.top + 0.03);
+                    ui.dx(1. - 0.03 + (bar.right() - def0.right()));
+                    ui.dy(-ui.top + 0.03 + (bar.y - def0.y));
                     let s = 0.08;
                     let r = Rect::new(-s, 0., s, s);
                     ui.fill_rect(r, (*self.icons.menu, r, ScaleType::Fit, WHITE));
@@ -1193,16 +1196,24 @@ impl Page for FavoritesPage {
                 });
             }
 
-            self.scroll.size((2., content_h));
+            // HUD 自定义：文件夹网格区域（整体移动 / 缩放；列数随宽度自动变化）。
+            let grid = crate::hud::slot_or(
+                ui,
+                "favorites",
+                "grid",
+                crate::hud::Cap(true, true, true),
+                Rect::new(-1., top, 2., content_h),
+            );
+            self.scroll.size((grid.w, grid.h));
 
             ui.scope(|ui| {
-                ui.dx(-1.);
-                ui.dy(top);
+                ui.dx(grid.x);
+                ui.dy(grid.y);
                 self.scroll.render(ui, |ui| {
                     let start_x = 0.12;
                     let mut x = start_x;
                     let mut y = 0.02;
-                    let max_x = 2.0 - 0.12;
+                    let max_x = grid.w - 0.12;
                     let cols = ((max_x - start_x + CARD_PAD) / (CARD_WIDTH + CARD_PAD)).floor() as usize;
                     let cols = cols.max(1);
 

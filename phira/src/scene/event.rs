@@ -72,6 +72,8 @@ pub struct EventScene {
     ldb_fader: Fader,
     ldb_task: Option<Task<Result<Vec<LdbItem>>>>,
     ldb: Option<Vec<LdbItem>>,
+    /// 上次同步黑名单时的版本号；黑名单增删后据此重新拉取榜单。
+    ldb_bl_ver: u32,
 
     icons: Arc<Icons>,
     rank_icons: [SafeTexture; 8],
@@ -122,6 +124,7 @@ impl EventScene {
             ldb_fader: Fader::new(),
             ldb_task: None,
             ldb: None,
+            ldb_bl_ver: crate::blacklist::version(),
 
             icons,
             rank_icons,
@@ -289,6 +292,13 @@ impl Scene for EventScene {
 
         self.scroll.update(t);
 
+        // 黑名单在别处被改动过，就把已加载的榜单重新拉一遍。
+        if crate::blacklist::version() != self.ldb_bl_ver {
+            self.ldb_bl_ver = crate::blacklist::version();
+            if self.ldb.is_some() {
+                self.load_ldb();
+            }
+        }
         if self.ldb_scroll.y_scroller.pulled {
             self.load_ldb();
         }
@@ -358,11 +368,17 @@ impl Scene for EventScene {
                     Err(err) => {
                         show_error(err.context(tl!("load-ldb-failed")));
                     }
-                    Ok(ldb) => {
+                    Ok(mut ldb) => {
+                        // 黑名单：剔除名单内的玩家，并按可见顺序重新连续编号。
+                        ldb.retain(|it| !crate::blacklist::contains(it.player));
+                        for (i, it) in ldb.iter_mut().enumerate() {
+                            it.rank = (i + 1) as i32;
+                        }
                         for item in ldb.iter() {
                             UserManager::request(item.player);
                         }
                         self.ldb = Some(ldb);
+                        self.ldb_bl_ver = crate::blacklist::version();
                     }
                 }
                 self.ldb_task = None;

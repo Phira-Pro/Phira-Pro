@@ -1,0 +1,15 @@
+hud-page-home = ホーム
+hud-page-library = 譜面ライブラリ
+hud-page-settings = 設定
+hud-snap-on = スナップ：オン
+hud-snap-off = スナップ：オフ
+hud-reset-page = このページをリセット
+hud-reset-all = すべてリセット
+hud-done = 完了
+hud-cols = 列数
+hud-row-h = マス高さ
+hud-page-favorites = お気に入り
+hud-page-message = メッセージ
+hud-page-history = 履歴
+hud-page-respack = リソースパック
+hud-page-blacklist = プレイヤーブロックリスト

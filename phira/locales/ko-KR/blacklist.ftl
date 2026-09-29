@@ -1,0 +1,12 @@
+label = 플레이어 차단 목록
+count = { $count }명 차단됨
+add = 플레이어 차단
+add-title = 플레이어 차단
+add-hint = 플레이어의 Phira 숫자 ID를 입력하세요
+add-done = 차단했습니다
+add-exists = 이미 차단됨
+add-invalid = 잘못된 플레이어 ID
+save-failed = 차단 목록 저장 실패
+remove = 차단 해제
+removed = 차단을 해제했습니다
+empty = 아직 차단한 플레이어가 없습니다

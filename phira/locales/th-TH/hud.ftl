@@ -1,0 +1,15 @@
+hud-page-home = หน้าหลัก
+hud-page-library = คลังเพลง
+hud-page-settings = ตั้งค่า
+hud-snap-on = สแนป: เปิด
+hud-snap-off = สแนป: ปิด
+hud-reset-page = รีเซ็ตหน้านี้
+hud-reset-all = รีเซ็ตทั้งหมด
+hud-done = เสร็จสิ้น
+hud-cols = จำนวนคอลัมน์
+hud-row-h = ความสูงช่อง
+hud-page-favorites = รายการโปรด
+hud-page-message = ข้อความ
+hud-page-history = ประวัติ
+hud-page-respack = Skin
+hud-page-blacklist = บัญชีดำผู้เล่น

@@ -133,22 +133,38 @@ impl<T> Tabs<T> {
     }
 
     pub fn render(&mut self, ui: &mut Ui, t: f32, cr: Rect, mut f: impl FnMut(&mut Ui, &mut T) -> Result<()>) -> Result<()> {
-        self.render_plain(ui, WHITE, true);
+        // HUD 自定义：tab 栏整体偏移。选框用「真实栏位」当默认值，避免框和图形错位。
+        let (y_upper, y_lower) = (self.y_upper.now(t), self.y_lower.now(t));
+        let col = Rect::new(Self::LEFT, y_upper, Self::WIDTH, (y_lower - y_upper).max(0.1));
+        let key = crate::hud::cur_page().key();
+        let r = crate::hud::slot_or(ui, key, "tabs", crate::hud::Cap(true, false, false), col);
+        let off = vec2(r.x - Self::LEFT, r.y - y_upper);
+        // 编辑模式下可以直接在这里换 tab，以便编辑其它分页里的元素。
+        crate::hud::set_tab_info(self.items.len(), self.selected);
+        if let Some(idx) = crate::hud::take_tab_request() {
+            if idx < self.items.len() {
+                self.goto(t, idx);
+            }
+        }
+        ui.scope(|ui| {
+            ui.dx(off.x);
+            ui.dy(off.y);
 
-        let y_upper = self.y_upper.now(t);
-        let y_lower = self.y_lower.now(t);
-        let r = Rect::new(Self::LEFT, y_upper, Self::WIDTH, y_lower - y_upper).nonuniform_feather(0.007, -0.012);
-        rounded_rect_shadow(
-            ui,
-            r,
-            &ShadowConfig {
-                radius: 0.008,
-                base: 0.5,
-                ..Default::default()
-            },
-        );
-        ui.fill_path(&r.rounded(0.008), WHITE);
-        ui.scissor(r, |ui| self.render_plain(ui, BLACK, false));
+            self.render_plain(ui, WHITE, true);
+
+            let r = Rect::new(Self::LEFT, y_upper, Self::WIDTH, y_lower - y_upper).nonuniform_feather(0.007, -0.012);
+            rounded_rect_shadow(
+                ui,
+                r,
+                &ShadowConfig {
+                    radius: 0.008,
+                    base: 0.5,
+                    ..Default::default()
+                },
+            );
+            ui.fill_path(&r.rounded(0.008), WHITE);
+            ui.scissor(r, |ui| self.render_plain(ui, BLACK, false));
+        });
 
         ui.fill_path(&cr.rounded(0.005), semi_black(0.4));
         ui.scissor::<Result<()>>(cr, |ui| {

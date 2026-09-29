@@ -12,3 +12,7 @@ last-login = Son giriş: { $time }
 badge-admin = Admin
 badge-sponsor = Sponsor
 hykb-login-cancelled = 3839 Games için oturum açma iptal edildi.
+block = Engelle
+unblock = Engeli kaldır
+blocked = Oyuncu engellendi
+unblocked = Engel kaldırıldı

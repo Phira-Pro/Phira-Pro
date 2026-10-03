@@ -13,6 +13,7 @@
 
 use super::{Matrix, Point, Vector};
 use nalgebra::Rotation2;
+use once_cell::sync::Lazy;
 
 #[derive(Debug, Clone, Copy)]
 pub struct BlockRotateEvent {
@@ -74,7 +75,20 @@ pub struct BlockTransform {
 /// Progress of the official block easing enum (0..=14):
 /// `0` Linear, `1..=12` In/Out/InOut Quad..Quint, `13` HoldStart, `14` JumpToEnd.
 fn eased_progress(ease: i32, x: f64) -> f32 {
+    static TABLES: Lazy<[[f32; 101]; 15]> =
+        Lazy::new(|| std::array::from_fn(|ease| std::array::from_fn(|i| easing_sample(ease as i32, i as f32 / 100.))));
     let u = (x as f32).clamp(0., 1.);
+    let ease = if (0..=14).contains(&ease) { ease as usize } else { 0 };
+    let p = u * 100.;
+    let i = (p as usize).min(100);
+    if i == 100 {
+        TABLES[ease][100]
+    } else {
+        TABLES[ease][i] + (p - i as f32) * (TABLES[ease][i + 1] - TABLES[ease][i])
+    }
+}
+
+fn easing_sample(ease: i32, u: f32) -> f32 {
     match ease {
         0 => u,
         1..=12 => {
@@ -99,16 +113,8 @@ fn eased_progress(ease: i32, x: f64) -> f32 {
 
 /// `last index whose time <= t`, assuming `times` is ascending (with a step, the
 /// official `FindCurrentEventIndex` returns `-1` when `t` is before the first).
-fn last_index<I: Iterator<Item = f64>>(times: I, t: f64) -> Option<usize> {
-    let mut idx = None;
-    for (i, time) in times.enumerate() {
-        if time <= t {
-            idx = Some(i);
-        } else {
-            break;
-        }
-    }
-    idx
+fn last_index<T>(events: &[T], t: f64, time: impl Fn(&T) -> f64) -> Option<usize> {
+    events.partition_point(|event| time(event) <= t).checked_sub(1)
 }
 
 /// Map a screen percentage into the chart coordinate space (x right, y up,
@@ -138,18 +144,15 @@ impl BlockArea {
         if ev.is_empty() {
             return Vector::new(1., 1.);
         }
-        match last_index(ev.iter().map(|e| e.time), t) {
-            None => ev[0].scale,
+        match last_index(ev, t, |e| e.time) {
+            None => Vector::new(1., 1.),
             Some(i) if i + 1 >= ev.len() => ev[i].scale,
             Some(i) => {
                 let cur = &ev[i];
                 let next = &ev[i + 1];
                 let px = eased_progress(cur.ease_x, norm(cur.time, next.time, t));
                 let py = eased_progress(cur.ease_y, norm(cur.time, next.time, t));
-                Vector::new(
-                    cur.scale.x + px * (next.scale.x - cur.scale.x),
-                    cur.scale.y + py * (next.scale.y - cur.scale.y),
-                )
+                Vector::new(cur.scale.x + px * (next.scale.x - cur.scale.x), cur.scale.y + py * (next.scale.y - cur.scale.y))
             }
         }
     }
@@ -159,8 +162,8 @@ impl BlockArea {
         if ev.is_empty() {
             return 0.;
         }
-        match last_index(ev.iter().map(|e| e.time), t) {
-            None => ev[0].rotation,
+        match last_index(ev, t, |e| e.time) {
+            None => 0.,
             Some(i) if i + 1 >= ev.len() => ev[i].rotation,
             Some(i) => {
                 let cur = &ev[i];
@@ -171,15 +174,16 @@ impl BlockArea {
         }
     }
 
-    /// Move events *replace* the base center; the animation interpolates the
-    /// `endPosition` between keyframes. Before the first event there is no move.
+    /// Interpolate the absolute movement target. The final transform adds its
+    /// delta from the original center, preserving scale/rotation anchor deltas.
+    /// Before the first event there is no move.
     fn move_center(&self, t: f64, aspect: f32) -> Option<Vector> {
         let ev = &self.move_events;
         if ev.is_empty() {
             return None;
         }
-        let p = match last_index(ev.iter().map(|e| e.time), t) {
-            None => return Some(pct_to_chart(ev[0].end, aspect)),
+        let p = match last_index(ev, t, |e| e.time) {
+            None => return None,
             Some(i) if i + 1 >= ev.len() => ev[i].end,
             Some(i) => {
                 let cur = &ev[i];
@@ -192,32 +196,11 @@ impl BlockArea {
         Some(pct_to_chart(p, aspect))
     }
 
-    /// Anchor of the *current* scale keyframe (held until the next one).
-    fn scale_anchor(&self, t: f64, aspect: f32) -> Option<Vector> {
-        let ev = &self.scale_events;
-        if ev.is_empty() {
-            return None;
-        }
-        let i = last_index(ev.iter().map(|e| e.time), t).unwrap_or(0);
-        Some(pct_to_chart(ev[i].anchor, aspect))
-    }
-
-    /// Anchor of the *current* rotate keyframe (held until the next one).
-    fn rotate_anchor(&self, t: f64, aspect: f32) -> Option<Vector> {
-        let ev = &self.rotate_events;
-        if ev.is_empty() {
-            return None;
-        }
-        let i = last_index(ev.iter().map(|e| e.time), t).unwrap_or(0);
-        Some(pct_to_chart(ev[i].anchor, aspect))
-    }
-
     /// Resolve the animated rect at `t`.
     ///
-    /// The shape is scaled then rotated about its own centre. A move track
-    /// *assigns* the absolute centre (overriding any anchor offset); without one
-    /// the centre is the anchored scale/rotation of the initial centre:
-    /// `C' = Ar + R(θ)·(As + S(C - As) - Ar)`.
+    /// Native animation replays completed anchor deltas, applies the current
+    /// segment, then adds `moveTarget - originalCenter`. The first keyframe
+    /// sets size/angle without orbiting the center.
     pub fn transform(&self, t: f64, aspect: f32) -> BlockTransform {
         let bl = pct_to_chart(self.bottom_left, aspect);
         let tr = pct_to_chart(self.top_right, aspect);
@@ -226,20 +209,34 @@ impl BlockArea {
 
         let scale = self.scale_at(t);
         let rotation = self.rotation_at(t);
-        let r = Rotation2::new(rotation.to_radians());
-
-        let center = if let Some(m) = self.move_center(t, aspect) {
-            m
-        } else {
-            let as_ = self.scale_anchor(t, aspect).unwrap_or(c);
-            let ar = self.rotate_anchor(t, aspect).unwrap_or(c);
-            let s = Vector::new(scale.x * (c.x - as_.x), scale.y * (c.y - as_.y));
-            ar + r * (as_ + s - ar)
-        };
+        let mut center = c;
+        if let Some(i) = last_index(&self.scale_events, t, |e| e.time) {
+            for k in 0..i {
+                let cur = &self.scale_events[k];
+                center = scale_center(center, pct_to_chart(cur.anchor, aspect), self.scale_events[k + 1].scale, cur.scale);
+            }
+            if i + 1 < self.scale_events.len() {
+                let cur = &self.scale_events[i];
+                center = scale_center(center, pct_to_chart(cur.anchor, aspect), scale, cur.scale);
+            }
+        }
+        if let Some(i) = last_index(&self.rotate_events, t, |e| e.time) {
+            for k in 0..i {
+                let cur = &self.rotate_events[k];
+                center = rotate_center(center, pct_to_chart(cur.anchor, aspect), self.rotate_events[k + 1].rotation - cur.rotation);
+            }
+            if i + 1 < self.rotate_events.len() {
+                let cur = &self.rotate_events[i];
+                center = rotate_center(center, pct_to_chart(cur.anchor, aspect), rotation - cur.rotation);
+            }
+        }
+        if let Some(m) = self.move_center(t, aspect) {
+            center += m - c;
+        }
 
         BlockTransform {
             center,
-            size: Vector::new(base_size.x * scale.x, base_size.y * scale.y),
+            size: Vector::new((base_size.x * scale.x).abs(), (base_size.y * scale.y).abs()),
             rotation,
         }
     }
@@ -267,6 +264,17 @@ impl BlockArea {
         let hy = 0.5 + sign * inset_local(tr.size.y.abs(), inset_world);
         lp.x.abs() <= hx && lp.y.abs() <= hy
     }
+}
+
+fn scale_center(center: Vector, anchor: Vector, next: Vector, current: Vector) -> Vector {
+    // SafeDiv uses Mathf.Approximately(denominator, 0). With a zero scale,
+    // native center deltas use a ratio of one rather than infinity or NaN.
+    let div = |a: f32, b: f32| if b.abs() < f32::from_bits(8) { 1. } else { a / b };
+    anchor + Vector::new(div(next.x, current.x) * (center.x - anchor.x), div(next.y, current.y) * (center.y - anchor.y))
+}
+
+fn rotate_center(center: Vector, anchor: Vector, delta: f32) -> Vector {
+    anchor + Rotation2::new(delta.to_radians()) * (center - anchor)
 }
 
 fn matrix_of(tr: &BlockTransform) -> Matrix {
@@ -367,9 +375,8 @@ mod tests {
         (a - b).abs() < 1e-4
     }
 
-    /// Official sample regression: with a move track the centre is the absolute
-    /// move target and the geometry is scaled then rotated about it
-    /// (`corner = M + R(θ)·S·(P−C)`), easing per the official enum.
+    /// Native scale -> rotation -> move delta, audited at RVAs 1CDBC28,
+    /// 1CDBFA4 and 1CDC2B4. Movement preserves the accumulated anchor offset.
     #[test]
     fn matches_official_move_scale_rotate() {
         let aspect = 16.0f32 / 9.0;
@@ -382,37 +389,64 @@ mod tests {
             disappear_time: 4.,
             is_subtract: false,
             rotate_events: vec![
-                BlockRotateEvent { anchor: Vector::new(0.6, 0.4), time: 0., ease: 0, rotation: 0. },
-                BlockRotateEvent { anchor: Vector::new(0.6, 0.4), time: 3., ease: 0, rotation: 90. },
+                BlockRotateEvent {
+                    anchor: Vector::new(0.6, 0.4),
+                    time: 0.,
+                    ease: 0,
+                    rotation: 0.,
+                },
+                BlockRotateEvent {
+                    anchor: Vector::new(0.6, 0.4),
+                    time: 3.,
+                    ease: 0,
+                    rotation: 90.,
+                },
             ],
             move_events: vec![
-                BlockMoveEvent { end: Vector::new(0.5, 0.5), time: 0., ease_x: 1, ease_y: 2 },
-                BlockMoveEvent { end: Vector::new(0.75, 0.6), time: 4., ease_x: 0, ease_y: 0 },
+                BlockMoveEvent {
+                    end: Vector::new(0.5, 0.5),
+                    time: 0.,
+                    ease_x: 1,
+                    ease_y: 2,
+                },
+                BlockMoveEvent {
+                    end: Vector::new(0.75, 0.6),
+                    time: 4.,
+                    ease_x: 0,
+                    ease_y: 0,
+                },
             ],
             scale_events: vec![
-                BlockScaleEvent { anchor: Vector::new(0.25, 0.75), time: 0., ease_x: 4, ease_y: 5, scale: Vector::new(1., 1.) },
-                BlockScaleEvent { anchor: Vector::new(0.25, 0.75), time: 2., ease_x: 0, ease_y: 0, scale: Vector::new(2., 0.5) },
+                BlockScaleEvent {
+                    anchor: Vector::new(0.25, 0.75),
+                    time: 0.,
+                    ease_x: 4,
+                    ease_y: 5,
+                    scale: Vector::new(1., 1.),
+                },
+                BlockScaleEvent {
+                    anchor: Vector::new(0.25, 0.75),
+                    time: 2.,
+                    ease_x: 0,
+                    ease_y: 0,
+                    scale: Vector::new(2., 0.5),
+                },
             ],
         };
         for &t in &[0.0f64, 0.3, 1.5, 2.0, 2.75, 3.0, 3.99] {
             let u = (t / 4.) as f32;
             let v = ((t / 2.) as f32).min(1.);
-            let cx = 480. * u * u;
-            let cy = 108. * (1. - (1. - u) * (1. - u));
-            let sx = 1. + v * v * v;
-            let sy = 1. - 0.5 * (1. - (1. - v).powi(3));
+            let cx = 480. * eased_progress(1, u as f64);
+            let cy = 108. * eased_progress(2, u as f64);
+            let sx = 1. + eased_progress(4, v as f64);
+            let sy = 1. - 0.5 * eased_progress(5, v as f64);
             let ang = ((t / 3.) as f32).min(1.) * std::f32::consts::FRAC_PI_2;
-            let rx = sx * -192.;
-            let ry = sy * -216.;
-            let wx = cx + rx * ang.cos() - ry * ang.sin();
-            let wy = cy + rx * ang.sin() + ry * ang.cos();
+            let rx = 480. * (sx - 1.) - 192. + sx * -192.;
+            let ry = 270. * (1. - sy) + 108. + sy * -216.;
+            let wx = cx + 192. + rx * ang.cos() - ry * ang.sin();
+            let wy = cy - 108. + rx * ang.sin() + ry * ang.cos();
             let p = b.matrix(t, aspect).transform_point(&nalgebra::Point2::new(-0.5, -0.5));
-            assert!(
-                (p.x * 960. - wx).abs() < 0.1 && (p.y * 960. - wy).abs() < 0.1,
-                "t={t} got ({},{}) want ({wx},{wy})",
-                p.x * 960.,
-                p.y * 960.
-            );
+            assert!((p.x * 960. - wx).abs() < 0.1 && (p.y * 960. - wy).abs() < 0.1, "t={t} got ({},{}) want ({wx},{wy})", p.x * 960., p.y * 960.);
         }
     }
 
@@ -424,6 +458,80 @@ mod tests {
         assert!((eased_progress(0, 0.3) - 0.3).abs() < 1e-6);
         assert!((eased_progress(1, 0.5) - 0.25).abs() < 1e-6);
         assert!((eased_progress(4, 0.5) - 0.125).abs() < 1e-6);
+    }
+
+    #[test]
+    fn native_lookup_interpolates_one_percent_samples() {
+        let expected = 0.12_f32.powi(2) + 0.3 * (0.13_f32.powi(2) - 0.12_f32.powi(2));
+        assert!((eased_progress(1, 0.123) - expected).abs() < 1e-7);
+        assert!((eased_progress(1, 0.123) - 0.123_f32.powi(2)).abs() > 1e-6);
+    }
+
+    #[test]
+    fn first_key_sets_shape_without_moving_center_and_before_it_uses_defaults() {
+        let b = blk(
+            (0.6, 0.6),
+            (0.4, 0.4),
+            vec![],
+            vec![BlockScaleEvent {
+                anchor: Vector::new(0., 0.),
+                time: 10.,
+                ease_x: 0,
+                ease_y: 0,
+                scale: Vector::new(2., 3.),
+            }],
+            vec![BlockRotateEvent {
+                anchor: Vector::new(1., 1.),
+                time: 10.,
+                ease: 0,
+                rotation: 45.,
+            }],
+        );
+        assert!(close(b.transform(9., 2.).size.x, 0.4));
+        let tr = b.transform(10., 2.);
+        assert!(tr.center.norm() < 1e-6);
+        assert!(close(tr.size.x, 0.8) && close(tr.rotation, 45.));
+    }
+
+    #[test]
+    fn completed_anchor_deltas_survive_move_and_zero_scale() {
+        let b = blk(
+            (0.6, 0.6),
+            (0.4, 0.4),
+            vec![BlockMoveEvent {
+                end: Vector::new(0.5, 0.5),
+                time: 0.,
+                ease_x: 0,
+                ease_y: 0,
+            }],
+            vec![
+                BlockScaleEvent {
+                    anchor: Vector::new(1., 0.5),
+                    time: 0.,
+                    ease_x: 0,
+                    ease_y: 0,
+                    scale: Vector::new(1., 1.),
+                },
+                BlockScaleEvent {
+                    anchor: Vector::new(0., 0.5),
+                    time: 1.,
+                    ease_x: 0,
+                    ease_y: 0,
+                    scale: Vector::new(2., 1.),
+                },
+                BlockScaleEvent {
+                    anchor: Vector::new(0.5, 0.5),
+                    time: 2.,
+                    ease_x: 0,
+                    ease_y: 0,
+                    scale: Vector::new(4., 1.),
+                },
+            ],
+            vec![],
+        );
+        assert!(close(b.transform(1., 2.).center.x, -1.));
+        assert!(close(b.transform(2., 2.).center.x, -1.));
+        assert_eq!(scale_center(Vector::new(0.2, 0.3), Vector::zeros(), Vector::new(2., 2.), Vector::zeros()), Vector::new(0.2, 0.3));
     }
 
     /// A centered 4%x4% block maps to the chart origin with the right size.

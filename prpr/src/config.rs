@@ -14,9 +14,9 @@ pub const DEFAULT_MP_SERVER_LIST_URL: &str = "https://status.dmocken.top/api/sta
 
 /// Phira Pro：自服（`phira-pro-api`）基础地址。
 ///
-/// 「读官服、写自服」：谱面 / 用户 / 全局 rks 仍走官服；成绩额外上传到自服，
+/// 「读官服、写自服」：谱面 / 用户 / 全局 rks 仍走官服；成绩仅上传到自服，
 /// 单谱排行榜把官服和自服的记录合并排序。
-/// **留空 = 关闭全部自服功能**（纯官服模式，用于降级 / 测试）。
+/// **留空 = 关闭全部自服功能和成绩上传**。
 pub const DEFAULT_PRO_API_URL: &str = "https://api.phira.pro";
 
 /// Phira Pro：结算界面「应用推荐偏移」请求的落点。
@@ -269,12 +269,6 @@ pub struct Config {
     pub volume_bgm: f32,
     pub volume_music: f32,
     pub volume_sfx: f32,
-    /// Phira Pro 授权：本机序列码（首次启动随机生成，之后固定不变）。
-    pub activation_serial: Option<String>,
-    /// Phira Pro 授权：解密码。这里存的是解密码本身而不是「已解锁」标记——
-    /// 每次启动都会用 序列码 + 解密码 重新验签，所以手改配置文件无效。
-    pub activation_code: Option<String>,
-
     // for compatibility
     autoplay: Option<bool>,
 }
@@ -457,8 +451,6 @@ impl Default for Config {
             volume_music: 1.,
             volume_sfx: 1.,
             volume_bgm: 1.,
-            activation_serial: None,
-            activation_code: None,
 
             autoplay: None,
         }
@@ -666,7 +658,8 @@ impl Config {
         self.flick_protect = false;
         self.hold_tail_judge = false;
         self.practice_ramp = false;
-        self.mods.remove(Mods::FULLSCREEN_JUDGE | Mods::NO_FAIL | Mods::NO_COMBO_SCORE | Mods::STRICT_JUDGE);
+        self.mods
+            .remove(Mods::FULLSCREEN_JUDGE | Mods::NO_FAIL | Mods::NO_COMBO_SCORE | Mods::STRICT_JUDGE);
     }
 
     /// Phira Pro Flash：开启「自动游玩」时调用。
@@ -769,11 +762,7 @@ impl Config {
         self.hp_amount = self.hp_amount.clamp(0.2, 3.0);
         self.hp_width = self.hp_width.clamp(0.1, 1.0);
         self.hp_height = self.hp_height.clamp(0.5, 3.0);
-        self.hp_scale = if self.hp_scale.is_finite() {
-            self.hp_scale.clamp(0.2, 3.0)
-        } else {
-            1.0
-        };
+        self.hp_scale = if self.hp_scale.is_finite() { self.hp_scale.clamp(0.2, 3.0) } else { 1.0 };
         // 晚按补偿：NaN / 越界都夹回合法区间。
         self.late_leniency_ms = if self.late_leniency_ms.is_finite() {
             self.late_leniency_ms.clamp(0., Self::LATE_LENIENCY_MAX)

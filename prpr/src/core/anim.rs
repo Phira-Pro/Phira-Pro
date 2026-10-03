@@ -86,18 +86,17 @@ impl<T: Tweenable> Anim<T> {
     }
 
     pub fn set_time(&mut self, time: f64) {
-        if self.keyframes.is_empty() || time == self.time {
-            self.time = time;
+        if time == self.time {
             return;
         }
-        while let Some(kf) = self.keyframes.get(self.cursor + 1) {
-            if kf.time > time {
-                break;
+        if !self.keyframes.is_empty() {
+            if time < self.keyframes[self.cursor].time || self.keyframes.get(self.cursor + 4).is_some_and(|kf| kf.time <= time) {
+                self.cursor = self.keyframes.partition_point(|kf| kf.time <= time).saturating_sub(1);
+            } else {
+                while self.keyframes.get(self.cursor + 1).is_some_and(|kf| kf.time <= time) {
+                    self.cursor += 1;
+                }
             }
-            self.cursor += 1;
-        }
-        while self.cursor != 0 && self.keyframes[self.cursor].time > time {
-            self.cursor -= 1;
         }
         self.time = time;
         if let Some(next) = &mut self.next {
@@ -120,13 +119,11 @@ impl<T: Tweenable> Anim<T> {
     }
 
     pub fn now_opt(&self) -> Option<T> {
-        self.now_opt_inner().map(|now| {
-            if let Some(next) = &self.next {
-                T::add(&now, &next.now_opt().unwrap())
-            } else {
-                now
-            }
-        })
+        let next = self.next.as_ref().and_then(|it| it.now_opt());
+        match (self.now_opt_inner(), next) {
+            (Some(a), Some(b)) => Some(T::add(&a, &b)),
+            (a, b) => a.or(b),
+        }
     }
 
     pub fn map_value(&mut self, mut f: impl FnMut(T) -> T) {
@@ -134,6 +131,30 @@ impl<T: Tweenable> Anim<T> {
         if let Some(next) = &mut self.next {
             next.map_value(f);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn long_storyboard_tracks_seek_in_both_directions() {
+        let mut track = Anim::new((0..10000).map(|i| Keyframe::new(i as f64, i as f32, 2)).collect());
+        for t in [9998.5, 0.5, 8990.25, 8990.75, 1., 0., 10001.] {
+            track.set_time(t);
+            assert!((track.now() - t.min(9999.) as f32).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn an_empty_track_does_not_freeze_its_chained_animation() {
+        let animated = Anim::new(vec![Keyframe::new(0., 2f32, 2), Keyframe::new(2., 6., 2)]);
+        let mut track = Anim::chain(vec![Anim::default(), animated, Anim::fixed(1.)]);
+        track.set_time(1.);
+        assert_eq!(track.now(), 5.);
+        track.set_time(0.);
+        assert_eq!(track.now(), 3.);
     }
 }
 

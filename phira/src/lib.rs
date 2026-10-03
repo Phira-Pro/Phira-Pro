@@ -7,6 +7,7 @@ mod inner;
 mod anim;
 mod blacklist;
 mod censor;
+mod chart_install;
 mod charts_view;
 mod client;
 mod data;
@@ -21,8 +22,8 @@ mod mp;
 mod page;
 mod popup;
 mod rate;
-mod resource;
 mod replay;
+mod resource;
 mod scene;
 mod tabs;
 mod tags;
@@ -373,7 +374,11 @@ async fn the_main() -> Result<()> {
     let builtin_font = builtin_font.ok_or_else(|| anyhow::anyhow!("no builtin font found in assets"))?;
 
     let font = FontArc::try_from_vec(custom_font.unwrap_or_else(|| builtin_font.clone()))?;
-    let fallback = if has_custom_font { FontArc::try_from_vec(builtin_font).ok() } else { None };
+    let fallback = if has_custom_font {
+        FontArc::try_from_vec(builtin_font).ok()
+    } else {
+        None
+    };
     let mut painter = TextPainter::new(font.clone(), fallback);
 
     let mut main = Main::new(Box::new(MainScene::new(font).await?), TimeManager::default(), None).await?;
@@ -382,8 +387,8 @@ async fn the_main() -> Result<()> {
     let mut fps_time = -1;
 
     const FPS_BUF_SIZE: usize = 60;
-    let mut fps_times = VecDeque::<f32>::with_capacity(FPS_BUF_SIZE);
-    let mut last_frame_start = f32::NAN;
+    let mut fps_times = VecDeque::<f64>::with_capacity(FPS_BUF_SIZE);
+    let mut last_frame_start = f64::NAN;
     let mut fps_time_sum = 0.;
 
     'app: loop {
@@ -404,6 +409,9 @@ async fn the_main() -> Result<()> {
                 if main.paused() {
                     info!("app resumed (foregrounded)");
                     main.resume()?;
+                    fps_times.clear();
+                    fps_time_sum = 0.;
+                    last_frame_start = f64::NAN;
                 }
             }
             None => {}
@@ -424,6 +432,9 @@ async fn the_main() -> Result<()> {
             if resumed {
                 info!("app resumed (foregrounded)");
                 main.resume()?;
+                fps_times.clear();
+                fps_time_sum = 0.;
+                last_frame_start = f64::NAN;
             }
             next_frame().await;
             continue;
@@ -434,15 +445,15 @@ async fn the_main() -> Result<()> {
             if fps_times.len() == FPS_BUF_SIZE {
                 fps_time_sum -= fps_times.pop_front().unwrap();
             }
-            let frame_time = frame_start as f32 - last_frame_start;
+            let frame_time = frame_start - last_frame_start;
             fps_times.push_back(frame_time);
             fps_time_sum += frame_time;
         }
-        last_frame_start = frame_start as f32;
+        last_frame_start = frame_start;
         // 供界面显示的帧率：近 FPS_BUF_SIZE 帧的平均值。
-        let avg_frame_time = fps_time_sum / fps_times.len().max(1) as f32;
+        let avg_frame_time = fps_time_sum / fps_times.len().max(1) as f64;
         let cur_fps = if avg_frame_time > 0. { 1. / avg_frame_time } else { 0. };
-        prpr::ui::CURRENT_FPS.store(cur_fps.to_bits(), std::sync::atomic::Ordering::Relaxed);
+        prpr::ui::CURRENT_FPS.store((cur_fps as f32).to_bits(), std::sync::atomic::Ordering::Relaxed);
         let res = || -> Result<()> {
             main.update()?;
             // 结算界面的「应用推荐偏移」请求：落到全局配置并持久化。
@@ -470,7 +481,7 @@ async fn the_main() -> Result<()> {
         if fps_now != fps_time {
             fps_time = fps_now;
             if fps_times.len() == FPS_BUF_SIZE {
-                let actual_fps = 1. / (fps_time_sum / FPS_BUF_SIZE as f32);
+                let actual_fps = 1. / (fps_time_sum / FPS_BUF_SIZE as f64);
                 let current_fps = 1. / (t - frame_start);
                 info!("FPS {} (capped at {})", current_fps as u32, actual_fps as u32);
             }
@@ -551,35 +562,6 @@ pub extern "C" fn quad_main() {
         }
     });
     cleanup_audio();
-}
-
-/// Phira Pro 授权状态缓存（启动时与解锁成功后刷新）。
-static UNLOCKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// 当前是否已解锁。
-pub fn is_unlocked() -> bool {
-    UNLOCKED.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// 确保序列码已生成，并按当前配置重新验签刷新解锁状态。
-///
-/// 注意：配置里存的是**解密码本身**而不是「已解锁」布尔值——所以手改配置文件无效。
-pub fn refresh_unlock() {
-    {
-        let config = &mut get_data_mut().config;
-        if config.activation_serial.is_none() {
-            config.activation_serial = Some(prpr::activation::generate_serial());
-        }
-    }
-    let unlocked = {
-        let config = &get_data().config;
-        match (&config.activation_serial, &config.activation_code) {
-            (Some(serial), Some(code)) => prpr::activation::verify(serial, code),
-            _ => false,
-        }
-    };
-    UNLOCKED.store(unlocked, std::sync::atomic::Ordering::Relaxed);
-    let _ = save_data();
 }
 
 fn on_pause_resume(pause: bool) {

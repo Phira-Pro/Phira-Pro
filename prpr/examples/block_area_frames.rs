@@ -50,23 +50,41 @@ async fn main() {
         .unwrap_or(1)
         .clamp(1, 2);
     let capture = render_target(960 * scale, 720 * scale);
-    let folder = if scale > 1 {
-        "target/block-area-frames-2x"
-    } else {
-        "target/block-area-frames"
-    };
-    std::fs::create_dir_all(folder).unwrap();
+    let folder = std::env::var("BLOCK_CAPTURE_DIR").unwrap_or_else(|_| {
+        if scale > 1 {
+            "target/block-area-frames-2x"
+        } else {
+            "target/block-area-frames"
+        }
+        .to_owned()
+    });
+    let brightness = std::env::var("BLOCK_CAPTURE_BRIGHTNESS")
+        .ok()
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|value| value.is_finite() && (0.0..=1.0).contains(value));
+    std::fs::create_dir_all(&folder).unwrap();
     next_frame().await;
     for (name, path, times) in [
         ("desultory", "data/charts/custom/f681f94e-57d3-4d7c-bfd6-fb8cc3f1dd13", vec![1., 4., 65., 65.64356, 67., 67.72277, 70., 71.8]),
-        ("hate", "data/charts/custom/19d0e386-5929-4031-85fb-28ac8e6a472f", vec![134.96667, 136.9, 137., 138.8, 139.8, 141.8, 142.6]),
+        (
+            "hate",
+            "data/charts/custom/19d0e386-5929-4031-85fb-28ac8e6a472f",
+            vec![
+                79., 79.2, 79.4, 79.46667, 79.9, 80.2, 81.9, 82.2, 134.96667, 136.9, 137., 138.8, 139.8, 141.8, 142.6,
+            ],
+        ),
     ] {
         let metadata: serde_json::Value =
             serde_json::from_slice(&std::fs::read(format!("target/block-area-reference/{name}/metadata.json")).unwrap()).unwrap();
         let mut manifest = Vec::new();
         let mut scene = finish(async {
             let mut fs = fs_from_file(Path::new(path)).unwrap();
-            let info = load_info(fs.as_mut()).await.unwrap();
+            let mut info = load_info(fs.as_mut()).await.unwrap();
+            // Phigros exposes remaining background brightness, while Phira's
+            // chart metadata stores the black overlay's opacity.
+            if let Some(brightness) = brightness {
+                info.background_dim = 1.0 - brightness;
+            }
             let (illustration, background, _) = LoadingScene::load(fs.as_mut(), &info.illustration).await.unwrap();
             let mut config = Config::default();
             config.mods = Mods::AUTOPLAY;
@@ -126,7 +144,7 @@ async fn main() {
             let file = format!("{folder}/{name}-{requested:.5}.png");
             image::save_buffer(&file, &bytes, width as u32, height as u32, image::ColorType::Rgba8).unwrap();
             println!("{file}: combo={}, aspect={}, shader clock={:.6}s", scene.judge.combo(), scene.res.aspect_ratio, get_time());
-            manifest.push(serde_json::json!({"requested_video_seconds":requested,"chart_seconds":t,"file":file,"width":width,"height":height,"combo":scene.judge.combo(),"shader_clock_seconds_approx":get_time()}));
+            manifest.push(serde_json::json!({"requested_video_seconds":requested,"chart_seconds":t,"file":file,"width":width,"height":height,"combo":scene.judge.combo(),"background_brightness":1.0-scene.res.info.background_dim,"shader_clock_seconds_approx":get_time()}));
             next_frame().await;
         }
         std::fs::write(format!("{folder}/{name}-manifest.json"), serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();

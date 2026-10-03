@@ -223,15 +223,6 @@ reset-settings-text = 설정 페이지의 모든 항목(언어, 테마, 판정 /
 reset-settings-done = 설정을 기본값으로 되돌렸습니다
 reset-settings-cancel = 취소
 reset-settings-confirm = 확인
-activation-serial = 시리얼 코드
-activation-serial-copied = 시리얼 코드를 복사했습니다
-activation-code = 잠금 해제 코드
-activation-code-empty = 탭하여 입력 / 붙여넣기
-activation-code-set = 입력됨 (탭하여 수정)
-activation-confirm = 확인
-activation-locked = 먼저 설정에서 잠금 해제 코드를 입력하세요
-activation-ok = 잠금 해제되었습니다. 모든 기능을 사용할 수 있습니다
-activation-failed = 잠금 해제 코드가 올바르지 않습니다
 
 item-flow-speed = 노트 흐름 속도
 item-flow-speed-sub = 노트가 흐르는 속도만 바꾸며 음악과 음높이는 그대로입니다. 이 설정에서는 점수를 업로드할 수 없습니다.

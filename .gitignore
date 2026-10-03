@@ -20,6 +20,8 @@ derive_key.py
 /assets/blockarea
 /docs/block-area/official-touch-effect.gles.txt
 /docs/block-area/official-asset-state.json
+/docs/block-area/phira-official-block-area.html
+/docs/block-area/phira-official-block-area.txt
 
 # 本机的 .cargo/config.toml（见下）把 macroquad / miniquad / sasa / phira-mp-* 这几个
 # git 依赖 patch 到了本地路径，因此本地生成的 Cargo.lock 里这些包没有 `source` 字段、

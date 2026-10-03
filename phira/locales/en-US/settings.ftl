@@ -237,15 +237,6 @@ item-url-invalid = Invalid URL (must start with http:// or https://)
 item-status-url-sub = URL opened by the "Server Status" button in settings. Leave empty for the official page. Must start with http(s)://.
 item-web-url = Web Frontend
 
-activation-serial = Serial code
-activation-serial-copied = Serial code copied
-activation-code = Unlock code
-activation-code-empty = Tap to enter / paste
-activation-code-set = Filled (tap to edit)
-activation-confirm = Confirm
-activation-locked = Please enter the unlock code in Settings first
-activation-ok = Unlocked. All features are now available
-activation-failed = Incorrect unlock code
 
 item-flow-speed = Note Flow Speed
 item-flow-speed-sub = Scales only the notes' scrolling speed; the music and its pitch stay untouched. Scores are not eligible for upload.

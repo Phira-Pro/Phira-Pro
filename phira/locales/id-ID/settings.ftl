@@ -210,15 +210,6 @@ reset-settings-text = Semua opsi di halaman pengaturan (bahasa, tema, penilaian 
 reset-settings-done = Pengaturan dikembalikan ke bawaan
 reset-settings-cancel = Batal
 reset-settings-confirm = Konfirmasi
-activation-serial = Kode seri
-activation-serial-copied = Kode seri disalin
-activation-code = Kode buka kunci
-activation-code-empty = Ketuk untuk memasukkan / menempel
-activation-code-set = Terisi (ketuk untuk mengubah)
-activation-confirm = Konfirmasi
-activation-locked = Masukkan dulu kode buka kunci di Pengaturan
-activation-ok = Terbuka. Semua fitur kini tersedia
-activation-failed = Kode buka kunci salah
 
 item-flow-speed = Kecepatan Alur Not
 item-flow-speed-sub = Hanya mengubah kecepatan gulir not; musik dan nadanya tidak berubah. Skor tidak dapat diunggah.

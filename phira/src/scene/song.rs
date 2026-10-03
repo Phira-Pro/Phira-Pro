@@ -13,8 +13,7 @@ use crate::{
         UserManager, CLIENT_TOKEN,
     },
     data::{BriefChartInfo, LocalChart},
-    dir, get_data, get_data_mut,
-    history,
+    dir, get_data, get_data_mut, history,
     icons::Icons,
     page::{
         local_illustration, request_export, resolve_export, take_export, thumbnail_path, ChartItem, ChartType, Fader, Illustration, SFader,
@@ -298,20 +297,8 @@ struct LdbItem {
     pub btn: RectButton,
 }
 
-/// Phira Pro：榜单排序键。默认按分数降序，`std`（无瑕度榜）时按无瑕度换算分降序。
-fn ldb_sort_key(it: &LdbItem, std: bool) -> f64 {
-    if std {
-        it.inner.std_score.unwrap_or(0.) as f64
-    } else {
-        it.inner.score as f64
-    }
-}
-
-fn ldb_cmp(a: &LdbItem, b: &LdbItem, std: bool) -> std::cmp::Ordering {
-    ldb_sort_key(b, std)
-        .partial_cmp(&ldb_sort_key(a, std))
-        .unwrap_or(std::cmp::Ordering::Equal)
-}
+#[path = "../leaderboard.rs"]
+mod leaderboard;
 
 pub struct SongScene {
     illu: Illustration,
@@ -375,6 +362,7 @@ pub struct SongScene {
     ldb_btn_local: DRectButton,
     /// 本地记录榜单（模式 3 用）。
     ldb_local: Vec<(history::Record, RectButton)>,
+    ldb_local_revision: u64,
     /// 上次同步黑名单时的版本号；黑名单增删后据此重新拉取榜单。
     ldb_bl_ver: u32,
 
@@ -559,6 +547,7 @@ impl SongScene {
             ldb_btn_acc: DRectButton::new(),
             ldb_btn_local: DRectButton::new(),
             ldb_local: Vec::new(),
+            ldb_local_revision: u64::MAX,
             ldb_bl_ver: crate::blacklist::version(),
 
             info_btn: RectButton::new(),
@@ -762,50 +751,9 @@ impl SongScene {
             return;
         }
         self.ldb = None;
-        let std = self.ldb_mode == 1;
+        let mode = self.ldb_mode;
         let me = get_data().me.as_ref().map(|it| it.id);
-        self.ldb_task = Some(Task::new(async move {
-            let mut list: Vec<LdbItem> = recv_raw(Client::get(format!("/record/list15/{id}")).query(&[("std", std)]))
-                .await?
-                .json()
-                .await?;
-            // Phira Pro：把自服的榜单合并进来（官服只给 top15，自服给 top30），
-            // 混排后统一重算名次。`pro_api_url` 留空时自动跳过。
-            if let Some(req) = crate::client::pro_get(format!("/record/query/{id}?pageNum=30&page=1")) {
-                #[derive(Deserialize)]
-                struct ProResp {
-                    results: Vec<Record>,
-                }
-                if let Ok(resp) = recv_raw(req).await {
-                    if let Ok(pro) = resp.json::<ProResp>().await {
-                        list.extend(pro.results.into_iter().map(|inner| LdbItem {
-                            inner,
-                            rank: 0,
-                            btn: RectButton::new(),
-                        }));
-                    }
-                }
-            }
-            // 同一玩家只保留最好的一条。
-            list.sort_by(|a, b| a.inner.player.id.cmp(&b.inner.player.id).then_with(|| ldb_cmp(a, b, std)));
-            list.dedup_by_key(|it| it.inner.player.id);
-            list.sort_by(|a, b| ldb_cmp(a, b, std));
-            for (i, it) in list.iter_mut().enumerate() {
-                it.rank = i as u32 + 1;
-            }
-            // 官服 top15 + 自服 top30 合并后可能很长，按榜单惯例截断到前 20；
-            // 但「我」的成绩一定保留，方便看自己在混排里排第几。
-            if list.len() > 20 {
-                let mut kept: Vec<LdbItem> = Vec::new();
-                for (i, it) in list.into_iter().enumerate() {
-                    if i < 20 || Some(it.inner.player.id) == me {
-                        kept.push(it);
-                    }
-                }
-                list = kept;
-            }
-            Ok(list)
-        }));
+        self.ldb_task = Some(Task::new(leaderboard::load(id, mode, me)));
     }
 
     /// 重建「本地记录」榜单（仅当前谱面的历史成绩，按分数降序、准度平局取高）。
@@ -1241,17 +1189,8 @@ impl SongScene {
                         token: STANDARD.encode(data),
                         chart_updated,
                     };
-                    let resp: Resp = recv_raw(Client::post("/play/upload", &body))
-                        .await?
-                        .json()
-                        .await?;
-                    // Phira Pro：同一份成绩包再发一份到自服（失败不影响官服结果，
-                    // 也不阻塞结算）。`pro_api_url` 留空时自动跳过。
-                    if let Some(req) = crate::client::pro_post("/play/upload", &body) {
-                        if let Err(err) = recv_raw(req).await {
-                            warn!(?err, "failed to upload record to Phira Pro");
-                        }
-                    }
+                    let resp: Resp = recv_raw(crate::client::pro_score_upload(&body)?).await?.json().await?;
+                    leaderboard::invalidate(id.unwrap());
                     RECORD_ID.store(resp.id, Ordering::Relaxed);
                     Ok(RecordUpdateState {
                         best: resp.new_best,
@@ -1265,7 +1204,7 @@ impl SongScene {
             // 能否上传最终由 prpr 侧的 `Config::is_official_play` 决定——改动过判定 /
             // 玩法的对局一律不上传。
             #[cfg(record)]
-            let upload_fn = upload_fn.filter(|_| get_data().config.upload_record || is_mp);
+            let upload_fn = upload_fn.filter(|_| (get_data().config.upload_record || is_mp) && !crate::client::pro_api_url().is_empty());
             if is_unlock {
                 #[cfg(not(feature = "video"))]
                 {
@@ -1397,9 +1336,10 @@ impl SongScene {
         let width = self.side_content.width() - pad;
         ui.dy(0.03);
 
-        // 本地记录榜在渲染时重建：历史记录最新写入即时可见，且按钮实例稳定可命中。
-        if self.ldb_mode == 3 {
+        // Reuse sorted records and buttons until a play/import changes history.
+        if self.ldb_mode == 3 && self.ldb_local_revision != history::revision() {
             self.rebuild_local_ldb();
+            self.ldb_local_revision = history::revision();
         }
 
         // 模式切换按钮行：[本地记录] [分数] [无暇] [准度]
@@ -1422,11 +1362,7 @@ impl SongScene {
             bx += bw + gap;
         }
 
-        let title = if self.ldb_mode == 3 {
-            tl!("ldb-local-title")
-        } else {
-            tl!("ldb")
-        };
+        let title = if self.ldb_mode == 3 { tl!("ldb-local-title") } else { tl!("ldb") };
         if self.ldb_mode == 3 && self.ldb_local.is_empty() {
             // 本地榜为空：给出明确提示，避免误以为加载不出来。
             ui.dy(0.01);
@@ -1446,101 +1382,57 @@ impl SongScene {
             if me_id >= 0 {
                 UserManager::request(me_id);
             }
+            // Format only rows near the viewport. The shared renderer still
+            // visits every row to preserve scroll height and clear hit boxes.
+            let off = self.ldb_scroll.y_scroller.offset;
+            let first = ((off - 0.3).max(0.) / 0.14) as usize;
+            let last = ((off + ui.top * 2. + 0.3) / 0.14).ceil().max(0.) as usize;
             self.ldb_local
                 .iter_mut()
                 .enumerate()
                 .map(|(i, (rec, btn))| LdbDisplayItem {
                     player_id: me_id,
                     rank: i as u32 + 1,
-                    score: format!("{:07}", rec.score),
-                    alt: Some(format!("{:.2}%", rec.accuracy * 100.)),
+                    score: if (first..=last).contains(&i) {
+                        format!("{:07}", rec.score)
+                    } else {
+                        String::new()
+                    },
+                    alt: (first..=last).contains(&i).then(|| format!("{:.2}%", rec.accuracy * 100.)),
                     btn,
                 })
                 .collect()
         } else {
-            self.ldb.as_mut().map(|it| {
-                let mut items: Vec<_> = it.1.iter_mut().collect();
-                // 各榜的排序依据：
-                // - 无暇榜按 std_score **降序**（越大越好）。注意标准值是 std，它是偏差，
-                //   越小越好，不要按它降序排，否则整个榜会反过来（服务器返回的也正是 std_score 降序）。
-                // - 准度榜按 accuracy 降序。
-                // - 分数榜沿用服务器给的顺序。
-                match self.ldb_mode {
-                    1 => items.sort_by(|a, b| {
-                        b.inner
-                            .std_score
-                            .unwrap_or(0.)
-                            .partial_cmp(&a.inner.std_score.unwrap_or(0.))
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                            .then(a.rank.cmp(&b.rank))
-                    }),
-                    2 => items.sort_by(|a, b| {
-                        // 准度榜：按准度降序重排（低分高准度不会被高分低准度压下去）。
-                        b.inner
-                            .accuracy
-                            .partial_cmp(&a.inner.accuracy)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                            .then(a.rank.cmp(&b.rank))
-                    }),
-                    _ => {}
-                }
-                // 名次一律由**排序后的位置**决定，而不是沿用服务器返回的名次：
-                // ① 黑名单剔人后会留下空档（1,2,4,5…），按位置编号才能自动替补；
-                // ② 准度榜 / 无暇榜是按本榜重排的，必须显示本榜的名次，否则会串成别的榜的名次。
-                // 唯一例外是「自己」——接口返回的是「前 N 名 + 自己」，自己那条带着很大的
-                // 真实名次（如 2415），不能被压成列表下标，否则显示出来就是假信息。
-                let my_id = get_data().me.as_ref().map(|me| me.id);
-                let total = items.len();
-                // 准度榜用的是「并列同名次」（同准度共享名次，下一名跳到 1 + 已出现人数，
-                // 形如 1,1,1,1,1,1,7,8,8,10…）：因为服务器没有准度榜，这一榜只能把分数榜
-                // 前 15 名按准度重排，而准度常常与分数完全同序，不并列就会和分数榜长得一样。
-                let mut acc_seen = 0usize;
-                let mut acc_prev: Option<f32> = None;
-                let mut acc_rank = 0u32;
-                items
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, it)| {
-                        let std = self.ldb_mode == 1;
-                        let acc = self.ldb_mode == 2;
-                        let rank = if Some(it.inner.player.id) == my_id && it.rank as usize > total {
-                            it.rank
-                        } else if acc {
-                            acc_seen += 1;
-                            match acc_prev {
-                                Some(prev) if prev == it.inner.accuracy => acc_rank,
-                                _ => {
-                                    acc_prev = Some(it.inner.accuracy);
-                                    acc_rank = acc_seen as u32;
-                                    acc_rank
-                                }
+            self.ldb
+                .as_mut()
+                .map(|it| {
+                    it.1.iter_mut()
+                        .map(|it| {
+                            let std = self.ldb_mode == 1;
+                            let acc = self.ldb_mode == 2;
+                            LdbDisplayItem {
+                                player_id: it.inner.player.id,
+                                rank: it.rank,
+                                score: if std {
+                                    format!("{:07}", it.inner.std_score.unwrap_or(0.) as i64)
+                                } else if acc {
+                                    format!("{:.2}%", it.inner.accuracy * 100.)
+                                } else {
+                                    format!("{:07}", it.inner.score)
+                                },
+                                alt: Some(if std {
+                                    format!("{:.2}ms", it.inner.std.unwrap_or(0.) * 1000.)
+                                } else if acc {
+                                    format!("{:07}", it.inner.score)
+                                } else {
+                                    format!("{:.2}%", it.inner.accuracy * 100.)
+                                }),
+                                btn: &mut it.btn,
                             }
-                        } else {
-                            i as u32 + 1
-                        };
-                        LdbDisplayItem {
-                            player_id: it.inner.player.id,
-                            rank,
-                            score: if std {
-                                format!("{:07}", it.inner.std_score.unwrap_or(0.) as i64)
-                            } else if acc {
-                                format!("{:.2}%", it.inner.accuracy * 100.)
-                            } else {
-                                format!("{:07}", it.inner.score)
-                            },
-                            alt: Some(if std {
-                                format!("{}ms", (it.inner.std.unwrap_or(0.) * 1000.) as i32)
-                            } else if acc {
-                                format!("{:07}", it.inner.score)
-                            } else {
-                                format!("{:.2}%", it.inner.accuracy * 100.)
-                            }),
-                            btn: &mut it.btn,
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
         };
         render_ldb(
             ui,

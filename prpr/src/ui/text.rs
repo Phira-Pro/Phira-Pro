@@ -158,14 +158,15 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
                 max: ab_glyph::Point { x: bounds.0, y: bounds.1 },
             };
             section.bounds.0 = f32::INFINITY;
-            let glyphs: Vec<_> = painter.brush.glyphs(section.clone()).cloned().collect();
-            let Some(last) = glyphs.last() else {
+            let Some(last) = painter.brush.glyphs(section.clone()).last().cloned() else {
                 return (section, (0., 0., 0., line_height));
             };
-            let end = |glyph: &SectionGlyph| glyph.glyph.position.x + painter.brush.fonts()[glyph.font_id].as_scaled(scale).h_advance(glyph.glyph.id);
-            if end(last) <= bounds.max.x {
-                return (section, (0., 0., end(last), line_height));
+            let last_end = last.glyph.position.x + painter.brush.fonts()[last.font_id].as_scaled(scale).h_advance(last.glyph.id);
+            if last_end <= bounds.max.x {
+                return (section, (0., 0., last_end, line_height));
             }
+            let glyphs: Vec<_> = painter.brush.glyphs(section.clone()).cloned().collect();
+            let end = |glyph: &SectionGlyph| glyph.glyph.position.x + painter.brush.fonts()[glyph.font_id].as_scaled(scale).h_advance(glyph.glyph.id);
             let font = painter.brush.fonts()[0].as_scaled(scale);
             let id = font.glyph_id('…');
             let w = font.h_advance(id);
@@ -279,6 +280,8 @@ pub struct TextPainter {
     cache_texture: Texture2D,
     data_buffer: Vec<u8>,
     vertices_buffer: Vec<MyVertex>,
+    draw_vertices: Vec<Vertex>,
+    draw_indices: Vec<u16>,
 }
 
 impl TextPainter {
@@ -297,6 +300,8 @@ impl TextPainter {
             cache_texture,
             data_buffer: Vec::new(),
             vertices_buffer: Vec::new(),
+            draw_vertices: Vec::new(),
+            draw_indices: Vec::new(),
         }
     }
 
@@ -327,23 +332,18 @@ impl TextPainter {
                         get_internal_gl().flush();
                         flushed = true;
                     }
-                    use miniquad::gl::*;
-                    glBindTexture(GL_TEXTURE_2D, self.cache_texture.raw_miniquad_texture_handle().gl_internal_id());
                     self.data_buffer.clear();
                     self.data_buffer.reserve(tex_data.len() * 4);
                     for alpha in tex_data {
                         self.data_buffer.extend_from_slice(&[255, 255, 255, *alpha]);
                     }
-                    glTexSubImage2D(
-                        GL_TEXTURE_2D,
-                        0,
+                    self.cache_texture.raw_miniquad_texture_handle().update_texture_part(
+                        get_internal_gl().quad_context,
                         rect.min[0] as _,
                         rect.min[1] as _,
                         rect.width() as _,
                         rect.height() as _,
-                        GL_RGBA,
-                        GL_UNSIGNED_BYTE,
-                        self.data_buffer.as_ptr() as _,
+                        &self.data_buffer,
                     );
                 },
                 |vertex| {
@@ -364,8 +364,9 @@ impl TextPainter {
                         unsafe { get_internal_gl() }.flush();
                         flushed = true;
                     }
+                    let new_texture = Self::new_cache_texture(suggested);
                     self.cache_texture.delete();
-                    self.cache_texture = Self::new_cache_texture(suggested);
+                    self.cache_texture = new_texture;
                     self.brush.resize_texture(suggested.0, suggested.1);
                 }
                 Ok(BrushAction::Draw(vertices)) => {
@@ -382,22 +383,24 @@ impl TextPainter {
         }
     }
 
-    fn transform(&self, vertex: &MyVertex, tr: Matrix) -> Vertex {
-        let pos = tr.transform_point(&Point::new(vertex.pos.0, vertex.pos.1));
-        Vertex::new(pos.x, pos.y, 0., vertex.uv.0, vertex.uv.1, vertex.color)
-    }
-
-    fn redraw(&self, tr: Matrix) {
+    fn redraw(&mut self, tr: Matrix) {
         let gl = unsafe { get_internal_gl() }.quad_gl;
         gl.texture(Some(self.cache_texture));
-        for vertices in self.vertices_buffer.chunks_exact(4) {
-            let vertices = [
-                self.transform(&vertices[0], tr),
-                self.transform(&vertices[1], tr),
-                self.transform(&vertices[2], tr),
-                self.transform(&vertices[3], tr),
-            ];
-            gl.geometry(&vertices, &[0, 2, 3, 0, 1, 3]);
+        // One geometry submission per text batch, rather than per glyph.
+        // 512 glyphs stay within macroquad's default draw-call capacities.
+        for vertices in self.vertices_buffer.chunks(512 * 4) {
+            self.draw_vertices.clear();
+            self.draw_indices.clear();
+            for quad in vertices.chunks_exact(4) {
+                let start = self.draw_vertices.len() as u16;
+                for vertex in quad {
+                    let pos = tr.transform_point(&Point::new(vertex.pos.0, vertex.pos.1));
+                    self.draw_vertices
+                        .push(Vertex::new(pos.x, pos.y, 0., vertex.uv.0, vertex.uv.1, vertex.color));
+                }
+                self.draw_indices.extend([start, start + 2, start + 3, start, start + 1, start + 3]);
+            }
+            gl.geometry(&self.draw_vertices, &self.draw_indices);
         }
     }
 }

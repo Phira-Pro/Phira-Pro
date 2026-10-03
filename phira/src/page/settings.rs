@@ -212,10 +212,6 @@ impl Page for SettingsPage {
         tl!("label")
     }
 
-    fn is_settings(&self) -> bool {
-        true
-    }
-
     fn exit(&mut self) -> Result<()> {
         BGM_VOLUME_UPDATED.store(true, Ordering::Relaxed);
         if self.save_time.is_finite() {
@@ -226,24 +222,6 @@ impl Page for SettingsPage {
 
     fn touch(&mut self, touch: &Touch, s: &mut SharedState) -> Result<bool> {
         let t = s.t;
-        // Phira Pro 授权锁：子页切换 / 滚动 / 解锁控件照常；
-        // 其余一律不交给设置列表处理 —— 否则「切换语言」「打开自定义外观的文件框」这类
-        // 不走 config 的操作会照常生效。只在「抬手」时提示一次（配合节流，不会刷屏）。
-        if !crate::is_unlocked() {
-            if self.tabs.touch(touch, s.rt) {
-                return Ok(true);
-            }
-            if self.scroll.touch(touch, t) {
-                return Ok(true);
-            }
-            if matches!(self.tabs.selected(), SettingListType::About) && about_touch(touch) {
-                return Ok(true);
-            }
-            if matches!(touch.phase, macroquad::prelude::TouchPhase::Ended) {
-                show_locked_hint();
-            }
-            return Ok(true);
-        }
         if match self.tabs.selected() {
             SettingListType::General => self.list_general.top_touch(touch, t),
             SettingListType::Audio => self.list_audio.top_touch(touch, t),
@@ -279,15 +257,6 @@ impl Page for SettingsPage {
 
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
         let t = s.t;
-        if let Some((id, text)) = take_input() {
-            if id == "activation_code" {
-                // 只记录，不在这里解锁 —— 必须点下面的「确认」按钮才会校验并解锁。
-                get_data_mut().config.activation_code = Some(text.trim().to_owned());
-                self.save_time = t;
-                return Ok(());
-            }
-            return_input(id, text);
-        }
         let changed = match self.tabs.selected() {
             SettingListType::General => self.list_general.update(t)?,
             SettingListType::Audio => self.list_audio.update(t)?,
@@ -349,13 +318,7 @@ impl Page for SettingsPage {
     }
 
     fn next_page(&mut self) -> NextPage {
-        let np = self.next_page_inner();
-        // Phira Pro 授权锁：未解锁时不允许从设置页跳转出去（例如「数据迁移」）。
-        if !crate::is_unlocked() && !matches!(np, NextPage::None) {
-            show_locked_hint();
-            return NextPage::None;
-        }
-        np
+        self.next_page_inner()
     }
 }
 
@@ -417,135 +380,7 @@ fn render_about(ui: &mut Ui, mut r: Rect, icon: &SafeTexture) -> (f32, f32) {
         .h_center()
         .draw();
 
-    let mut y = r.bottom() + 0.06;
-    if !crate::is_unlocked() {
-        y = render_activation(ui, ow, y);
-    }
-    (ow, y + 0.03)
-}
-
-struct AboutUi {
-    serial_btn: prpr::ui::RectButton,
-    code_btn: prpr::ui::RectButton,
-    confirm_btn: prpr::ui::RectButton,
-}
-
-impl AboutUi {
-    fn new() -> Self {
-        Self {
-            serial_btn: prpr::ui::RectButton::new(),
-            code_btn: prpr::ui::RectButton::new(),
-            confirm_btn: prpr::ui::RectButton::new(),
-        }
-    }
-}
-
-thread_local! {
-    static ABOUT_UI: std::cell::RefCell<AboutUi> = std::cell::RefCell::new(AboutUi::new());
-}
-
-/// 未解锁时点到不该点的东西：右上角提示。
-///
-/// 做了节流：一次操作（按下 + 连续移动 + 抬起）会触发很多个触摸事件，
-/// 不加限制会一次刷出几十条提示。
-pub fn show_locked_hint() {
-    thread_local! {
-        static LAST: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
-    }
-    let now = std::time::Instant::now();
-    let show = LAST.with(|it| match it.get() {
-        Some(t) if now.duration_since(t).as_millis() < 600 => false,
-        _ => {
-            it.set(Some(now));
-            true
-        }
-    });
-    if show {
-        show_message(tl!("activation-locked")).error();
-    }
-}
-
-/// 「关于」页最下方的解锁区：序列码（点击复制）/ 解密码（点击输入）/ 确认。
-fn render_activation(ui: &mut Ui, ow: f32, mut y: f32) -> f32 {
-    let h = 0.1;
-    let (serial, code) = {
-        let config = &get_data().config;
-        (
-            config.activation_serial.clone().unwrap_or_default(),
-            config.activation_code.clone().unwrap_or_default(),
-        )
-    };
-
-    ABOUT_UI.with(|it| {
-        let mut it = it.borrow_mut();
-
-        let sr = Rect::new(0., y, ow, h);
-        it.serial_btn.set(ui, sr);
-        ui.fill_path(&sr.rounded(0.01), prpr::ext::semi_black(0.3));
-        ui.text(format!("{}  {}", tl!("activation-serial"), serial))
-            .pos(sr.x + 0.02, sr.center().y)
-            .anchor(0., 0.5)
-            .no_baseline()
-            .size(0.45)
-            .draw();
-        y = sr.bottom() + 0.03;
-
-        let cr = Rect::new(0., y, ow, h);
-        it.code_btn.set(ui, cr);
-        ui.fill_path(&cr.rounded(0.01), prpr::ext::semi_black(0.3));
-        let shown = if code.is_empty() {
-            tl!("activation-code-empty")
-        } else {
-            tl!("activation-code-set")
-        };
-        ui.text(format!("{}  {}", tl!("activation-code"), shown))
-            .pos(cr.x + 0.02, cr.center().y)
-            .anchor(0., 0.5)
-            .no_baseline()
-            .size(0.45)
-            .draw();
-        y = cr.bottom() + 0.03;
-
-        let br = Rect::new(0., y, ow, h);
-        it.confirm_btn.set(ui, br);
-        ui.fill_path(&br.rounded(0.01), Color::from_hex_rgb(0x2196f3));
-        ui.text(tl!("activation-confirm"))
-            .pos(br.center().x, br.center().y)
-            .anchor(0.5, 0.5)
-            .no_baseline()
-            .size(0.5)
-            .draw();
-
-        br.bottom()
-    })
-}
-
-/// 「关于」页解锁控件的触摸处理；返回是否消费了这次触摸。
-fn about_touch(touch: &Touch) -> bool {
-    ABOUT_UI.with(|it| {
-        let mut it = it.borrow_mut();
-        if it.serial_btn.touch(touch) {
-            let serial = get_data().config.activation_serial.clone().unwrap_or_default();
-            prpr::scene::copy_to_clipboard(&serial);
-            show_message(tl!("activation-serial-copied")).ok();
-            return true;
-        }
-        if it.code_btn.touch(touch) {
-            let current = get_data().config.activation_code.clone().unwrap_or_default();
-            request_input("activation_code", InputBox::new().default_text(&current));
-            return true;
-        }
-        if it.confirm_btn.touch(touch) {
-            crate::refresh_unlock();
-            if crate::is_unlocked() {
-                show_message(tl!("activation-ok")).ok();
-            } else {
-                show_message(tl!("activation-failed")).error();
-            }
-            return true;
-        }
-        false
-    })
+    (ow, r.bottom() + 0.09)
 }
 
 fn render_title<'a>(ui: &mut Ui, title: impl Into<Cow<'a, str>>, subtitle: Option<Cow<'a, str>>) -> f32 {

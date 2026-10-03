@@ -227,15 +227,6 @@ reset-settings-text = Alle Optionen der Einstellungsseite (Sprache, Design, Bewe
 reset-settings-done = Einstellungen zurückgesetzt
 reset-settings-cancel = Abbrechen
 reset-settings-confirm = Bestätigen
-activation-serial = Seriencode
-activation-serial-copied = Seriencode kopiert
-activation-code = Freischaltcode
-activation-code-empty = Zum Eingeben / Einfügen tippen
-activation-code-set = Eingetragen (zum Ändern tippen)
-activation-confirm = Bestätigen
-activation-locked = Bitte zuerst in den Einstellungen den Freischaltcode eingeben
-activation-ok = Freigeschaltet. Alle Funktionen sind jetzt verfügbar
-activation-failed = Falscher Freischaltcode
 
 item-flow-speed = Noten-Fließgeschwindigkeit
 item-flow-speed-sub = Skaliert nur die Scrollgeschwindigkeit der Noten; Musik und Tonhöhe bleiben unverändert. Ergebnisse sind nicht hochladbar.

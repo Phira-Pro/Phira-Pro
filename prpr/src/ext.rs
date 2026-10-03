@@ -490,43 +490,44 @@ pub fn semi_white(alpha: f32) -> Color {
 
 pub fn unzip_into<R: std::io::Read + std::io::Seek>(reader: R, dir: &crate::dir::Dir, strip_root: bool) -> Result<()> {
     let mut zip = zip::ZipArchive::new(reader)?;
-    let root = if strip_root {
-        if let Some(root) = zip.file_names().min_by_key(|it| it.len()) {
-            if root.ends_with('/') && zip.file_names().all(|it| it.starts_with(root)) {
-                root.to_owned()
-            } else {
-                String::new()
+    // ZIP names use '/', while Path::display uses '\\' on Windows. Strip path
+    // components, never strings. A wrapper need not have an explicit ZIP entry.
+    let mut root = None;
+    let mut common_root = strip_root;
+    for i in 0..zip.len() {
+        let entry = zip.by_index(i)?;
+        let path = entry.enclosed_name().ok_or_else(|| anyhow!("invalid zip path: {}", entry.name()))?;
+        if let Some(std::path::Component::Normal(first)) = path.components().next() {
+            let first = std::path::PathBuf::from(first);
+            if root.as_ref().is_some_and(|root| root != &first) || (entry.is_file() && path.components().count() == 1) {
+                common_root = false;
             }
-        } else {
-            String::new()
+            root.get_or_insert(first);
         }
+    }
+    let root = if common_root {
+        root.unwrap_or_default()
     } else {
-        String::new()
+        std::path::PathBuf::new()
     };
     let _span = info_span!("unzip").entered();
-    debug!("root is {root}");
+    debug!("root is {}", root.display());
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i)?;
         let path = entry.enclosed_name().ok_or_else(|| anyhow!("invalid zip"))?;
-        let path = path.display().to_string();
-        debug!("entry: {path}");
-        if entry.is_dir() && entry.name() != root {
-            if let Some(after) = path.strip_prefix(&root) {
-                debug!("mkdir: {after}");
-                dir.create_dir_all(after)?;
-            }
+        let after = path.strip_prefix(&root)?;
+        if after.as_os_str().is_empty() {
+            continue;
+        }
+        debug!("entry: {}", after.display());
+        if entry.is_dir() {
+            dir.create_dir_all(after)?;
         } else if entry.is_file() {
-            if let Some(after) = path.strip_prefix(&root) {
-                if let Some(p) = std::path::Path::new(after).parent() {
-                    if !dir.exists(p)? {
-                        debug!("mkdir {}", p.display());
-                        dir.create_dir_all(p)?;
-                    }
-                }
-                debug!("create {}", after);
-                let mut file = dir.create(after)?;
-                std::io::copy(&mut entry, &mut file)?;
+            if let Some(p) = after.parent() {
+                dir.create_dir_all(p)?;
             }
+            let mut file = dir.create(after)?;
+            std::io::copy(&mut entry, &mut file)?;
         }
     }
     Ok(())
@@ -552,6 +553,57 @@ pub fn parse_time(s: &str) -> Option<f64> {
         res += hrs.parse::<u32>().ok()? as f64 * 3600.;
     }
     Some(res)
+}
+
+#[cfg(test)]
+mod archive_tests {
+    use super::unzip_into;
+    use std::io::{Cursor, Write};
+
+    fn archive(names: &[&str]) -> Cursor<Vec<u8>> {
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for name in names {
+            if name.ends_with('/') {
+                zip.add_directory(*name, zip::write::SimpleFileOptions::default()).unwrap();
+            } else {
+                zip.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+                zip.write_all(name.as_bytes()).unwrap();
+            }
+        }
+        zip.finish().unwrap()
+    }
+
+    #[test]
+    fn chart_import_strips_explicit_and_implicit_unicode_wrappers() {
+        for names in [
+            vec!["谱面/", "谱面/info.yml", "谱面/assets/song.ogg"],
+            vec!["谱面/info.yml", "谱面/assets/song.ogg"],
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let dir = crate::dir::Dir::new(temp.path()).unwrap();
+            unzip_into(archive(&names), &dir, true).unwrap();
+            assert!(dir.exists("info.yml").unwrap());
+            assert!(dir.exists("assets/song.ogg").unwrap());
+        }
+    }
+
+    #[test]
+    fn root_chart_and_backup_paths_are_preserved() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = crate::dir::Dir::new(temp.path()).unwrap();
+        unzip_into(archive(&["info.yml", "assets/song.ogg"]), &dir, true).unwrap();
+        assert!(dir.exists("info.yml").unwrap());
+        unzip_into(archive(&["download/1.zip", "download/2.zip"]), &dir, false).unwrap();
+        assert!(dir.exists("download/1.zip").unwrap());
+    }
+
+    #[test]
+    fn invalid_archive_is_rejected_before_writing() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = crate::dir::Dir::new(temp.path()).unwrap();
+        assert!(unzip_into(archive(&["info.yml", "../escape.txt"]), &dir, true).is_err());
+        assert!(!dir.exists("info.yml").unwrap());
+    }
 }
 
 pub fn open_url(url: &str) -> Result<()> {

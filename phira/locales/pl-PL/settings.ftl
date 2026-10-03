@@ -202,15 +202,6 @@ reset-settings-text = Wszystkie opcje na stronie ustawień (język, motyw, ocena
 reset-settings-done = Przywrócono ustawienia domyślne
 reset-settings-cancel = Anuluj
 reset-settings-confirm = Potwierdź
-activation-serial = Kod seryjny
-activation-serial-copied = Skopiowano kod seryjny
-activation-code = Kod odblokowania
-activation-code-empty = Dotknij, aby wpisać / wkleić
-activation-code-set = Wprowadzono (dotknij, aby zmienić)
-activation-confirm = Potwierdź
-activation-locked = Najpierw wpisz kod odblokowania w Ustawieniach
-activation-ok = Odblokowano. Wszystkie funkcje są dostępne
-activation-failed = Nieprawidłowy kod odblokowania
 
 item-flow-speed = Prędkość przewijania nut
 item-flow-speed-sub = Skaluje tylko prędkość przewijania nut; muzyka i jej wysokość pozostają bez zmian. Wynik nie podlega wysłaniu.

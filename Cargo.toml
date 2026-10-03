@@ -8,7 +8,7 @@ members = [
     "prpr-avc",
     "prpr-l10n",
     "prpr-pbc",
-    "tools/*",
+    "tools/auto-offset-cli",
 ]
 resolver = "2"
 
@@ -26,7 +26,6 @@ async-trait = "0.1.89"
 base64 = "0.22.1"
 bitflags = "2.11.0"
 chrono = "0.4.44"
-ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 fluent = "0.17.0"
 fluent-syntax = "0.12.0"
 futures-util = "0.3.32"

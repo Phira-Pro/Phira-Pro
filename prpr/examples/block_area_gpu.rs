@@ -47,6 +47,9 @@ async fn main() {
     next_frame().await;
     set_camera(&res.camera);
     std::fs::create_dir_all("target/block-area-gpu").unwrap();
+    clear_background(Color::new(0.1, 0.1, 0.1, 1.));
+    block_shader::prepare_block_effects();
+    assert!(screen_pixels().bytes.chunks_exact(4).all(|p| p == [25, 25, 25, 255]), "shader warmup must leave the loading frame intact");
 
     let active = [zone(0., 0., 0.5, 0.25, false, true)];
     let pixels = render(&mut res, aspect, &active, "active-default", 1., false);

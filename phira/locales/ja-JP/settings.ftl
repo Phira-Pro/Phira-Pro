@@ -212,15 +212,6 @@ reset-settings-text = 設定ページのすべての項目（言語、テーマ�
 reset-settings-done = 設定を初期値に戻しました
 reset-settings-cancel = キャンセル
 reset-settings-confirm = 確定
-activation-serial = シリアルコード
-activation-serial-copied = シリアルコードをコピーしました
-activation-code = 解除コード
-activation-code-empty = タップして入力 / 貼り付け
-activation-code-set = 入力済み（タップして変更）
-activation-confirm = 確定
-activation-locked = 先に設定で解除コードを入力してください
-activation-ok = 解除しました。すべての機能が利用可能です
-activation-failed = 解除コードが正しくありません
 
 item-flow-speed = ノート流速
 item-flow-speed-sub = ノートの流れる速さだけを変え、音楽と音程は変わりません。この設定ではスコアをアップロードできません。

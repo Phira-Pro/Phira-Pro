@@ -228,15 +228,6 @@ reset-settings-text = Все параметры страницы настрое�
 reset-settings-done = Настройки сброшены
 reset-settings-cancel = Отмена
 reset-settings-confirm = Подтвердить
-activation-serial = Серийный код
-activation-serial-copied = Серийный код скопирован
-activation-code = Код разблокировки
-activation-code-empty = Нажмите, чтобы ввести / вставить
-activation-code-set = Введён (нажмите, чтобы изменить)
-activation-confirm = Подтвердить
-activation-locked = Сначала введите код разблокировки в настройках
-activation-ok = Разблокировано. Все функции доступны
-activation-failed = Неверный код разблокировки
 
 item-flow-speed = Скорость потока нот
 item-flow-speed-sub = Меняет только скорость прокрутки нот; музыка и её высота не изменяются. Результат нельзя загрузить.

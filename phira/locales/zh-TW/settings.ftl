@@ -228,15 +228,6 @@ reset-settings-text = 將把設定頁上的所有選項（語言、主題、判�
 reset-settings-done = 已恢復預設設定
 reset-settings-cancel = 取消
 reset-settings-confirm = 確定
-activation-serial = 序號
-activation-serial-copied = 序號已複製
-activation-code = 解鎖碼
-activation-code-empty = 點此輸入 / 貼上
-activation-code-set = 已填寫（點此修改）
-activation-confirm = 確認
-activation-locked = 請先在設定中輸入解鎖碼
-activation-ok = 解鎖碼正確，功能已全部解鎖
-activation-failed = 解鎖碼不正確
 
 item-flow-speed = 譜面流速
 item-flow-speed-sub = 只等比改變音符流速，音樂與音調完全不變。此設定下的成績不可上傳。

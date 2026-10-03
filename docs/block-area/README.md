@@ -1,4 +1,41 @@
-# 官方噪域复刻：实现与验证（2026-10-03，第三轮）
+# 官方噪域与通用修复：第四轮验证（2026-10-03）
+
+这是验证批次 v4，应用显示版本沿用 `0.8.2-pro.6`。下方第三轮及第二轮记录为历史记录；旧的「几何未改」、41 项测试和未确认录像版本的表述，以本节为准。
+
+## 区域错误的根因与原包核验
+
+用户报告的「ハテ」放射结构挤到中轴，来自旧 `transform()` 将中心直接赋值为移动目标。4.0.1 原生 `UpdateMovement` 实际执行 `currentCenter + moveTarget - originalCenter`，保留此前缩放、旋转围绕锚点产生的位移。原生动画还会依次重放已经完成的事件段，再处理当前段；第一关键帧设置大小/角度，不围绕锚点额外移动中心；第一帧之前保持默认值。现已按这些原生函数修正渲染与触摸共用的几何。
+
+原生缩放的零分母走 `SafeDiv`，返回 1，避免 NaN；最终尺寸取绝对值。缓动仍使用官方 0..14 枚举，并采用原生 101 项、1% 采样与线性插值。各段使用起始关键帧的 easeType。新[官方文档](https://teamflos.github.io/phira-docs/chart-standard/chart-format/phi/blockArea.html)关于时间单位、默认值、阶段和采样表的说明已核对；它将事件描述为「上一帧到当前帧」，但本次读取原生 `UpdateScale` / `UpdateRotation` / `InterpolateMoveEvent` 证实缓动字段取段的起始事件，所以没有按文字描述替换原生行为。输入判定的普通/反相奇偶规则没有改成视觉 subtract 阈值规则。
+
+从原 XAPK 的 Addressables StreamingAssetsPack 中追踪谱面键及依赖并导出 Chart_AT：ハテ的 14355 个噪域、Desultory Signals 的 160 个噪域以及全部 note/事件，与当前 JSON **语义完全一致**。不是谱面文件损坏。原包 arm64 libil2cpp SHA256 与逆向文件同为 `511e15b9324c171b585ae954e87266437b5de439289918331d1afce9c2b88433`。ActiveBlock、DisabledBlock、BlockCompose 的 GLES 程序也与此前导出的实际 GLSL 一致。证据在 `target/review-v4-chart-source-audit.json`、`target/block-area-native-geometry.txt`、`target/review-v4-shader-source-audit.json`；可用 `audit_addressable_block_context.py` 和 `audit_chart_equality.py` 复核。
+
+## 性能与平台
+
+- CPU Compose 位移改为按行/列预计算，复用点采样与 mediump 查表；静态源几何/Ready/Disabled 源缓存；同帧 Disabled 和 Active 只上传一次相同遮罩。辉光权重预计算，没有减少官方 pass 的有效权重或改变遮罩分辨率。
+- shader 分成 Disabled、Active 无 hover、Active 有 hover，编译时裁掉无触摸分支的 SDF 运算。按 viewport 变化分配场景拷贝纹理，每帧用 `glCopyTexSubImage2D` 复用存储。三种 shader 和贴图在加载谱面时预热；独立 GPU 回归确认预热不改变当前画面。
+- 2560×1600 的静态几何/噪声 CPU 遮罩由约 4.94–4.98 ms 降至 0.85–0.92 ms。**真实动态几何**为 1.59–1.63 ms；包含场景拷贝、上传和 GPU 绘制的桌面测试为 2.26–2.33 ms。后者使用 NVIDIA GL、glFinish，未含完整 notes/HUD/音频与 MSAA，不等于小米平板 120 Hz 的整帧耗时。日志保留在 `review-v4-mask-benchmark.log` / `review-v4-render-benchmark.log`。
+- 文字按 512 glyph 一批提交，移除常规测量中的 glyph Vec 克隆；修复字体 atlas 更新直接绑定 GL 纹理后没有恢复 miniquad 绑定缓存的问题。排行榜避免每帧重建及绘制视口外条目。长故事板轨道的大跨度 seek/后台恢复改为二分定位；空底轨道也继续更新后续动画。
+- FPS 使用 f64 时间，后台恢复清空统计；粒子 dt 不再混用音乐时间与真实时间。iOS 前台恢复重新设置 GLKViewController 120 帧及运行状态，并启用 `CADisableMinimumFrameDurationOnPhone`。Windows 和 Android arm64 Release 编译通过；iOS 需要在 Mac/Xcode 编译，三端高刷实机仍待测，不能承诺所有机型始终 120 帧。
+- 生产噪域仍没有新建离屏 FBO 或调用 set_camera。
+
+## 色调和整帧尚未完成
+
+用户确认两段录像为 **Phigros 4.0.1**，背景亮度约 60%–70%。本轮捕获使用亮度 65%，即 Phira 的 `backgroundDim=0.35`；这只改变隐藏捕获程序，不改用户谱面 metadata。`E:\Phira Pro\block-area-comparison-v4` 的 15 张完整并排图保留原尺寸录像和 1920×1440 的 GameScene 捕获，按实际解码 PTS 取谱面时刻。
+
+**仍有明显红色深浅/色调差异，以及部分 Ready 帧的区域差异（例如ハテ 79.2s）**。原包还含 JSON 之外的独立谱面后处理；当前尚未证明这些处理、粒子、视频压缩或未对齐的 Unity 全局时钟能解释全部差异。没有以任意 gamma/颜色常量改写掩盖问题。不能将共同输入下 shader 零误差称为整帧 100% 一致，也不能把放射段根因修复外推成所有几何已经逐帧验证。
+
+触摸 hover、Ready shader、溶解边界、音符遮挡和触摸音乐低通保留第三轮实现；本轮没有删减以换取性能。
+
+## 验证结果
+
+`cargo check -p prpr -p phira --lib` 通过。prpr **50/50**、phira **10/10**、sasa **6/6**。生产材质与完整原生 Active GLSL 的 **11 组共同输入 GPU 对照最大通道差为 0**；独立 Compose/Edge/Glow 的 10 组测试为零差异，原始 subtract 每层 UNorm 混合仍有 1–3 量化差，不能宣称所有设备像素一致。完整 GameScene 的 notes/HUD、4x MSAA 捕获通过，无 GL 错误。Windows record Release 和 Android arm64 record Release 均已构建。
+
+成绩上传、RMS、批量导入与排行的通用修复见 [第四轮通用修复](../pro-fixes-v4.md)。
+
+---
+
+## 第三轮历史记录
 
 ## 本轮收尾：精度、噪声色调与触摸低通
 

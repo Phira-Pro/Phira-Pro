@@ -286,6 +286,9 @@ impl JudgeInner {
 
     /// 记录一次命中的真实偏移。Miss 与拖拽/滑动音符没有有意义的偏移，不记录。
     pub fn push_recent(&mut self, offset: f64, judgement: Judgement, time: f64) {
+        if !offset.is_finite() {
+            return;
+        }
         // 累计本局所有有效命中的偏移；Miss 不代表击打精度，不入统计。
         if !matches!(judgement, Judgement::Miss) {
             self.offsets.push(offset);
@@ -404,12 +407,12 @@ impl JudgeInner {
 
     pub fn result(&self, no_combo_score: bool) -> PlayResult {
         let early = self.diffs.iter().filter(|it| **it < 0.).count() as u32;
-        // 误差：和正常游玩一致的口径——本局所有有效命中的真实标准差（关于均值）。
-        // 唯一例外：「一个有效命中都没有」（全 Miss）时没有样本，用 Miss 的 250ms 兜底。
-        let (mean, std) = match self.offset_stats() {
-            Some((_, mean, std)) => (mean as f32, std as f32),
-            None => (0., if self.counts[3] > 0 { 0.25 } else { 0. }),
-        };
+        // The score protocol measures RMS about the note time, including
+        // 250ms for misses and zero for automatic judgements. A centered
+        // standard deviation would misleadingly report zero for uniformly
+        // late hits, and previously disagreed with the uploaded record.
+        let mean = self.offset_stats().map_or(0., |(_, mean, _)| mean as f32);
+        let std = timing_mean_square(&self.offsets, self.counts[3], self.num_of_notes).sqrt() as f32;
         PlayResult {
             score: self.score(no_combo_score),
             accuracy: self.accuracy(),
@@ -434,6 +437,14 @@ impl JudgeInner {
     pub fn counts(&self) -> [u32; 5] {
         self.counts
     }
+}
+
+/// Timing statistic shared by the result screen and score token (seconds²).
+pub fn timing_mean_square(offsets: &[f64], misses: u32, notes: u32) -> f64 {
+    if notes == 0 {
+        return 0.;
+    }
+    (offsets.iter().filter(|it| it.is_finite()).map(|it| it * it).sum::<f64>() + misses as f64 * 0.25 * 0.25) / notes as f64
 }
 
 #[cfg(test)]
@@ -508,6 +519,25 @@ mod tests {
         assert!((sd - 0.01).abs() < 1e-9);
         j.reset();
         assert!(j.offset_stats().is_none());
+    }
+
+    #[test]
+    fn result_error_matches_the_score_protocol_with_bias_misses_and_auto_notes() {
+        let mut j = JudgeInner::new(4);
+        for _ in 0..2 {
+            j.push_recent(0.02, Judgement::Perfect, 1.);
+            j.commit(Judgement::Perfect, 0.02);
+        }
+        j.commit(Judgement::Perfect, 0.); // Automatic drag/flick: no timing sample.
+        j.commit(Judgement::Miss, 0.);
+        assert_eq!(j.offset_stats().unwrap().2, 0.);
+        let expected = ((2. * 0.02f64.powi(2) + 0.25f64.powi(2)) / 4.).sqrt();
+        assert!((j.result(false).std as f64 - expected).abs() < 1e-8);
+        assert!((j.result(false).mean - 0.02).abs() < 1e-8);
+        assert_eq!(super::timing_mean_square(&[], 4, 4).sqrt(), 0.25);
+        assert_eq!(super::timing_mean_square(&[], 0, 0), 0.);
+        j.push_recent(f64::NAN, Judgement::Perfect, 2.);
+        assert_eq!(j.offset_stats().unwrap().0, 2);
     }
 
     /// 判定条只记录真实偏移：Miss 不入队，队列长度封顶。
@@ -907,9 +937,8 @@ impl Judge {
                     // 红 / 黄保护：一次「点击」判不到红 / 黄键，所以它们不参与「点中了谁」的竞争；
                     // 但要记下它们离点击时刻的时差，用来判断这一下是不是冲它们去的
                     // （见下方 `protected_dt` / 「按时刻就近归属」）。
-                    let protected = click
-                        && ((drag_protect && matches!(note.kind, NoteKind::Drag))
-                            || (flick_protect && matches!(note.kind, NoteKind::Flick)));
+                    let protected =
+                        click && ((drag_protect && matches!(note.kind, NoteKind::Drag)) || (flick_protect && matches!(note.kind, NoteKind::Flick)));
                     let dt = (note.time - t) / spd;
                     // 不能因为已经找到更近的蓝键就提前 break：还要把 bad 窗内、可能被保护的
                     // 红 / 黄键一并看一遍，否则「按时刻就近归属」会因为漏看它们而失效。
@@ -1115,9 +1144,9 @@ impl Judge {
                             let x = x.now();
                             let on_note = self.key_down_count != 0
                                 || limits.fullscreen
-                                || pos.iter().any(|it| {
-                                    it.is_some_and(|it| (it.x - x).abs() as f64 / note.judge_area as f64 <= X_DIFF_MAX)
-                                });
+                                || pos
+                                    .iter()
+                                    .any(|it| it.is_some_and(|it| (it.x - x).abs() as f64 / note.judge_area as f64 <= X_DIFF_MAX));
                             if on_note {
                                 *up_time = f64::INFINITY;
                             } else {
@@ -1319,7 +1348,8 @@ impl Judge {
                                 mat *= note.now_transform(
                                     res,
                                     &line.ctrl_obj.borrow_mut(),
-                                    ((note.height - line.height.now() as f64) / res.aspect_ratio as f64 * note.speed * res.config.flow_speed as f64) as f32,
+                                    ((note.height - line.height.now() as f64) / res.aspect_ratio as f64 * note.speed * res.config.flow_speed as f64)
+                                        as f32,
                                     incline_sin,
                                 );
                                 mat
@@ -1527,7 +1557,7 @@ pub struct PlayResult {
     pub counts: [u32; 5],
     pub early: u32,
     pub late: u32,
-    /// 本局所有有效命中偏差的标准差（秒）。无有效命中时为 0。
+    /// Score-protocol RMS timing error (seconds), including 250ms misses.
     pub std: f32,
     /// 本局所有有效命中偏差的平均值（秒），负数偏早、正数偏晚。
     pub mean: f32,

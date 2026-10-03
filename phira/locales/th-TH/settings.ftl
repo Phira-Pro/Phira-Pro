@@ -228,15 +228,6 @@ reset-settings-text = ตัวเลือกทั้งหมดในหน�
 reset-settings-done = คืนค่าการตั้งค่าเริ่มต้นแล้ว
 reset-settings-cancel = ยกเลิก
 reset-settings-confirm = ยืนยัน
-activation-serial = รหัสซีเรียล
-activation-serial-copied = คัดลอกรหัสซีเรียลแล้ว
-activation-code = รหัสปลดล็อก
-activation-code-empty = แตะเพื่อกรอก / วาง
-activation-code-set = กรอกแล้ว (แตะเพื่อแก้ไข)
-activation-confirm = ยืนยัน
-activation-locked = กรุณากรอกรหัสปลดล็อกในการตั้งค่าก่อน
-activation-ok = ปลดล็อกแล้ว ฟีเจอร์ทั้งหมดใช้งานได้
-activation-failed = รหัสปลดล็อกไม่ถูกต้อง
 
 item-flow-speed = ความเร็วการไหลของโน้ต
 item-flow-speed-sub = ปรับเฉพาะความเร็วการไหลของโน้ต เพลงและระดับเสียงไม่เปลี่ยน คะแนนจะอัปโหลดไม่ได้

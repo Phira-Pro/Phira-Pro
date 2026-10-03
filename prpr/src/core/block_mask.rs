@@ -20,6 +20,7 @@ pub(super) struct Masks {
     pub raw_disabled_green: Vec<u8>,
     pub width: usize,
     pub height: usize,
+    pub revision: u64,
     active: Vec<u64>,
     ping: Vec<u64>,
     pong: Vec<u64>,
@@ -30,6 +31,10 @@ pub(super) struct Masks {
     ready_green: Vec<u8>,
     gray_ping: Vec<u8>,
     gray_pong: Vec<u8>,
+    warp_x: Vec<(f32, usize, usize)>,
+    warp_y: Vec<(f32, usize)>,
+    enabled_compose: Vec<u8>,
+    point_aux: Vec<[u8; 3]>,
 }
 
 impl Masks {
@@ -75,10 +80,25 @@ impl Masks {
                 });
             }
             self.sources_rgba.resize(bw * bh * 4, 0);
+            self.enabled_compose.resize(bw * bh, 0);
+            self.point_aux.resize(bw * bh, [0; 3]);
             for i in 0..bw * bh {
                 for c in 0..4 {
                     self.sources_rgba[i * 4 + c] = self.layers[c][i];
                 }
+                self.enabled_compose[i] = self.layers[0][i].abs_diff(if subtract_enabled(self.layers[1][i]) == 1. { 255 } else { 0 });
+                let disabled = if self.layers[2][i] == 0 && self.layers[3][i] == 0 && self.raw_disabled_green[i] == 0 {
+                    0
+                } else {
+                    let (sr, sg) = subtract_disabled(self.layers[3][i], self.raw_disabled_green[i]);
+                    unorm((sr * sg - self.layers[2][i] as f32 / 255.).abs())
+                };
+                let ready_s = if self.ready_green[i] == 0 {
+                    0
+                } else {
+                    unorm(subtract_disabled(self.layers[5][i], self.ready_green[i]).1)
+                };
+                self.point_aux[i] = [self.layers[4][i], ready_s, disabled];
             }
         }
         self.width = ew;
@@ -90,39 +110,54 @@ impl Masks {
         let stride = ew.div_ceil(64);
         self.active.resize(stride * eh, 0);
         self.active.fill(0);
+        // Both native displacement samples share their Y coordinate. Compute
+        // mirrored texture indices per row/column, rather than running four
+        // floating-point remainders and image lookups for every mask pixel.
+        let texture = &*DISPLACE;
+        let pixels = texture.as_raw();
+        let texture_stride = texture.width() as usize * 3;
+        let d = 0.70703125_f32;
+        let dt = d * (time / 20. * 2.59);
+        self.warp_x.clear();
+        self.warp_y.clear();
+        self.warp_x.extend((0..bw).map(|x| {
+            let u = (x as f32 + 0.5) / bw as f32;
+            (u, noise_index(dt + u * 2.13, texture.width()) as usize * 3, noise_index(-dt + u * 2.13, texture.width()) as usize * 3)
+        }));
+        self.warp_y.extend((0..bh).map(|y| {
+            let v = (y as f32 + 0.5) / bh as f32;
+            (v, noise_index(dt + v * 1.02, texture.height()) as usize * texture_stride)
+        }));
+        static CENTERED_NOISE: Lazy<[f32; 256]> = Lazy::new(|| std::array::from_fn(|value| medium(medium(value as f32 / 255.) - 0.5)));
+        let centered = &*CENTERED_NOISE;
         for y in 0..bh {
             for x in 0..bw {
-                let uv = [(x as f32 + 0.5) / bw as f32, (y as f32 + 0.5) / bh as f32];
-                let duv = compose_uv(uv, time);
+                let (u, xa, xb) = self.warp_x[x];
+                let (v, row) = self.warp_y[y];
+                let a = centered[pixels[row + xa] as usize];
+                let b = centered[pixels[row + xb] as usize];
+                let duv = [(d * a + b * -d) * 0.1 + u, (d * a + b * d) * 0.1 + v];
                 let sx = (duv[0] * bw as f32).floor().clamp(0., (bw - 1) as f32) as usize;
                 let sy = (duv[1] * bh as f32).floor().clamp(0., (bh - 1) as f32) as usize;
                 let i = y * bw + x;
                 let di = sy * bw + sx;
-                let mask = unorm((self.layers[0][di] as f32 / 255. - subtract_enabled(self.layers[1][di])).abs());
-                let n = self.layers[2][i] as f32 / 255.;
-                let (sr, sg) = subtract_disabled(self.layers[3][i], self.raw_disabled_green[i]);
-                let disabled = unorm((sr * sg - n).abs());
-                let (_, ready_sg) = subtract_disabled(self.layers[5][i], self.ready_green[i]);
-                for dy in 0..2 {
-                    for dx in 0..2 {
-                        let (xx, yy) = (x * 2 + dx, y * 2 + dy);
-                        let dst = (yy * ew + xx) * 4;
-                        self.rgba[dst] = mask;
-                        self.rgba[dst + 3] = disabled;
-                        // The Active material's misleading "Disabled" names
-                        // actually bind the ready-only camera outputs (Start).
-                        self.aux_rgba[dst] = self.layers[4][i];
-                        self.aux_rgba[dst + 1] = unorm(ready_sg);
-                        self.aux_rgba[dst + 2] = disabled;
-                        if mask != 0 {
-                            self.active[yy * stride + xx / 64] |= 1 << (xx % 64);
-                        }
+                let mask = self.enabled_compose[di];
+                let [ready_n, ready_s, disabled] = self.point_aux[i];
+                let rgba = [mask, 0, 0, disabled, mask, 0, 0, disabled];
+                let aux = [ready_n, ready_s, disabled, 0, ready_n, ready_s, disabled, 0];
+                for yy in [y * 2, y * 2 + 1] {
+                    let dst = (yy * ew + x * 2) * 4;
+                    self.rgba[dst..dst + 8].copy_from_slice(&rgba);
+                    self.aux_rgba[dst..dst + 8].copy_from_slice(&aux);
+                    if mask != 0 {
+                        self.active[yy * stride + x * 2 / 64] |= 3 << ((x * 2) % 64);
                     }
                 }
             }
         }
         self.render_rings();
         self.last_time = Some(time);
+        self.revision = self.revision.wrapping_add(1);
     }
 
     fn render_rings(&mut self) {
@@ -196,8 +231,11 @@ impl Masks {
 }
 
 fn glow_weights() -> [f32; 6] {
-    let sum: f32 = (1..=6).map(|k| (k as f32).powf(2.65)).sum();
-    std::array::from_fn(|pass| ((6 - pass) as f32).powf(2.65) / sum)
+    static WEIGHTS: Lazy<[f32; 6]> = Lazy::new(|| {
+        let sum: f32 = (1..=6).map(|k| (k as f32).powf(2.65)).sum();
+        std::array::from_fn(|pass| ((6 - pass) as f32).powf(2.65) / sum)
+    });
+    *WEIGHTS
 }
 
 fn unorm(v: f32) -> u8 {
@@ -243,14 +281,15 @@ fn medium(value: f32) -> f32 {
     f32::from_bits((bits + 0xfff + ((bits >> 13) & 1)) & !0x1fff)
 }
 
+fn noise_index(v: f32, size: u32) -> u32 {
+    let v = v.rem_euclid(2.);
+    let v = if v > 1. { 2. - v } else { v };
+    (v * size as f32).floor().clamp(0., (size - 1) as f32) as u32
+}
+
 fn noise(uv: [f32; 2]) -> f32 {
-    let mirror = |v: f32, size: u32| {
-        let v = v.rem_euclid(2.);
-        let v = if v > 1. { 2. - v } else { v };
-        (v * size as f32).floor().clamp(0., (size - 1) as f32) as u32
-    };
     // Match the vertically flipped rows uploaded by the material renderer.
-    DISPLACE.get_pixel(mirror(uv[0], DISPLACE.width()), mirror(uv[1], DISPLACE.height()))[0] as f32 / 255.
+    DISPLACE.get_pixel(noise_index(uv[0], DISPLACE.width()), noise_index(uv[1], DISPLACE.height()))[0] as f32 / 255.
 }
 
 fn raster_rows(width: usize, height: usize, aspect: f32, zone: &Zone, mut write: impl FnMut(usize, usize, usize)) {

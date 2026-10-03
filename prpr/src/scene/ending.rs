@@ -178,7 +178,6 @@ impl EndingScene {
     fn can_apply(&self) -> bool {
         !self.autoplay && self.result.offsets.len() >= 8 && (self.result.mean * 1000.).round().abs() >= 1.
     }
-
 }
 
 thread_local! {
@@ -407,7 +406,7 @@ impl Scene for EndingScene {
 
             let r = ui.text(tl!("error")).pos(r.right() + 0.03, r.y).color(cl).size(s).draw_using(&BOLD_FONT);
             let r = ui
-                .text(format!("±{}ms", (res.std * 1000.).round() as i32))
+                .text(format!("±{:.2}ms", res.std * 1000.))
                 .pos(r.right() + 0.02, r.y)
                 .size(s)
                 .color(ct)

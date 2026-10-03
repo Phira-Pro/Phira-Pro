@@ -9,8 +9,8 @@
 //!   （官方 id 都是正数，不会撞）；
 //! - 其它 token：仍然走官方 `/me` 校验 —— 登录了的玩家进本地房间时保持真实身份。
 //!
-//! 成绩 provider 也做了兜底：本地联机时对方可能没有上传成绩（record 不存在），
-//! 这时给一条空成绩，保证对局能正常走完、不卡在结算。
+//! 配置 Pro 时，成绩 provider 只向 Pro 查询，不将自服 record ID 回源官服。
+//! 未配置 Pro 的旧兼容路径保留官服查询及空成绩兜底。
 
 use anyhow::{anyhow, Context, Result};
 use phira_mp::phira::{GameRecord, PhiraFetcher, PhiraFetcherConfig, UserInfo};
@@ -133,18 +133,25 @@ pub fn start(port: u16, http_port: u16) -> Result<u16> {
         }));
     }
 
-    // 成绩：官方查不到（本地联机时对方没上传）就给一条空成绩，别卡住结算。
+    // New Pro record IDs belong to the Pro server. Do not query an unrelated
+    // official record with the same numeric ID when a Pro request fails.
     {
         let fetcher: Arc<PhiraFetcher> = Arc::clone(&fetcher);
+        let use_pro = !crate::client::pro_api_url().is_empty();
         set_record_provider(Arc::new(move |id: i32| {
             let fetcher: Arc<PhiraFetcher> = Arc::clone(&fetcher);
             Box::pin(async move {
+                if use_pro {
+                    let result: anyhow::Result<GameRecord> = async {
+                        let request = crate::client::pro_get(format!("/record/{id}")).ok_or_else(|| anyhow!("未配置 Phira Pro 成绩服务器"))?;
+                        Ok(crate::client::recv_raw(request).await?.json().await?)
+                    }
+                    .await;
+                    return result.map(Arc::new).map_err(|error| phira_mp::phira::PhiraError::Http(error.to_string()));
+                }
                 match fetcher.get_record_info(id).await {
                     Ok(r) => Ok(r),
-                    Err(_) => Ok(Arc::new(GameRecord {
-                        id,
-                        ..Default::default()
-                    })),
+                    Err(_) => Ok(Arc::new(GameRecord { id, ..Default::default() })),
                 }
             })
         }));
@@ -225,10 +232,7 @@ async fn get_json(url: &str) -> Result<String> {
         .get(url)
         .header("Accept", "application/json")
         // 状态站对无 UA 的请求会返回 SPA 页面，这里带一个浏览器 UA。
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-        )
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
         .timeout(std::time::Duration::from_secs(15))
         .send()
         .await
@@ -261,7 +265,10 @@ pub async fn fetch_server_list(url: &str) -> Result<Vec<ServerEntry>> {
     let heartbeat = if v.get("heartbeatList").is_some() {
         None
     } else if let Some(hb_url) = heartbeat_url(url) {
-        fetched_hb = get_json(&hb_url).await.ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+        fetched_hb = get_json(&hb_url)
+            .await
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
         fetched_hb.as_ref()
     } else {
         None
@@ -345,10 +352,7 @@ fn server_entry(m: &serde_json::Value, heartbeat: Option<&serde_json::Map<String
         .and_then(|id| heartbeat.and_then(|h| h.get(&id.to_string())))
         .and_then(|arr| arr.as_array())
         .and_then(|a| a.last());
-    let up = last
-        .and_then(|e| e.get("status"))
-        .and_then(|s| s.as_i64())
-        .map(|s| s == 1);
+    let up = last.and_then(|e| e.get("status")).and_then(|s| s.as_i64()).map(|s| s == 1);
     let ping = last.and_then(|e| e.get("ping")).and_then(|p| p.as_i64());
     Some(ServerEntry {
         name,

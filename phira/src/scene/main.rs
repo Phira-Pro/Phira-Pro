@@ -8,7 +8,10 @@ use crate::{
     mp::MPPanel,
     page::{ChartItem, ExportInfo, HomePage, NextPage, Page, ResPackItem, SharedState},
     save_data,
-    scene::{confirm_dialog, import_chart_to, parse_warnings_to_string, SongScene, TEX_BACKGROUND, TEX_BACKGROUND_BLUR, TEX_BACKGROUND_BLUR_DEFAULT, TEX_BACKGROUND_DEFAULT, TEX_ICON_BACK},
+    scene::{
+        confirm_dialog, import_chart_to, parse_warnings_to_string, SongScene, TEX_BACKGROUND, TEX_BACKGROUND_BLUR, TEX_BACKGROUND_BLUR_DEFAULT,
+        TEX_BACKGROUND_DEFAULT, TEX_ICON_BACK,
+    },
 };
 use anyhow::{anyhow, Context, Result};
 use macroquad::prelude::*;
@@ -48,9 +51,7 @@ const LOW_PASS: f32 = 0.95;
 fn blurred_texture(image: &image::DynamicImage) -> SafeTexture {
     const W: u32 = 32;
     const H: u32 = 18;
-    let small = image
-        .resize_exact(W, H, image::imageops::FilterType::Triangle)
-        .into_rgba8();
+    let small = image.resize_exact(W, H, image::imageops::FilterType::Triangle).into_rgba8();
     let tex = Texture2D::from_rgba8(W as u16, H as u16, small.as_raw());
     tex.set_filter(FilterMode::Linear);
     tex.into()
@@ -214,6 +215,7 @@ pub struct MainScene {
 enum ImportChart {
     Imported(Box<LocalChart>, ParseWarnings),
     Skipped(String),
+    Failed(String),
 }
 
 impl MainScene {
@@ -242,8 +244,6 @@ impl MainScene {
 
         let mut sf = Self::new_inner(bgm, fallback).await?;
         sf.pages.push(Box::new(HomePage::new(Arc::clone(&sf.icons)).await?));
-        // 生成序列码 / 刷新解锁状态。未解锁时主界面照常进入，只是功能被锁。
-        crate::refresh_unlock();
         Ok(sf)
     }
 
@@ -458,12 +458,7 @@ impl Scene for MainScene {
         if crate::hud::edit_active() {
             return Ok(crate::hud::editor_touch(touch));
         }
-        // Phira Pro 授权锁：非「设置」页且不在主界面时，页面内容整体不可点（只提示），
-        // 但「返回」键照常可用——它在下面紧接着处理，所以这里不做拦截。
-        let locked_here = !crate::is_unlocked() && !self.pages.last().unwrap().is_settings() && self.pages.len() > 1;
-        if locked_here {
-            crate::page::show_locked_hint();
-        } else if self.pages.last_mut().unwrap().touch(touch, s)? {
+        if self.pages.last_mut().unwrap().touch(touch, s)? {
             return Ok(true);
         }
         if self.btn_back.touch(touch) && self.pages.len() > 1 {
@@ -483,12 +478,7 @@ impl Scene for MainScene {
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
         /// HUD 编辑器请求切页：重建页面栈（根页面保留、不重建，因此不需要异步）。
-        fn goto_hud_page(
-            pages: &mut Vec<Box<dyn Page>>,
-            icons: &Arc<Icons>,
-            state: &mut SharedState,
-            p: crate::hud::PageId,
-        ) -> Result<()> {
+        fn goto_hud_page(pages: &mut Vec<Box<dyn Page>>, icons: &Arc<Icons>, state: &mut SharedState, p: crate::hud::PageId) -> Result<()> {
             use crate::hud::PageId;
             pages.truncate(1);
             crate::hud::set_cur_page(p);
@@ -823,6 +813,7 @@ impl Scene for MainScene {
                 let (tx, rx) = mpsc::channel();
                 self.batch_import_rx = Some(rx);
                 self.batch_imported_charts.clear();
+                let registered: std::collections::HashSet<_> = get_data().charts.iter().map(|it| it.local_path.clone()).collect();
                 self.batch_import_task = Some(Task::new(async move {
                     let mut archive = zip::ZipArchive::new(BufReader::new(File::open(&file)?))?;
                     let charts_dir = dir::charts()?;
@@ -843,37 +834,60 @@ impl Scene for MainScene {
                             tf.seek(SeekFrom::Start(0))?;
                             Ok(tf)
                         };
-                        match dir.to_str() {
-                            Some("custom") => {
-                                let tf = to_tempfile()?;
-                                let (chart, warnings) = import_chart(tf)
-                                    .await
-                                    .with_context(|| itl!("batch-import-failed-chart", "chart" => name.display().to_string()))?;
-                                let _ = tx.send(ImportChart::Imported(Box::new(chart), warnings)).ok();
-                            }
-                            Some("download") => {
-                                let Some(id) = name.to_str().and_then(|it| it.strip_suffix(".zip")).and_then(|it| it.parse::<i32>().ok()) else {
-                                    warn!("invalid batch import download id: {:?}", name);
-                                    continue;
-                                };
-                                let local_path = format!("download/{id}");
-                                let path = PathBuf::from(format!("{charts_dir}/{local_path}"));
-                                if std::fs::exists(&path)? {
-                                    let info: ChartInfo = serde_yaml::from_reader(File::open(path.join("info.yml"))?)?;
-                                    let _ = tx.send(ImportChart::Skipped(info.name));
-                                    continue;
+                        let result: Result<Option<ImportChart>> = async {
+                            match dir.to_str() {
+                                Some("custom") => {
+                                    let tf = to_tempfile()?;
+                                    let (chart, warnings) = import_chart(tf)
+                                        .await
+                                        .with_context(|| itl!("batch-import-failed-chart", "chart" => name.display().to_string()))?;
+                                    Ok(Some(ImportChart::Imported(Box::new(chart), warnings)))
                                 }
-                                std::fs::create_dir(&path)?;
-                                let tf = to_tempfile()?;
-                                let (chart, warnings) = import_chart_to(&path, local_path, tf)
-                                    .await
-                                    .with_context(|| itl!("batch-import-failed-chart", "chart" => name.display().to_string()))?;
-                                let _ = tx.send(ImportChart::Imported(Box::new(chart), warnings)).ok();
-                            }
-                            _ => {
-                                warn!("invalid batch import dir: {:?}", dir);
+                                Some("download") => {
+                                    let Some(id) = name.to_str().and_then(|it| it.strip_suffix(".zip")).and_then(|it| it.parse::<i32>().ok()) else {
+                                        warn!("invalid batch import download id: {:?}", name);
+                                        return Ok(None);
+                                    };
+                                    let local_path = format!("download/{id}");
+                                    let path = PathBuf::from(format!("{charts_dir}/{local_path}"));
+                                    if registered.contains(&local_path) {
+                                        if let Ok(info) = File::open(path.join("info.yml"))
+                                            .map_err(anyhow::Error::from)
+                                            .and_then(|file| serde_yaml::from_reader::<_, ChartInfo>(file).map_err(Into::into))
+                                        {
+                                            if [&info.chart, &info.music, &info.illustration]
+                                                .into_iter()
+                                                .all(|asset| path.join(asset).is_file())
+                                            {
+                                                return Ok(Some(ImportChart::Skipped(info.name)));
+                                            }
+                                        }
+                                    }
+                                    // A previous failed import may have left a directory
+                                    // without info.yml. Validate the new archive elsewhere.
+                                    let parent = path.parent().unwrap();
+                                    std::fs::create_dir_all(parent)?;
+                                    let staging = tempfile::Builder::new().prefix(".import-").tempdir_in(parent)?;
+                                    let tf = to_tempfile()?;
+                                    let (chart, warnings) = import_chart_to(staging.path(), local_path, tf)
+                                        .await
+                                        .with_context(|| itl!("batch-import-failed-chart", "chart" => name.display().to_string()))?;
+                                    crate::chart_install::publish(staging.path(), &path)?;
+                                    Ok(Some(ImportChart::Imported(Box::new(chart), warnings)))
+                                }
+                                _ => {
+                                    warn!("invalid batch import dir: {:?}", dir);
+                                    Ok(None)
+                                }
                             }
                         }
+                        .await;
+                        let result = match result {
+                            Ok(None) => continue,
+                            Ok(Some(result)) => result,
+                            Err(error) => ImportChart::Failed(format!("{}: {error:#}", name.display())),
+                        };
+                        let _ = tx.send(result);
                     }
                     Ok(())
                 }));
@@ -881,69 +895,70 @@ impl Scene for MainScene {
         }
 
         if let Some(rx) = &mut self.batch_import_rx {
-            match rx.try_recv() {
-                Ok(chart) => {
-                    self.batch_imported_charts.push(chart);
-                }
-                Err(mpsc::TryRecvError::Empty) => {}
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    warn!("import thread panicked");
-                    self.batch_import_rx = None;
-                }
+            while let Ok(chart) = rx.try_recv() {
+                self.batch_imported_charts.push(chart);
             }
         }
 
         if let Some(task) = &mut self.batch_import_task {
             if let Some(res) = task.take() {
-                match res {
-                    Err(err) => {
-                        let charts = dir::charts()?;
-                        for chart in self.batch_imported_charts.drain(..) {
-                            if let ImportChart::Imported(chart, _) = chart {
-                                let path = format!("{charts}{}", chart.local_path);
-                                let _ = std::fs::remove_dir_all(path);
-                            }
-                        }
-                        show_error(err.context(itl!("batch-import-failed")));
-                    }
-                    Ok(()) => {
-                        let mut warning_messages = vec![];
-                        let data = get_data_mut();
-                        let mut count = 0;
-                        let mut skipped = String::new();
-                        for chart in self.batch_imported_charts.drain(..) {
-                            match chart {
-                                ImportChart::Imported(chart, warnings) => {
-                                    if let Some(warn) = parse_warnings_to_string(&warnings) {
-                                        warning_messages.push(format!("{}\n{warn}", chart.info.name));
-                                    }
+                // The worker may finish after the first drain. Keep every
+                // imported chart before dropping its result channel.
+                if let Some(rx) = &self.batch_import_rx {
+                    self.batch_imported_charts.extend(rx.try_iter());
+                }
+                {
+                    let mut warning_messages = vec![];
+                    let mut failed = vec![];
+                    let data = get_data_mut();
+                    let mut count = 0;
+                    let mut skipped = String::new();
+                    for chart in self.batch_imported_charts.drain(..) {
+                        match chart {
+                            ImportChart::Imported(chart, warnings) => {
+                                if let Some(warn) = parse_warnings_to_string(&warnings) {
+                                    warning_messages.push(format!("{}\n{warn}", chart.info.name));
+                                }
+                                if let Some(existing) = data.charts.iter_mut().find(|it| it.local_path == chart.local_path) {
+                                    existing.info = chart.info;
+                                } else {
                                     data.charts.push(*chart);
-                                    count += 1;
                                 }
-                                ImportChart::Skipped(name) => {
-                                    if !skipped.is_empty() {
-                                        skipped.push_str(", ");
-                                    }
-                                    skipped.push_str(&name);
-                                }
+                                count += 1;
                             }
+                            ImportChart::Skipped(name) => {
+                                if !skipped.is_empty() {
+                                    skipped.push_str(", ");
+                                }
+                                skipped.push_str(&name);
+                            }
+                            ImportChart::Failed(error) => failed.push(error),
                         }
-                        save_data()?;
-                        self.state.reload_local_charts();
-                        NEED_UPDATE.store(true, Ordering::Relaxed);
-
-                        let mut message = itl!("batch-import-success", "count" => count);
-                        if !skipped.is_empty() {
-                            message.push('\n');
-                            message += &itl!("batch-import-downloaded-skipped", "charts" => skipped);
-                        }
-
-                        if !warning_messages.is_empty() {
-                            message += "\n\n";
-                            message += &warning_messages.join("\n\n");
-                        }
-                        Dialog::simple(message).show();
                     }
+                    save_data()?;
+                    self.state.reload_local_charts();
+                    NEED_UPDATE.store(true, Ordering::Relaxed);
+
+                    let mut message = itl!("batch-import-success", "count" => count);
+                    if !skipped.is_empty() {
+                        message.push('\n');
+                        message += &itl!("batch-import-downloaded-skipped", "charts" => skipped);
+                    }
+
+                    if !warning_messages.is_empty() {
+                        message += "\n\n";
+                        message += &warning_messages.join("\n\n");
+                    }
+                    if let Err(error) = res {
+                        failed.push(format!("{error:#}"));
+                    }
+                    if !failed.is_empty() {
+                        message += "\n\n";
+                        message += &itl!("batch-import-failed");
+                        message.push('\n');
+                        message += &failed.join("\n\n");
+                    }
+                    Dialog::simple(message).show();
                 }
                 self.batch_import_task = None;
                 self.batch_import_rx = None;

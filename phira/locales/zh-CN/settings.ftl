@@ -236,15 +236,6 @@ item-url-invalid = 无效的地址（需以 http:// 或 https:// 开头）
 item-status-url-sub = 设置页「服务器状态」按钮打开的地址。留空使用官方状态页；需以 http(s):// 开头。
 item-web-url = Web 地址
 
-activation-serial = 序列码
-activation-serial-copied = 序列码已复制
-activation-code = 解密码
-activation-code-empty = 点此输入 / 粘贴
-activation-code-set = 已填写（点此修改）
-activation-confirm = 确认
-activation-locked = 请先在设置中输入解密码
-activation-ok = 解密码正确，功能已全部解锁
-activation-failed = 解密码不正确
 
 item-flow-speed = 谱面流速
 item-flow-speed-sub = 只等比例改变音符流速，音乐与音调完全不变。该设置下的成绩不可上传。

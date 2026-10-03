@@ -81,6 +81,7 @@ static SPARK_TEX: Lazy<Texture2D> = Lazy::new(|| tex(include_bytes!("../../../as
 // This PNG is regenerated from original RGB565 with full 5/6-bit replication.
 // The initial exporter only shifted bits, which darkened the hover dissolve.
 static NOISE_TEX: Lazy<Texture2D> = Lazy::new(|| tex(include_bytes!("../../../assets/blockarea/FD_Noise_00000.png"), TextureWrap::Mirror));
+static EMPTY_TEX: Lazy<Texture2D> = Lazy::new(|| Texture2D::from_rgba8(1, 1, &[0; 4]));
 
 // Typed f32 values are essential: this macroquad fork rejects f64 for Float1.
 // Keep these uniforms, rather than folding their values into GLSL, so that the
@@ -134,6 +135,7 @@ const COLORS: &[(&str, [f32; 4])] = &[
 
 #[derive(Default)]
 struct FrameTextures {
+    uploaded_masks: Option<u64>,
     masks: mask::Masks,
     effect: Option<Texture2D>,
     aux: Option<Texture2D>,
@@ -146,7 +148,7 @@ thread_local! {
     static FRAME: RefCell<FrameTextures> = RefCell::new(FrameTextures::default());
 }
 
-fn load_block_material(disabled: bool) -> Result<Material, miniquad::ShaderError> {
+fn load_block_material(disabled: bool, hover: bool) -> Result<Material, miniquad::ShaderError> {
     let mut uniforms = vec![
         ("uView".to_owned(), UniformType::Float3),
         ("uUnityTime".to_owned(), UniformType::Float4),
@@ -185,7 +187,15 @@ fn load_block_material(disabled: bool) -> Result<Material, miniquad::ShaderError
             "uNoiseTex".to_owned(),
         ],
     };
-    load_material(VERTEX, FRAGMENT, params).map(|material| {
+    // Specialize uniform-only branches. On mobile GPUs the native hover SDF
+    // otherwise consumes registers/instructions even with zero fingers.
+    let mut fragment = FRAGMENT.replace("uniform int uLayer;", if disabled { "const int uLayer = 0;" } else { "const int uLayer = 3;" });
+    if !hover {
+        fragment = fragment
+            .replace("uniform \tint _TouchPosCount;", "const int _TouchPosCount = 0;")
+            .replace("float hoverSample(vec2 uv) { return texture2D(uAuxMasks, basePixelUV(uv)).a; }", "float hoverSample(vec2 uv) { return 0.0; }");
+    }
+    load_material(VERTEX, &fragment, params).map(|material| {
         for (name, value) in FLOATS {
             material.set_uniform(name, *value);
         }
@@ -203,16 +213,54 @@ fn load_block_material(disabled: bool) -> Result<Material, miniquad::ShaderError
     })
 }
 
-static MATERIAL: Lazy<Option<[Material; 2]>> = Lazy::new(|| {
-    (|| Ok([load_block_material(true)?, load_block_material(false)?]))()
-        .map_err(|e: miniquad::ShaderError| {
-            tracing::warn!("block-area shader failed: {e}");
-            if let Ok(exe) = std::env::current_exe() {
-                let _ = std::fs::write(exe.with_file_name("block_shader_error.txt"), format!("{e}"));
-            }
-        })
-        .ok()
+static MATERIAL: Lazy<Option<[Material; 3]>> = Lazy::new(|| {
+    (|| {
+        Ok([
+            load_block_material(true, false)?,
+            load_block_material(false, false)?,
+            load_block_material(false, true)?,
+        ])
+    })()
+    .map_err(|e: miniquad::ShaderError| {
+        tracing::warn!("block-area shader failed: {e}");
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = std::fs::write(exe.with_file_name("block_shader_error.txt"), format!("{e}"));
+        }
+    })
+    .ok()
 });
+
+pub(crate) fn prepare_block_effects() {
+    // Link shaders and decode their textures during chart loading, before a
+    // late first block would stall a live judgement frame.
+    Lazy::force(&MATERIAL);
+    Lazy::force(&DISPLACE_TEX);
+    Lazy::force(&SPARK_TEX);
+    Lazy::force(&NOISE_TEX);
+    // Some GLES drivers defer shader compilation until the first draw. Use the
+    // current loading pass, with empty masks which discard every fragment.
+    // No framebuffer/camera switch or visible loading-screen output is needed.
+    if let Some(materials) = MATERIAL.as_ref() {
+        let empty = *EMPTY_TEX;
+        for material in materials {
+            material.set_texture("uDisplaceTex", *DISPLACE_TEX);
+            material.set_texture("uSparkTex", *SPARK_TEX);
+            material.set_texture("uNoiseTex", *NOISE_TEX);
+            for sampler in ["uMasks", "uAuxMasks", "uScene"] {
+                material.set_texture(sampler, empty);
+            }
+            material.set_uniform("uView", vec3(1., 1., 1.));
+            material.set_uniform("uUnityTime", vec4(0., 0., 0., 0.));
+            material.set_uniform("_ScreenParams", vec4(1., 1., 2., 2.));
+            material.set_uniform("_EffectRT_TexelSize", vec4(1., 1., 1., 1.));
+            material.set_uniform("_TouchPosCount", 0_i32);
+            gl_use_material(*material);
+            draw_rectangle(0., 0., 0.001, 0.001, WHITE);
+        }
+        gl_use_default_material();
+        unsafe { get_internal_gl() }.flush();
+    }
+}
 
 /// Draw the visible zones for the current frame.
 pub fn draw_zones(res: &mut Resource, aspect: f32, zones: &[Zone]) {
@@ -279,7 +327,6 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         }
         return;
     };
-    let m = m[usize::from(!disabled)];
     // ActiveBlock is postprocessing after sprites, notes and HUD; Disabled is
     // the Background layer before judge lines. Restore the existing pass state.
     let mut gl = unsafe { get_internal_gl() };
@@ -298,6 +345,16 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         frame.masks.render_displaced(width, height, aspect, zones, time);
         if !disabled {
             frame.touch.update_fingers(touches, time);
+        }
+        let hover = !disabled && frame.touch.visible();
+        let m = m[if disabled {
+            0
+        } else if hover {
+            2
+        } else {
+            1
+        }];
+        if hover {
             let bw = frame.masks.width / 2;
             let bh = frame.masks.height / 2;
             for y in 0..bh {
@@ -328,7 +385,7 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
             if let Some(old) = frame.effect.replace(texture) {
                 old.delete();
             }
-        } else {
+        } else if frame.uploaded_masks != Some(frame.masks.revision) {
             frame
                 .effect
                 .unwrap()
@@ -343,13 +400,14 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
             if let Some(old) = frame.aux.replace(texture) {
                 old.delete();
             }
-        } else {
+        } else if hover || frame.uploaded_masks != Some(frame.masks.revision) {
             frame
                 .aux
                 .unwrap()
                 .raw_miniquad_texture_handle()
                 .update(unsafe { get_internal_gl() }.quad_context, &frame.masks.aux_rgba);
         }
+        frame.uploaded_masks = Some(frame.masks.revision);
         if frame.scene.is_none_or(|texture| (texture.width() as u32, texture.height() as u32) != dim) {
             let texture = miniquad::Texture::new(
                 unsafe { get_internal_gl() }.quad_context,
@@ -426,7 +484,9 @@ fn copy_scene(res: &Resource, pass: Option<miniquad::RenderPass>, viewport: (i32
         glActiveTexture(GL_TEXTURE0);
         glGetIntegerv(TEXTURE_BINDING_2D, &mut bound);
         glBindTexture(GL_TEXTURE_2D, texture.raw_miniquad_texture_handle().gl_internal_id());
-        glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, viewport.0, viewport.1, viewport.2, viewport.3, 0);
+        // Storage is allocated on viewport changes above; do not reallocate
+        // a full-resolution texture on every frame.
+        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, viewport.0, viewport.1, viewport.2, viewport.3);
         glBindTexture(GL_TEXTURE_2D, bound as u32);
         glActiveTexture(active as u32);
         if let Some((read, draw)) = restore {

@@ -148,10 +148,7 @@ fn passes(entity: &Chart, f: &Filter) -> bool {
 
 /// 枚举官服全部谱面（并行翻页）。
 async fn enumerate_charts(p: &Progress) -> Result<Vec<Chart>> {
-    let first: ChartPage = recv_raw(Client::get(format!("/chart?page=1&pageNum={PAGE_SIZE}")))
-        .await?
-        .json()
-        .await?;
+    let first: ChartPage = recv_raw(Client::get(format!("/chart?page=1&pageNum={PAGE_SIZE}"))).await?.json().await?;
     let pages = (first.count as usize).div_ceil(PAGE_SIZE).max(1);
 
     let rest: Vec<Result<ChartPage>> = stream::iter(2..=pages)
@@ -236,20 +233,14 @@ async fn download_one(entity: &Chart) -> Result<LocalChart> {
     let id = entity.id;
     let path = format!("{}/{id}", dir::downloaded_charts()?);
     let path = std::path::Path::new(&path);
-    if path.exists() {
-        if path.is_file() {
-            std::fs::remove_file(path)?;
-        } else {
-            std::fs::remove_dir_all(path)?;
-        }
-    }
-    tokio::fs::create_dir_all(path).await?;
-    let dir = prpr::dir::Dir::new(path)?;
-
     let bytes = fetch_bytes(&entity.file.url)
         .await
         .with_context(|| format!("下载 {} 失败", entity.name))?;
-    unzip_into(Cursor::new(bytes), &dir, false)?;
+    let parent = path.parent().unwrap();
+    std::fs::create_dir_all(parent)?;
+    let staging = tempfile::Builder::new().prefix(".migrate-").tempdir_in(parent)?;
+    let dir = prpr::dir::Dir::new(staging.path())?;
+    unzip_into(Cursor::new(bytes), &dir, true)?;
 
     let mut info: ChartInfo = serde_yaml::from_reader(dir.open("info.yml")?).with_context(|| "info.yml 解析失败")?;
     info.id = Some(id);
@@ -257,7 +248,10 @@ async fn download_one(entity: &Chart) -> Result<LocalChart> {
     info.updated = Some(entity.updated);
     info.chart_updated = Some(entity.chart_updated);
     info.uploader = Some(entity.uploader.id);
+    let mut fs = prpr::fs::fs_from_file(staging.path())?;
+    prpr::fs::fix_info_with(fs.as_mut(), &mut info, false).await?;
     serde_yaml::to_writer(dir.create("info.yml")?, &info)?;
+    crate::chart_install::publish(staging.path(), path)?;
 
     Ok(LocalChart {
         info: entity.to_info(),

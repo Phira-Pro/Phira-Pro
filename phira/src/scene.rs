@@ -325,9 +325,9 @@ async fn lint_chart(fs: &mut dyn FileSystem, info: &ChartInfo) -> Result<ParseWa
 }
 
 pub async fn import_chart_to(dir: &Path, local_path: String, file: File) -> Result<(LocalChart, ParseWarnings)> {
+    let mut fs = fs::fs_from_file(dir)?;
     let dir = prpr::dir::Dir::new(dir)?;
     unzip_into(BufReader::new(file), &dir, true)?;
-    let mut fs = fs_from_path(&local_path)?;
     let mut info = fs::load_info(fs.as_mut()).await.with_context(|| itl!("info-fail"))?;
     let has_info_yml = fs.exists("info.yml").await?;
     fs::fix_info_with(fs.as_mut(), &mut info, !has_info_yml)
@@ -409,6 +409,10 @@ pub fn render_ldb<'a>(
         fader.for_sub(|f| {
             for item in iter {
                 f.render(ui, rt, |ui| {
+                    if h + s < off || h > off + sh {
+                        *item.btn = RectButton::new();
+                        return;
+                    }
                     if me == Some(item.player_id) {
                         ui.fill_path(&Rect::new(-0.02, 0., width, s).feather(-0.01).rounded(0.02), ui.background());
                     }
@@ -482,6 +486,37 @@ pub fn render_release_to_refresh(ui: &mut Ui, cx: f32, off: f32) {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn downloaded_chart_import_validates_the_staging_path() {
+        use std::io::Write;
+        let stage = tempfile::tempdir().unwrap();
+        let mut archive = zip::ZipWriter::new(tempfile::tempfile().unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        let mut info = prpr::info::ChartInfo::default();
+        info.name = "批量导入回归".into();
+        info.chart = "谱面.json".into();
+        info.music = "音乐.ogg".into();
+        info.illustration = "封面.png".into();
+        info.use_rpe_170_speed = Some(false);
+        info.use_attach_ui_fix = Some(true);
+        for (name, bytes) in [
+            ("外层/info.yml", serde_yaml::to_string(&info).unwrap().into_bytes()),
+            ("外层/谱面.json", b"{\"formatVersion\":1,\"offset\":0,\"judgeLineList\":[]}".to_vec()),
+            ("外层/音乐.ogg", vec![0]),
+            ("外层/封面.png", vec![0]),
+        ] {
+            archive.start_file(name, options).unwrap();
+            archive.write_all(&bytes).unwrap();
+        }
+        let mut file = archive.finish().unwrap();
+        std::io::Seek::rewind(&mut file).unwrap();
+        // The final logical path does not exist yet. Validation must use the
+        // physical staging directory, not data/charts/download/1234.
+        let (chart, _) = super::import_chart_to(stage.path(), "download/1234".into(), file).await.unwrap();
+        assert_eq!(chart.local_path, "download/1234");
+        assert_eq!(chart.info.name, "批量导入回归");
+        assert!(stage.path().join("谱面.json").is_file());
+    }
     // #[tokio::test]
     // #[ignore = "Chart parsing test"]
     // async fn test_parse_chart() -> Result<()> {

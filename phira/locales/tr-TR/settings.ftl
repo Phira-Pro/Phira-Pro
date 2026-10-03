@@ -215,15 +215,6 @@ reset-settings-text = Ayar sayfasındaki tüm seçenekler (dil, tema, yargılama
 reset-settings-done = Ayarlar varsayılana döndürüldü
 reset-settings-cancel = İptal
 reset-settings-confirm = Onayla
-activation-serial = Seri kodu
-activation-serial-copied = Seri kodu kopyalandı
-activation-code = Kilit açma kodu
-activation-code-empty = Girmek / yapıştırmak için dokunun
-activation-code-set = Girildi (düzenlemek için dokunun)
-activation-confirm = Onayla
-activation-locked = Lütfen önce Ayarlar'dan kilit açma kodunu girin
-activation-ok = Kilit açıldı. Tüm özellikler kullanılabilir
-activation-failed = Kilit açma kodu yanlış
 
 item-flow-speed = Not Akış Hızı
 item-flow-speed-sub = Yalnızca notların kayma hızını değiştirir; müzik ve perdesi aynı kalır. Skor yüklenemez.

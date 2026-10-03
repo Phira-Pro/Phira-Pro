@@ -228,15 +228,6 @@ reset-settings-text = Toutes les options de la page des réglages (langue, thèm
 reset-settings-done = Réglages rétablis par défaut
 reset-settings-cancel = Annuler
 reset-settings-confirm = Confirmer
-activation-serial = Code de série
-activation-serial-copied = Code de série copié
-activation-code = Code de déverrouillage
-activation-code-empty = Appuyez pour saisir / coller
-activation-code-set = Rempli (appuyez pour modifier)
-activation-confirm = Confirmer
-activation-locked = Saisissez d'abord le code de déverrouillage dans les réglages
-activation-ok = Déverrouillé. Toutes les fonctions sont disponibles
-activation-failed = Code de déverrouillage incorrect
 
 item-flow-speed = Vitesse de défilement des notes
 item-flow-speed-sub = Ne modifie que la vitesse de défilement des notes ; la musique et sa hauteur restent inchangées. Les scores ne sont pas envoyables.

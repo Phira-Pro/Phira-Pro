@@ -228,15 +228,6 @@ reset-settings-text = Mọi tùy chọn trên trang cài đặt (ngôn ngữ, ch
 reset-settings-done = Đã khôi phục cài đặt mặc định
 reset-settings-cancel = Hủy
 reset-settings-confirm = Xác nhận
-activation-serial = Mã sê-ri
-activation-serial-copied = Đã sao chép mã sê-ri
-activation-code = Mã mở khóa
-activation-code-empty = Nhấn để nhập / dán
-activation-code-set = Đã nhập (nhấn để sửa)
-activation-confirm = Xác nhận
-activation-locked = Vui lòng nhập mã mở khóa trong Cài đặt trước
-activation-ok = Đã mở khóa. Mọi tính năng đều khả dụng
-activation-failed = Mã mở khóa không đúng
 
 item-flow-speed = Tốc độ chảy nốt
 item-flow-speed-sub = Chỉ thay đổi tốc độ chảy của nốt, nhạc và cao độ giữ nguyên. Điểm sẽ không được tải lên.

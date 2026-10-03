@@ -19,6 +19,14 @@ use tracing::debug;
 pub static CLIENT_TOKEN: Lazy<ArcSwap<Option<String>>> = Lazy::new(|| ArcSwap::from_pointee(None));
 
 static CLIENT: Lazy<ArcSwap<reqwest::Client>> = Lazy::new(|| ArcSwap::from_pointee(basic_client_builder().build().unwrap()));
+// Pro requests add authentication per request and reuse connections.
+static PRO_CLIENT: Lazy<ArcSwap<reqwest::Client>> = Lazy::new(|| ArcSwap::from_pointee(basic_client_builder().build().unwrap()));
+static SCORE_CLIENT: Lazy<ArcSwap<reqwest::Client>> =
+    Lazy::new(|| ArcSwap::from_pointee(basic_client_builder().redirect(score_redirect_policy()).build().unwrap()));
+
+fn score_redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::none()
+}
 
 pub struct Client;
 
@@ -32,10 +40,14 @@ pub const DEFAULT_STATUS_URL: &str = "https://status.phira.cn";
 /// 读取一个「可配置基础地址」：取配置值（去首尾空白与末尾 `/`），为空则回退到 `default`。
 fn base_url(value: &str, default: &str) -> String {
     let url = value.trim().trim_end_matches('/');
-    if url.is_empty() { default.to_owned() } else { url.to_owned() }
+    if url.is_empty() {
+        default.to_owned()
+    } else {
+        url.to_owned()
+    }
 }
 
-/// 当前使用的 Phira API 基础地址（登录、谱面、成绩上传等）。
+/// 当前使用的 Phira API 基础地址（登录、谱面等只读数据；成绩只上传到 Pro）。
 /// 自建 / 私服改成 `config.api_url` 即可；改完需要重启生效。
 pub fn api_url() -> String {
     base_url(&get_data().config.api_url, DEFAULT_API_URL)
@@ -48,14 +60,20 @@ pub fn pro_api_url() -> String {
 
 /// 构造一个打到自服的请求（带官服 token 鉴权）。自服未配置时返回 `None`。
 ///
-/// 这里刻意单独 build 一个 client：官服那个 client 的默认头里已经带了
-/// `Authorization`，复用它会出现重复鉴权头。
+/// 复用独立连接池，并为每个请求附加当前 token，避免重复鉴权头。
 pub fn pro_request(method: Method, path: impl AsRef<str>) -> Option<RequestBuilder> {
     let base = pro_api_url();
     if base.is_empty() {
         return None;
     }
-    let mut req = basic_client_builder().build().ok()?.request(method, base + path.as_ref());
+    if method == Method::POST && is_score_upload(path.as_ref()) {
+        return Some(pro_auth(SCORE_CLIENT.load().post(score_upload_url(&base).ok()?)));
+    }
+    let req = PRO_CLIENT.load().request(method, base + path.as_ref());
+    Some(pro_auth(req))
+}
+
+fn pro_auth(mut req: RequestBuilder) -> RequestBuilder {
     if let Ok(locale) = header::HeaderValue::from_str(&client_locale()) {
         req = req.header(header::ACCEPT_LANGUAGE, locale);
     }
@@ -64,15 +82,41 @@ pub fn pro_request(method: Method, path: impl AsRef<str>) -> Option<RequestBuild
             req = req.header(header::AUTHORIZATION, value);
         }
     }
-    Some(req)
+    req
+}
+
+fn score_upload_url(base: &str) -> Result<reqwest::Url> {
+    let mut url = reqwest::Url::parse(base.trim()).context("未配置有效的 Phira Pro 成绩服务器")?;
+    let host = url.host_str().unwrap_or_default().trim_end_matches('.');
+    if !matches!(url.scheme(), "http" | "https") || host.is_empty() || !url.username().is_empty() || url.password().is_some() {
+        bail!("无效的 Phira Pro 成绩服务器地址");
+    }
+    for domain in ["5wyxi.com", "phira.cn", "phira.moe"] {
+        if host == domain || host.ends_with(&format!(".{domain}")) {
+            bail!("Phira Pro 已禁止向官服上传成绩，请配置自建服务器");
+        }
+    }
+    let path = format!("{}/play/upload", url.path().trim_end_matches('/'));
+    url.set_path(&path);
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url)
+}
+
+fn is_score_upload(path: &str) -> bool {
+    let path = path.split(['?', '#']).next().unwrap_or_default().trim_end_matches('/');
+    path == "/play/upload" || reqwest::Url::parse(path).is_ok_and(|url| url.path().trim_end_matches('/').ends_with("/play/upload"))
+}
+
+/// Scores have a dedicated destination and never follow HTTP redirects.
+/// An unavailable Pro server is an upload error, with no official-server fallback.
+pub fn pro_score_upload<T: Serialize>(data: &T) -> Result<RequestBuilder> {
+    let url = score_upload_url(&pro_api_url())?;
+    Ok(pro_auth(SCORE_CLIENT.load().post(url)).json(data))
 }
 
 pub fn pro_get(path: impl AsRef<str>) -> Option<RequestBuilder> {
     pro_request(Method::GET, path)
-}
-
-pub fn pro_post<T: Serialize>(path: impl AsRef<str>, data: &T) -> Option<RequestBuilder> {
-    Some(pro_request(Method::POST, path)?.json(data))
 }
 
 /// 当前使用的 Phira 网页前端地址（谱面页 / 用户页 / 合集页 / 条款链接等）。
@@ -118,6 +162,8 @@ fn build_client(access_token: Option<&str>) -> Result<Arc<reqwest::Client>> {
 
 pub fn set_access_token_sync(access_token: Option<&str>) -> Result<()> {
     CLIENT.store(build_client(access_token)?);
+    PRO_CLIENT.store(Arc::new(basic_client_builder().build()?));
+    SCORE_CLIENT.store(Arc::new(basic_client_builder().redirect(score_redirect_policy()).build()?));
     Ok(())
 }
 
@@ -247,6 +293,14 @@ impl Client {
     }
 
     pub fn request(method: Method, path: impl AsRef<str>) -> RequestBuilder {
+        if method == Method::POST && is_score_upload(path.as_ref()) {
+            // Also guard generic/legacy callers. An invalid configuration
+            // creates a failed builder, never an official request.
+            return match score_upload_url(&pro_api_url()) {
+                Ok(url) => pro_auth(SCORE_CLIENT.load().post(url)),
+                Err(_) => SCORE_CLIENT.load().post("Pro score server is not configured"),
+            };
+        }
         CLIENT.load().request(method, api_url() + path.as_ref())
     }
 
@@ -520,6 +574,70 @@ impl Client {
             return Ok(None);
         }
         Ok(Some(new_modified))
+    }
+}
+
+#[cfg(test)]
+mod score_upload_tests {
+    use super::*;
+
+    #[test]
+    fn scores_reject_official_hosts_and_invalid_destinations() {
+        for base in [
+            "",
+            "https://phira.5wyxi.com",
+            "https://PHIRA.5WYXI.COM.",
+            "https://api.phira.cn:443",
+            "https://phira.moe.",
+            "https://sub.phira.moe",
+            "ftp://api.phira.pro",
+            "https://user:pass@api.phira.pro",
+        ] {
+            assert!(score_upload_url(base).is_err(), "{base}");
+        }
+    }
+
+    #[test]
+    fn scores_use_only_the_configured_pro_origin() {
+        assert_eq!(score_upload_url("https://api.phira.pro/").unwrap().as_str(), "https://api.phira.pro/play/upload");
+        assert_eq!(score_upload_url(" http://127.0.0.1:8080/api/?old=1#x ").unwrap().as_str(), "http://127.0.0.1:8080/api/play/upload");
+        assert!(is_score_upload("/play/upload/?retry=1"));
+        assert!(is_score_upload("https://phira.5wyxi.com/play/upload"));
+        assert!(!is_score_upload("/record/query/10"));
+    }
+
+    #[tokio::test]
+    async fn score_upload_does_not_forward_its_body_on_redirect() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            time::Duration,
+        };
+        let source = TcpListener::bind("127.0.0.1:0").unwrap();
+        let target = TcpListener::bind("127.0.0.1:0").unwrap();
+        target.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/play/upload", source.local_addr().unwrap());
+        let location = format!("http://{}/play/upload", target.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut connection, _) = source.accept().unwrap();
+            connection.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let mut bytes = [0; 4096];
+            let n = connection.read(&mut bytes).unwrap();
+            assert!(String::from_utf8_lossy(&bytes[..n]).starts_with("POST /play/upload "));
+            write!(connection, "HTTP/1.1 307 Temporary Redirect\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        let response = reqwest::Client::builder()
+            .redirect(score_redirect_policy())
+            .build()
+            .unwrap()
+            .post(score_upload_url(url.trim_end_matches("/play/upload")).unwrap())
+            .body("score-token")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::TEMPORARY_REDIRECT);
+        server.join().unwrap();
+        assert_eq!(target.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
     }
 }
 

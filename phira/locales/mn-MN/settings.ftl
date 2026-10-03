@@ -181,15 +181,6 @@ reset-settings-text = Тохиргооны хуудасны бүх сонгол�
 reset-settings-done = Тохиргоо анхны утгад буцлаа
 reset-settings-cancel = Болих
 reset-settings-confirm = Баталгаажуулах
-activation-serial = Серийн код
-activation-serial-copied = Серийн код хуулагдлаа
-activation-code = Нээх код
-activation-code-empty = Оруулах / буулгахын тулд дарна уу
-activation-code-set = Бөглөсөн (засахын тулд дарна уу)
-activation-confirm = Баталгаажуулах
-activation-locked = Эхлээд Тохиргооноос нээх кодоо оруулна уу
-activation-ok = Нээгдлээ. Бүх функц одоо боломжтой
-activation-failed = Нээх код буруу
 
 item-flow-speed = Нотын урсгалын хурд
 item-flow-speed-sub = Зөвхөн нотын гүйлтийн хурдыг өөрчилнө; хөгжим, өнгө өөрчлөгдөхгүй. Оноо байршуулах боломжгүй.

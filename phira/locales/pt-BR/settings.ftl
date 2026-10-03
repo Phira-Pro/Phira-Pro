@@ -215,15 +215,6 @@ reset-settings-text = Todas as opções da página de configurações (idioma, t
 reset-settings-done = Configurações restauradas ao padrão
 reset-settings-cancel = Cancelar
 reset-settings-confirm = Confirmar
-activation-serial = Código de série
-activation-serial-copied = Código de série copiado
-activation-code = Código de desbloqueio
-activation-code-empty = Toque para inserir / colar
-activation-code-set = Preenchido (toque para editar)
-activation-confirm = Confirmar
-activation-locked = Insira primeiro o código de desbloqueio nas Configurações
-activation-ok = Desbloqueado. Todos os recursos estão disponíveis
-activation-failed = Código de desbloqueio incorreto
 
 item-flow-speed = Velocidade de Fluxo das Notas
 item-flow-speed-sub = Altera apenas a velocidade de rolagem das notas; a música e seu tom permanecem iguais. A pontuação não pode ser enviada.

@@ -13,7 +13,10 @@
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex,
+};
 
 use crate::dir;
 
@@ -40,7 +43,7 @@ pub struct Record {
     pub counts: [u32; 4],
     /// 判定误差分布（早 ← → 晚）
     pub hist: Vec<u32>,
-    /// 本局有效命中的偏差标准差（秒）。用于成绩详情页显示「无瑕度」。
+    /// 本局成绩协议 RMS（秒）；旧存档可能保留旧版本的偏差标准差。
     pub std: f32,
 }
 
@@ -66,6 +69,11 @@ impl Record {
 }
 
 static RECORDS: Lazy<Mutex<Option<Vec<Record>>>> = Lazy::new(|| Mutex::new(None));
+static REVISION: AtomicU64 = AtomicU64::new(0);
+
+pub fn revision() -> u64 {
+    REVISION.load(Ordering::Relaxed)
+}
 
 fn path() -> Result<String> {
     Ok(format!("{}/history.json", dir::root()?))
@@ -114,6 +122,7 @@ pub fn push(record: Record) -> Result<()> {
             it.drain(..extra);
         }
     });
+    REVISION.fetch_add(1, Ordering::Relaxed);
     save()
 }
 
@@ -150,6 +159,7 @@ pub fn import_json(text: &str) -> Result<usize> {
         }
     });
     if added > 0 {
+        REVISION.fetch_add(1, Ordering::Relaxed);
         save()?;
     }
     Ok(added)

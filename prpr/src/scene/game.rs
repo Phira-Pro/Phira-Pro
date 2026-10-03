@@ -107,12 +107,42 @@ fn draw_offset_indicator(ui: &mut Ui, res: &Resource, recent: &[RecentHit], top:
     const FADE: f64 = 3.;
     const MAX_ALPHA: f32 = 0.7;
 
-    const C_GRAD_TOP: Color = Color { r: 0.6, g: 0.831, b: 0.937, a: 1. };
-    const C_GRAD_MID: Color = Color { r: 0.976, g: 0.796, b: 0.969, a: 1. };
-    const C_GRAD_BOTTOM: Color = Color { r: 0.992, g: 0.906, b: 0.737, a: 1. };
-    const C_PERFECT: Color = Color { r: 0.6, g: 0.831, b: 0.937, a: 1. };
-    const C_GOOD: Color = Color { r: 0.843, g: 0.647, b: 0.765, a: 1. };
-    const C_BAD: Color = Color { r: 0.918, g: 0.745, b: 0.576, a: 1. };
+    const C_GRAD_TOP: Color = Color {
+        r: 0.6,
+        g: 0.831,
+        b: 0.937,
+        a: 1.,
+    };
+    const C_GRAD_MID: Color = Color {
+        r: 0.976,
+        g: 0.796,
+        b: 0.969,
+        a: 1.,
+    };
+    const C_GRAD_BOTTOM: Color = Color {
+        r: 0.992,
+        g: 0.906,
+        b: 0.737,
+        a: 1.,
+    };
+    const C_PERFECT: Color = Color {
+        r: 0.6,
+        g: 0.831,
+        b: 0.937,
+        a: 1.,
+    };
+    const C_GOOD: Color = Color {
+        r: 0.843,
+        g: 0.647,
+        b: 0.765,
+        a: 1.,
+    };
+    const C_BAD: Color = Color {
+        r: 0.918,
+        g: 0.745,
+        b: 0.576,
+        a: 1.,
+    };
 
     let cy = top + BAR_H / 2.;
     let to_x = |offset: f64| ((offset * 1000. / SPAN_MS).clamp(-1., 1.) as f32) * (BAR_W / 2.);
@@ -122,20 +152,17 @@ fn draw_offset_indicator(ui: &mut Ui, res: &Resource, recent: &[RecentHit], top:
             (
                 Color { a: top.a * alpha, ..top },
                 (r.x, r.y),
-                Color { a: bottom.a * alpha, ..bottom },
+                Color {
+                    a: bottom.a * alpha,
+                    ..bottom
+                },
                 (r.x, r.y + r.h),
             ),
         );
     };
 
     // 只有中线，没有背景板。
-    fill_v(
-        ui,
-        Rect::new(-MIN_STROKE / 2., cy - LINE_H / 2., MIN_STROKE, LINE_H),
-        WHITE,
-        WHITE,
-        0.45,
-    );
+    fill_v(ui, Rect::new(-MIN_STROKE / 2., cy - LINE_H / 2., MIN_STROKE, LINE_H), WHITE, WHITE, 0.45);
 
     for hit in recent {
         let age = res.time - hit.time;
@@ -411,7 +438,7 @@ macro_rules! reset {
         $self.music.seek_to(0.)?;
         $tm.speed = $res.config.speed as _;
         $tm.reset();
-        $self.last_update_time = $tm.now();
+        $self.last_update_time = $tm.real_time();
         $self.state = State::Starting;
         $self.fps_frame_count = 0;
         $self.fps_total_time = 0.0;
@@ -517,6 +544,9 @@ impl GameScene {
         }
 
         let (mut chart, chart_bytes, chart_format) = Self::load_chart(fs.deref_mut(), &info).await?;
+        if !chart.block_areas.is_empty() {
+            crate::core::prepare_block_effects();
+        }
         if config.mods.contains(Mods::NO_SHADER) {
             chart.extra.effects.clear();
             chart.extra.global_effects.clear();
@@ -793,10 +823,7 @@ impl GameScene {
                 let r = Rect::new(pause_center.x + pause_w * 1.5 + 0.04, pause_center.y - h / 2., w, h);
                 ui.fill_rect(r, Color::new(0., 0., 0., 0.35));
                 let (cr, cg, cb) = res.config.hp_color.rgb();
-                ui.fill_rect(
-                    Rect::new(r.x, r.y, r.w * self.judge.hp().clamp(0., 1.), r.h),
-                    Color::new(cr, cg, cb, 0.9),
-                );
+                ui.fill_rect(Rect::new(r.x, r.y, r.w * self.judge.hp().clamp(0., 1.), r.h), Color::new(cr, cg, cb, 0.9));
             }
             // 谱面调试叠加层（判定线 / 音符的编号、线高、时间、横向判定范围）。
             if res.config.chart_debug_line || res.config.chart_debug_note {
@@ -1191,6 +1218,8 @@ impl Scene for GameScene {
     }
 
     fn resume(&mut self, tm: &mut TimeManager) -> Result<()> {
+        self.last_update_time = tm.real_time();
+        self.fps_last_frame_time = tm.real_time();
         if !matches!(self.state, State::Playing) {
             tm.resume();
         }
@@ -1323,12 +1352,7 @@ impl Scene for GameScene {
                             max_combo: result.max_combo,
                             num_of_notes: result.num_of_notes,
                             // Perfect+ 并入 Perfect，让历史记录保持官方那套 4 档。
-                            counts: [
-                                result.counts[0] + result.counts[4],
-                                result.counts[1],
-                                result.counts[2],
-                                result.counts[3],
-                            ],
+                            counts: [result.counts[0] + result.counts[4], result.counts[1], result.counts[2], result.counts[3]],
                             hist: result.hist.to_vec(),
                             std: result.std,
                         })
@@ -1393,7 +1417,8 @@ impl Scene for GameScene {
         if tm.paused() || self.pause_rewind.is_some() {
             self.block_audio.suspend(&mut self.music);
         } else {
-            self.block_audio.sync(&mut self.music, matches!(self.state, State::Playing) && !self.chart.blocked_touches.is_empty());
+            self.block_audio
+                .sync(&mut self.music, matches!(self.state, State::Playing) && !self.chart.blocked_touches.is_empty());
         }
         if let Some(update) = &mut self.update_fn {
             update(self.res.time, &mut self.res, &mut self.judge);

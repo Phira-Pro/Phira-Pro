@@ -1,4 +1,31 @@
+# ============================================================
+# 闭源部分（成绩上传 / 官方资源解码）—— 不上传到公开仓库
+# ============================================================
+# 说明：下面这些模块只在 `--cfg closed` / `--cfg record` 构建里编译，
+# 源码里所有引用都带 `#[cfg(closed)]` / `#[cfg(record)]` 门控，
+# 因此开源构建（不加这两个 cfg）**不需要也无法**编译它们。
+#
+# 任何目录下的 inner.rs 都会被忽略（上游 Phira 的闭源模块同样是这个约定）：
+#   prpr/src/inner.rs              —— 成绩 token 编码 / 密钥
+#   prpr/src/scene/game/inner.rs   —— encode_record
+#   prpr/src/judge/inner.rs
+#   phira/src/inner.rs
+#   phira/src/censor/inner.rs
 inner.rs
+# 成绩编码的规范 / 密钥推导脚本（若放到仓库内也应排除）
+/phira-encode-record/
+/phira-encode/
+derive_key.py
+# 噪域(block-area) 官方提取贴图 / 反编译产物 —— 同属「官方资源解码」，不入公开仓库
+/assets/blockarea
+/docs/block-area/official-touch-effect.gles.txt
+/docs/block-area/official-asset-state.json
+
+# 本机的 .cargo/config.toml（见下）把 macroquad / miniquad / sasa / phira-mp-* 这几个
+# git 依赖 patch 到了本地路径，因此本地生成的 Cargo.lock 里这些包没有 `source` 字段、
+# 只对这台机器有效。提交出去会让别人首次构建时不得不改写 lock（甚至 --locked 直接失败）。
+# 想要可复现构建的话，请在能直连 GitHub 的机器上跑一次 `cargo build` 生成干净的 lock 再提交。
+/Cargo.lock
 
 /target
 /assets/font.ttf
@@ -22,7 +49,8 @@ inner.rs
 /build_ios.sh
 /build
 /*.ipa
-/phira.app
+/phira.app/*
+!/phira.app/Info.plist
 /phira.xcodeproj/project.xcworkspace/xcuserdata/
 /xcode/LocalSigning.xcconfig
 /dist

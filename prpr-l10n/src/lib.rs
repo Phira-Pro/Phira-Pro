@@ -48,14 +48,15 @@ pub static GLOBAL: Lazy<L10nGlobal> = Lazy::new(L10nGlobal::new);
 pub fn set_prefered_locale(locale: Option<LanguageIdentifier>) {
     let mut ids = Vec::new();
     let map = &GLOBAL.lang_map;
-    if let Some(lang) = locale.and_then(|it| map.get(&it)) {
-        ids.push(*lang);
+    if let Some(lang) = locale.and_then(|it| normalize_langid(&it)).and_then(|it| map.get(&it).copied()) {
+        ids.push(lang);
     }
     if let Some(lang) = sys_locale::get_locale()
         .and_then(|it| it.parse::<LanguageIdentifier>().ok())
-        .and_then(|it| map.get(&it))
+        .and_then(|it| normalize_langid(&it))
+        .and_then(|it| map.get(&it).copied())
     {
-        ids.push(*lang);
+        ids.push(lang);
     }
     ids.push(*map.get(&fallback_langid!()).unwrap());
     *GLOBAL.order.lock().unwrap() = ids;

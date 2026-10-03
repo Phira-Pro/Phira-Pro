@@ -244,12 +244,12 @@ impl Page for HistoryPage {
                     Some(name) => name.clone(),
                     None => tl!("stat-all-title").to_string(),
                 };
-                ui.text(&title).pos(0.004, y).anchor(0., 0.).size(0.115).color(WHITE).draw();
+                ui.text(&title).pos(0.004, y).anchor(0., 0.).size(0.45).color(WHITE).draw();
                 if !records.is_empty() {
                     ui.text(tl!("stat-count", "count" => records.len().to_string()))
-                        .pos(w - 0.004, y + 0.025)
+                        .pos(w - 0.004, y + 0.012)
                         .anchor(1., 0.)
-                        .size(0.06)
+                        .size(0.32)
                         .color(semi_white(0.55))
                         .draw();
                 }
@@ -261,7 +261,7 @@ impl Page for HistoryPage {
                     ui.text(tl!("empty"))
                         .pos(inner.center().x, inner.center().y)
                         .anchor(0.5, 0.5)
-                        .size(0.085)
+                        .size(0.35)
                         .color(semi_white(0.6))
                         .draw();
                     return (w, y + 0.34 + GAP);
@@ -279,21 +279,21 @@ impl Page for HistoryPage {
                     let r = Rect::new(x, y, sw, sh);
                     let inner = card(ui, r);
                     ui.text(label)
-                        .pos(inner.x, inner.y)
+                        .pos(inner.x, inner.y + 0.006)
                         .anchor(0., 0.)
-                        .size(0.062)
+                        .size(0.32)
                         .color(semi_white(0.5))
                         .draw();
                     ui.text(value)
                         .pos(inner.x, inner.y + 0.045)
                         .anchor(0., 0.)
-                        .size(0.115)
+                        .size(0.45)
                         .color(value_color)
                         .draw();
                     ui.text(extra)
-                        .pos(inner.x, inner.y + 0.128)
+                        .pos(inner.x, inner.y + 0.09)
                         .anchor(0., 0.)
-                        .size(0.06)
+                        .size(0.32)
                         .color(semi_white(0.65))
                         .draw();
                 };
@@ -322,7 +322,7 @@ impl Page for HistoryPage {
                 ui.text(tl!("trend-title"))
                     .pos(inner.x, inner.y)
                     .anchor(0., 0.)
-                    .size(0.062)
+                    .size(0.32)
                     .color(semi_white(0.5))
                     .draw();
                 let plot = Rect::new(inner.x, inner.y + 0.05, inner.w, inner.h - 0.075);
@@ -335,7 +335,7 @@ impl Page for HistoryPage {
                 ui.text(format!("PB {}", pb.score))
                     .pos(plot.right(), pb_y - 0.006)
                     .anchor(1., 1.)
-                    .size(0.055)
+                    .size(0.3)
                     .color(Color::new(1., 0.86, 0.42, 0.95))
                     .draw();
                 // 折线本体：用细矩形拼（Ui 的 dx/dy 偏移对 raw draw_line 不生效）
@@ -364,7 +364,7 @@ impl Page for HistoryPage {
                 ui.text(tl!("trend-axis"))
                     .pos(plot.x, plot.bottom() + 0.008)
                     .anchor(0., 0.)
-                    .size(0.05)
+                    .size(0.3)
                     .color(semi_white(0.4))
                     .draw();
                 y += ch + GAP;
@@ -376,13 +376,13 @@ impl Page for HistoryPage {
                     ui.text(tl!("dist-title"))
                         .pos(inner.x, inner.y)
                         .anchor(0., 0.)
-                        .size(0.062)
+                        .size(0.32)
                         .color(semi_white(0.5))
                         .draw();
                     ui.text(tl!("dist-legend"))
                         .pos(inner.right(), inner.y)
                         .anchor(1., 0.)
-                        .size(0.055)
+                        .size(0.3)
                         .color(semi_white(0.4))
                         .draw();
                     let plot = Rect::new(inner.x, inner.y + 0.05, inner.w, inner.h - 0.075);
@@ -405,10 +405,10 @@ impl Page for HistoryPage {
                 ui.text(tl!("list-title"))
                     .pos(0.004, y)
                     .anchor(0., 0.)
-                    .size(0.062)
+                    .size(0.32)
                     .color(semi_white(0.5))
                     .draw();
-                y += 0.062;
+                y += 0.07;
                 let visible: Vec<Record> = records.iter().rev().take(300).cloned().collect();
                 while self.row_btns.len() < visible.len() {
                     self.row_btns.push(RectButton::new());
@@ -425,28 +425,28 @@ impl Page for HistoryPage {
                     ui.text(format!("{:07}", rec.score))
                         .pos(ix, cy)
                         .anchor(0., 0.5)
-                        .size(0.085)
+                        .size(0.38)
                         .color(score_color(rec.score))
                         .no_baseline()
                         .draw();
                     ui.text(format!("{:.2}%", rec.accuracy * 100.))
                         .pos(ix + r.w * 0.17, cy)
                         .anchor(0., 0.5)
-                        .size(0.07)
+                        .size(0.4)
                         .color(semi_white(0.88))
                         .no_baseline()
                         .draw();
                     ui.text(format!("P{} G{} B{} M{}", rec.counts[0], rec.counts[1], rec.counts[2], rec.counts[3]))
                         .pos(ix + r.w * 0.29, cy)
                         .anchor(0., 0.5)
-                        .size(0.06)
+                        .size(0.34)
                         .color(semi_white(0.7))
                         .no_baseline()
                         .draw();
                     ui.text(format!("x{}", rec.max_combo))
                         .pos(ix + r.w * 0.50, cy)
                         .anchor(0., 0.5)
-                        .size(0.06)
+                        .size(0.34)
                         .color(semi_white(0.7))
                         .no_baseline()
                         .draw();
@@ -456,7 +456,7 @@ impl Page for HistoryPage {
                         ui.text("FC")
                             .pos(badge.center().x, cy)
                             .anchor(0.5, 0.5)
-                            .size(0.055)
+                            .size(0.32)
                             .color(Color::new(0.6, 0.85, 1., 1.))
                             .no_baseline()
                             .draw();
@@ -464,14 +464,14 @@ impl Page for HistoryPage {
                     ui.text(format!("{} {:.1}", rec.level, rec.difficulty))
                         .pos(ix + r.w * 0.68, cy)
                         .anchor(0., 0.5)
-                        .size(0.06)
+                        .size(0.34)
                         .color(semi_white(0.62))
                         .no_baseline()
                         .draw();
                     ui.text(rec.time_text())
                         .pos(r.right() - 0.012, cy)
                         .anchor(1., 0.5)
-                        .size(0.055)
+                        .size(0.32)
                         .color(semi_white(0.5))
                         .no_baseline()
                         .draw();
@@ -481,10 +481,10 @@ impl Page for HistoryPage {
                     ui.text(tl!("list-more", "count" => (records.len() - visible.len()).to_string()))
                         .pos(0.004, y + 0.012)
                         .anchor(0., 0.)
-                        .size(0.055)
+                        .size(0.32)
                         .color(semi_white(0.4))
                         .draw();
-                    y += 0.05;
+                    y += 0.055;
                 }
                 (w, y + GAP)
             });

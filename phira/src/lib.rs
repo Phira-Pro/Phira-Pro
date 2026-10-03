@@ -16,15 +16,18 @@ mod hud;
 mod icons;
 mod images;
 mod login;
+mod migrate;
 mod mp;
 mod page;
 mod popup;
 mod rate;
 mod resource;
+mod replay;
 mod scene;
 mod tabs;
 mod tags;
 mod threed;
+mod transfer;
 mod uml;
 
 use anyhow::Result;
@@ -179,10 +182,14 @@ mod dir {
         ensure("data/appearance")
     }
 
-    /// `data/appearance` 的只读定位。采用与 `prpr::core::init_assets` 相同的
-    /// 「向上查找包含 `assets` 的目录」策略，因此在 cwd 尚未初始化的早期阶段
-    /// （如 `build_global_window_conf`）也能指向与运行时一致的位置，且不创建目录。
+    /// `data/appearance` 的只读定位。优先用运行时数据目录：移动端（Android / iOS /
+    /// OHOS）的 `current_exe()` 指向系统进程，向上永远找不到 `assets` 目录，会返回
+    /// `None` —— 那样导入的立绘 / 背景写进去了却读不出来。桌面端仍沿用「向上查找包含
+    /// `assets` 的目录」的策略，因此在 cwd 尚未初始化的早期阶段也能正确定位。
     pub fn appearance_root() -> Option<std::path::PathBuf> {
+        if let Some(base) = DATA_PATH.lock().unwrap().clone() {
+            return Some(std::path::PathBuf::from(format!("{base}/data/appearance")));
+        }
         let mut exe = std::env::current_exe().ok()?;
         while exe.pop() {
             if exe.join("assets").is_dir() {
@@ -217,30 +224,75 @@ mod dir {
     /// 保证探测时命中的是新文件；并且在覆盖前先验证能被解码，避免选中非图片文件后
     /// 把原有资源弄丢。
     pub fn import_appearance(stem: &str, src: &std::path::Path) -> Result<()> {
-        image::open(src)?;
+        // 不能只看扩展名：Android 上系统文件选择器返回的临时文件一律叫 `chart*.zip`
+        // （官方 MainActivity 用 `File.createTempFile("chart", ".zip")` 复制选中内容），
+        // 按扩展名判断会直接报「.zip 不是图片格式」。这里读进内存后按内容嗅探。
+        let data = std::fs::read(src)?;
+        let img = image::load_from_memory(&data)?;
         let root = std::path::PathBuf::from(appearance()?);
-        // 只允许探测得到的那几种扩展名；其它一律按 png 存（解码是按内容嗅探的）。
-        let ext = match src.extension().and_then(|it| it.to_str()).map(|it| it.to_ascii_lowercase()) {
-            Some(it) if ["png", "jpg", "jpeg", "webp", "bmp"].contains(&it.as_str()) => it,
-            _ => "png".to_owned(),
+        // 只允许 `find_appearance` 会去探测的那几种扩展名；其它一律转存成 png。
+        let ext = match image::guess_format(&data) {
+            Ok(image::ImageFormat::Png) => Some("png"),
+            Ok(image::ImageFormat::Jpeg) => Some("jpg"),
+            Ok(image::ImageFormat::WebP) => Some("webp"),
+            Ok(image::ImageFormat::Bmp) => Some("bmp"),
+            _ => None,
         };
         for old in ["png", "jpg", "jpeg", "webp", "bmp"] {
             let _ = std::fs::remove_file(root.join(format!("{stem}.{old}")));
         }
-        std::fs::copy(src, root.join(format!("{stem}.{ext}")))?;
+        match ext {
+            Some(ext) => std::fs::write(root.join(format!("{stem}.{ext}")), data)?,
+            None => {
+                let mut buf = Vec::new();
+                img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)?;
+                std::fs::write(root.join(format!("{stem}.png")), buf)?;
+            }
+        }
         Ok(())
     }
 
-    /// 「打开外观目录」按钮使用的路径：优先返回绝对路径，便于系统文件管理器
-    /// 正确定位；取不到时回落到相对路径。
-    pub fn appearance_open_path() -> Result<String> {
-        let fallback = appearance()?;
-        Ok(appearance_root().map(|it| it.to_string_lossy().into_owned()).unwrap_or(fallback))
+    /// 删除 `data/appearance/{stem}.*` 的所有候选文件（用于「恢复默认」）。
+    /// 返回是否删除过至少一个文件。
+    pub fn clear_appearance(stem: &str) -> Result<bool> {
+        let root = std::path::PathBuf::from(appearance()?);
+        let mut removed = false;
+        for ext in ["png", "jpg", "jpeg", "webp", "bmp"] {
+            let path = root.join(format!("{stem}.{ext}"));
+            if path.is_file() {
+                std::fs::remove_file(&path)?;
+                removed = true;
+            }
+        }
+        Ok(removed)
+    }
+}
+
+/// Android 上 `reqwest` 走的是 `rustls-platform-verifier` 0.7（依赖 jni 0.22），
+/// 而 vendored miniquad 初始化的是它自己依赖的 0.6（依赖 jni 0.21）。两份是互相
+/// 独立的 crate 实例，0.6 的初始化对 0.7 无效，于是 0.7 那一份从未被初始化，
+/// Android 上任何 https 请求一发出就在
+/// `rustls_platform_verifier::android::global()` 处 panic（任务静默失败，
+/// 界面表现为「点了没反应」，登录 / 上传 / 联机全部受影响）。
+/// 这里在拿到 Activity 上下文后，用 0.7 那一份自己的 `init_with_env` 补上初始化。
+#[cfg(target_os = "android")]
+fn init_platform_verifier() {
+    unsafe {
+        let raw_env = miniquad::native::attach_jni_env();
+        let raw_ctx = ndk_context::android_context().context() as jni::sys::jobject;
+        let mut env = jni::EnvUnowned::from_raw(raw_env as *mut jni::sys::JNIEnv);
+        let _ = env.with_env(|env: &mut jni::Env| -> jni::errors::Result<()> {
+            let context = jni::objects::JObject::from_raw(env, raw_ctx);
+            let _ = rustls_platform_verifier::android::init_with_env(env, context);
+            Ok(())
+        });
     }
 }
 
 async fn the_main() -> Result<()> {
     log::register();
+    #[cfg(target_os = "android")]
+    init_platform_verifier();
     #[cfg(target_env = "ohos")]
     {
         *DATA_PATH.lock().unwrap() = Some("/data/storage/el2/base".to_owned());
@@ -335,14 +387,46 @@ async fn the_main() -> Result<()> {
     let mut fps_time_sum = 0.;
 
     'app: loop {
-        if main.paused() {
-            match rx.recv() {
-                Ok(false) => {
+        // 处理积压的暂停 / 恢复消息（以最后一条为准）。日志保留：暂停 / 恢复一旦不成对，
+        // 就会出现「画面卡死、切后台也救不回来」，需要靠日志定位。
+        let mut state = None;
+        while let Ok(p) = rx.try_recv() {
+            state = Some(p);
+        }
+        match state {
+            Some(true) => {
+                if !main.paused() {
+                    info!("app paused (backgrounded)");
+                    main.pause()?;
+                }
+            }
+            Some(false) => {
+                if main.paused() {
+                    info!("app resumed (foregrounded)");
                     main.resume()?;
                 }
-                Ok(true) => {}
-                Err(_) => break 'app,
             }
+            None => {}
+        }
+        if main.paused() {
+            // 暂停中：跳过游戏更新与渲染，但必须把这一帧还给平台主循环。
+            // 关键：这里绝对不能用阻塞式等待（recv / recv_timeout）来等恢复消息——那会把
+            // 主线程一直占住，系统弹窗（例如 iOS 文件选择器）就收不到触摸事件，
+            // 表现为「弹窗能打开但点不动」。改为非阻塞轮询 + 让出一帧。
+            let mut resumed = false;
+            loop {
+                match rx.try_recv() {
+                    Ok(p) => resumed = !p,
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => break 'app,
+                }
+            }
+            if resumed {
+                info!("app resumed (foregrounded)");
+                main.resume()?;
+            }
+            next_frame().await;
+            continue;
         }
 
         let frame_start = tm.real_time();
@@ -369,13 +453,6 @@ async fn the_main() -> Result<()> {
                 save_data()?;
             }
             main.render(&mut painter)?;
-            if let Ok(paused) = rx.try_recv() {
-                if paused {
-                    main.pause()?;
-                } else {
-                    main.resume()?;
-                }
-            }
             prpr::ext::flush_pending_texture_deletions();
             Ok(())
         }();
@@ -399,8 +476,8 @@ async fn the_main() -> Result<()> {
             }
         }
 
-        // While backgrounded the scene is paused; the blocking `recv_timeout`
-        // above already parks this thread, so nothing extra is needed here.
+        // 暂停时会走上面的分支直接 `continue`（不更新不渲染），所以这里不用再额外处理。
+
         next_frame().await;
     }
     Ok(())
@@ -408,9 +485,16 @@ async fn the_main() -> Result<()> {
 
 /// 界面显示的改版版本号。仅用于本地展示，绝不上报服务端：
 /// 与服务器交互的版本号一律仍取 `CARGO_PKG_VERSION`（见 `client.rs`、`home.rs`、`event.rs`）。
-pub const PRO_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-pro.1");
+#[cfg(not(flash))]
+pub const PRO_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-pro.5");
+/// Phira Pro Flash（轻量版）的展示用版本号。
+#[cfg(flash)]
+pub const PRO_VERSION: &str = "flash.1";
 /// 带 `v` 前缀的展示用版本号。
-pub const PRO_VERSION_TAG: &str = concat!("v", env!("CARGO_PKG_VERSION"), "-pro.1");
+#[cfg(not(flash))]
+pub const PRO_VERSION_TAG: &str = concat!("v", env!("CARGO_PKG_VERSION"), "-pro.5");
+#[cfg(flash)]
+pub const PRO_VERSION_TAG: &str = "vflash.1";
 
 fn build_global_window_conf() -> Conf {
     let mut conf = build_conf();
@@ -467,6 +551,35 @@ pub extern "C" fn quad_main() {
         }
     });
     cleanup_audio();
+}
+
+/// Phira Pro 授权状态缓存（启动时与解锁成功后刷新）。
+static UNLOCKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 当前是否已解锁。
+pub fn is_unlocked() -> bool {
+    UNLOCKED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// 确保序列码已生成，并按当前配置重新验签刷新解锁状态。
+///
+/// 注意：配置里存的是**解密码本身**而不是「已解锁」布尔值——所以手改配置文件无效。
+pub fn refresh_unlock() {
+    {
+        let config = &mut get_data_mut().config;
+        if config.activation_serial.is_none() {
+            config.activation_serial = Some(prpr::activation::generate_serial());
+        }
+    }
+    let unlocked = {
+        let config = &get_data().config;
+        match (&config.activation_serial, &config.activation_code) {
+            (Some(serial), Some(code)) => prpr::activation::verify(serial, code),
+            _ => false,
+        }
+    };
+    UNLOCKED.store(unlocked, std::sync::atomic::Ordering::Relaxed);
+    let _ = save_data();
 }
 
 fn on_pause_resume(pause: bool) {
@@ -559,6 +672,19 @@ pub extern "C" fn Java_quad_1native_QuadNative_markImportRespack(_env: EnvUnowne
 pub extern "C" fn Java_quad_1native_QuadNative_setInputText(_env: EnvUnowned, _class: JClass, text: JString) {
     use prpr::scene::INPUT_TEXT;
     INPUT_TEXT.lock().unwrap().1 = Some(text.to_string());
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub unsafe extern "C" fn Java_quad_1native_QuadNative_preprocessInput(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    _motion_event: *mut std::ffi::c_void,
+    _x: jni::sys::jfloat,
+    _y: jni::sys::jfloat,
+    _z: jni::sys::jboolean,
+    _z2: jni::sys::jboolean,
+) {
 }
 
 /// Credentials obtained from the native HYKB (好游快爆) login SDK.

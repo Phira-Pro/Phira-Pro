@@ -1,0 +1,590 @@
+//! Render the production block shader in a hidden native GL context.
+//! Run from the workspace: cargo run -p prpr --example block_area_gpu
+use macroquad::prelude::*;
+use prpr::core::{BlockArea, BlockPhase, MSRenderTarget, Matrix, Vector};
+
+// Supply just the production renderer's model stack and optional chart target.
+// No audio or resource pack; render targets below exercise the existing MSAA path.
+struct Resource {
+    camera: Camera2D,
+    chart_target: Option<MSRenderTarget>,
+}
+impl Resource {
+    fn apply_model_of(&mut self, mat: &Matrix, f: impl FnOnce(&mut Self)) {
+        unsafe { get_internal_gl() }.quad_gl.push_model_matrix(prpr::ext::nalgebra_to_glm(mat));
+        f(self);
+        unsafe { get_internal_gl() }.quad_gl.pop_model_matrix();
+    }
+}
+#[path = "../src/core/block_shader.rs"]
+mod block_shader;
+use block_shader::Zone;
+#[path = "../src/core/block_mask.rs"]
+mod reference_mask;
+#[path = "../src/core/block_touch.rs"]
+mod reference_touch;
+
+fn conf() -> Conf {
+    Conf {
+        window_title: "Block area GPU regression".into(),
+        window_width: 960,
+        window_height: 540,
+        headless: true,
+        ..Default::default()
+    }
+}
+
+#[macroquad::main(conf)]
+async fn main() {
+    let aspect = 16. / 9.;
+    let mut res = Resource {
+        camera: Camera2D {
+            zoom: vec2(1., aspect),
+            ..Default::default()
+        },
+        chart_target: None,
+    };
+    next_frame().await;
+    set_camera(&res.camera);
+    std::fs::create_dir_all("target/block-area-gpu").unwrap();
+
+    let active = [zone(0., 0., 0.5, 0.25, false, true)];
+    let pixels = render(&mut res, aspect, &active, "active-default", 1., false);
+    assert!(pixel(&pixels, 580, 270)[0] > pixel(&pixels, 580, 270)[1] + 10, "active fill must be visible");
+    assert_eq!(pixel(&pixels, 50, 50), [25, 25, 25, 255]);
+    assert!(pixels.bytes.chunks_exact(4).any(|p| p[0] > 180 && p[0] > p[1] * 2), "bright ring must render");
+    assert!(pixels.bytes != render(&mut res, aspect, &active, "dissolve-next-frame", 1.5, false).bytes, "compose boundary must evolve");
+    native_reference(&active, &pixels, 1., &[]);
+    let later = render(&mut res, aspect, &active, "active-later", 9., false);
+    assert_ne!(pixels.bytes, later.bytes, "displacement/sparks must animate");
+    native_reference(&active, &later, 9., &[]);
+
+    // A gray underlay cannot detect channel/tint or HSV mistakes. Exercise the
+    // complete scene sampling with colored tiles and the native /3 Point RT.
+    for time in [1., 9.] {
+        palette_scene();
+        let source = screen_pixels();
+        block_shader::draw_layer_at(&mut res, aspect, &active, time, false, &[]);
+        let port = screen_pixels();
+        port.export_png(&format!("target/block-area-gpu/palette-{time}.png"));
+        native_reference_scene(&active, &port, time, &[], Some(&source));
+    }
+
+    let holes = [
+        zone(0., 0., 1., 1. / aspect, true, true),
+        zone(-0.45, -0.22, 0.14, 0.10, false, true),
+        zone(-0.45, 0.22, 0.14, 0.10, false, true),
+        zone(0.45, -0.22, 0.14, 0.10, false, true),
+        zone(0.45, 0.22, 0.14, 0.10, false, true),
+    ];
+    let inverted = render(&mut res, aspect, &holes, "invert-four-holes", 1., false);
+    assert_eq!(pixel(&inverted, 264, 164), [25, 25, 25, 255], "normal zones must open holes in an inverted layer");
+    assert!(pixel(&inverted, 480, 270)[0] > pixel(&inverted, 480, 270)[1] + 10);
+    native_reference(&holes, &inverted, 1., &[]);
+    render(&mut res, aspect, &[zone(0., 0., 0.5, 0.25, false, false)], "disabled", 1., false);
+
+    let mut ready_zone = zone(0., 0., 0.5, 0.25, false, false);
+    ready_zone.ready = true;
+    let ready = overlay_probe(&mut res, aspect, &[ready_zone.clone()], 12., &[], "ready-normal");
+    native_reference(&[ready_zone.clone()], &ready, 12., &[]);
+    let ready_later = overlay_probe(&mut res, aspect, &[ready_zone.clone()], 12.05, &[], "ready-pulse");
+    assert_ne!(ready.bytes, ready_later.bytes, "Ready must pulse at native shine speed");
+    ready_zone.invert = true;
+    let ready_subtract = overlay_probe(&mut res, aspect, &[ready_zone.clone()], 12.1, &[], "ready-subtract");
+    native_reference(&[ready_zone], &ready_subtract, 12.1, &[]);
+    let touches = [(101_u64, vec2(0.55, 0.48)), (205, vec2(0.43, 0.55))];
+    overlay_probe(&mut res, aspect, &active, 13.9, &touches, "hover-show-start");
+    let hover = overlay_probe(&mut res, aspect, &active, 14., &touches, "hover-grown");
+    native_reference(&active, &hover, 14., &touches);
+    let hovered_again = overlay_probe(&mut res, aspect, &active, 14.05, &touches, "hover-sdf-next");
+    native_reference(&active, &hovered_again, 14.05, &touches);
+    assert_ne!(hover.bytes, hovered_again.bytes, "hover SDF and shine must evolve");
+    overlay_probe(&mut res, aspect, &active, 14.06, &[], "hover-hide-start");
+    let hidden = overlay_probe(&mut res, aspect, &active, 14.17, &[], "hover-hidden");
+    native_reference(&active, &hidden, 14.17, &[]);
+    overlay_probe(&mut res, aspect, &active, 14.18, &touches, "hover-reset-show");
+    overlay_probe(&mut res, aspect, &active, 14.29, &touches, "hover-reset-grown");
+    block_shader::reset_block_effects();
+    let reset = overlay_probe(&mut res, aspect, &active, 14.30, &[], "hover-new-chart-reset");
+    native_reference(&active, &reset, 14.30, &[]);
+
+    // The underlay note must be captured and displaced by the Active postprocess.
+    clear_background(Color::new(0.1, 0.1, 0.1, 1.));
+    draw_rectangle(-0.4, -0.08, 0.8, 0.16, YELLOW);
+    block_shader::draw_layer_at(&mut res, aspect, &active, 15., false, &[]);
+    let covered_note = screen_pixels();
+    covered_note.export_png("target/block-area-gpu/note-under-active.png");
+    let n = pixel(&covered_note, 480, 270);
+    assert_ne!(n, [255, 255, 0, 255], "a note below active block must receive its composite");
+
+    // Exercise the actual manual chart render-pass path, including the dummy
+    // multisample pass. Production draw_zones never calls set_camera.
+    for samples in [1, 4] {
+        res.chart_target = Some(MSRenderTarget::new((960, 540), samples));
+        let target = res.chart_target.as_ref().unwrap();
+        unsafe { get_internal_gl() }
+            .quad_gl
+            .render_pass(Some(if samples > 1 { target.input() } else { target.output() }.render_pass));
+        clear_background(Color::new(0.1, 0.1, 0.1, 1.));
+        draw_rectangle(-0.4, -0.08, 0.8, 0.16, YELLOW);
+        if samples > 1 {
+            unsafe { get_internal_gl() }.flush();
+            target.blit();
+        }
+        unsafe { get_internal_gl() }.quad_gl.render_pass(Some(target.output().render_pass));
+        block_shader::draw_layer_at(&mut res, aspect, &active, 15., false, &[]);
+        unsafe { get_internal_gl() }.flush();
+        let target = res.chart_target.as_ref().unwrap();
+        let tex = target.output().texture.raw_miniquad_texture_handle();
+        let mut rgb = vec![0; 960 * 540 * 3];
+        tex.read_pixels(&mut rgb);
+        let center = &rgb[(270 * 960 + 480) * 3..(270 * 960 + 480) * 3 + 3];
+        assert!(center[1] > 180, "MSAA {samples}: scene copy must sample the note in the output pass: {center:?}");
+        unsafe { get_internal_gl() }
+            .quad_gl
+            .render_pass(Some(if samples > 1 { target.input() } else { target.output() }.render_pass));
+        let image = render(&mut res, aspect, &active, &format!("active-msaa-{samples}"), 1., true);
+        assert!(pixel(&image, 580, 270)[0] > pixel(&image, 580, 270)[1] + 10);
+        let note = pixel(&image, 480, 270);
+        assert!(note[0] >= 250 && note[1] >= 247 && note[2] == 0, "following notes must use the default yellow material: {note:?}");
+        let inverted = render(&mut res, aspect, &holes, &format!("invert-msaa-{samples}"), 1., false);
+        assert_eq!(pixel(&inverted, 264, 164)[..3], [25, 25, 25]);
+        unsafe { get_internal_gl() }.quad_gl.render_pass(None);
+        res.chart_target = None;
+    }
+
+    unsafe { get_internal_gl() }.quad_gl.viewport(Some((80, 45, 800, 450)));
+    let image = render(&mut res, aspect, &active, "letterbox", 1., false);
+    assert_eq!(pixel(&image, 50, 50), [25, 25, 25, 255]);
+    assert_eq!(pixel(&image, 100, 100), [25, 25, 25, 255], "viewport resize must retain the mask outside the rectangle");
+    assert!(pixel(&image, 580, 270)[0] > pixel(&image, 580, 270)[1] + 10);
+    unsafe { get_internal_gl() }.quad_gl.viewport(None);
+
+    // Resize back in the same frame. Deleted GL names must not leave a stale
+    // sampler binding in miniquad's cache.
+    let resized = render(&mut res, aspect, &active, "resize-back", 1., false);
+    assert_eq!(resized.bytes, pixels.bytes);
+
+    // Match Chart::render's Y flip, including an off-center rotated zone.
+    let rotated = [Zone {
+        center: Vector::new(0.25, 0.16),
+        angle: 0.4,
+        ..zone(0., 0., 0.2, 0.08, false, true)
+    }];
+    let model = Matrix::identity().append_nonuniform_scaling(&Vector::new(-1., -1.));
+    let mut reflected = None;
+    res.apply_model_of(&model, |res| {
+        reflected = Some(render(res, aspect, &rotated, "chart-model", 1., false));
+    });
+    let reflected = reflected.unwrap();
+    assert_eq!(pixel(&reflected, 600, 347), [25, 25, 25, 255]);
+    let red = pixel(&reflected, 360, 193);
+    assert!(red[0] > red[1] + 10, "chart Y flip and flip_x must reflect the original zone");
+
+    // Parse the real native JSON and use the existing, unchanged transforms.
+    let source = std::fs::read_to_string("data/charts/custom/f681f94e-57d3-4d7c-bfd6-fb8cc3f1dd13/DesultorySignals.technoplanet.0.json").unwrap();
+    let chart = prpr::parse::parse_phigros(&source, Default::default()).unwrap();
+    assert_eq!(chart.block_areas.len(), 160);
+    for (name, t) in [
+        ("opening-1s", 1.),
+        ("opening-4s", 4.),
+        ("beat-221", 221. * 60. / 202.),
+        ("beat-228", 228. * 60. / 202.),
+        ("beat-277", 277. * 60. / 202.),
+        ("beat-308", 308. * 60. / 202.),
+    ] {
+        let zones: Vec<_> = chart
+            .block_areas
+            .iter()
+            .filter_map(|b| {
+                let phase = b.phase(t);
+                if phase == BlockPhase::Hidden {
+                    return None;
+                }
+                let tr = b.transform(t, aspect);
+                Some(block_shader::Zone {
+                    center: tr.center,
+                    half: tr.size.map(|v| v.abs() * 0.5),
+                    angle: tr.rotation.to_radians(),
+                    invert: b.is_subtract,
+                    active: phase == BlockPhase::Active,
+                    ready: phase != BlockPhase::Active && t < b.enable_time && t >= b.enable_time - 0.5,
+                    opacity: if phase == BlockPhase::Active {
+                        1.
+                    } else {
+                        ((t - b.appear_time) / 0.5).clamp(0., 1.) as f32
+                    },
+                })
+            })
+            .collect();
+        println!("{name}: t={t:.6}s, {} visible zones", zones.len());
+        render(&mut res, aspect, &zones, name, t as f32, false);
+    }
+    // Show that a correctly typed scalar uniform works in this macroquad fork.
+    scalar_uniform_probe();
+    println!("All native GPU checks passed.");
+}
+
+fn zone(x: f32, y: f32, hx: f32, hy: f32, invert: bool, active: bool) -> block_shader::Zone {
+    block_shader::Zone {
+        center: Vector::new(x, y),
+        half: Vector::new(hx, hy),
+        angle: 0.,
+        invert,
+        active,
+        ready: false,
+        opacity: 1.,
+    }
+}
+
+fn pixel(image: &Image, x: usize, y: usize) -> [u8; 4] {
+    let i = (y * image.width as usize + x) * 4;
+    image.bytes[i..i + 4].try_into().unwrap()
+}
+
+fn screen_pixels() -> Image {
+    // get_screen_data -> grab_screen binds its scratch texture without restoring
+    // miniquad's cache. Direct readback avoids changing any sampler bindings.
+    unsafe { get_internal_gl() }.flush();
+    let (width, height) = (screen_width() as u16, screen_height() as u16);
+    let mut bytes = vec![0; width as usize * height as usize * 4];
+    unsafe {
+        use miniquad::gl::*;
+        let mut read = 0;
+        glGetIntegerv(0x8CAA, &mut read);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        glReadPixels(0, 0, width as i32, height as i32, GL_RGBA, GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, read as u32);
+    }
+    Image { width, height, bytes }
+}
+
+fn render(res: &mut Resource, aspect: f32, zones: &[block_shader::Zone], name: &str, time: f32, note: bool) -> Image {
+    clear_background(Color::new(0.1, 0.1, 0.1, 1.));
+    let start = std::time::Instant::now();
+    block_shader::draw_zones_at(res, aspect, zones, time);
+    if note {
+        draw_rectangle(-0.01, -0.01, 0.02, 0.02, YELLOW);
+    }
+    unsafe { get_internal_gl() }.flush();
+    let image = if let Some(target) = &res.chart_target {
+        if unsafe { get_internal_gl() }.quad_gl.get_active_render_pass() == Some(target.input().render_pass) {
+            target.blit();
+        }
+        // MSRenderTarget is RGB8; macroquad's get_texture_data allocates RGBA
+        // bytes without converting RGB, so read and expand the native format.
+        let texture = target.output().texture.raw_miniquad_texture_handle();
+        let mut rgb = vec![0; (texture.width * texture.height * 3) as usize];
+        texture.read_pixels(&mut rgb);
+        Image {
+            width: texture.width as u16,
+            height: texture.height as u16,
+            bytes: rgb.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+        }
+    } else {
+        screen_pixels()
+    };
+    let error = unsafe { miniquad::gl::glGetError() };
+    assert_eq!(error, 0, "{name}: GL error {error:#x}");
+    let elapsed = start.elapsed().as_secs_f64() * 1000.;
+    image.export_png(&format!("target/block-area-gpu/{name}.png"));
+    println!("{name}: center {:?}, draw + readback {:.2}ms", pixel(&image, 480, 270), elapsed);
+    image
+}
+
+fn scalar_uniform_probe() {
+    let vertex = "#version 100\nattribute vec3 position; uniform mat4 Model; uniform mat4 Projection; void main(){gl_Position=Projection*Model*vec4(position,1.0);}";
+    let fragment = "#version 100\nprecision highp float; uniform float opacity; void main(){gl_FragColor=vec4(opacity,0.0,0.0,1.0);}";
+    let m = load_material(
+        vertex,
+        fragment,
+        MaterialParams {
+            uniforms: vec![("opacity".into(), miniquad::UniformType::Float1)],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    m.set_uniform("opacity", 0.8_f32);
+    gl_use_material(m);
+    draw_rectangle(-1., -1., 2., 2., WHITE);
+    gl_use_default_material();
+    let image = screen_pixels();
+    assert_eq!(pixel(&image, 480, 270)[..3], [204, 0, 0]);
+    println!("Float1 uniform opacity=0.8_f32: {:?}", pixel(&image, 480, 270));
+}
+
+/// Compare the production port with the real exported ActiveBlock fragment, only
+/// adapting GLES3 syntax to GLES2 and supplying identical input textures.
+fn overlay_probe(res: &mut Resource, aspect: f32, zones: &[Zone], time: f32, touches: &[(u64, Vec2)], name: &str) -> Image {
+    clear_background(Color::new(0.1, 0.1, 0.1, 1.));
+    block_shader::draw_layer_at(res, aspect, zones, time, false, touches);
+    let result = screen_pixels();
+    result.export_png(&format!("target/block-area-gpu/{name}.png"));
+    result
+}
+
+fn native_reference(zones: &[Zone], port: &Image, time: f32, touches: &[(u64, Vec2)]) {
+    native_reference_scene(zones, port, time, touches, None);
+}
+
+fn palette_scene() {
+    clear_background(BLACK);
+    let colors = [
+        RED,
+        GREEN,
+        BLUE,
+        YELLOW,
+        MAGENTA,
+        Color::new(0., 1., 1., 1.),
+        WHITE,
+        Color::new(0.3, 0.15, 0.07, 1.),
+    ];
+    for y in 0..4 {
+        for x in 0..8 {
+            draw_rectangle(-1. + x as f32 * 0.25, -9. / 16. + y as f32 * 9. / 32., 0.25, 9. / 32., colors[(x + y * 3) % 8]);
+        }
+    }
+}
+
+fn native_reference_scene(zones: &[Zone], port: &Image, time: f32, touches: &[(u64, Vec2)], input: Option<&Image>) {
+    use miniquad::{TextureWrap, UniformType as U};
+    let source = std::fs::read_to_string("../_official_src/shader_code/Unlit_ActiveBlock.p0.txt").unwrap();
+    let fragment = source.split("#ifdef FRAGMENT").nth(1).unwrap();
+    let fragment = &fragment[..fragment.rfind("\n#endif").unwrap()];
+    let fragment = fragment
+        .replace("#version 300 es", "#version 100")
+        .replace("#define UNITY_LOCATION(x) layout(location = x)", "#define UNITY_LOCATION(x)")
+        .replace("in highp", "varying highp")
+        .replace("layout(location = 0) out mediump vec4 SV_Target0;", "")
+        .replace("SV_Target0", "gl_FragColor")
+        .replace("textureLod(", "sampleLod(")
+        .replace("texture(", "texture2D(")
+        .replace("_Time", "uUnityTime")
+        // Only texture plumbing changes: pack the four camera channels to fit
+        // miniquad's sampler cache, preserving the complete native body.
+        .replace("texture2D(_DisabledNormalBlockRT, vs_TEXCOORD0.xy)", "vec4(texture2D(_Aux, vs_TEXCOORD0.xy).r)")
+        .replace("texture2D(_DisabledSubtractBlockRT, vs_TEXCOORD0.xy)", "vec4(0.0, texture2D(_Aux, vs_TEXCOORD0.xy).g, 0.0, 0.0)")
+        .replace("texture2D(_ReadyComposeRT, vs_TEXCOORD0.xy)", "vec4(texture2D(_Aux, vs_TEXCOORD0.xy).b)")
+        .replace("texture2D(_TouchHoverRT, vs_TEXCOORD0.xy)", "vec4(texture2D(_Aux, vs_TEXCOORD0.xy).a)")
+        .replace("sampleLod(_TouchHoverRT, u_xlat0.xy, 0.0)", "vec4(texture2D(_Aux, u_xlat0.xy).a)")
+        .replace("_TouchDisplaceMap", "_DisplaceMap")
+        .replace("UNITY_LOCATION(9) uniform mediump sampler2D _DisplaceMap;", "")
+        .replace(
+            "void main()",
+            "uniform mediump sampler2D _Aux;\nvec4 sampleLod(sampler2D s, vec2 uv, float lod) { return texture2D(s, uv); }\nvoid main()",
+        );
+    let vertex = r#"#version 100
+attribute vec3 position;
+uniform mat4 Projection;
+uniform mat4 Model;
+varying highp vec2 vs_TEXCOORD0;
+varying highp vec2 vs_TEXCOORD1;
+varying highp vec2 vs_TEXCOORD2;
+varying highp vec2 vs_TEXCOORD4;
+varying highp vec4 vs_TEXCOORD3;
+varying highp vec2 vs_TEXCOORD5;
+varying highp float vs_TEXCOORD6;
+varying highp vec4 vs_COLOR0;
+void main() {
+ gl_Position = Projection * Model * vec4(position, 1.0);
+ vec2 uv = gl_Position.xy / gl_Position.w * 0.5 + 0.5;
+ vs_TEXCOORD0 = uv; vs_TEXCOORD1 = uv * vec2(0.8, 0.3);
+ vs_TEXCOORD2 = uv * vec2(3.0, 1.2); vs_TEXCOORD4 = uv * vec2(0.55, 0.3);
+ vs_TEXCOORD5 = uv * vec2(1.5, 1.46);
+ vs_TEXCOORD3 = vec4(uv, 0.0, 1.0); vs_TEXCOORD6 = 0.5; vs_COLOR0 = vec4(1.0);
+}"#;
+    let floats: &[(&str, f32)] = &[
+        ("_EdgeOpacity", 0.8),
+        ("_FillStrength", 0.667),
+        ("_FillOpacity", 0.667),
+        ("_GlowIntensity", 0.8),
+        ("_SparkMapOpacity", 5.69),
+        ("_SparkHueShiftAmount", 0.2),
+        ("_SparkDisplaceIntensity", 2.39),
+        ("_DisplaceBlendIntensity", 0.411),
+        ("_DisplaceSpeed", 1.5),
+        ("_DisplaceStrength", 0.15),
+        ("_TouchPosShine", (0.63 + 0.37 * ((time * 43.).sin() * 0.5 + 0.5)) * 2.),
+        ("_TouchPosRadius", 0.5),
+        ("_TouchPosSDFSmoothness", 0.47),
+        ("_TouchPosSDFFalloff", 0.41),
+        ("_BackgroundPixelScale", 6.),
+        ("_ShineSpeed", 37.9),
+        ("_ShineBrightness", 0.12),
+        ("_TouchDisplaceSpeed", 2.9),
+        ("_TouchDisplaceStrength", 0.08),
+        ("_NoiseEvoSpeed", 0.03),
+        ("_NoiseDirChangeSpeed", 60.),
+        ("_NoiseDisplaceStrength", 1.),
+        ("_NoiseRadius", 0.48),
+        ("_NoiseSmoothness", 1.),
+        ("_SDFCellSize", 0.11),
+        ("_SDFSmoothness", 0.63),
+        ("_SDFFalloff", 0.34),
+        ("_SDFMoveSpeed", 9.3),
+        ("_TouchBackgroundPixelScale", 8.),
+    ];
+    let vectors = [
+        ("uUnityTime", vec4(time / 20., time, time * 2., time * 3.)),
+        ("_ScreenParams", vec4(960., 540., 1. + 1. / 960., 1. + 1. / 540.)),
+        ("_EffectRT_TexelSize", vec4(1. / 960., 1. / 540., 960., 540.)),
+        ("_EdgeColor", vec4(1., 0.33018857, 0.33018857, 1.)),
+        ("_FillColor", vec4(0.7132075, 0.23549296, 0.23549296, 1.)),
+        ("_GlowColor", vec4(1., 0.17924517, 0.17924517, 1.)),
+        ("_DisplaceDirection", vec4(1., 1., 0., 0.)),
+        ("_TouchDisplaceDirection", vec4(1., 1., 0., 0.)),
+        ("_ShineColor", vec4(1., 1., 1., 1.)),
+        ("_TouchGlowColor", vec4(1., 0., 0., 1.)),
+        ("_NoiseTint", vec4(1., 0., 0., 1.)),
+    ];
+    let textures = ["_ComposeRT", "_EffectRT", "_DisplaceMap", "_SparkMap", "_SceneColor", "_Aux", "_NoiseMap"];
+    let mut uniforms: Vec<_> = floats.iter().map(|(name, _)| (name.to_string(), U::Float1)).collect();
+    uniforms.extend(vectors.iter().map(|(name, _)| (name.to_string(), U::Float4)));
+    uniforms.push(("_SparkTint".into(), U::Float3));
+    uniforms.push(("_TouchPosCount".into(), U::Int1));
+    for i in 0..10 {
+        uniforms.push((format!("_TouchPos[{i}]"), U::Float2));
+    }
+    let material = load_material(
+        vertex,
+        &fragment,
+        MaterialParams {
+            uniforms,
+            textures: textures.iter().map(|name| name.to_string()).collect(),
+            pipeline_params: PipelineParams {
+                color_blend: Some(miniquad::BlendState::new(
+                    miniquad::Equation::Add,
+                    miniquad::BlendFactor::One,
+                    miniquad::BlendFactor::OneMinusValue(miniquad::BlendValue::SourceAlpha),
+                )),
+                ..Default::default()
+            },
+        },
+    )
+    .unwrap();
+    for (name, value) in floats {
+        material.set_uniform(name, *value);
+    }
+    for (name, value) in vectors {
+        material.set_uniform(name, value);
+    }
+    material.set_uniform("_SparkTint", vec3(1., 0.28490567, 0.28490567));
+    material.set_uniform("_TouchPosCount", touches.len() as i32);
+    for i in 0..10 {
+        material.set_uniform(&format!("_TouchPos[{i}]"), touches.get(i).map_or(vec2(0., 0.), |(_, p)| *p * vec2(16. / 9., 1.)));
+    }
+    let zero = Texture2D::from_rgba8(1, 1, &[0, 0, 0, 0]);
+    for name in textures {
+        material.set_texture(name, zero);
+    }
+    let load = |bytes: &[u8], wrap| {
+        let source = image::imageops::flip_vertical(&image::load_from_memory(bytes).unwrap().to_rgba8());
+        let texture = Texture2D::from_rgba8(source.width() as u16, source.height() as u16, source.as_raw());
+        texture.set_filter(FilterMode::Nearest);
+        texture
+            .raw_miniquad_texture_handle()
+            .set_wrap(unsafe { get_internal_gl() }.quad_context, wrap);
+        texture
+    };
+    let displace = load(include_bytes!("../../assets/blockarea/BlockNoise1.png"), TextureWrap::Mirror);
+    let spark = load(include_bytes!("../../assets/blockarea/PointNoise.png"), TextureWrap::Repeat);
+    material.set_texture("_DisplaceMap", displace);
+    material.set_texture("_SparkMap", spark);
+    let noise = load(include_bytes!("../../assets/blockarea/FD_Noise_00000.png"), TextureWrap::Mirror);
+    // The independent oracle samples the original packed RGB565 data, rather
+    // than sharing the production shader's PNG recovery helper.
+    let packed = std::fs::read("target/block-area-native-textures/FD_Noise_00000.rgb565").unwrap();
+    unsafe {
+        use miniquad::gl::*;
+        let mut bound = 0;
+        glGetIntegerv(0x8069, &mut bound);
+        glBindTexture(GL_TEXTURE_2D, noise.raw_miniquad_texture_handle().gl_internal_id());
+        glTexImage2D(GL_TEXTURE_2D, 0, 0x8D62, 256, 256, 0, GL_RGB, 0x8363, packed.as_ptr() as _);
+        glBindTexture(GL_TEXTURE_2D, bound as u32);
+        assert_eq!(glGetError(), 0);
+    }
+    if time == 14. {
+        let t = render_target(256, 256);
+        let old = unsafe { get_internal_gl() }.quad_gl.get_active_render_pass();
+        unsafe {
+            use miniquad::gl::*;
+            let mut bound = 0;
+            glGetIntegerv(0x8069, &mut bound);
+            glBindTexture(GL_TEXTURE_2D, t.texture.raw_miniquad_texture_handle().gl_internal_id());
+            glTexImage2D(GL_TEXTURE_2D, 0, 0x8814, 256, 256, 0, GL_RGBA, GL_FLOAT, std::ptr::null());
+            glBindTexture(GL_TEXTURE_2D, bound as u32);
+        }
+        let sample = load_material(
+            "#version 100\nattribute vec3 position;uniform mat4 Model;uniform mat4 Projection;varying highp vec2 uv;void main(){gl_Position=Projection*Model*vec4(position,1.);uv=position.xy*vec2(0.5,16./18.)+0.5;}",
+            "#version 100\nprecision highp float;varying highp vec2 uv;uniform mediump sampler2D t;void main(){gl_FragColor=texture2D(t,uv);}",
+            MaterialParams { textures: vec!["t".into()], ..Default::default() }
+        ).unwrap();
+        sample.set_texture("t", noise);
+        unsafe { get_internal_gl() }.quad_gl.render_pass(Some(t.render_pass));
+        gl_use_material(sample);
+        draw_rectangle(-1., -9. / 16., 2., 18. / 16., WHITE);
+        gl_use_default_material();
+        unsafe { get_internal_gl() }.flush();
+        let mut values = vec![0_f32; 256 * 256 * 4];
+        unsafe {
+            use miniquad::gl::*;
+            let mut f = 0;
+            glGetIntegerv(0x8CAA, &mut f);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, t.render_pass.gl_internal_id(get_internal_gl().quad_context));
+            glReadPixels(0, 0, 256, 256, GL_RGBA, GL_FLOAT, values.as_mut_ptr() as _);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, f as u32);
+        }
+        println!("Native RGB565 direct samples: {:?}", &values[..16]);
+        unsafe { get_internal_gl() }.quad_gl.render_pass(old);
+    }
+    material.set_texture("_NoiseMap", noise);
+    let mut masks = reference_mask::Masks::default();
+    masks.render_displaced(960, 540, 16. / 9., zones, time);
+    let mut hover = reference_touch::TouchMask::default();
+    hover.update_fingers(touches, time - 0.101);
+    hover.update_fingers(touches, time);
+    for y in 0..masks.height {
+        for x in 0..masks.width {
+            let uv = vec2(((x / 2) as f32 + 0.5) / (masks.width / 2) as f32, ((y / 2) as f32 + 0.5) / (masks.height / 2) as f32);
+            masks.aux_rgba[(y * masks.width + x) * 4 + 3] = hover.sample(uv, 16. / 9.);
+        }
+    }
+    let aux = Texture2D::from_rgba8(masks.width as u16, masks.height as u16, &masks.aux_rgba);
+    aux.set_filter(FilterMode::Nearest);
+    material.set_texture("_Aux", aux);
+    let compose: Vec<u8> = masks.rgba.chunks_exact(4).flat_map(|p| [p[0], 0, 0, 255]).collect();
+    let effect: Vec<u8> = masks.rgba.chunks_exact(4).flat_map(|p| [p[1], p[2], 0, 255]).collect();
+    let scene: Vec<u8> = (0..180)
+        .flat_map(|y| {
+            (0..320).flat_map(move |x| {
+                input.map_or([25, 25, 25, 255], |image| {
+                    let i = ((y * 3 + 1) * 960 + x * 3 + 1) * 4;
+                    image.bytes[i..i + 4].try_into().unwrap()
+                })
+            })
+        })
+        .collect();
+    let compose = Texture2D::from_rgba8(masks.width as u16, masks.height as u16, &compose);
+    compose.set_filter(FilterMode::Nearest);
+    let effect = Texture2D::from_rgba8(masks.width as u16, masks.height as u16, &effect);
+    effect.set_filter(FilterMode::Linear);
+    let scene = Texture2D::from_rgba8(320, 180, &scene);
+    scene.set_filter(FilterMode::Nearest);
+    material.set_texture("_ComposeRT", compose);
+    material.set_texture("_EffectRT", effect);
+    material.set_texture("_SceneColor", scene);
+    material.set_uniform("_EffectRT_TexelSize", vec4(1. / masks.width as f32, 1. / masks.height as f32, masks.width as f32, masks.height as f32));
+    clear_background(Color::new(0.1, 0.1, 0.1, 1.));
+    if input.is_some() {
+        palette_scene();
+    }
+    gl_use_material(material);
+    draw_rectangle(-1., -9. / 16., 2., 18. / 16., WHITE);
+    gl_use_default_material();
+    let reference = screen_pixels();
+    reference.export_png("target/block-area-gpu/native-reference.png");
+    let max_error = reference.bytes.iter().zip(&port.bytes).map(|(&a, &b)| a.abs_diff(b)).max().unwrap();
+    let different = reference.bytes.iter().zip(&port.bytes).filter(|(a, b)| a != b).count();
+    println!("Exported ActiveBlock GLSL comparison at {time}s: max channel error {max_error}, {different} differing channels");
+    assert_eq!(max_error, 0, "material arithmetic must match the exported fragment pixel for pixel");
+}

@@ -12,11 +12,11 @@ use crate::{
     bin::BinaryReader,
     config::{Config, Mods},
     core::{copy_fbo, BadNote, Chart, ChartExtra, Effect, JudgeLineKind, NoteKind, Point, Resource, UIElement, Vector, PGR_FONT},
-    ext::{parse_time, screen_aspect, semi_white, RectExt, SafeTexture, ScaleType},
+    ext::{parse_time, screen_aspect, semi_white, spawn_task, RectExt, SafeTexture, ScaleType},
     fs::FileSystem,
     info::{ChartFormat, ChartInfo},
     judge::{Judge, Judgement, RecentHit},
-    parse::{parse_extra, parse_pec, parse_phigros, parse_rpe},
+    parse::{parse_extra, parse_pec, parse_phigros, parse_rpe, SendChart},
     task::Task,
     time::TimeManager,
     ui::{OffsetAnalysisPanel, OffsetPanelAction, OffsetPanelLabels, RectButton, TextPainter, Ui},
@@ -268,9 +268,9 @@ fn combo_label(config: &crate::config::Config) -> &str {
 }
 
 #[rustfmt::skip]
-#[cfg(closed)]
+#[cfg(record)]
 mod inner;
-#[cfg(closed)]
+#[cfg(record)]
 use inner::*;
 
 const WAIT_TIME: f64 = 0.5;
@@ -290,6 +290,8 @@ pub struct SimpleRecord {
     pub counts: [u32; 4],
     /// 判定误差分布（早 ← → 晚）。
     pub hist: Vec<u32>,
+    /// 本局有效命中的偏差标准差（秒），用于成绩详情页显示「无瑕度」。
+    pub std: f32,
 }
 
 impl SimpleRecord {
@@ -390,6 +392,7 @@ pub struct GameScene {
     best_record: Option<SimpleRecord>,
 
     pub touch_points: Vec<(f32, f32)>,
+    block_audio: crate::core::BlockAudio,
     fps_frame_count: u32,
     fps_total_time: f64,
     fps_last_frame_time: f64,
@@ -402,6 +405,7 @@ macro_rules! reset {
         $self.bad_notes.clear();
         $self.judge.reset();
         $self.chart.reset();
+        $self.block_audio.reset();
         $res.judge_line_color = $res.res_pack.info.color_perfect();
         $self.music.pause()?;
         $self.music.seek_to(0.)?;
@@ -434,16 +438,15 @@ impl GameScene {
 
     pub fn infer_chart_format(info: &ChartInfo, bytes: &[u8]) -> ChartFormat {
         info.format.clone().unwrap_or_else(|| {
-            if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                if text.starts_with('{') {
-                    if text.contains("\"META\"") {
-                        ChartFormat::Rpe
-                    } else {
-                        ChartFormat::Pgr
-                    }
+            // 只做无损探测：绝不对整份谱面做 `to_vec()` 复制（巨型谱面可达数百 MB）。
+            if bytes.first() == Some(&b'{') {
+                if bytes.windows(6).any(|w| w == b"\"META\"") {
+                    ChartFormat::Rpe
                 } else {
-                    ChartFormat::Pec
+                    ChartFormat::Pgr
                 }
+            } else if std::str::from_utf8(bytes).is_ok() {
+                ChartFormat::Pec
             } else {
                 ChartFormat::Pbc
             }
@@ -457,12 +460,29 @@ impl GameScene {
         } else {
             ChartExtra::default()
         };
-        let bytes = Self::load_chart_bytes(fs, info).await.context("Failed to load chart")?;
+        let mut bytes = Self::load_chart_bytes(fs, info).await.context("Failed to load chart")?;
         let format = Self::infer_chart_format(info, &bytes);
         let mut chart = match format {
             ChartFormat::Rpe => parse_rpe(&String::from_utf8_lossy(&bytes), fs, extra, info.use_rpe_170_speed.unwrap_or_default()).await,
             ChartFormat::Pgr => parse_phigros(&String::from_utf8_lossy(&bytes), extra),
-            ChartFormat::Pec => parse_pec(&String::from_utf8_lossy(&bytes), extra),
+            ChartFormat::Pec => {
+                // 巨型 PEC 谱（可达数百 MB、物量百万级）逐行解析要 2~3 秒。放到后台线程解析，
+                // 主线程只等待结果，加载界面在解析期间保持流畅，不再整帧冻结。
+                // `extra` 可能含 effect 等非 Send 内容，留在主线程、拿到结果后再装配。
+                let b = std::mem::take(&mut bytes);
+                let (c, b) = spawn_task(move || -> Result<(SendChart, Vec<u8>)> {
+                    let chart = {
+                        let text = String::from_utf8_lossy(&b);
+                        parse_pec(&text, ChartExtra::default())?
+                    };
+                    Ok((SendChart(chart), b))
+                })
+                .await?;
+                bytes = b;
+                let mut chart = c.0;
+                chart.extra = extra;
+                Ok(chart)
+            }
             ChartFormat::Pbc => {
                 let mut r = BinaryReader::new(Cursor::new(&bytes));
                 r.read()
@@ -547,6 +567,7 @@ impl GameScene {
         judge.set_hp_scale(res.config.hp_scale);
 
         let music = Self::new_music(&mut res)?;
+        crate::core::reset_block_effects();
         Ok(Self {
             should_exit: false,
             next_scene: None,
@@ -589,6 +610,7 @@ impl GameScene {
             best_record: None,
 
             touch_points: Vec::new(),
+            block_audio: Default::default(),
 
             fps_frame_count: 0,
             fps_total_time: 0.0,
@@ -760,7 +782,10 @@ impl GameScene {
                 }
             }
             // 判定条独立于 combo 是否显示；位置取屏高的 1/6 处（`-top` 即 ui 空间里的半个屏高）。
-            draw_offset_indicator(ui, res, self.judge.recent_hits(), top + (-top) / 3.);
+            // 可在 设置 → 谱面 里关掉（`item-offset-indicator`）。
+            if res.config.offset_indicator {
+                draw_offset_indicator(ui, res, self.judge.recent_hits(), top + (-top) / 3.);
+            }
             // 血条模式：与暂停按钮同高、紧贴其右侧；长度由配置控制，高度是相对暂停按钮的倍率。
             if res.config.hp_mode {
                 let h = pause_h * res.config.hp_height;
@@ -892,6 +917,7 @@ impl GameScene {
                             ..Default::default()
                         },
                     )?;
+                    self.block_audio.reset();
                 }
                 match clicked {
                     Some(-1) => {
@@ -1061,13 +1087,20 @@ impl GameScene {
                 ui.text(t.to_string()).anchor(0.5, 0.5).size(1.).color(c).draw();
             }
         }
+        let touch_size = self.res.config.touch_point_size;
+        let touch_alpha = self.res.config.touch_point_alpha;
         if self.res.config.touch_debug {
+            // 颜色可调；透明度与半径和回放触点共用同一组配置。
+            let color = Color {
+                a: touch_alpha,
+                ..Color::from_hex_rgb(self.res.config.touch_point_color)
+            };
             for touch in Judge::get_touches() {
-                ui.fill_circle(touch.position.x, touch.position.y, 0.04, Color { a: 0.4, ..RED });
+                ui.fill_circle(touch.position.x, touch.position.y, touch_size, color);
             }
         }
         for pos in &self.touch_points {
-            ui.fill_circle(pos.0, pos.1, 0.04, Color { a: 0.4, ..BLUE });
+            ui.fill_circle(pos.0, pos.1, touch_size, Color { a: touch_alpha, ..BLUE });
         }
         Ok(())
     }
@@ -1076,8 +1109,30 @@ impl GameScene {
         res.config.interactive && matches!(state, State::Playing)
     }
 
-    fn offset(&self) -> f32 {
+    pub fn offset(&self) -> f32 {
         self.chart.offset + self.res.config.offset + self.info_offset
+    }
+
+    /// 回放 / 观战专用：按调用方已设置好的 `res.time` 刷新谱面动画、特效与判定线颜色。
+    ///
+    /// 不推进状态机、不处理输入判定（判定由回放器自行 `judge.commit`）。
+    /// 曲名/分数等 HUD 由 `render` 内的 `ui()` 正常绘制，此处只补状态机之外的那部分。
+    pub fn tick_replay(&mut self) {
+        let counts = self.judge.counts();
+        self.res.judge_line_color = if counts[2] + counts[3] == 0 && self.res.config.ap_fc_indicator {
+            if counts[1] == 0 {
+                self.res.res_pack.info.color_perfect()
+            } else {
+                self.res.res_pack.info.color_good()
+            }
+        } else {
+            WHITE
+        };
+        self.res.judge_line_color.a *= self.res.alpha;
+        self.chart.update(&mut self.res);
+        for e in &mut self.effects {
+            e.update(&self.res);
+        }
     }
 
     fn tweak_offset(&mut self, ui: &mut Ui, ita: bool) {
@@ -1127,6 +1182,8 @@ impl Scene for GameScene {
             self.pause_rewind = None;
             self.music.pause()?;
             tm.pause();
+            self.chart.blocked_touches.clear();
+            self.block_audio.suspend(&mut self.music);
         }
         #[cfg(target_env = "ohos")]
         miniquad::native::set_interceptor_state(false);
@@ -1237,22 +1294,24 @@ impl Scene for GameScene {
             State::Ending => {
                 let t = time - self.res.track_length - WAIT_TIME;
                 if t >= AFTER_TIME + 0.3 {
-                    let mut record_data = None;
-                    // TODO strengthen the protection
-                    #[cfg(closed)]
-                    if let Some(upload_fn) = &self.upload_fn {
-                        if !self.res.config.offline_mode
-                            && !self.res.config.mods.intersects(Mods::UNRATED)
-                            && !self.res.config.use_keyboard
-                            && self.res.config.speed >= 1.0 - 1e-3
-                        {
-                            if let Some(player) = &self.player {
-                                if let Some(chart) = &self.res.info.id {
-                                    record_data = Some(encode_record(self, player.id, *chart));
+                    // 成绩上传（仅 record 构建）：开启「上传成绩」且本局严格按官方默认的
+                    // 判定 / 玩法进行（`is_official_play`）时，才产生可上传的成绩数据。
+                    #[cfg(record)]
+                    let record_data = {
+                        let mut data = None;
+                        if let Some(upload_fn) = &self.upload_fn {
+                            if self.res.config.upload_record && self.res.config.is_official_play(self.res.config.mods) {
+                                if let Some(player) = &self.player {
+                                    if let Some(chart) = &self.res.info.id {
+                                        data = Some(encode_record(self, player.id, *chart));
+                                    }
                                 }
                             }
                         }
-                    }
+                        data
+                    };
+                    #[cfg(not(record))]
+                    let record_data = None;
                     let result = self.judge.result(self.res.config.has_mod(Mods::NO_COMBO_SCORE));
                     let record = if self.res.config.mods.intersects(Mods::UNRATED) || self.res.config.speed < 1.0 - 1e-3 {
                         None
@@ -1271,6 +1330,7 @@ impl Scene for GameScene {
                                 result.counts[3],
                             ],
                             hist: result.hist.to_vec(),
+                            std: result.std,
                         })
                     };
                     self.next_scene = match self.mode {
@@ -1325,6 +1385,15 @@ impl Scene for GameScene {
             self.gl.quad_gl.viewport(self.res.camera.viewport);
             self.judge.update(&mut self.res, &mut self.chart, &mut self.bad_notes);
             self.gl.quad_gl.viewport(None);
+        } else {
+            // A paused/view scene must not retain the previous frame's finger
+            // IDs, hover, or a music filter after resuming.
+            self.chart.blocked_touches.clear();
+        }
+        if tm.paused() || self.pause_rewind.is_some() {
+            self.block_audio.suspend(&mut self.music);
+        } else {
+            self.block_audio.sync(&mut self.music, matches!(self.state, State::Playing) && !self.chart.blocked_touches.is_empty());
         }
         if let Some(update) = &mut self.update_fn {
             update(self.res.time, &mut self.res, &mut self.judge);
@@ -1535,6 +1604,9 @@ impl Scene for GameScene {
         }
         self.ui(ui, tm)?;
         self.overlay_ui(ui, tm)?;
+        // Official ActiveBlock runs at CameraEvent.AfterForwardAlpha, after
+        // notes and HUD. It captures the complete underlay before compositing.
+        self.chart.render_block_overlay(&mut self.res);
 
         if self.mode == GameMode::TweakOffset {
             push_camera_state();

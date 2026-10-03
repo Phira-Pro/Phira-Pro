@@ -1,4 +1,4 @@
-use super::{BpmList, Effect, JudgeLine, JudgeLineKind, Matrix, Resource, UIElement, Vector};
+use super::{BlockArea, BpmList, Effect, JudgeLine, JudgeLineKind, Matrix, Resource, UIElement, Vector, Zone, draw_disabled_zones, draw_zones_with_touches};
 use crate::{core::Object, fs::FileSystem, judge::JudgeStatus, ui::Ui};
 use anyhow::{Context, Result};
 use macroquad::prelude::*;
@@ -38,6 +38,11 @@ pub struct Chart {
     pub attach_ui: [Option<usize>; 7],
 
     pub hitsounds: HitSoundMap,
+
+    /// Phigros 9th-chapter touch-blocking zones (`blockAreaList`).
+    pub block_areas: Vec<BlockArea>,
+    /// Chart-space positions of touches blocked by the zones this frame.
+    pub blocked_touches: Vec<(u64, Vector)>,
 }
 
 impl Chart {
@@ -65,6 +70,8 @@ impl Chart {
             attach_ui,
 
             hitsounds,
+            block_areas: Vec::new(),
+            blocked_touches: Vec::new(),
         }
     }
 
@@ -105,6 +112,8 @@ impl Chart {
     }
 
     pub fn reset(&mut self) {
+        self.blocked_touches.clear();
+        super::reset_block_effects();
         self.lines
             .iter_mut()
             .flat_map(|it| it.notes.iter_mut())
@@ -157,6 +166,9 @@ impl Chart {
             }
         }
         res.apply_model_of(&Matrix::identity().append_nonuniform_scaling(&Vector::new(if res.config.flip_x() { -1. } else { 1. }, -1.)), |res| {
+            // Native Background sorting layer order 2, judge lines order 3.
+            let zones = self.block_zones(res);
+            draw_disabled_zones(res, res.aspect_ratio, &zones);
             let mut guard = self.bpm_list.borrow_mut();
             for id in &self.order {
                 self.lines[*id].render(ui, res, &self.lines, &mut guard, &self.settings, *id);
@@ -182,5 +194,23 @@ impl Chart {
                 }
             }
         });
+    }
+
+    pub fn render_block_overlay(&self, res: &mut Resource) {
+        let flip_x = res.config.flip_x();
+        let zones = self.block_zones(res);
+        res.apply_model_of(&Matrix::identity().append_nonuniform_scaling(&Vector::new(if flip_x { -1. } else { 1. }, -1.)), |res| {
+            draw_zones_with_touches(res, res.aspect_ratio, &zones, &self.blocked_touches, flip_x);
+        });
+    }
+
+    fn block_zones(&self, res: &Resource) -> Vec<Zone> {
+        let aspect = res.aspect_ratio;
+        let t = res.time;
+        self
+            .block_areas
+            .iter()
+            .filter_map(|b| Zone::from_area(b, t, aspect))
+            .collect()
     }
 }

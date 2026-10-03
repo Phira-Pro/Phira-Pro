@@ -836,8 +836,10 @@ impl Editor {
         }
 
         // 3) 工具条：第一行页面切换，第二行工具（页数多了以后拆成两行，避免超屏）。
-        let (w, h, gap) = (0.15, 0.06, 0.009);
-        let y = -ui.top + 0.025;
+        // 按钮统一尺寸；若某语言的文案太长，则整行统一缩小字号（而不是截断成「玩…」）。
+        let (w, h, gap) = (0.2, 0.062, 0.01);
+        let radius = 0.016;
+        let y = -ui.top + 0.026;
         let page_labels = [
             tl!("hud-page-home"),
             tl!("hud-page-library"),
@@ -848,18 +850,28 @@ impl Editor {
             tl!("hud-page-respack"),
             tl!("hud-page-blacklist"),
         ];
+        let page_max_w = w - 0.02;
+        let mut page_need = 0f32;
+        for label in &page_labels {
+            page_need = page_need.max(ui.text(label.as_ref()).size(0.42).no_baseline().measure().w);
+        }
+        let page_size = if page_need > page_max_w && page_need > 0. {
+            0.42 * page_max_w / page_need
+        } else {
+            0.42
+        };
         let total = page_labels.len() as f32 * w + (page_labels.len() as f32 - 1.) * gap;
         let mut x = -total / 2.;
         for (i, label) in page_labels.into_iter().enumerate() {
             let r = Rect::new(x, y, w, h);
             let active = cur_page() == PageId::ALL[i];
-            ui.fill_rect(r, if active { Color::new(1., 0.8, 0.3, 0.95) } else { Color::new(0., 0., 0., 0.6) });
+            ui.fill_path(&r.rounded(radius), if active { Color::new(1., 0.8, 0.3, 0.95) } else { Color::new(0., 0., 0., 0.6) });
             ui.text(label)
                 .pos(r.x + r.w / 2., r.y + r.h / 2.)
                 .anchor(0.5, 0.5)
                 .no_baseline()
-                .max_width(r.w * 0.94)
-                .size(0.42)
+                .max_width(page_max_w)
+                .size(page_size)
                 .color(if active { Color::new(0.1, 0.1, 0.1, 1.) } else { WHITE })
                 .draw();
             let mut b = RectButton::new();
@@ -875,17 +887,26 @@ impl Editor {
             tl!("hud-reset-all"),
             tl!("hud-done"),
         ];
+        let mut tool_need = 0f32;
+        for label in &tool_labels {
+            tool_need = tool_need.max(ui.text(label.as_ref()).size(0.42).no_baseline().measure().w);
+        }
+        let tool_size = if tool_need > page_max_w && tool_need > 0. {
+            0.42 * page_max_w / tool_need
+        } else {
+            0.42
+        };
         let total2 = tool_labels.len() as f32 * w + (tool_labels.len() as f32 - 1.) * gap;
         let mut x = -total2 / 2.;
         for (i, label) in tool_labels.into_iter().enumerate() {
             let r = Rect::new(x, y2, w, h);
-            ui.fill_rect(r, Color::new(0., 0., 0., 0.6));
+            ui.fill_path(&r.rounded(radius), Color::new(0., 0., 0., 0.6));
             ui.text(label)
                 .pos(r.x + r.w / 2., r.y + r.h / 2.)
                 .anchor(0.5, 0.5)
                 .no_baseline()
-                .max_width(r.w * 0.94)
-                .size(0.42)
+                .max_width(page_max_w)
+                .size(tool_size)
                 .color(WHITE)
                 .draw();
             let mut b = RectButton::new();
@@ -928,7 +949,7 @@ impl Editor {
                 .draw();
             for (id, label) in items {
                 let r = Rect::new(bx, by, bw, bh);
-                ui.fill_rect(r, Color::new(0., 0., 0., 0.6));
+                ui.fill_path(&r.rounded(0.014), Color::new(0., 0., 0., 0.6));
                 ui.text(label)
                     .pos(r.x + r.w / 2., r.y + r.h / 2.)
                     .anchor(0.5, 0.5)
@@ -955,7 +976,7 @@ impl Editor {
             for i in 0..tab_count {
                 let r = Rect::new(bx, by, bw, bh);
                 let active = i == tab_sel;
-                ui.fill_rect(r, if active { Color::new(1., 0.8, 0.3, 0.95) } else { Color::new(0., 0., 0., 0.6) });
+                ui.fill_path(&r.rounded(0.014), if active { Color::new(1., 0.8, 0.3, 0.95) } else { Color::new(0., 0., 0., 0.6) });
                 ui.text(format!("{}", i + 1))
                     .pos(r.x + r.w / 2., r.y + r.h / 2.)
                     .anchor(0.5, 0.5)

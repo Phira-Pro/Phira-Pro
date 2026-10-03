@@ -159,28 +159,18 @@ pub fn render_chart_info(ui: &mut Ui, edit: &mut ChartInfoEdit, width: f32) -> (
             }
         }
 
-        let mut string = format!("{:.5}", info.aspect_ratio);
+        // Phira Pro：显示成 16:9 / 4:3 这样的比例形式（官方是 1.77778 这种小数形式），
+        // 输入仍然同时接受 `16:9` 与小数两种写法。
+        let mut string = crate::format_aspect_ratio(info.aspect_ratio);
         let mut changed = false;
         let r = ui.input(tl!("aspect-ratio"), &mut string, (len, &mut changed));
         dy!(r.h + s);
         if changed {
             edit.updated = true;
-            match || -> Result<f32> {
-                if let Some((w, h)) = string.split_once([':', '：']) {
-                    Ok(w.trim().parse::<f32>()? / h.trim().parse::<f32>()?)
-                } else {
-                    Ok(string.parse()?)
-                }
-            }() {
-                Err(_) => {
+            match crate::parse_aspect_ratio(&string) {
+                Some(value) => info.aspect_ratio = value,
+                None => {
                     show_message(tl!("illegal-input")).error();
-                }
-                Ok(value) => {
-                    if value.is_finite() && value > 0.0 {
-                        info.aspect_ratio = value;
-                    } else {
-                        show_message(tl!("illegal-input")).error();
-                    }
                 }
             }
         }

@@ -132,3 +132,12 @@ stabilize-denied = Negado
 stabilize-denied-passed = Negado, o beatmap foi rejeitado
 mods-no-combo-score = Sem pontos de combo
 mods-no-combo-score-sub = O combo máximo não entra na pontuação (pontuação = precisão × 1000000). *Não é possível enviar pontuações com este mod*
+ldb-local = Local
+ldb-acc = Precisão
+ldb-local-title = Recordes locais
+ldb-local-empty = Ainda sem registros locais. Jogue uma rodada para ver aqui.
+ldb-local-no-hit = O clique não atingiu nenhuma das { $count } linhas locais
+
+mp-forced-official = Online: opções alteradas de julgamento / jogabilidade foram restauradas aos padrões oficiais
+
+flash-autoplay-unrated = Reprodução automática ativada: esta partida não será enviada e as configurações de julgamento foram restauradas ao padrão

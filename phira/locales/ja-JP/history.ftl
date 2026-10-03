@@ -26,3 +26,14 @@ trend-axis = 古い ← → 新しい
 list-more = さらに { $count } 件の古い記録は非表示
 stat-avg = 平均
 stat-all-title = すべての譜面
+
+
+daily-title = デイリーチャレンジ
+daily-start = 開始
+daily-todo = 未達成
+daily-done = 達成 { $score }
+daily-no-chart = 先に譜面をインポートしてください
+daily-speed = 速度 1.1x
+daily-strict = 厳格判定 ±60ms
+daily-health = ヘルスモード
+daily-nohints = ヒントなし

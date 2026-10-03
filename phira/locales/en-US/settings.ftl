@@ -89,7 +89,7 @@ item-use-keyboard = Use Keyboard
 item-use-keyboard-sub = Enable keyboard input for gameplay. Scores cannot be uploaded when enabled.
 item-prefer-reduced-motion = Prefer Reduced Motion
 item-prefer-reduced-motion-sub = Reduce animations and visual effects
-item-speed = Speed
+item-speed = Chart Rate
 item-note-size = Note Size
 
 item-chart-debug = Show Line ID
@@ -98,6 +98,18 @@ item-show-fps = Show FPS
 item-show-fps-sub = Show the current framerate in the bottom-left corner
 item-touch-debug = Show Touch Points
 item-touch-debug-sub = Display user touch points.
+item-touch-color = Touch Point Color
+item-touch-color-sub = Tap to cycle the color of the touch point indicator.
+item-touch-alpha = Touch Point Opacity
+item-touch-size = Touch Point Size
+item-reset-settings = Reset All Settings
+item-reset-settings-sub = Restore every option on this page to its default value.
+item-reset-settings-btn = Reset
+reset-settings-title = Reset All Settings
+reset-settings-text = Every option on the settings page (language, theme, judgement / gameplay, debug, ...) will be restored to its default. Your account, charts, scores and imported resources are kept.
+reset-settings-done = Settings restored to defaults
+reset-settings-cancel = Cancel
+reset-settings-confirm = Confirm
 
 load-cali-failed = Failed to load calibration audio.
 
@@ -148,9 +160,9 @@ about-content =
   And many more voluntary chart reviewers. For a full list please refer to https://phira.moe/staff .
 
 item-drag-protect = Drag Protection
-item-drag-protect-sub = A tap is no longer eaten by an overlapping Drag (yellow) note.
+item-drag-protect-sub = Clicks are assigned to the closest note in time: if the tap is meant for a drag note, overlapping tap / hold notes are left unjudged.
 item-flick-protect = Flick Protection
-item-flick-protect-sub = A tap is no longer eaten by an overlapping Flick (red) note.
+item-flick-protect-sub = Clicks are assigned to the closest note in time: if the tap is meant for a flick note, overlapping tap / hold notes are left unjudged.
 item-combo-text = Combo Label
 item-combo-text-sub = The text shown under the combo counter in game (up to 16 characters)
 combo-text-default = Default
@@ -161,7 +173,7 @@ item-judge-chart-sub = Draw a judgement timing distribution chart on the ending 
 item-hp-scale = Health Bar Rate
 item-hp-color = Health Bar Color
 item-upload = Upload Scores
-item-upload-sub = [THIS BUILD CANNOT UPLOAD] The switch has no effect; scores are kept on this device only
+item-upload-sub = This build ships without the upload channel, so the switch has no effect: scores stay on this device
 item-upload-consent = Upload Consent
 item-upload-consent-open = View
 item-history = Score History
@@ -183,7 +195,7 @@ font-reset-done = Built-in font restored; restart the app to apply
 upload-consent-title = Score Upload: Informed Consent and Disclaimer
 upload-consent-accept = I have read and agree
 upload-consent-deny = Disagree
-upload-consent-text = When enabled, this run's score (chart ID, score / accuracy / judgement, chart version timestamp, account credentials) is uploaded to the Phira official server; no device info or other files are uploaded, and when disabled scores stay on this device. Note that this build's upload channel is disabled at compile time, so the switch only records your intent and scores are in fact kept locally. This is an unofficial build with no affiliation to TeamFlos / Phira; if a score differs from the official client, you bear the consequences alone.
+upload-consent-text = Results from this build are not sent to any server and stay on this device. When enabled, the upload contains only: this play's result (chart ID, score / accuracy / judgements, chart version timestamp, account credentials) - no device information or other files; and only plays with unmodified judgement and gameplay count toward it - enabling any of autoplay, fullscreen judgement, strict judgement, adjusted judgement windows, late-hit leniency, drag / flick protection, hold tail judgement, HP multiplier, speed reduction, or keyboard mode will be rejected. Online matches force these options back to the official defaults for fairness. This build is unofficial and unaffiliated with TeamFlos / Phira; if results differ from the official client, you bear the consequences.
 item-blacklist = Player Blacklist
 item-blacklist-sub = Hide these Phira IDs from every local leaderboard and user list
 item-blacklist-open = Manage
@@ -193,3 +205,107 @@ judge-window-invalid = Enter a number
 item-hud = HUD Customization
 item-hud-sub = Drag the components of the main menu, library and settings to reposition and resize them
 item-hud-open = Manage
+item-transfer = Data migration
+item-transfer-sub = Import charts and settings from official Phira
+transfer-open = Open
+item-backup = Backup & restore
+item-backup-sub = Back up or restore local data
+backup-open = Open
+transfer-label = Data migration
+transfer-desc = Select the data.json inside the official Phira data folder to import its charts, skins, fonts and appearance.
+transfer-pick = Select data.json
+transfer-import = Start import
+transfer-import-config = Also import settings
+transfer-scan = Found { $charts } charts, { $respacks } skins, { $appearance } appearance files
+transfer-done = Import complete ({ $charts } charts, { $respacks } skins, { $appearance } appearance). Please restart Phira Pro to load them.
+transfer-unsupported = Not supported on this platform yet
+transfer-failed = Operation failed
+backup-label = Backup & restore
+backup-desc = Backup packs the whole data folder into a zip. Restore overwrites files with the same name (restart required).
+backup-create = Back up to file
+backup-restore = Restore from backup
+backup-created = Backup complete: { $count } files
+backup-restored = Restore complete: { $count } files. Please restart Phira Pro.
+transfer-working = Working…
+
+item-api-url = API Endpoint
+item-api-url-sub = Custom API base URL (login / charts / scores). Leave empty to use the official server. Must start with http(s)://; restart to apply.
+
+item-status-url = Server Status Page
+item-web-url-sub = Web frontend base (chart / user / collection pages, policy links). Leave empty for the official site. Must start with http(s)://.
+item-url-invalid = Invalid URL (must start with http:// or https://)
+item-status-url-sub = URL opened by the "Server Status" button in settings. Leave empty for the official page. Must start with http(s)://.
+item-web-url = Web Frontend
+
+activation-serial = Serial code
+activation-serial-copied = Serial code copied
+activation-code = Unlock code
+activation-code-empty = Tap to enter / paste
+activation-code-set = Filled (tap to edit)
+activation-confirm = Confirm
+activation-locked = Please enter the unlock code in Settings first
+activation-ok = Unlocked. All features are now available
+activation-failed = Incorrect unlock code
+
+item-flow-speed = Note Flow Speed
+item-flow-speed-sub = Scales only the notes' scrolling speed; the music and its pitch stay untouched. Scores are not eligible for upload.
+item-fade-strength = Fade In/Out Strength
+item-fade-strength-sub = Height at which notes fade in/out. 0 keeps the official behaviour.
+aspect-official = Official
+item-custom-aspect = Custom Play Aspect Ratio
+item-custom-aspect-sub = Override the aspect ratio stored in the chart
+item-aspect-ratio = Play Aspect Ratio
+item-aspect-ratio-sub = Supports 16:9 or a decimal like 1.7778
+aspect-invalid = Invalid aspect ratio, e.g. 16:9 or 1.7778
+item-offset-indicator = Offset Indicator
+item-offset-indicator-sub = Shows the early/late judgement offset bar in game
+
+item-mp-local-addr = Local Multiplayer Server
+item-mp-local-addr-sub = Address the Local Multiplayer button connects to (host:port); leave empty to host on this device.
+item-mp-local-addr-none = (host on this device)
+item-mp-local-addr-invalid = Invalid local server address.
+
+item-mp-server-list = Server List URL
+item-mp-server-list-sub = Status page to fetch the server list from (blank = default)
+
+item-app-icon = App Icon
+item-app-icon-sub = Change the app icon. *Takes effect after restart*
+item-app-icon-reset = Reset icon
+item-app-bg = Background
+item-app-bg-sub = Change the main screen background
+item-app-bg-reset = Reset background
+item-appearance-import-sub = The character at the bottom-left of the main screen (transparent PNG recommended)
+item-appearance-reset = Reset character
+item-app-icon-imported = Icon imported - restart to apply
+item-app-icon-reset-done = Default icon restored - restart to apply
+item-app-bg-imported = Background imported
+item-app-bg-reset-done = Default background restored
+item-appearance-reset-done = Default character restored
+
+migrate-label = Import My Played Charts
+migrate-desc = Scan the official chart leaderboards for charts you have a score on, then download the matching ones (with no filter it scans every chart, which is slow)
+migrate-min-diff = Min Level
+migrate-min-rating = Min Rating
+migrate-unlimited = Any
+migrate-ranked-only = Rated only
+migrate-skip = Skip downloaded
+migrate-start = Start import
+migrate-cancel = Cancel
+migrate-fetching = Fetching your scores from the official server...
+migrate-searching-meta = Fetching chart info...
+migrate-none = No chart matches the filters
+migrate-progress = Downloading { $done }/{ $total }: { $name }
+migrate-done = Done: { $ok } succeeded, { $failed } failed
+migrate-imported = Imported { $count } chart(s)
+migrate-need-login = Please sign in to the official server first
+
+migrate-enumerating = Listing charts ({ $pages } pages)...
+migrate-checking = Checking your scores { $done }/{ $total }...
+
+item-pro-api-url = Pro Server URL
+item-pro-api-url-sub = Phira Pro: records are also uploaded here and leaderboards merge official + Pro entries; leave empty to disable all Pro features
+item-pro-api-url-off = Disabled (official only)
+
+chart-import-label = Batch Import Charts
+chart-import-desc = Import a zip produced by the official client's batch export (a single chart pack also works); imported charts show up in your local library right away
+chart-import-btn = Choose file & import

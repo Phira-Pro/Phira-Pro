@@ -3,7 +3,8 @@ prpr_l10n::tl_file!("song");
 #[cfg(feature = "video")]
 use super::UnlockScene;
 use super::{
-    confirm_delete, confirm_dialog, fs_from_path, gen_custom_dir, import_chart_to, render_ldb, LdbDisplayItem, ProfileScene, ASSET_CHART_INFO,
+    confirm_delete, confirm_dialog, fs_from_path, gen_custom_dir, import_chart_to, render_ldb, LdbDisplayItem, ProfileScene, RecordDetailScene,
+    ASSET_CHART_INFO,
 };
 use crate::{
     charts_view::NEED_UPDATE,
@@ -13,6 +14,7 @@ use crate::{
     },
     data::{BriefChartInfo, LocalChart},
     dir, get_data, get_data_mut,
+    history,
     icons::Icons,
     page::{
         local_illustration, request_export, resolve_export, take_export, thumbnail_path, ChartItem, ChartType, Fader, Illustration, SFader,
@@ -296,6 +298,21 @@ struct LdbItem {
     pub btn: RectButton,
 }
 
+/// Phira Pro：榜单排序键。默认按分数降序，`std`（无瑕度榜）时按无瑕度换算分降序。
+fn ldb_sort_key(it: &LdbItem, std: bool) -> f64 {
+    if std {
+        it.inner.std_score.unwrap_or(0.) as f64
+    } else {
+        it.inner.score as f64
+    }
+}
+
+fn ldb_cmp(a: &LdbItem, b: &LdbItem, std: bool) -> std::cmp::Ordering {
+    ldb_sort_key(b, std)
+        .partial_cmp(&ldb_sort_key(a, std))
+        .unwrap_or(std::cmp::Ordering::Equal)
+}
+
 pub struct SongScene {
     illu: Illustration,
 
@@ -350,8 +367,14 @@ pub struct SongScene {
     ldb_btn: RectButton,
     ldb_scroll: Scroll,
     ldb_fader: Fader,
-    ldb_type_btn: DRectButton,
-    ldb_std: bool,
+    /// 榜单模式：0=分数 1=无暇 2=准度 3=本地记录。
+    ldb_mode: u8,
+    ldb_btn_score: DRectButton,
+    ldb_btn_std: DRectButton,
+    ldb_btn_acc: DRectButton,
+    ldb_btn_local: DRectButton,
+    /// 本地记录榜单（模式 3 用）。
+    ldb_local: Vec<(history::Record, RectButton)>,
     /// 上次同步黑名单时的版本号；黑名单增删后据此重新拉取榜单。
     ldb_bl_ver: u32,
 
@@ -530,8 +553,12 @@ impl SongScene {
             ldb_btn: RectButton::new(),
             ldb_scroll: Scroll::new(),
             ldb_fader: Fader::new().with_distance(0.12),
-            ldb_type_btn: DRectButton::new(),
-            ldb_std: false,
+            ldb_mode: 0,
+            ldb_btn_score: DRectButton::new(),
+            ldb_btn_std: DRectButton::new(),
+            ldb_btn_acc: DRectButton::new(),
+            ldb_btn_local: DRectButton::new(),
+            ldb_local: Vec::new(),
             ldb_bl_ver: crate::blacklist::version(),
 
             info_btn: RectButton::new(),
@@ -730,14 +757,73 @@ impl SongScene {
             return;
         }
         let Some(id) = self.info.id else { return };
+        if self.ldb_mode == 3 {
+            // 本地记录不走网络。
+            return;
+        }
         self.ldb = None;
-        let std = self.ldb_std;
+        let std = self.ldb_mode == 1;
+        let me = get_data().me.as_ref().map(|it| it.id);
         self.ldb_task = Some(Task::new(async move {
-            Ok(recv_raw(Client::get(format!("/record/list15/{id}")).query(&[("std", std)]))
+            let mut list: Vec<LdbItem> = recv_raw(Client::get(format!("/record/list15/{id}")).query(&[("std", std)]))
                 .await?
                 .json()
-                .await?)
+                .await?;
+            // Phira Pro：把自服的榜单合并进来（官服只给 top15，自服给 top30），
+            // 混排后统一重算名次。`pro_api_url` 留空时自动跳过。
+            if let Some(req) = crate::client::pro_get(format!("/record/query/{id}?pageNum=30&page=1")) {
+                #[derive(Deserialize)]
+                struct ProResp {
+                    results: Vec<Record>,
+                }
+                if let Ok(resp) = recv_raw(req).await {
+                    if let Ok(pro) = resp.json::<ProResp>().await {
+                        list.extend(pro.results.into_iter().map(|inner| LdbItem {
+                            inner,
+                            rank: 0,
+                            btn: RectButton::new(),
+                        }));
+                    }
+                }
+            }
+            // 同一玩家只保留最好的一条。
+            list.sort_by(|a, b| a.inner.player.id.cmp(&b.inner.player.id).then_with(|| ldb_cmp(a, b, std)));
+            list.dedup_by_key(|it| it.inner.player.id);
+            list.sort_by(|a, b| ldb_cmp(a, b, std));
+            for (i, it) in list.iter_mut().enumerate() {
+                it.rank = i as u32 + 1;
+            }
+            // 官服 top15 + 自服 top30 合并后可能很长，按榜单惯例截断到前 20；
+            // 但「我」的成绩一定保留，方便看自己在混排里排第几。
+            if list.len() > 20 {
+                let mut kept: Vec<LdbItem> = Vec::new();
+                for (i, it) in list.into_iter().enumerate() {
+                    if i < 20 || Some(it.inner.player.id) == me {
+                        kept.push(it);
+                    }
+                }
+                list = kept;
+            }
+            Ok(list)
         }));
+    }
+
+    /// 重建「本地记录」榜单（仅当前谱面的历史成绩，按分数降序、准度平局取高）。
+    fn rebuild_local_ldb(&mut self) {
+        let key = if let Some(id) = self.info.id {
+            format!("id:{id}")
+        } else if let Some(p) = &self.local_path {
+            format!("local:{p}")
+        } else {
+            return;
+        };
+        let mut recs: Vec<crate::history::Record> = crate::history::all().into_iter().filter(|it| it.key == key).collect();
+        recs.sort_by(|a, b| {
+            b.score
+                .cmp(&a.score)
+                .then(b.accuracy.partial_cmp(&a.accuracy).unwrap_or(std::cmp::Ordering::Equal))
+        });
+        self.ldb_local = recs.into_iter().map(|r| (r, RectButton::new())).collect();
     }
 
     fn update_record(&mut self, new_rec: SimpleRecord) -> Result<()> {
@@ -755,6 +841,7 @@ impl SongScene {
                 new_rec.num_of_notes,
                 new_rec.counts,
                 &new_rec.hist,
+                new_rec.std,
             );
         }
         let rec = get_data_mut()
@@ -855,6 +942,12 @@ impl SongScene {
                     .find(|it| it.local_path == *local_path)
                     .is_some_and(|it| it.info.has_unlock && !it.played_unlock));
 
+        // 登记本次谱面元信息，供回放录制写入（下载 URL 内容寻址，可定位到当前版本）。
+        crate::replay::set_next_chart_meta(
+            self.entity.as_ref().map(|it| it.file.url.clone()),
+            self.info.chart_updated.map(|it| it.timestamp_millis()),
+        );
+
         self.scene_task =
             Self::global_launch(self.info.id, local_path, self.mods, mode, None, Some(self.background.clone()), self.record.clone(), is_unlock)?;
 
@@ -877,16 +970,19 @@ impl SongScene {
         let can_rated = id.is_some() || local_path.starts_with(':');
         #[cfg(feature = "video")]
         let local_path = local_path.to_owned();
-        #[cfg(closed)]
+        #[cfg(record)]
         let rated = {
             let config = &get_data().config;
-            !config.offline_mode && can_rated && !mods.intersects(Mods::UNRATED) && !config.use_keyboard && config.speed >= 1.0 - 1e-3
+            // 开「上传成绩」会把本局的 mod 强制回官方，所以判定"计不计成绩"时也按官方口径看 mod。
+            let unrated = mods.intersects(Mods::UNRATED) && !config.upload_record;
+            config.upload_record && !config.offline_mode && can_rated && !unrated && !config.use_keyboard && config.speed >= 1.0 - 1e-3
         };
-        #[cfg(not(closed))]
+        #[cfg(not(record))]
         let rated = false;
         if !rated && can_rated && mode == GameMode::Normal {
             show_message(tl!("warn-unrated")).warn();
         }
+        let is_mp = client.is_some();
         let update_fn = client.and_then(|mut client| {
             let live = client.blocking_state().unwrap().live;
             let token = get_data().tokens.as_ref().map(|it| it.0.clone()).unwrap();
@@ -990,9 +1086,64 @@ impl SongScene {
             update_fn
         });
 
+        // Phira Pro：回放录制。仅在正常游玩（非自动）时挂载；与联机 update_fn 共存。
+        let replay_rec = if mode == GameMode::Normal && !get_data().config.autoplay() {
+            let chart = match id {
+                Some(id) => Some(crate::replay::ChartRef::Id(id)),
+                None => Some(crate::replay::ChartRef::Local(local_path.to_owned())),
+            };
+            let cfg = get_data().config.clone();
+            Some(crate::replay::recorder(chart, cfg.offset, cfg.speed, mods.bits() as u32))
+        } else {
+            None
+        };
+        let update_fn = match (update_fn, replay_rec) {
+            (Some(a), Some(b)) => {
+                let (mut a, mut b) = (a, b);
+                Some(Box::new(move |t: f64, res: &mut prpr::core::Resource, judge: &mut prpr::judge::Judge| {
+                    a(t, &mut *res, &mut *judge);
+                    b(t, &mut *res, &mut *judge);
+                }) as UpdateFn)
+            }
+            (a, b) => a.or(b),
+        };
+
         let save_fn: Option<SaveFn> = Some(Box::new({
             let local_path = local_path.to_string();
+            let chart_id = id;
             move |new_rec| -> Result<()> {
+                // 本地成绩历史：每一局都记一条（与「最佳成绩」的更新互相独立）。
+                if new_rec.num_of_notes > 0 {
+                    let (name, level, difficulty) = get_data()
+                        .charts
+                        .iter()
+                        .find(|it| it.local_path == local_path)
+                        .map(|it| (it.info.name.clone(), it.info.level.clone(), it.info.difficulty))
+                        .unwrap_or_else(|| (local_path.clone(), String::new(), 0.));
+                    let time = crate::history::record_play(
+                        chart_id,
+                        Some(local_path.as_str()),
+                        &name,
+                        &level,
+                        difficulty,
+                        new_rec.score.max(0) as u32,
+                        new_rec.accuracy as f64,
+                        new_rec.max_combo,
+                        new_rec.num_of_notes,
+                        new_rec.counts,
+                        &new_rec.hist,
+                        new_rec.std,
+                    )
+                    .ok();
+                    // 回放落盘：与成绩历史用同一时间戳命名，详情页据此按 key+time 命中。
+                    if let Some(time) = time {
+                        crate::replay::save_recording(&crate::replay::key_for(chart_id, Some(local_path.as_str())), time);
+                    } else {
+                        crate::replay::discard_recording();
+                    }
+                } else {
+                    crate::replay::discard_recording();
+                }
                 let rec = get_data_mut()
                     .charts
                     .iter_mut()
@@ -1031,6 +1182,32 @@ impl SongScene {
             };
             let chart_updated = info.chart_updated;
             config.mods = mods;
+            // 开「上传成绩」时本局强制按官方默认判定 / 玩法（忽略谱面的 mod 选择）。
+            #[cfg(record)]
+            if config.upload_record {
+                let mut m = config.mods;
+                config.force_official_play(&mut m);
+            }
+            // 联机对战必须保证公平：把任何改动过的判定 / 玩法选项临时还原成官方默认值
+            // （自动游玩 / 全屏判定 / 严格判定 / 判定窗口 / 晚按补偿 / 黄红键保护 / 尾判 /
+            // 血条倍率 / 降速 / 键盘模式等）。只作用于本局用的配置副本，不动玩家保存的设置。
+            if is_mp {
+                let mut run_mods = config.mods;
+                let forced = config.force_official_play(&mut run_mods);
+                config.mods = run_mods;
+                if !forced.is_empty() {
+                    tracing::info!("mp: forces official judge/gameplay defaults: {forced:?}");
+                    show_message(tl!("mp-forced-official")).warn();
+                }
+                // 联机对局结束后要把成绩回传给房间：服务端是按 `record_id` 去拉成绩再
+                // 广播每个人的分数 / 准度的。所以这里强制走一次上传，否则脚本里没有
+                // record_id，只能发 abort，房间里就会显示成「放弃了游玩」。
+                // 没登录时上传本身会失败，结果和现在一致。
+                #[cfg(record)]
+                {
+                    config.upload_record = true;
+                }
+            }
             let preload = LoadingScene::load(fs.as_mut(), &info.illustration).await?;
             if let Some(output) = background_output {
                 *output.lock().unwrap() = Some(preload.1.clone());
@@ -1059,17 +1236,22 @@ impl SongScene {
                         improvement: u32,
                         new_rks: f32,
                     }
-                    let resp: Resp = recv_raw(Client::post(
-                        "/play/upload",
-                        &Req {
-                            chart: id.unwrap(),
-                            token: STANDARD.encode(data),
-                            chart_updated,
-                        },
-                    ))
-                    .await?
-                    .json()
-                    .await?;
+                    let body = Req {
+                        chart: id.unwrap(),
+                        token: STANDARD.encode(data),
+                        chart_updated,
+                    };
+                    let resp: Resp = recv_raw(Client::post("/play/upload", &body))
+                        .await?
+                        .json()
+                        .await?;
+                    // Phira Pro：同一份成绩包再发一份到自服（失败不影响官服结果，
+                    // 也不阻塞结算）。`pro_api_url` 留空时自动跳过。
+                    if let Some(req) = crate::client::pro_post("/play/upload", &body) {
+                        if let Err(err) = recv_raw(req).await {
+                            warn!(?err, "failed to upload record to Phira Pro");
+                        }
+                    }
                     RECORD_ID.store(resp.id, Ordering::Relaxed);
                     Ok(RecordUpdateState {
                         best: resp.new_best,
@@ -1079,11 +1261,11 @@ impl SongScene {
                     })
                 })
             }));
-            // 成绩上传默认关（上游改版同为默认关）：关掉时 upload_fn 置 None。
-            // 引擎那边本来就是 `if let Some(upload_fn) = &self.upload_fn` 才上传，
-            // 所以关掉后成绩只留在本机（本地成绩历史照常记录）。
+            // 成绩上传默认关（上游同为默认关）：关掉时 upload_fn 置 None。
+            // 能否上传最终由 prpr 侧的 `Config::is_official_play` 决定——改动过判定 /
+            // 玩法的对局一律不上传。
             #[cfg(record)]
-            let upload_fn = upload_fn.filter(|_| get_data().config.upload_record);
+            let upload_fn = upload_fn.filter(|_| get_data().config.upload_record || is_mp);
             if is_unlock {
                 #[cfg(not(feature = "video"))]
                 {
@@ -1214,39 +1396,162 @@ impl SongScene {
         let pad = 0.03;
         let width = self.side_content.width() - pad;
         ui.dy(0.03);
-        self.ldb_type_btn.render_text(
-            ui,
-            Rect::new(width - 0.24, 0.01, 0.23, 0.08),
-            rt,
-            if self.ldb_std { tl!("ldb-std") } else { tl!("ldb-score") },
-            0.6,
-            true,
-        );
+
+        // 本地记录榜在渲染时重建：历史记录最新写入即时可见，且按钮实例稳定可命中。
+        if self.ldb_mode == 3 {
+            self.rebuild_local_ldb();
+        }
+
+        // 模式切换按钮行：[本地记录] [分数] [无暇] [准度]
+        let bw = 0.15;
+        let bh = 0.075;
+        let gap = 0.008;
+        let total = bw * 4. + gap * 3.;
+        let mut bx = width - total;
+        let labels = [
+            (tl!("ldb-local"), 3u8, &mut self.ldb_btn_local),
+            (tl!("ldb-score"), 0u8, &mut self.ldb_btn_score),
+            (tl!("ldb-std"), 1u8, &mut self.ldb_btn_std),
+            (tl!("ldb-acc"), 2u8, &mut self.ldb_btn_acc),
+        ];
+        for (label, mode, btn) in labels {
+            let r = Rect::new(bx, 0.01, bw, bh);
+            let active = self.ldb_mode == mode;
+            // 沿用官方样式：选中项白底，未选中深底，不再用自定义黄色高亮。
+            btn.render_text(ui, r, rt, label.as_ref(), 0.42, active);
+            bx += bw + gap;
+        }
+
+        let title = if self.ldb_mode == 3 {
+            tl!("ldb-local-title")
+        } else {
+            tl!("ldb")
+        };
+        if self.ldb_mode == 3 && self.ldb_local.is_empty() {
+            // 本地榜为空：给出明确提示，避免误以为加载不出来。
+            ui.dy(0.01);
+            ui.text(title.as_ref()).size(0.9).draw_using(&BOLD_FONT);
+            ui.dy(0.28);
+            ui.text(tl!("ldb-local-empty"))
+                .pos(width / 2., 0.)
+                .anchor(0.5, 0.)
+                .size(0.085)
+                .color(semi_white(0.65))
+                .draw();
+            return;
+        }
+        let items: Vec<LdbDisplayItem> = if self.ldb_mode == 3 {
+            // 本地记录：本机成绩都是自己的，行内显示当前账号的头像与昵称。
+            let me_id = crate::get_data().me.as_ref().map(|it| it.id).unwrap_or(-1);
+            if me_id >= 0 {
+                UserManager::request(me_id);
+            }
+            self.ldb_local
+                .iter_mut()
+                .enumerate()
+                .map(|(i, (rec, btn))| LdbDisplayItem {
+                    player_id: me_id,
+                    rank: i as u32 + 1,
+                    score: format!("{:07}", rec.score),
+                    alt: Some(format!("{:.2}%", rec.accuracy * 100.)),
+                    btn,
+                })
+                .collect()
+        } else {
+            self.ldb.as_mut().map(|it| {
+                let mut items: Vec<_> = it.1.iter_mut().collect();
+                // 各榜的排序依据：
+                // - 无暇榜按 std_score **降序**（越大越好）。注意标准值是 std，它是偏差，
+                //   越小越好，不要按它降序排，否则整个榜会反过来（服务器返回的也正是 std_score 降序）。
+                // - 准度榜按 accuracy 降序。
+                // - 分数榜沿用服务器给的顺序。
+                match self.ldb_mode {
+                    1 => items.sort_by(|a, b| {
+                        b.inner
+                            .std_score
+                            .unwrap_or(0.)
+                            .partial_cmp(&a.inner.std_score.unwrap_or(0.))
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then(a.rank.cmp(&b.rank))
+                    }),
+                    2 => items.sort_by(|a, b| {
+                        // 准度榜：按准度降序重排（低分高准度不会被高分低准度压下去）。
+                        b.inner
+                            .accuracy
+                            .partial_cmp(&a.inner.accuracy)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then(a.rank.cmp(&b.rank))
+                    }),
+                    _ => {}
+                }
+                // 名次一律由**排序后的位置**决定，而不是沿用服务器返回的名次：
+                // ① 黑名单剔人后会留下空档（1,2,4,5…），按位置编号才能自动替补；
+                // ② 准度榜 / 无暇榜是按本榜重排的，必须显示本榜的名次，否则会串成别的榜的名次。
+                // 唯一例外是「自己」——接口返回的是「前 N 名 + 自己」，自己那条带着很大的
+                // 真实名次（如 2415），不能被压成列表下标，否则显示出来就是假信息。
+                let my_id = get_data().me.as_ref().map(|me| me.id);
+                let total = items.len();
+                // 准度榜用的是「并列同名次」（同准度共享名次，下一名跳到 1 + 已出现人数，
+                // 形如 1,1,1,1,1,1,7,8,8,10…）：因为服务器没有准度榜，这一榜只能把分数榜
+                // 前 15 名按准度重排，而准度常常与分数完全同序，不并列就会和分数榜长得一样。
+                let mut acc_seen = 0usize;
+                let mut acc_prev: Option<f32> = None;
+                let mut acc_rank = 0u32;
+                items
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, it)| {
+                        let std = self.ldb_mode == 1;
+                        let acc = self.ldb_mode == 2;
+                        let rank = if Some(it.inner.player.id) == my_id && it.rank as usize > total {
+                            it.rank
+                        } else if acc {
+                            acc_seen += 1;
+                            match acc_prev {
+                                Some(prev) if prev == it.inner.accuracy => acc_rank,
+                                _ => {
+                                    acc_prev = Some(it.inner.accuracy);
+                                    acc_rank = acc_seen as u32;
+                                    acc_rank
+                                }
+                            }
+                        } else {
+                            i as u32 + 1
+                        };
+                        LdbDisplayItem {
+                            player_id: it.inner.player.id,
+                            rank,
+                            score: if std {
+                                format!("{:07}", it.inner.std_score.unwrap_or(0.) as i64)
+                            } else if acc {
+                                format!("{:.2}%", it.inner.accuracy * 100.)
+                            } else {
+                                format!("{:07}", it.inner.score)
+                            },
+                            alt: Some(if std {
+                                format!("{}ms", (it.inner.std.unwrap_or(0.) * 1000.) as i32)
+                            } else if acc {
+                                format!("{:07}", it.inner.score)
+                            } else {
+                                format!("{:.2}%", it.inner.accuracy * 100.)
+                            }),
+                            btn: &mut it.btn,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+        };
         render_ldb(
             ui,
-            &tl!("ldb"),
+            title.as_ref(),
             self.side_content.width(),
+            self.ldb_mode == 3,
             rt,
             &mut self.ldb_scroll,
             &mut self.ldb_fader,
             &self.icons.user,
-            self.ldb.as_mut().map(|it| {
-                it.1.iter_mut().map(|it| LdbDisplayItem {
-                    player_id: it.inner.player.id,
-                    rank: it.rank,
-                    score: if self.ldb_std {
-                        format!("{:07}", it.inner.std_score.unwrap_or(0.) as i64)
-                    } else {
-                        format!("{:07}", it.inner.score)
-                    },
-                    alt: Some(if self.ldb_std {
-                        format!("{}ms", (it.inner.std.unwrap_or(0.) * 1000.) as i32)
-                    } else {
-                        format!("{:.2}%", it.inner.accuracy * 100.)
-                    }),
-                    btn: &mut it.btn,
-                })
-            }),
+            Some(items.into_iter()),
         );
     }
 
@@ -1408,6 +1713,16 @@ impl SongScene {
                 if *clicked {
                     *clicked = false;
                     self.mods.toggle_mod(flag);
+                    // Phira Pro Flash（轻量版）：开启「自动游玩」后本局成绩不可上传
+                    // （自动游玩属于 UNRATED），并把所有会影响上传的设置恢复成官方默认。
+                    #[cfg(flash)]
+                    {
+                        if flag == Mods::AUTOPLAY && self.mods.contains(Mods::AUTOPLAY) {
+                            get_data_mut().config.sanitize_on_autoplay();
+                            let _ = save_data();
+                            show_message(tl!("flash-autoplay-unrated")).warn();
+                        }
+                    }
                 }
                 let on = self.mods.contains(flag);
                 let oh = rr.h;
@@ -1434,10 +1749,14 @@ impl SongScene {
             item(tl!("mods-rainbow"), Some(tl!("mods-rainbow-sub")), Mods::RAINBOW);
             item(tl!("mods-instant-death-ap"), Some(tl!("mods-instant-death-ap-sub")), Mods::INSTANT_DEATH_AP);
             item(tl!("mods-instant-death-fc"), Some(tl!("mods-instant-death-fc-sub")), Mods::INSTANT_DEATH_FC);
-            item(tl!("mods-strict-judge"), Some(tl!("mods-strict-judge-sub")), Mods::STRICT_JUDGE);
-            item(tl!("mods-fullscreen-judge"), Some(tl!("mods-fullscreen-judge-sub")), Mods::FULLSCREEN_JUDGE);
-            item(tl!("mods-no-fail"), Some(tl!("mods-no-fail-sub")), Mods::NO_FAIL);
-            item(tl!("mods-no-combo-score"), Some(tl!("mods-no-combo-score-sub")), Mods::NO_COMBO_SCORE);
+            // Phira Pro Flash（轻量版）：**所有改判 / 降难度 Mod 一律不提供**
+            // （严格判定会改判定窗口，全屏判定改判定范围，无失败 / 去连击分改判定与计分规则）。
+            if !cfg!(flash) {
+                item(tl!("mods-strict-judge"), Some(tl!("mods-strict-judge-sub")), Mods::STRICT_JUDGE);
+                item(tl!("mods-fullscreen-judge"), Some(tl!("mods-fullscreen-judge-sub")), Mods::FULLSCREEN_JUDGE);
+                item(tl!("mods-no-fail"), Some(tl!("mods-no-fail-sub")), Mods::NO_FAIL);
+                item(tl!("mods-no-combo-score"), Some(tl!("mods-no-combo-score-sub")), Mods::NO_COMBO_SCORE);
+            }
             item(tl!("mods-no-shader"), Some(tl!("mods-no-shader-sub")), Mods::NO_SHADER);
             (width, h + 0.2)
         });
@@ -1770,16 +2089,70 @@ impl Scene for SongScene {
                         }
                     }
                     SideContent::Leaderboard => {
-                        if self.ldb_type_btn.touch(touch, rt) {
-                            self.ldb_std ^= true;
-                            self.ldb_scroll.y_scroller.offset = 0.;
-                            self.load_ldb();
+                        // 模式切换：本地 / 分数 / 无暇 / 准度
+                        let switch = |this: &mut Self, mode: u8| {
+                            if this.ldb_mode == mode {
+                                return;
+                            }
+                            this.ldb_mode = mode;
+                            this.ldb_scroll.y_scroller.offset = 0.;
+                            if mode != 3 {
+                                this.ldb = None;
+                                this.load_ldb();
+                            }
+                        };
+                        if self.ldb_btn_local.touch(touch, rt) {
+                            switch(self, 3);
+                            return Ok(true);
+                        }
+                        if self.ldb_btn_score.touch(touch, rt) {
+                            switch(self, 0);
+                            return Ok(true);
+                        }
+                        if self.ldb_btn_std.touch(touch, rt) {
+                            switch(self, 1);
+                            return Ok(true);
+                        }
+                        if self.ldb_btn_acc.touch(touch, rt) {
+                            switch(self, 2);
                             return Ok(true);
                         }
                         if self.ldb_scroll.touch(touch, t) {
                             return Ok(true);
                         }
-                        if let Some((_, ldb)) = &mut self.ldb {
+                        if self.ldb_mode == 3 {
+                            // 本地记录：点开任意一条 → 成绩详情页。
+                            // 松手（Ended）命中或按下（Started）瞬间命中都触发，规避输入相位差异；
+                            // 若点击落在本地榜区域却未命中任何行，弹提示以便定位。
+                            let mut matched = false;
+                            for (rec, btn) in &mut self.ldb_local {
+                                if btn.touch(touch) {
+                                    matched = true;
+                                    button_hit();
+                                    self.sf.goto(t, RecordDetailScene::new(rec.clone(), self.rank_icons.clone()));
+                                    break;
+                                }
+                            }
+                            if !matched && matches!(touch.phase, TouchPhase::Started) {
+                                for (rec, btn) in &mut self.ldb_local {
+                                    if btn.touching() {
+                                        matched = true;
+                                        button_hit();
+                                        self.sf.goto(t, RecordDetailScene::new(rec.clone(), self.rank_icons.clone()));
+                                        break;
+                                    }
+                                }
+                            }
+                            if !matched && touch.phase == TouchPhase::Ended && touch.position.x > 0.06 {
+                                // 点在排行榜面板内但没有命中任何行：说明命中区没有生效，给出行数提示。
+                                show_message(tl!("ldb-local-no-hit", "count" => self.ldb_local.len().to_string()))
+                                    .duration(2.)
+                                    .ok();
+                            }
+                            if matched {
+                                return Ok(true);
+                            }
+                        } else if let Some((_, ldb)) = &mut self.ldb {
                             for item in ldb {
                                 if item.btn.touch(touch) {
                                     button_hit();
@@ -1810,7 +2183,7 @@ impl Scene for SongScene {
                             }
                         }
                         if self.open_web_btn.touch(touch, rt) {
-                            open_url(&format!("https://phira.moe/chart/{}", self.info.id.unwrap()))?;
+                            open_url(&format!("{}/chart/{}", crate::client::web_url(), self.info.id.unwrap()))?;
                             return Ok(true);
                         }
                     }
@@ -1836,6 +2209,12 @@ impl Scene for SongScene {
             return Ok(true);
         }
         if self.scene_task.is_none() && self.next_scene.is_none() && self.play_btn.touch(touch, t) {
+            // Phira Pro：联机房间里不能自己开始游玩（要由房主点「开始游戏」）。
+            if crate::scene::MP_PANEL.with(|it| it.borrow_mut().as_mut().is_some_and(|panel| panel.in_room())) {
+                use crate::mp::{mtl, L10N_LOCAL};
+                show_message(mtl!("room-play-disabled")).error();
+                return Ok(true);
+            }
             if self.local_path.is_some() {
                 self.launch(GameMode::Normal, false)?;
             } else {
@@ -2308,18 +2687,21 @@ impl Scene for SongScene {
                 self.edit_scroll.update(t);
             }
             SideContent::Leaderboard => {
-                // 黑名单若在别处（比如玩家主页）被改动过，就把榜单重新拉一遍，
-                // 否则会一直显示已经加载好的旧列表。
-                if crate::blacklist::version() != self.ldb_bl_ver {
-                    self.ldb_bl_ver = crate::blacklist::version();
-                    if self.ldb.is_some() {
+                if self.ldb_mode != 3 {
+                    // 黑名单若在别处（比如玩家主页）被改动过，就把榜单重新拉一遍，
+                    // 否则会一直显示已经加载好的旧列表。
+                    if crate::blacklist::version() != self.ldb_bl_ver {
+                        self.ldb_bl_ver = crate::blacklist::version();
+                        if self.ldb.is_some() {
+                            self.load_ldb();
+                        }
+                    }
+                    if self.ldb_scroll.y_scroller.pulled {
+                        self.ldb_scroll.y_scroller.offset = 0.;
                         self.load_ldb();
                     }
                 }
-                if self.ldb_scroll.y_scroller.pulled {
-                    self.ldb_scroll.y_scroller.offset = 0.;
-                    self.load_ldb();
-                }
+                // 本地记录榜单在渲染时重建（见 side_ldb），避免每帧换新按钮导致命中区丢失。
                 self.ldb_scroll.update(t);
             }
             SideContent::Info => {
@@ -2443,11 +2825,10 @@ impl Scene for SongScene {
                         show_error(err.context(tl!("ldb-load-failed")));
                     }
                     Ok(mut items) => {
-                        // 黑名单：把名单内的玩家从榜单里剔掉，再按可见顺序重新连续编号。
+                        // 黑名单：只把名单内的玩家从榜单里剔掉，保留服务器返回的真实名次。
+                        // 注意：接口返回的是「前 15 名 + 自己」，若按过滤后的下标重新编号，
+                        // 自己那条的真实名次（如 2415）会被压成列表下标（如 16）。
                         items.retain(|it| !crate::blacklist::contains(it.inner.player.id));
-                        for (i, it) in items.iter_mut().enumerate() {
-                            it.rank = (i + 1) as u32;
-                        }
                         let rank = get_data()
                             .me
                             .as_ref()
@@ -2731,7 +3112,16 @@ impl Scene for SongScene {
                 let h = 0.09;
                 let mut r = Rect::new(r.x, r.y - h, h, h);
                 ui.fill_rect(r, (*self.icons.ldb, r, ScaleType::Fit));
-                if let Some((rank, _)) = &self.ldb {
+                if self.ldb_mode == 3 {
+                    // 本地记录榜：底栏不显示在线排名，改显示本机记录条数。
+                    let n = self.ldb_local.len();
+                    ui.text(if n > 0 { format!("×{n}") } else { tl!("ldb-no-rank").into_owned() })
+                        .pos(r.right() + 0.01, r.center().y)
+                        .anchor(0., 0.5)
+                        .no_baseline()
+                        .size(0.6)
+                        .draw();
+                } else if let Some((rank, _)) = &self.ldb {
                     ui.text(if let Some(rank) = rank {
                         format!("#{rank}")
                     } else {
@@ -2760,11 +3150,12 @@ impl Scene for SongScene {
             }
 
             // play button
+            let in_room = crate::scene::MP_PANEL.with(|it| it.borrow_mut().as_mut().is_some_and(|panel| panel.in_room()));
             let w = 0.26;
             let pad = 0.08;
             let r = Rect::new(1. - pad - w, ui.top - pad - w, w, w);
             self.play_btn.render_shadow(ui, r, t, |ui, path| {
-                ui.fill_path(&path, semi_white(0.3));
+                ui.fill_path(&path, if in_room { semi_white(0.08) } else { semi_white(0.3) });
                 let r = r.feather(-0.04);
                 ui.fill_rect(
                     r,
@@ -2776,6 +3167,7 @@ impl Scene for SongScene {
                         },
                         r,
                         ScaleType::Fit,
+                        if in_room { semi_white(0.2) } else { WHITE },
                     ),
                 );
             });

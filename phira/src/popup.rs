@@ -265,6 +265,14 @@ impl ChooseButton {
         self.popup.changed()
     }
 
+    /// 重建下拉列表的选项。
+    ///
+    /// 选项文案是构建时求值的，界面语言变化后必须重建，否则会一直显示旧语言。
+    #[inline]
+    pub fn set_options(&mut self, options: Vec<String>) {
+        self.popup.set_options(options);
+    }
+
     pub fn render(&mut self, ui: &mut Ui, r: Rect, t: f32) {
         self.btn
             .render_text(ui, r, t, &self.popup.options[self.popup.selected].0, self.popup.size, false);

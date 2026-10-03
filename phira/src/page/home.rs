@@ -465,7 +465,7 @@ impl Page for HomePage {
                 return Ok(true);
             }
             if self.char_edit_btn.touch(touch) {
-                let _ = open_url("https://phira.moe/settings/account");
+                let _ = open_url(&format!("{}/settings/account", crate::client::web_url()));
             }
         }
         if self.btn_user.touch(touch, t) {
@@ -751,7 +751,9 @@ impl Page for HomePage {
                 let p = self.char_appear_p.now(t);
                 let (ox, oy, ow, oh) = self.character.illu_adjust;
                 let r = Rect::new(r.x + ox, r.y + (1. - p) * 0.05 + oy, r.w + ow, r.h + oh);
-                ui.fill_rect(ui.screen_rect(), (**illu, r, ScaleType::CropCenter, semi_white(p)));
+                // 只画在立绘槽位 r 内：原先画在整个屏幕、用 r 当裁剪区，槽位之外的
+                // 顶点会采到纹理边缘像素（非透明图就是背景色），于是整屏被立绘背景糊满。
+                ui.fill_rect(r, (**illu, r, ScaleType::CropCenter, semi_white(p)));
             }
             self.char_btn.set(ui, r);
 

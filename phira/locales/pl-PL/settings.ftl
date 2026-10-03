@@ -126,7 +126,7 @@ item-judge-chart-sub = Rysuje rozkład czasów ocen na ekranie wyniku (wcześnie
 item-hp-scale = Mnożnik paska życia
 item-hp-color = Kolor paska życia
 item-upload = Wysyłanie wyników
-item-upload-sub = [Nieobsługiwane w tej wersji] Przełącznik nic nie robi; wyniki zostają lokalnie
+item-upload-sub = Ta wersja nie zawiera kanału wysyłania, więc przełącznik nic nie robi: wyniki zostają lokalnie
 item-upload-consent = Zgoda na wysyłanie
 item-upload-consent-open = Zobacz
 item-history = Historia wyników
@@ -148,7 +148,7 @@ font-reset-done = Przywrócono wbudowaną czcionkę; uruchom ponownie
 upload-consent-title = Wysyłanie wyników: zgoda i wyłączenie odpowiedzialności
 upload-consent-accept = Przeczytałem i zgadzam się
 upload-consent-deny = Nie zgadzam się
-upload-consent-text = Po włączeniu wynik tej rozgrywki (ID mapy, wynik / celność / oceny, znacznik wersji, dane konta) trafia na oficjalny serwer Phira; dane urządzenia ani inne pliki nie są wysyłane. Po wyłączeniu wszystko zostaje lokalnie. Uwaga: w tej wersji wysyłanie jest wyłączone na etapie kompilacji. To nieoficjalna wersja, niezwiązana z TeamFlos / Phira; przy różnicach wobec oficjalnego klienta konsekwencje ponosi użytkownik.
+upload-consent-text = Wyniki tej wersji nie są wysyłane na żaden serwer i pozostają na tym urządzeniu. Gdy ta opcja jest włączona, przesyłany jest wyłącznie wynik tej rozgrywki (ID mapy, wynik / dokładność / oceny, znacznik czasu wersji mapy, dane logowania konta) - bez informacji o urządzeniu ani innych plików; a liczą się tylko rozgrywki bez zmienionego oceniania i rozgrywki - włączenie autoplaya, oceniania pełnoekranowego, oceniania ścisłego, zmiany okien oceniania, tolerancji późnych trafień, ochrony żółtych / czerwonych, oceny końca Hold, mnożnika HP, zmniejszenia prędkości lub trybu klawiatury powoduje odrzucenie. Mecze online wymuszają przywrócenie tych opcji do oficjalnych wartości domyślnych dla uczciwości. Ta wersja jest nieoficjalna i niezwiązana z TeamFlos / Phira; w razie rozbieżności wyników z oficjalnym klientem odpowiedzialność ponosi użytkownik.
 item-blacklist = Czarna lista graczy
 item-blacklist-sub = Ukryj te ID Phira we wszystkich lokalnych rankingach i listach graczy
 item-blacklist-open = Zarządzaj
@@ -158,3 +158,119 @@ judge-window-invalid = Wpisz liczbę
 item-hud = Personalizacja HUD
 item-hud-sub = Przeciągaj i zmieniaj rozmiar elementów strony głównej, biblioteki i ustawień
 item-hud-open = Zarządzaj
+item-transfer = Migracja danych
+item-transfer-sub = Importuj mapy i ustawienia z oficjalnego Phira
+transfer-open = Otwórz
+item-backup = Kopia i przywracanie
+item-backup-sub = Zrób kopię lub przywróć dane lokalne
+backup-open = Otwórz
+transfer-label = Migracja danych
+transfer-desc = Wybierz data.json w folderze danych oficjalnego Phira, aby zaimportować mapy, skiny, czcionki i wygląd.
+transfer-pick = Wybierz data.json
+transfer-import = Rozpocznij import
+transfer-import-config = Importuj też ustawienia
+transfer-scan = Znaleziono { $charts } map, { $respacks } skinów, { $appearance } plików wyglądu
+transfer-done = Import zakończony ({ $charts } map, { $respacks } skinów, { $appearance } wyglądu). Uruchom ponownie Phira Pro.
+transfer-unsupported = Nieobsługiwane na tej platformie
+transfer-failed = Operacja nie powiodła się
+backup-label = Kopia i przywracanie
+backup-desc = Kopia pakuje cały folder danych do zip. Przywracanie nadpisuje pliki o tej samej nazwie (wymaga restartu).
+backup-create = Zapisz kopię do pliku
+backup-restore = Przywróć z kopii
+backup-created = Kopia gotowa: { $count } plików
+backup-restored = Przywrócono: { $count } plików. Uruchom ponownie Phira Pro.
+transfer-working = Przetwarzanie…
+
+item-api-url = Adres API
+item-api-url-sub = Własny bazowy URL API (logowanie / mapy / wyniki). Pozostaw puste, aby użyć oficjalnego serwera. Musi zaczynać się od http(s)://; wymaga restartu.
+
+item-status-url = Strona statusu serwera
+item-web-url-sub = Bazowy URL frontendu (strony map / użytkowników / kolekcji, linki do regulaminu). Pozostaw puste dla oficjalnej strony. Musi zaczynać się od http(s)://.
+item-url-invalid = Nieprawidłowy adres (musi zaczynać się od http:// lub https://)
+item-status-url-sub = Adres otwierany przyciskiem „Status serwera”. Pozostaw puste dla oficjalnej strony. Musi zaczynać się od http(s)://.
+item-web-url = Adres web
+
+item-touch-color = Kolor punktów dotyku
+item-touch-color-sub = Dotknij, aby zmienić kolor punktów dotyku debugowania
+item-touch-alpha = Krycie punktów dotyku
+item-touch-size = Rozmiar punktów dotyku
+item-reset-settings = Przywróć ustawienia domyślne
+item-reset-settings-sub = Przywróć wszystkie opcje na tej stronie do wartości domyślnych
+item-reset-settings-btn = Przywróć
+reset-settings-title = Przywróć ustawienia domyślne
+reset-settings-text = Wszystkie opcje na stronie ustawień (język, motyw, ocena / rozgrywka, debugowanie itd.) zostaną przywrócone do wartości domyślnych. Twoje konto, mapy, wyniki i zaimportowane zasoby zostaną zachowane.
+reset-settings-done = Przywrócono ustawienia domyślne
+reset-settings-cancel = Anuluj
+reset-settings-confirm = Potwierdź
+activation-serial = Kod seryjny
+activation-serial-copied = Skopiowano kod seryjny
+activation-code = Kod odblokowania
+activation-code-empty = Dotknij, aby wpisać / wkleić
+activation-code-set = Wprowadzono (dotknij, aby zmienić)
+activation-confirm = Potwierdź
+activation-locked = Najpierw wpisz kod odblokowania w Ustawieniach
+activation-ok = Odblokowano. Wszystkie funkcje są dostępne
+activation-failed = Nieprawidłowy kod odblokowania
+
+item-flow-speed = Prędkość przewijania nut
+item-flow-speed-sub = Skaluje tylko prędkość przewijania nut; muzyka i jej wysokość pozostają bez zmian. Wynik nie podlega wysłaniu.
+item-fade-strength = Siła pojawiania/znikania
+item-fade-strength-sub = Wysokość, na której nuty się pojawiają/znikają. 0 = zachowanie oficjalne.
+aspect-official = Oficjalne
+item-custom-aspect = Własne proporcje ekranu
+item-custom-aspect-sub = Zastępuje proporcje zapisane w utworze
+item-aspect-ratio = Proporcje ekranu
+item-aspect-ratio-sub = Obsługuje 16:9 lub ułamek, np. 1.7778
+aspect-invalid = Nieprawidłowe proporcje, np. 16:9 lub 1.7778
+item-offset-indicator = Wskaźnik przesunięcia
+item-offset-indicator-sub = Pokazuje w grze pasek odchyłek (wcześnie/późno)
+
+item-mp-local-addr = Local Multiplayer Server
+item-mp-local-addr-sub = Address the Local Multiplayer button connects to (host:port); leave empty to host on this device.
+item-mp-local-addr-none = (host on this device)
+item-mp-local-addr-invalid = Invalid local server address.
+
+item-mp-server-list = URL listy serwerów
+item-mp-server-list-sub = Strona statusu, z której pobierana jest lista serwerów (puste = domyślne)
+
+item-app-icon = Ikona aplikacji
+item-app-icon-sub = Zmień ikonę aplikacji. *Działa po restarcie*
+item-app-icon-reset = Przywróć domyślną ikonę
+item-app-bg = Tło
+item-app-bg-sub = Zmień tło ekranu głównego
+item-app-bg-reset = Przywróć domyślne tło
+item-appearance-import-sub = Ilustracja w lewym dolnym rogu ekranu głównego (zalecany przezroczysty PNG)
+item-appearance-reset = Przywróć domyślną ilustrację
+item-app-icon-imported = Zaimportowano ikonę - uruchom ponownie
+item-app-icon-reset-done = Przywrócono domyślną ikonę - uruchom ponownie
+item-app-bg-imported = Zaimportowano tło
+item-app-bg-reset-done = Przywrócono domyślne tło
+item-appearance-reset-done = Przywrócono domyślną ilustrację
+
+migrate-label = Importuj moje grane mapy
+migrate-desc = Przeszukuje oficjalne rankingi map w poszukiwaniu tych z twoim wynikiem i pobiera pasujące (bez filtra skanuje wszystkie mapy, co jest wolne)
+migrate-min-diff = Minimalny poziom
+migrate-min-rating = Minimalna ocena
+migrate-unlimited = Bez limitu
+migrate-ranked-only = Tylko ranked
+migrate-skip = Pomijaj pobrane
+migrate-start = Rozpocznij import
+migrate-cancel = Anuluj
+migrate-fetching = Pobieranie twoich wyników z serwera oficjalnego...
+migrate-searching-meta = Pobieranie informacji o mapach...
+migrate-none = Brak map pasujących do filtrów
+migrate-progress = Pobieranie { $done }/{ $total }: { $name }
+migrate-done = Gotowe: { $ok } udanych, { $failed } nieudanych
+migrate-imported = Zaimportowano { $count } map
+migrate-need-login = Najpierw zaloguj się na oficjalnym serwerze
+
+migrate-enumerating = Pobieranie listy map ({ $pages } stron)...
+migrate-checking = Sprawdzanie twoich wyników { $done }/{ $total }...
+
+item-pro-api-url = Adres serwera Pro
+item-pro-api-url-sub = Phira Pro: wyniki są też wysyłane tutaj, a rankingi łączą wpisy oficjalne i Pro; pozostaw puste, aby wyłączyć funkcje Pro
+item-pro-api-url-off = Wyłączone (tylko oficjalne)
+
+chart-import-label = Importuj mapy zbiorczo
+chart-import-desc = Importuje zip z eksportu zbiorczego oficjalnego klienta (pojedynczy pakiet też działa); zaimportowane mapy od razu pojawią się w bibliotece lokalnej
+chart-import-btn = Wybierz plik i importuj

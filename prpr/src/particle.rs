@@ -714,7 +714,9 @@ impl Emitter {
             }
         }
 
-        self.bindings.vertex_buffers[1].update(ctx, &self.gpu_particles[..]);
+        if !self.gpu_particles.is_empty() {
+            self.bindings.vertex_buffers[1].update(ctx, &self.gpu_particles[..]);
+        }
     }
 
     /// Immediately emit N particles, ignoring "emitting" and "amount" params of EmitterConfig

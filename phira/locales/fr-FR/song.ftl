@@ -135,3 +135,12 @@ stabilize-denied = Refusé
 stabilize-denied-passed = La partition est rejetée.
 mods-no-combo-score = Sans points de combo
 mods-no-combo-score-sub = Le combo max ne compte plus (score = précision × 1000000). *Impossible d'envoyer les scores avec ce mod*
+ldb-local = Local
+ldb-acc = Préc.
+ldb-local-title = Records locaux
+ldb-local-empty = Aucune partie locale pour l'instant. Jouez une partie pour l'afficher ici.
+ldb-local-no-hit = Le clic n'a touché aucune des { $count } lignes locales
+
+mp-forced-official = En ligne : les options de jugement / gameplay modifiées ont été remises aux valeurs officielles
+
+flash-autoplay-unrated = Lecture automatique activée : cette partie ne sera pas envoyée et les réglages de jugement ont été rétablis par défaut

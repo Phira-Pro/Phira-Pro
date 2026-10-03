@@ -24,7 +24,9 @@ color-thief = "0.2.2"
 colored = { version = "3.1.1", optional = true }
 concat-string = "1.0.1"
 csv = "1.4.0"
+ed25519-dalek = { workspace = true }
 fastblur = "0.1.1"
+fast-float = "0.2.0"
 fluent = { workspace = true }
 fluent-syntax = { workspace = true }
 glyph_brush = "0.7.12"

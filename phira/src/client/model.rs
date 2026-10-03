@@ -16,7 +16,7 @@ pub use record::*;
 mod user;
 pub use user::*;
 
-use super::{basic_client_builder, Client, API_URL, CLIENT_TOKEN};
+use super::{basic_client_builder, api_url, Client, CLIENT_TOKEN};
 use crate::{
     dir, get_data,
     images::{THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH},
@@ -185,9 +185,10 @@ impl File {
         let mut req = basic_client_builder().build().unwrap().get(&self.url);
         // TODO: thread safety?
         if get_data().enable_anys {
-            if let Some(path) = self.url.strip_prefix(API_URL) {
+            let base = api_url();
+            if let Some(path) = self.url.strip_prefix(base.as_str()) {
                 if let Some(rest_path) = path.strip_prefix("/files/") {
-                    let url = format!("{API_URL}/anys/{rest_path}");
+                    let url = format!("{base}/anys/{rest_path}");
                     req = basic_client_builder().build().unwrap().get(url);
                 }
             }
@@ -242,7 +243,10 @@ impl File {
             }
             .load_image()
             .await
-        } else if self.url.starts_with("https://files.phira.cn/") || self.url.starts_with("https://phira.5wyxi.com/files/") {
+        } else if self.url.starts_with("https://files.phira.cn/")
+            || self.url.starts_with("https://phira.5wyxi.com/files/")
+            || self.url.starts_with(&format!("{}/files/", api_url()))
+        {
             File {
                 url: format!("{}.thumbnail", self.url),
             }

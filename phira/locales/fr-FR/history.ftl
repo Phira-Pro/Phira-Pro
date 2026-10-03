@@ -26,3 +26,14 @@ trend-axis = ancien ← → récent
 list-more = { $count } enregistrements plus anciens non affichés
 stat-avg = Moyenne
 stat-all-title = Toutes les maps
+
+
+daily-title = Défi quotidien
+daily-start = Commencer
+daily-todo = pas encore fait
+daily-done = terminé { $score }
+daily-no-chart = Importez d'abord des charts
+daily-speed = Vitesse 1,1x
+daily-strict = Jugement strict ±60ms
+daily-health = Mode barre de vie
+daily-nohints = Sans indices

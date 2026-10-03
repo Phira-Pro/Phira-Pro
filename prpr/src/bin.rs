@@ -29,7 +29,7 @@ use std::{
     collections::HashMap,
     io::{Read, Write},
     ops::Deref,
-    rc::Rc,
+    sync::Arc,
 };
 
 pub trait BinaryData: Sized {
@@ -202,8 +202,8 @@ impl<T: BinaryData> BinaryData for Keyframe<T> {
                 let b = r.read::<u8>()?;
                 match b & 0xC0 {
                     0 => StaticTween::get_rc(b),
-                    0x80 => Rc::new(ClampedTween::new(b & 0x7f, r.read()?..r.read()?)),
-                    0xC0 => Rc::new(BezierTween::new((r.read()?, r.read()?), (r.read()?, r.read()?))),
+                    0x80 => Arc::new(ClampedTween::new(b & 0x7f, r.read()?..r.read()?)),
+                    0xC0 => Arc::new(BezierTween::new((r.read()?, r.read()?), (r.read()?, r.read()?))),
                     _ => panic!("invalid tween"),
                 }
             },

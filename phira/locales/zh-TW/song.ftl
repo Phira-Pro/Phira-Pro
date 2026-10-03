@@ -140,3 +140,10 @@ export = 匯出
 exporting = 匯出中…
 mods-no-combo-score = 去連擊分
 mods-no-combo-score-sub = 分數不計入最大連擊（分數 = 準確率 × 1000000）。*啟用此 Mod 後無法上傳成績*
+ldb-local = 本地
+ldb-acc = 準度
+ldb-local-title = 本地記錄
+ldb-local-empty = 暫無本機紀錄，遊玩一局後即可在此查看。
+ldb-local-no-hit = 本地榜共 { $count } 條，本次點擊未命中任何列
+
+mp-forced-official = 連線對戰：已把改動過的判定 / 玩法選項還原為官方預設值

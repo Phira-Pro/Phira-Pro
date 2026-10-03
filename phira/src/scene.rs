@@ -10,7 +10,7 @@ pub(crate) mod event;
 pub use event::EventScene;
 
 mod main;
-pub use main::{MainScene, APPEARANCE_UPDATED, BGM_VOLUME_UPDATED, MP_PANEL};
+pub use main::{MainScene, APPEARANCE_UPDATED, BACKGROUND_UPDATED, BGM_VOLUME_UPDATED, MP_PANEL};
 
 mod song;
 pub use song::{compress_folder, Downloading, SongScene, RECORD_ID};
@@ -21,6 +21,11 @@ pub use unlock::UnlockScene;
 
 mod profile;
 pub use profile::ProfileScene;
+
+mod record_detail;
+pub use record_detail::RecordDetailScene;
+
+mod replay;
 
 use crate::{
     client::{Client, UserManager},
@@ -60,12 +65,22 @@ use uuid::Uuid;
 thread_local! {
     pub static TEX_BACKGROUND: RefCell<Option<SafeTexture>> = const { RefCell::new(None) };
     pub static TEX_ICON_BACK: RefCell<Option<SafeTexture>> = const { RefCell::new(None) };
+    /// Phira Pro：「服务器列表」浮层的磨砂背景——主界面背景图的低分辨率版本。
+    pub static TEX_BACKGROUND_BLUR: RefCell<Option<SafeTexture>> = const { RefCell::new(None) };
+    /// Phira Pro：内置背景图与其磨砂版，供「恢复默认背景」使用。
+    pub static TEX_BACKGROUND_DEFAULT: RefCell<Option<SafeTexture>> = const { RefCell::new(None) };
+    pub static TEX_BACKGROUND_BLUR_DEFAULT: RefCell<Option<SafeTexture>> = const { RefCell::new(None) };
 }
 
 pub static ASSET_CHART_INFO: Lazy<Mutex<Option<ChartInfo>>> = Lazy::new(Mutex::default);
 /// External (in-browser) documents shown in the consent dialog.
-pub const TERMS_URL: &str = "https://phira.moe/terms-of-use";
-pub const PRIVACY_URL: &str = "https://phira.moe/privacy-policy";
+/// 跟随已配置的 Web 前端地址（自建 / 私服时即自己的站点）。
+pub fn terms_url() -> String {
+    format!("{}/terms-of-use", crate::client::web_url())
+}
+pub fn privacy_url() -> String {
+    format!("{}/privacy-policy", crate::client::web_url())
+}
 pub static TERMS: OnceCell<Option<String>> = OnceCell::new();
 type LoadTosTask = Task<Result<Option<String>>>;
 pub static LOAD_TOS_TASK: Lazy<Mutex<Option<LoadTosTask>>> = Lazy::new(Mutex::default);
@@ -158,16 +173,16 @@ pub fn check_read_tos_and_policy(change_just_accepted: bool, strict: bool) -> bo
             }
             Dialog::plain(ttl!("tos-and-policy"), ttl!("tos-and-policy-desc"))
                 .links(vec![
-                    (ttl!("tos-link-terms").into_owned(), TERMS_URL.to_owned()),
-                    (ttl!("tos-link-privacy").into_owned(), PRIVACY_URL.to_owned()),
+                    (ttl!("tos-link-terms").into_owned(), terms_url()),
+                    (ttl!("tos-link-privacy").into_owned(), privacy_url()),
                 ])
                 .on_link(|i| {
                     let url = match i {
-                        0 => TERMS_URL,
-                        1 => PRIVACY_URL,
+                        0 => terms_url(),
+                        1 => privacy_url(),
                         _ => return,
                     };
-                    let _ = open_url(url);
+                    let _ = open_url(&url);
                 })
                 .buttons(vec![ttl!("tos-deny").into_owned(), ttl!("tos-accept").into_owned()])
                 .listener(move |_dialog, pos| match pos {
@@ -363,6 +378,7 @@ pub fn render_ldb<'a>(
     ui: &mut Ui,
     title: &str,
     w: f32,
+    whole_row: bool,
     rt: f32,
     scroll: &mut Scroll,
     fader: &mut Fader,
@@ -405,7 +421,13 @@ pub fn render_ldb<'a>(
                         .draw_using(&PGR_FONT);
                     let ct = (0.18, s / 2.);
                     ui.avatar(ct.0, ct.1, r, rt, UserManager::opt_avatar(item.player_id, icon_user));
-                    item.btn.set(ui, Rect::new(ct.0 - r, ct.1 - r, r * 2., r * 2.));
+                    if whole_row {
+                        // 本地榜：整行可点击（头像/昵称/分数/准度任意区域）。
+                        item.btn.set(ui, Rect::new(0., 0., width, s));
+                    } else {
+                        // 在线榜：沿用官方样式，仅点头像区域跳转个人主页。
+                        item.btn.set(ui, Rect::new(ct.0 - r, ct.1 - r, r * 2., r * 2.));
+                    }
                     let mut rt = width - 0.04;
                     if let Some(alt) = item.alt {
                         let r = ui

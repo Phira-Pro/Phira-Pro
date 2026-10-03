@@ -84,3 +84,30 @@ msg-room-cycle = { $cycle ->
   [true] 방이 순환 모드로 변경되었습니다.
   *[other] 방이 일반 모드로 변경되었습니다.
 }
+
+# ---- Phira Pro: local multiplayer ----
+local-mp-host = Local Multiplayer
+local-mp-rooms = Room List
+local-mp-only-public = Public only
+local-mp-all = All
+local-mp-started = Local multiplayer started
+local-mp-already = Local multiplayer is already running
+local-mp-start-failed = Failed to start local multiplayer
+local-mp-rooms-failed = Failed to fetch room list
+local-mp-rooms-empty = No rooms
+local-mp-public = Public
+local-mp-private = Private
+local-mp-state-select = Selecting chart
+local-mp-state-ready = Waiting for ready
+local-mp-state-playing = Playing
+room-play-disabled = 방에서는 방장이 시작합니다
+
+local-mp-servers = 서버 목록
+local-mp-servers-loading = 서버 목록을 가져오는 중…
+local-mp-servers-empty = 서버를 찾지 못했습니다
+local-mp-servers-failed = 서버 목록을 가져오지 못했습니다
+local-mp-servers-offline = 오프라인
+
+room-password = 방 비밀번호
+room-password-prompt = 방 비밀번호 (없으면 비워 두세요)
+local-mp-password = 비밀번호

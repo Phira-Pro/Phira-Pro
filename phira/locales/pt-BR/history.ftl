@@ -26,3 +26,14 @@ trend-axis = antigo ← → novo
 list-more = { $count } registros mais antigos não exibidos
 stat-avg = Média
 stat-all-title = Todos os charts
+
+
+daily-title = Desafio diário
+daily-start = Iniciar
+daily-todo = ainda não feito
+daily-done = concluído { $score }
+daily-no-chart = Importe alguns charts primeiro
+daily-speed = Velocidade 1,1x
+daily-strict = Julgamento estrito ±60ms
+daily-health = Modo barra de vida
+daily-nohints = Sem dicas

@@ -26,3 +26,14 @@ trend-axis = старое ← → новое
 list-more = Ещё { $count } старых записей не показано
 stat-avg = Среднее
 stat-all-title = Все карты
+
+
+daily-title = Ежедневное испытание
+daily-start = Начать
+daily-todo = ещё не пройдено
+daily-done = пройдено { $score }
+daily-no-chart = Сначала импортируйте карты
+daily-speed = Скорость 1.1x
+daily-strict = Строгое судейство ±60ms
+daily-health = Режим полосы здоровья
+daily-nohints = Без подсказок

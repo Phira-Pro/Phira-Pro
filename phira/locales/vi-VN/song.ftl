@@ -139,3 +139,12 @@ export = Xuất
 exporting = Đang xuất…
 mods-no-combo-score = Không tính điểm combo
 mods-no-combo-score-sub = Combo cao nhất không tính vào điểm (điểm = độ chính xác × 1000000). *Không thể tải điểm lên khi bật mod này*
+ldb-local = Cục bộ
+ldb-acc = Chính xác
+ldb-local-title = Kỷ lục máy
+ldb-local-empty = Chưa có kỷ lục máy. Chơi một ván để xem ở đây.
+ldb-local-no-hit = Cú nhấp không trúng hàng nào trong { $count } hàng
+
+mp-forced-official = Đấu online: các tuỳ chọn phán định / lối chơi đã đổi được đưa về mặc định chính thức
+
+flash-autoplay-unrated = Tự động chơi đã bật: lượt này sẽ không được tải lên và cài đặt phán định đã khôi phục mặc định

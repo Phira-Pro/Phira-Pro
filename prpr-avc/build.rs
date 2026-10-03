@@ -57,13 +57,15 @@ fn ensure_static_lib(libs_dir: &Path, target: &str, version: &str) -> Result<(),
 
     download_and_extract(&url, &target_dir)?;
     validate_libs(&target_dir)?;
+    fs::write(target_dir.join("version.txt"), format!("{version}\n"))?;
     fs::write(target_dir.join(".version"), format!("{version}\n"))?;
 
     Ok(())
 }
 
 fn cache_is_valid(path: &Path, version: &str) -> bool {
-    let Ok(actual_version) = fs::read_to_string(path.join(".version")) else {
+    let recorded = fs::read_to_string(path.join("version.txt")).or_else(|_| fs::read_to_string(path.join(".version")));
+    let Ok(actual_version) = recorded else {
         return false;
     };
     actual_version.trim() == version && EXPECTED_LIBS.iter().all(|name| path.join(name).is_file())

@@ -22,8 +22,68 @@ static CLIENT: Lazy<ArcSwap<reqwest::Client>> = Lazy::new(|| ArcSwap::from_point
 
 pub struct Client;
 
-// pub const API_URL: &str = "http://localhost:2924";
-pub const API_URL: &str = "https://phira.5wyxi.com";
+/// 官方 API 地址：`config.api_url` 为空时的回退值。
+pub const DEFAULT_API_URL: &str = "https://phira.5wyxi.com";
+/// 官方 Web 前端地址：`config.web_url` 为空时的回退值。
+pub const DEFAULT_WEB_URL: &str = "https://phira.moe";
+/// 官方服务器状态页：`config.status_url` 为空时的回退值。
+pub const DEFAULT_STATUS_URL: &str = "https://status.phira.cn";
+
+/// 读取一个「可配置基础地址」：取配置值（去首尾空白与末尾 `/`），为空则回退到 `default`。
+fn base_url(value: &str, default: &str) -> String {
+    let url = value.trim().trim_end_matches('/');
+    if url.is_empty() { default.to_owned() } else { url.to_owned() }
+}
+
+/// 当前使用的 Phira API 基础地址（登录、谱面、成绩上传等）。
+/// 自建 / 私服改成 `config.api_url` 即可；改完需要重启生效。
+pub fn api_url() -> String {
+    base_url(&get_data().config.api_url, DEFAULT_API_URL)
+}
+
+/// Phira Pro：自服（`phira-pro-api`）基础地址；**留空 = 关闭全部自服功能**。
+pub fn pro_api_url() -> String {
+    get_data().config.pro_api_url.trim().trim_end_matches('/').to_owned()
+}
+
+/// 构造一个打到自服的请求（带官服 token 鉴权）。自服未配置时返回 `None`。
+///
+/// 这里刻意单独 build 一个 client：官服那个 client 的默认头里已经带了
+/// `Authorization`，复用它会出现重复鉴权头。
+pub fn pro_request(method: Method, path: impl AsRef<str>) -> Option<RequestBuilder> {
+    let base = pro_api_url();
+    if base.is_empty() {
+        return None;
+    }
+    let mut req = basic_client_builder().build().ok()?.request(method, base + path.as_ref());
+    if let Ok(locale) = header::HeaderValue::from_str(&client_locale()) {
+        req = req.header(header::ACCEPT_LANGUAGE, locale);
+    }
+    if let Some(token) = CLIENT_TOKEN.load().as_ref() {
+        if let Ok(value) = header::HeaderValue::from_str(&format!("Bearer {token}")) {
+            req = req.header(header::AUTHORIZATION, value);
+        }
+    }
+    Some(req)
+}
+
+pub fn pro_get(path: impl AsRef<str>) -> Option<RequestBuilder> {
+    pro_request(Method::GET, path)
+}
+
+pub fn pro_post<T: Serialize>(path: impl AsRef<str>, data: &T) -> Option<RequestBuilder> {
+    Some(pro_request(Method::POST, path)?.json(data))
+}
+
+/// 当前使用的 Phira 网页前端地址（谱面页 / 用户页 / 合集页 / 条款链接等）。
+pub fn web_url() -> String {
+    base_url(&get_data().config.web_url, DEFAULT_WEB_URL)
+}
+
+/// 当前使用的服务器状态页地址。
+pub fn status_url() -> String {
+    base_url(&get_data().config.status_url, DEFAULT_STATUS_URL)
+}
 
 pub fn basic_client_builder() -> ClientBuilder {
     let policy = reqwest::redirect::Policy::custom(|attempt| {
@@ -187,7 +247,7 @@ impl Client {
     }
 
     pub fn request(method: Method, path: impl AsRef<str>) -> RequestBuilder {
-        CLIENT.load().request(method, API_URL.to_string() + path.as_ref())
+        CLIENT.load().request(method, api_url() + path.as_ref())
     }
 
     pub fn clear_cache<T: Object + 'static>(id: i32) -> Result<bool> {
@@ -437,7 +497,7 @@ impl Client {
     /// ~9 KB body is never downloaded — change detection relies solely on the
     /// `Last-Modified` header.
     pub async fn fetch_terms(modified: Option<&str>) -> Result<Option<String>> {
-        let mut req = CLIENT.load().head(format!("{API_URL}/terms/{}.txt", client_locale()));
+        let mut req = CLIENT.load().head(format!("{}/terms/{}.txt", api_url(), client_locale()));
         if let Some(modified) = modified {
             req = req.header(header::IF_MODIFIED_SINCE, header::HeaderValue::from_str(modified)?);
         }

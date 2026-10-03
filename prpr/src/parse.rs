@@ -5,7 +5,7 @@ mod extra;
 pub use extra::parse_extra;
 
 mod pec;
-pub use pec::parse_pec;
+pub use pec::{parse_pec, SendChart};
 
 mod pgr;
 pub use pgr::parse_phigros;

@@ -1,11 +1,10 @@
-use super::{StaticTween, TweenFunction, TweenId, Tweenable, Vector};
-use std::rc::Rc;
+use super::{StaticTween, TweenId, TweenRef, Tweenable, Vector};
 
 #[derive(Clone)]
 pub struct Keyframe<T> {
     pub time: f64,
     pub value: T,
-    pub tween: Rc<dyn TweenFunction>,
+    pub tween: TweenRef,
 }
 
 impl<T> Keyframe<T> {

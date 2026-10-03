@@ -140,3 +140,12 @@ collab-autocomplete-failed = „@{ $name }“ konnte nicht aufgelöst werden: De
 collab-autocomplete-done = Mitwirkende wurden hinzugefügt
 mods-no-combo-score = Ohne Combo-Punkte
 mods-no-combo-score-sub = Max. Combo zählt nicht mehr (Punkte = Genauigkeit × 1000000). *Mit diesem Mod ist kein Hochladen möglich*
+ldb-local = Lokal
+ldb-acc = Genau.
+ldb-local-title = Lokale Rekorde
+ldb-local-empty = Noch keine lokalen Rekorde. Spiele eine Runde, um sie hier zu sehen.
+ldb-local-no-hit = Klick traf keine der { $count } lokalen Zeilen
+
+mp-forced-official = Online-Duell: geänderte Urteils-/Gameplay-Optionen wurden auf die offiziellen Standardwerte zurückgesetzt
+
+flash-autoplay-unrated = Autoplay ist an: Dieser Durchlauf wird nicht hochgeladen und die Bewertungseinstellungen wurden auf die Standardwerte zurückgesetzt

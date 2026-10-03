@@ -3,7 +3,7 @@ use image::{codecs::gif, AnimationDecoder, DynamicImage, ImageError};
 use macroquad::prelude::{Color, WHITE};
 use sasa::AudioClip;
 use serde::{Deserialize, Deserializer};
-use std::{any::Any, cell::RefCell, collections::HashMap, future::IntoFuture, io::Cursor, rc::Rc, str::FromStr, time::Duration};
+use std::{any::Any, cell::RefCell, collections::HashMap, future::IntoFuture, io::Cursor, sync::Arc, str::FromStr, time::Duration};
 use tracing::debug;
 
 use super::{process_lines, L10N_LOCAL, RPE_TWEEN_MAP};
@@ -11,7 +11,7 @@ use crate::{
     core::{
         Anim, AnimFloat, AnimVector, BezierTween, BpmList, Chart, ChartExtra, ChartSettings, ClampedTween, CtrlObject, GeneralIntTween, GifFrames,
         HitSoundMap, IntClampedTween, IntStaticTween, JudgeLine, JudgeLineCache, JudgeLineKind, Keyframe, Note, NoteKind, Object, StaticTween,
-        Triple, TweenFunction, Tweenable, UIElement, EPS, HEIGHT_RATIO,
+        Triple, TweenFunction, TweenRef, Tweenable, UIElement, EPS, HEIGHT_RATIO,
     },
     ext::{NotNanExt, SafeTexture},
     fs::FileSystem,
@@ -86,16 +86,16 @@ impl<T> RPEEvent<T> {
         ((int(p[0]) * 100 + int(p[1])) as u16, int(p[2]), int(p[3]))
     }
 
-    pub fn tween(&self, bezier_map: &BezierMap) -> Rc<dyn TweenFunction> {
+    pub fn tween(&self, bezier_map: &BezierMap) -> TweenRef {
         let tween = RPE_TWEEN_MAP.get(self.easing_type.max(1) as usize).copied().unwrap_or(RPE_TWEEN_MAP[0]);
         let left = self.easing_left.clamp(0., 1.);
         let right = self.easing_right.clamp(0., 1.);
         if self.bezier != 0 {
-            Rc::clone(&bezier_map[&self.bezier_key()])
+            Arc::clone(&bezier_map[&self.bezier_key()])
         } else if tween <= 2 || (left.abs() < EPS as f32 && (right - 1.0).abs() < EPS as f32) || left >= right {
             StaticTween::get_rc(tween)
         } else {
-            Rc::new(ClampedTween::new(tween, left..right))
+            Arc::new(ClampedTween::new(tween, left..right))
         }
     }
 }
@@ -210,21 +210,21 @@ enum SpeedEasingMode {
 }
 
 struct SpeedIntegralTween {
-    tween: Rc<dyn TweenFunction>,
+    tween: TweenRef,
     k: f32,
     b: f32,
     total: f32,
 }
 
 impl SpeedIntegralTween {
-    fn try_create(tween: Rc<dyn TweenFunction>, k: f32, b: f32) -> Option<(Rc<dyn TweenFunction>, f32)> {
+    fn try_create(tween: TweenRef, k: f32, b: f32) -> Option<(TweenRef, f32)> {
         let mut result = Self { tween, k, b, total: 0. };
         let total = result.partial(1.);
         if !total.is_finite() || total.abs() < EPS as f32 {
             return None;
         }
         result.total = total;
-        Some((Rc::new(result), total))
+        Some((Arc::new(result), total))
     }
 
     fn partial(&self, x: f32) -> f32 {
@@ -253,17 +253,17 @@ impl TweenFunction for SpeedIntegralTween {
     }
 }
 
-fn speed_linear_tween(start_speed: f32, end_speed: f32) -> Rc<dyn TweenFunction> {
+fn speed_linear_tween(start_speed: f32, end_speed: f32) -> TweenRef {
     if (start_speed - end_speed).abs() < EPS as f32 {
         StaticTween::get_rc(2)
     } else if start_speed.abs() > end_speed.abs() {
-        Rc::new(ClampedTween::new(7 /*quadOut*/, 0.0..(1. - end_speed / start_speed)))
+        Arc::new(ClampedTween::new(7 /*quadOut*/, 0.0..(1. - end_speed / start_speed)))
     } else {
-        Rc::new(ClampedTween::new(6 /*quadIn*/, (start_speed / end_speed)..1.))
+        Arc::new(ClampedTween::new(6 /*quadIn*/, (start_speed / end_speed)..1.))
     }
 }
 
-fn speed_segment_tween(mode: SpeedEasingMode, start_speed: f32, end_speed: f32, tween: Rc<dyn TweenFunction>) -> (Rc<dyn TweenFunction>, f32) {
+fn speed_segment_tween(mode: SpeedEasingMode, start_speed: f32, end_speed: f32, tween: TweenRef) -> (TweenRef, f32) {
     let (tween, total) = match mode {
         SpeedEasingMode::Legacy => {
             let df0 = tween.derivative(0.);
@@ -277,12 +277,12 @@ fn speed_segment_tween(mode: SpeedEasingMode, start_speed: f32, end_speed: f32, 
             SpeedIntegralTween::try_create(tween, k, b)
         }
         SpeedEasingMode::Modern => {
-            let int_tween: Rc<dyn TweenFunction> = if let Some(s) = tween.as_any().downcast_ref::<StaticTween>() {
+            let int_tween: TweenRef = if let Some(s) = tween.as_any().downcast_ref::<StaticTween>() {
                 IntStaticTween::get_rc(s.0)
             } else if let Some(s) = tween.as_any().downcast_ref::<ClampedTween>() {
-                Rc::new(IntClampedTween::new(s.0, s.1.clone()))
+                Arc::new(IntClampedTween::new(s.0, s.1.clone()))
             } else {
-                Rc::new(GeneralIntTween::new(tween))
+                Arc::new(GeneralIntTween::new(tween))
             };
             SpeedIntegralTween::try_create(int_tween, end_speed - start_speed, start_speed)
         }
@@ -301,7 +301,7 @@ struct RPEChart {
     judge_line_list: Vec<RPEJudgeLine>,
 }
 
-type BezierMap = HashMap<(u16, i16, i16), Rc<dyn TweenFunction>>;
+type BezierMap = HashMap<(u16, i16, i16), TweenRef>;
 
 fn parse_events<T: Tweenable, V: Clone + Into<T>>(
     r: &mut BpmList,
@@ -344,7 +344,7 @@ fn parse_speed_events(r: &mut BpmList, rpe: &[RPEEventLayer], bezier_map: &Bezie
 
         let mut kfs = vec![Keyframe::new(0.0, 0.0, 2)];
         let mut height = 0f64;
-        let mut push_kf = |start_time: f64, end_time: f64, tween: Rc<dyn TweenFunction>, factor: f32| {
+        let mut push_kf = |start_time: f64, end_time: f64, tween: TweenRef, factor: f32| {
             if end_time - start_time <= EPS {
                 return;
             }
@@ -471,13 +471,13 @@ fn parse_speed_events_legacy(r: &mut BpmList, rpe: &[RPEEventLayer], max_time: f
             Keyframe {
                 time: now_time,
                 value: height as f32,
-                tween: Rc::new(ClampedTween::new(7 /*quadOut*/, 0.0..(1. - end_speed / speed))),
+                tween: Arc::new(ClampedTween::new(7 /*quadOut*/, 0.0..(1. - end_speed / speed))),
             }
         } else {
             Keyframe {
                 time: now_time,
                 value: height as f32,
-                tween: Rc::new(ClampedTween::new(6 /*quadIn*/, (speed / end_speed)..1.)),
+                tween: Arc::new(ClampedTween::new(6 /*quadIn*/, (speed / end_speed)..1.)),
             }
         });
         height += (speed + end_speed) as f64 * (end_time - now_time) / 2.;
@@ -616,7 +616,7 @@ fn parse_ctrl_events(rpe: &[RPECtrlEvent], key: &str) -> AnimFloat {
     // event's x, not starting from it. The Anim system uses kf[i].tween for
     // the interval [kf[i], kf[i+1]], so we shift the tween assignment: each
     // keyframe gets the tween from the next event.
-    let tweens: Vec<Rc<dyn TweenFunction>> = rpe
+    let tweens: Vec<TweenRef> = rpe
         .iter()
         .skip(1)
         .map(|it| StaticTween::get_rc(RPE_TWEEN_MAP.get(it.easing.max(1) as usize).copied().unwrap_or(RPE_TWEEN_MAP[0])))
@@ -830,7 +830,7 @@ fn add_bezier<T>(map: &mut BezierMap, event: &RPEEvent<T>) {
         let p = &event.bezier_points;
         let int = |p: f32| (p * 100.).round() as i16;
         map.entry(((int(p[0]) * 100 + int(p[1])) as u16, int(p[2]), int(p[3])))
-            .or_insert_with(|| Rc::new(BezierTween::new((p[0], p[1]), (p[2], p[3]))));
+            .or_insert_with(|| Arc::new(BezierTween::new((p[0], p[1]), (p[2], p[3]))));
     }
 }
 

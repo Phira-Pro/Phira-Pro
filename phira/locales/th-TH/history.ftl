@@ -26,3 +26,14 @@ trend-axis = เก่า ← → ใหม่
 list-more = ยังมีอีก { $count } รายการที่เก่ากว่าไม่แสดง
 stat-avg = เฉลี่ย
 stat-all-title = ทุกแผนที่
+
+
+daily-title = ชาเลนจ์รายวัน
+daily-start = เริ่ม
+daily-todo = ยังไม่ทำ
+daily-done = เสร็จแล้ว { $score }
+daily-no-chart = นำเข้าแผนเพลงก่อน
+daily-speed = ความเร็ว 1.1x
+daily-strict = ตัดสินแบบเข้มงวด ±60ms
+daily-health = โหมดแถบพลังชีวิต
+daily-nohints = ปิดคำใบ้

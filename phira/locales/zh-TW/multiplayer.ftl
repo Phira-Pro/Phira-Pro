@@ -72,3 +72,30 @@ msg-room-cycle =
         [true] 房間已切換為循環模式
        *[other] 房間已切換為普通模式
     }
+
+# ---- Phira Pro: local multiplayer ----
+local-mp-host = Local Multiplayer
+local-mp-rooms = Room List
+local-mp-only-public = Public only
+local-mp-all = All
+local-mp-started = Local multiplayer started
+local-mp-already = Local multiplayer is already running
+local-mp-start-failed = Failed to start local multiplayer
+local-mp-rooms-failed = Failed to fetch room list
+local-mp-rooms-empty = No rooms
+local-mp-public = Public
+local-mp-private = Private
+local-mp-state-select = Selecting chart
+local-mp-state-ready = Waiting for ready
+local-mp-state-playing = Playing
+room-play-disabled = 房間裡請由房主開始遊戲
+
+local-mp-servers = 伺服器列表
+local-mp-servers-loading = 正在取得伺服器列表…
+local-mp-servers-empty = 沒有取得伺服器
+local-mp-servers-failed = 取得伺服器列表失敗
+local-mp-servers-offline = 離線
+
+room-password = 房間密碼
+room-password-prompt = 房間密碼（沒有密碼請留空）
+local-mp-password = 密碼

@@ -133,3 +133,12 @@ stabilize-denied = 거부됨
 stabilize-denied-passed = 거부됨, 비트맵이 거부되었습니다.
 mods-no-combo-score = 콤보 점수 제외
 mods-no-combo-score-sub = 최대 콤보를 점수에 넣지 않습니다 (점수 = 정확도 × 1000000). *이 MOD로는 점수 업로드 불가*
+ldb-local = 로컬
+ldb-acc = 정확도
+ldb-local-title = 로컬 기록
+ldb-local-empty = 아직 로컬 기록이 없습니다. 한 판 플레이하면 여기에 표시됩니다.
+ldb-local-no-hit = 로컬 기록 { $count }개 중 어떤 행에도 클릭이 닿지 않았습니다
+
+mp-forced-official = 온라인 대전: 변경된 판정 / 게임플레이 항목을 공식 기본값으로 되돌렸습니다
+
+flash-autoplay-unrated = 자동 재생 켜짐: 이번 플레이는 업로드되지 않으며 판정 설정이 기본값으로 되돌아갔습니다

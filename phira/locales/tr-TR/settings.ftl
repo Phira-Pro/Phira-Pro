@@ -68,7 +68,7 @@ item-use-keyboard = Klavye Kullan
 item-use-keyboard-sub = Oyun için klavye girişini etkinleştir. Etkinleştirildiğinde skorlar yüklenemez.
 item-prefer-reduced-motion = Azaltılmış Hareket Tercih Et
 item-prefer-reduced-motion-sub = Animasyonları ve görsel efektleri azalt
-item-speed = Hız
+item-speed = Parça Hızı
 item-note-size = Nota boyutu
 
 item-chart-debug = Ritim haritası hata ayıklama modu
@@ -139,7 +139,7 @@ item-judge-chart-sub = Sonuç ekranına zamanlama dağılımı çizer (erken →
 item-hp-scale = Can barı çarpanı
 item-hp-color = Can barı rengi
 item-upload = Skor yükle
-item-upload-sub = [Bu sürümde desteklenmiyor] Anahtar etkisizdir; skorlar cihazda kalır
+item-upload-sub = Bu sürümde gönderme kanalı yok, bu yüzden anahtarın etkisi yok: skorlar cihazda kalır
 item-upload-consent = Yükleme onayı
 item-upload-consent-open = Görüntüle
 item-history = Skor geçmişi
@@ -161,7 +161,7 @@ font-reset-done = Yerleşik yazı tipine dönüldü; uygulamayı yeniden başlat
 upload-consent-title = Skor yükleme: onay ve sorumluluk reddi
 upload-consent-accept = Okudum ve kabul ediyorum
 upload-consent-deny = Kabul etmiyorum
-upload-consent-text = Etkinleştirilirse bu oyunun skoru (chart kimliği, skor / isabet / yargılar, sürüm zaman damgası, hesap bilgileri) resmî Phira sunucusuna gönderilir; cihaz bilgisi veya başka dosya gönderilmez. Kapatılırsa her şey cihazda kalır. Not: bu sürümde yükleme, derleme sırasında kapalıdır. Resmî olmayan sürüm, TeamFlos / Phira ile ilgisi yoktur; resmî istemciden farklı sonuçlarda sorumluluk kullanıcıdadır.
+upload-consent-text = Bu sürümün skorları hiçbir sunucuya gönderilmez ve yalnızca bu cihazda saklanır. Bu seçenek açıldığında yüklenen içerik yalnızca bu oyunun sonucudur (harita ID'si, skor / isabet / yargılar, harita sürümü zaman damgası, hesap kimlik bilgileri) - cihaz bilgisi veya başka dosya içermez; ve yalnızca yargı ile oynanışı değiştirilmemiş oyunlar sayılır - otomatik oynatma, tam ekran yargı, katı yargı, yargı aralığı ayarı, geç basma toleransı, sarı / kırmızı koruma, Hold son yargısı, HP çarpanı, hız düşürme veya klavye modundan herhangi biri açıksa reddedilir. Çevrimiçi maçlar adalet için bu seçenekleri resmî varsayılanlara zorlar. Bu sürüm resmî değildir ve TeamFlos / Phira ile ilgisi yoktur; sonuçlar resmî istemciden farklıysa sorumluluk kullanıcıya aittir.
 item-blacklist = Oyuncu engelli listesi
 item-blacklist-sub = Bu Phira kimliklerini cihazdaki tüm sıralamalardan ve kullanıcı listelerinden gizle
 item-blacklist-open = Yönet
@@ -171,3 +171,119 @@ judge-window-invalid = Bir sayı girin
 item-hud = HUD Özelleştirme
 item-hud-sub = Ana sayfa, kitaplık ve ayarlar bileşenlerini sürükleyip yeniden boyutlandırın
 item-hud-open = Yönet
+item-transfer = Veri taşıma
+item-transfer-sub = Resmî Phira'dan bölüm ve ayarları içe aktar
+transfer-open = Aç
+item-backup = Yedekle ve geri yükle
+item-backup-sub = Yerel verileri yedekle veya geri yükle
+backup-open = Aç
+transfer-label = Veri taşıma
+transfer-desc = Bölümleri, kaplamaları, yazı tiplerini ve görünümü içe aktarmak için resmî Phira veri klasöründeki data.json dosyasını seçin.
+transfer-pick = data.json seç
+transfer-import = İçe aktarmayı başlat
+transfer-import-config = Ayarları da içe aktar
+transfer-scan = { $charts } bölüm, { $respacks } kaplama, { $appearance } görünüm dosyası bulundu
+transfer-done = İçe aktarma tamam ({ $charts } bölüm, { $respacks } kaplama, { $appearance } görünüm). Yüklemek için Phira Pro'yu yeniden başlatın.
+transfer-unsupported = Bu platformda henüz desteklenmiyor
+transfer-failed = İşlem başarısız
+backup-label = Yedekle ve geri yükle
+backup-desc = Yedekleme tüm veri klasörünü zip olarak paketler. Geri yükleme aynı adlı dosyaların üzerine yazar (yeniden başlatma gerekir).
+backup-create = Dosyaya yedekle
+backup-restore = Yedekten geri yükle
+backup-created = Yedekleme tamam: { $count } dosya
+backup-restored = Geri yükleme tamam: { $count } dosya. Phira Pro'yu yeniden başlatın.
+transfer-working = İşleniyor…
+
+item-api-url = API Adresi
+item-api-url-sub = Özel API temel adresi (giriş / haritalar / skorlar). Boş bırakırsanız resmî sunucu kullanılır. http(s):// ile başlamalı; yeniden başlatma gerekir.
+
+item-status-url = Sunucu durum sayfası
+item-web-url-sub = Web arayüzünün temel adresi (harita / kullanıcı / koleksiyon sayfaları, ilke bağlantıları). Resmî site için boş bırakın. http(s):// ile başlamalı.
+item-url-invalid = Geçersiz adres (http:// veya https:// ile başlamalı)
+item-status-url-sub = Ayarlardaki "Sunucu durumu" düğmesinin açtığı adres. Resmî sayfa için boş bırakın. http(s):// ile başlamalı.
+item-web-url = Web adresi
+
+item-touch-color = Dokunma Noktası Rengi
+item-touch-color-sub = Hata ayıklama dokunma noktalarının rengini değiştirmek için dokunun
+item-touch-alpha = Dokunma Noktası Opaklığı
+item-touch-size = Dokunma Noktası Boyutu
+item-reset-settings = Tüm Ayarları Sıfırla
+item-reset-settings-sub = Bu sayfadaki tüm seçenekleri varsayılana döndür
+item-reset-settings-btn = Sıfırla
+reset-settings-title = Tüm Ayarları Sıfırla
+reset-settings-text = Ayar sayfasındaki tüm seçenekler (dil, tema, yargılama / oynanış, hata ayıklama vb.) varsayılana döndürülecek. Hesabınız, haritalarınız, skorlarınız ve içe aktarılan kaynaklar korunur.
+reset-settings-done = Ayarlar varsayılana döndürüldü
+reset-settings-cancel = İptal
+reset-settings-confirm = Onayla
+activation-serial = Seri kodu
+activation-serial-copied = Seri kodu kopyalandı
+activation-code = Kilit açma kodu
+activation-code-empty = Girmek / yapıştırmak için dokunun
+activation-code-set = Girildi (düzenlemek için dokunun)
+activation-confirm = Onayla
+activation-locked = Lütfen önce Ayarlar'dan kilit açma kodunu girin
+activation-ok = Kilit açıldı. Tüm özellikler kullanılabilir
+activation-failed = Kilit açma kodu yanlış
+
+item-flow-speed = Not Akış Hızı
+item-flow-speed-sub = Yalnızca notların kayma hızını değiştirir; müzik ve perdesi aynı kalır. Skor yüklenemez.
+item-fade-strength = Belirme/Kaybolma Gücü
+item-fade-strength-sub = Notların belirme/kaybolma yüksekliği. 0 = resmî davranış.
+aspect-official = Resmî
+item-custom-aspect = Özel Oyun Ekran Oranı
+item-custom-aspect-sub = Müzikte kayıtlı oranı geçersiz kılar
+item-aspect-ratio = Oyun Ekran Oranı
+item-aspect-ratio-sub = 16:9 veya 1.7778 gibi ondalık destekler
+aspect-invalid = Geçersiz oran, örn. 16:9 veya 1.7778
+item-offset-indicator = Sapma Göstergesi
+item-offset-indicator-sub = Oyunda erken/geç sapma çubuğunu gösterir
+
+item-mp-local-addr = Local Multiplayer Server
+item-mp-local-addr-sub = Address the Local Multiplayer button connects to (host:port); leave empty to host on this device.
+item-mp-local-addr-none = (host on this device)
+item-mp-local-addr-invalid = Invalid local server address.
+
+item-mp-server-list = Sunucu Listesi Adresi
+item-mp-server-list-sub = Sunucu listesinin alınacağı durum sayfası (boş = varsayılan)
+
+item-app-icon = Uygulama Simgesi
+item-app-icon-sub = Uygulama simgesini değiştir. *Yeniden başlatınca etkin olur*
+item-app-icon-reset = Simgeyi sıfırla
+item-app-bg = Arka Plan
+item-app-bg-sub = Ana ekran arka planını değiştir
+item-app-bg-reset = Arka planı sıfırla
+item-appearance-import-sub = Ana ekranın sol alt köşesindeki illüstrasyon (saydam PNG önerilir)
+item-appearance-reset = İllüstrasyonu sıfırla
+item-app-icon-imported = Simge içe aktarıldı - uygulamak için yeniden başlatın
+item-app-icon-reset-done = Varsayılan simge geri yüklendi - yeniden başlatın
+item-app-bg-imported = Arka plan içe aktarıldı
+item-app-bg-reset-done = Varsayılan arka plan geri yüklendi
+item-appearance-reset-done = Varsayılan illüstrasyon geri yüklendi
+
+migrate-label = Oynadığım Haritaları İçe Aktar
+migrate-desc = Resmî harita sıralamalarını tarayıp skorun olan haritaları bulur ve filtreye uyanları indirir (filtre yoksa tüm haritalar taranır, yavaştır)
+migrate-min-diff = En düşük seviye
+migrate-min-rating = En düşük puan
+migrate-unlimited = Sınırsız
+migrate-ranked-only = Yalnızca ranked
+migrate-skip = İndirilenleri atla
+migrate-start = İçe aktarmayı başlat
+migrate-cancel = İptal
+migrate-fetching = Resmî sunucudan skorların alınıyor...
+migrate-searching-meta = Harita bilgileri alınıyor...
+migrate-none = Filtreye uyan harita yok
+migrate-progress = İndiriliyor { $done }/{ $total }: { $name }
+migrate-done = Bitti: { $ok } başarılı, { $failed } başarısız
+migrate-imported = { $count } harita içe aktarıldı
+migrate-need-login = Önce resmî sunucuya giriş yapın
+
+migrate-enumerating = Haritalar listeleniyor ({ $pages } sayfa)...
+migrate-checking = Skorların kontrol ediliyor { $done }/{ $total }...
+
+item-pro-api-url = Pro Sunucu Adresi
+item-pro-api-url-sub = Phira Pro: skorlar buraya da yüklenir ve sıralamalar resmî ile Pro kayıtlarını birleştirir; boş bırakırsanız Pro özellikleri kapanır
+item-pro-api-url-off = Kapalı (yalnızca resmî)
+
+chart-import-label = Haritaları Toplu İçe Aktar
+chart-import-desc = Resmî istemcinin toplu dışa aktarımıyla oluşan zip'i içe aktarır (tek paket de olur); içe aktarılan haritalar yerel kitaplığında hemen görünür
+chart-import-btn = Dosya seç ve içe aktar

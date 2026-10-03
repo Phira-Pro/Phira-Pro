@@ -24,6 +24,17 @@ pub type Matrix = nalgebra::Matrix3<f32>;
 mod anim;
 pub use anim::{Anim, AnimFloat, AnimVector, Keyframe};
 
+mod block;
+pub use block::{
+    block_touch_blocked, touch_inset_world, BlockArea, BlockMoveEvent, BlockPhase, BlockRotateEvent, BlockScaleEvent, BlockTransform,
+};
+
+mod block_shader;
+mod block_audio;
+pub(crate) use block_audio::BlockAudio;
+pub use block_shader::{draw_disabled_zones, draw_zones, draw_zones_with_touches, Zone};
+pub(crate) use block_shader::reset_block_effects;
+
 mod chart;
 pub use chart::{Chart, ChartExtra, ChartSettings, HitSoundMap};
 
@@ -35,7 +46,7 @@ pub use line::{GifFrames, JudgeLine, JudgeLineCache, JudgeLineKind, UIElement};
 
 mod note;
 use macroquad::prelude::set_pc_assets_folder;
-pub use note::{BadNote, HitSound, Note, NoteKind, RenderConfig};
+pub use note::{BadNote, HitSound, Note, NoteKind, RenderConfig, FADEOUT_TIME};
 
 mod object;
 pub use object::{CtrlObject, Object};
@@ -52,7 +63,7 @@ pub use smooth::Smooth;
 mod tween;
 pub use tween::{
     easing_from, BezierTween, ClampedTween, GeneralIntTween, IntClampedTween, IntStaticTween, StaticTween, TweenFunction, TweenId, TweenMajor,
-    TweenMinor, Tweenable, TWEEN_FUNCTIONS,
+    TweenMinor, TweenRef, Tweenable, TWEEN_FUNCTIONS,
 };
 
 #[cfg(feature = "video")]
@@ -130,6 +141,7 @@ impl BpmList {
     }
 
     /// Get the time in seconds for a given beats
+    #[inline]
     pub fn time_beats(&mut self, beats: f64) -> f64 {
         while let Some(kf) = self.elements.get(self.cursor + 1) {
             if kf.0 > beats {

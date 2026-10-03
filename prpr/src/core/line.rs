@@ -1,4 +1,4 @@
-use super::{chart::ChartSettings, object::CtrlObject, Anim, AnimFloat, BpmList, Matrix, Note, Object, Point, RenderConfig, Resource, Vector};
+use super::{chart::ChartSettings, object::CtrlObject, Anim, AnimFloat, BpmList, Matrix, Note, Object, Point, RenderConfig, Resource, Vector, FADEOUT_TIME};
 use crate::{
     ext::{get_viewport, NotNanExt, SafeTexture},
     judge::JudgeStatus,
@@ -9,6 +9,13 @@ use miniquad::{RenderPass, Texture, TextureParams, TextureWrap};
 use nalgebra::Rotation2;
 use serde::Deserialize;
 use std::cell::RefCell;
+
+/// 单条判定线音符数超过该值时，无条件启用「屏幕外音符剔除」（不受「激进优化」开关影响）。
+///
+/// 背景：`aggressive` 关闭时，渲染会遍历该线**全部**未出屏音符（每帧数百万次），
+/// 物量百万级的观赏谱会因此掉到 1~2 帧。这里对极端线强制剔除作为兜底：
+/// 它只影响“本来就被画到屏幕外”的音符，普通谱面（单线远不到 2 万音符）仍严格遵循开关。
+const EXTREME_LINE_NOTES: usize = 20_000;
 
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -101,8 +108,11 @@ pub struct JudgeLineCache {
 
 impl JudgeLineCache {
     pub fn new(notes: &mut [Note]) -> Self {
-        notes
-            .sort_by_key(|it| (it.plain(), !it.above, it.speed.not_nan(), ((it.height + it.object.translation.1.now() as f64) * it.speed).not_nan()));
+        // 用 `sort_by_cached_key`：排序键只求值一次，避免在 O(n log n) 次比较里反复调用
+        // `plain()` / `now()` —— 数百万音符下这能省下数亿次函数调用。
+        notes.sort_by_cached_key(|it| {
+            (it.plain(), !it.above, it.speed.not_nan(), ((it.height + it.object.translation.1.now() as f64) * it.speed).not_nan())
+        });
         let mut res = Self {
             update_order: Vec::new(),
             not_plain_count: 0,
@@ -192,7 +202,10 @@ impl JudgeLine {
         }
         self.color.set_time(res.time);
         self.cache.above_indices.retain_mut(|index| {
-            while matches!(self.notes[*index].judge, JudgeStatus::Judged) {
+            // 游标允许被推进到 `notes.len()`（见下方推进逻辑）——这里必须像 `render` 里那样
+            // 先判边界，否则越界 panic（索引越界会把渲染线程直接打死：画面定格、切后台黑屏、
+            // 只能杀进程重开）。
+            while self.notes.get(*index).is_some_and(|it| matches!(it.judge, JudgeStatus::Judged)) {
                 if self
                     .notes
                     .get(*index + 1)
@@ -206,7 +219,7 @@ impl JudgeLine {
             true
         });
         self.cache.below_indices.retain_mut(|index| {
-            while matches!(self.notes[*index].judge, JudgeStatus::Judged) {
+            while self.notes.get(*index).is_some_and(|it| matches!(it.judge, JudgeStatus::Judged)) {
                 if self.notes.get(*index + 1).is_some_and(|it| it.speed == self.notes[*index].speed) {
                     *index += 1;
                 } else {
@@ -215,6 +228,44 @@ impl JudgeLine {
             }
             true
         });
+        // 按时间推进 above / below 游标：`Note::render` 本来就对"已过去的普通音符"直接早退，
+        // 这里把游标一并推过去，避免每帧从这两组音符的**起点**重新遍历成千上万个已过去的音符。
+        // 只在没有 `show_below`、且没有 PE alpha 扩展（appear_before）时推进，保证不跳过任何
+        // 仍会被绘制的音符。
+        if !self.show_below && self.object.alpha.now_opt().unwrap_or(1.) * res.alpha >= 0. {
+            let passed = res.time - FADEOUT_TIME;
+            let notes = &self.notes;
+            for slot in self.cache.above_indices.iter_mut() {
+                let mut i = *slot;
+                if i >= notes.len() {
+                    continue;
+                }
+                let speed = notes[i].speed;
+                while i < notes.len() {
+                    let note = &notes[i];
+                    if !note.above || note.speed != speed || note.time > passed {
+                        break;
+                    }
+                    i += 1;
+                }
+                *slot = i;
+            }
+            for slot in self.cache.below_indices.iter_mut() {
+                let mut i = *slot;
+                if i >= notes.len() {
+                    continue;
+                }
+                let speed = notes[i].speed;
+                while i < notes.len() {
+                    let note = &notes[i];
+                    if note.above || note.speed != speed || note.time > passed {
+                        break;
+                    }
+                    i += 1;
+                }
+                *slot = i;
+            }
+        }
     }
 
     pub fn fetch_rot(&self, lines: &[JudgeLine]) -> f32 {
@@ -404,11 +455,14 @@ impl JudgeLine {
             ];
             let height_above = p[0].y.max(p[1].y.max(p[2].y.max(p[3].y))) * res.aspect_ratio;
             let height_below = -p[0].y.min(p[1].y.min(p[2].y.min(p[3].y))) * res.aspect_ratio;
-            let agg = res.config.aggressive;
+            let agg = res.config.aggressive || self.notes.len() > EXTREME_LINE_NOTES;
             for note in self.notes.iter().take(self.cache.not_plain_count).filter(|it| it.above) {
                 note.render(res, &mut config, bpm_list);
             }
             for index in &self.cache.above_indices {
+                if *index >= self.notes.len() {
+                    continue;
+                }
                 let speed = self.notes[*index].speed;
                 let limit = height_above as f64 / speed;
                 for note in self.notes[*index..].iter() {
@@ -426,6 +480,9 @@ impl JudgeLine {
                     note.render(res, &mut config, bpm_list);
                 }
                 for index in &self.cache.below_indices {
+                    if *index >= self.notes.len() {
+                        continue;
+                    }
                     let speed = self.notes[*index].speed;
                     let limit = height_below as f64 / speed;
                     for note in self.notes[*index..].iter() {

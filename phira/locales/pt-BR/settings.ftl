@@ -68,7 +68,7 @@ item-use-keyboard = Usar Teclado
 item-use-keyboard-sub = Ativar entrada de teclado para jogar. Pontuações não podem ser enviadas quando ativado.
 item-prefer-reduced-motion = Preferir movimento reduzido
 item-prefer-reduced-motion-sub = Reduzir animações e efeitos visuais
-item-speed = Velocidade
+item-speed = Velocidade da Música
 item-note-size = Tamanho da nota
 
 item-chart-debug = Modo de depuração de Beatmap
@@ -139,7 +139,7 @@ item-judge-chart-sub = Desenha a distribuição de tempo na tela de resultado (a
 item-hp-scale = Multiplicador da barra de vida
 item-hp-color = Cor da barra de vida
 item-upload = Enviar pontuações
-item-upload-sub = [Não suportado nesta versão] O interruptor não tem efeito; as pontuações ficam locais
+item-upload-sub = Esta versão não inclui o canal de envio, então o interruptor não tem efeito: as pontuações ficam no aparelho
 item-upload-consent = Consentimento de envio
 item-upload-consent-open = Ver
 item-history = Histórico de pontuações
@@ -161,7 +161,7 @@ font-reset-done = Fonte embutida restaurada; reinicie para aplicar
 upload-consent-title = Envio de pontuações: consentimento e isenção
 upload-consent-accept = Li e concordo
 upload-consent-deny = Discordo
-upload-consent-text = Se ativado, a pontuação desta partida (ID do chart, pontuação / precisão / julgamentos, carimbo de versão, credenciais) vai para o servidor oficial do Phira; dados do dispositivo ou outros arquivos não são enviados. Se desativado, tudo fica local. Obs.: nesta versão o envio é desativado em tempo de compilação. Versão não oficial, sem vínculo com TeamFlos / Phira; se divergir do cliente oficial, o usuário assume as consequências.
+upload-consent-text = Os resultados desta versão não são enviados a nenhum servidor e ficam apenas neste dispositivo. Quando ativado, o envio contém somente o resultado desta partida (ID do chart, pontuação / precisão / julgamentos, carimbo de versão do chart, credenciais da conta) - nenhuma informação do dispositivo ou outro arquivo; e apenas partidas sem julgamento e jogabilidade alterados são contadas - ativar autoplay, julgamento em tela cheia, julgamento estrito, ajuste das janelas de julgamento, tolerância a toques tardios, proteção amarela / vermelha, julgamento de fim de Hold, multiplicador de HP, redução de velocidade ou modo teclado faz com que seja recusado. Partidas online forçam essas opções aos padrões oficiais por justiça. Esta versão é não oficial e não tem relação com a TeamFlos / Phira; se os resultados divergirem do cliente oficial, o usuário assume as consequências.
 item-blacklist = Lista de bloqueio
 item-blacklist-sub = Oculta estes IDs Phira em todos os rankings e listas de usuários locais
 item-blacklist-open = Gerenciar
@@ -171,3 +171,119 @@ judge-window-invalid = Digite um número
 item-hud = Personalização do HUD
 item-hud-sub = Arraste e redimensione os componentes do início, da biblioteca e das configurações
 item-hud-open = Gerenciar
+item-transfer = Migração de dados
+item-transfer-sub = Importar charts e configurações do Phira oficial
+transfer-open = Abrir
+item-backup = Backup e restauração
+item-backup-sub = Fazer backup ou restaurar dados locais
+backup-open = Abrir
+transfer-label = Migração de dados
+transfer-desc = Selecione o data.json na pasta de dados do Phira oficial para importar charts, skins, fontes e aparência.
+transfer-pick = Selecionar data.json
+transfer-import = Iniciar importação
+transfer-import-config = Importar configurações também
+transfer-scan = Encontrados { $charts } charts, { $respacks } skins, { $appearance } arquivos de aparência
+transfer-done = Importação concluída ({ $charts } charts, { $respacks } skins, { $appearance } aparência). Reinicie o Phira Pro para carregar.
+transfer-unsupported = Ainda não suportado nesta plataforma
+transfer-failed = Falha na operação
+backup-label = Backup e restauração
+backup-desc = O backup compacta toda a pasta de dados em zip. A restauração sobrescreve arquivos com o mesmo nome (requer reinício).
+backup-create = Fazer backup em arquivo
+backup-restore = Restaurar de backup
+backup-created = Backup concluído: { $count } arquivos
+backup-restored = Restauração concluída: { $count } arquivos. Reinicie o Phira Pro.
+transfer-working = Processando…
+
+item-api-url = Endereço da API
+item-api-url-sub = URL base da API personalizada (login / charts / pontuações). Deixe vazio para usar o servidor oficial. Deve começar com http(s)://; requer reinício.
+
+item-status-url = Página de status do servidor
+item-web-url-sub = URL base do front-end web (páginas de chart / usuário / coleção, links de política). Deixe vazio para o site oficial. Deve começar com http(s)://.
+item-url-invalid = Endereço inválido (deve começar com http:// ou https://)
+item-status-url-sub = Endereço aberto pelo botão "Status do servidor". Deixe vazio para a página oficial. Deve começar com http(s)://.
+item-web-url = Endereço web
+
+item-touch-color = Cor do ponto de toque
+item-touch-color-sub = Toque para alternar a cor dos pontos de toque de depuração
+item-touch-alpha = Opacidade do ponto de toque
+item-touch-size = Tamanho do ponto de toque
+item-reset-settings = Redefinir todas as configurações
+item-reset-settings-sub = Restaurar todas as opções desta página para o padrão
+item-reset-settings-btn = Redefinir
+reset-settings-title = Redefinir todas as configurações
+reset-settings-text = Todas as opções da página de configurações (idioma, tema, julgamento / jogabilidade, depuração etc.) serão restauradas ao padrão. Sua conta, charts, pontuações e recursos importados são mantidos.
+reset-settings-done = Configurações restauradas ao padrão
+reset-settings-cancel = Cancelar
+reset-settings-confirm = Confirmar
+activation-serial = Código de série
+activation-serial-copied = Código de série copiado
+activation-code = Código de desbloqueio
+activation-code-empty = Toque para inserir / colar
+activation-code-set = Preenchido (toque para editar)
+activation-confirm = Confirmar
+activation-locked = Insira primeiro o código de desbloqueio nas Configurações
+activation-ok = Desbloqueado. Todos os recursos estão disponíveis
+activation-failed = Código de desbloqueio incorreto
+
+item-flow-speed = Velocidade de Fluxo das Notas
+item-flow-speed-sub = Altera apenas a velocidade de rolagem das notas; a música e seu tom permanecem iguais. A pontuação não pode ser enviada.
+item-fade-strength = Intensidade de Surgir/Sumir
+item-fade-strength-sub = Altura em que as notas surgem/somem. 0 = comportamento oficial.
+aspect-official = Oficial
+item-custom-aspect = Proporção de Tela Personalizada
+item-custom-aspect-sub = Substitui a proporção gravada no mapa
+item-aspect-ratio = Proporção de Tela
+item-aspect-ratio-sub = Aceita 16:9 ou decimal como 1.7778
+aspect-invalid = Proporção inválida, ex. 16:9 ou 1.7778
+item-offset-indicator = Indicador de Desvio
+item-offset-indicator-sub = Mostra no jogo a barra de desvio (cedo/tarde)
+
+item-mp-local-addr = Local Multiplayer Server
+item-mp-local-addr-sub = Address the Local Multiplayer button connects to (host:port); leave empty to host on this device.
+item-mp-local-addr-none = (host on this device)
+item-mp-local-addr-invalid = Invalid local server address.
+
+item-mp-server-list = URL da lista de servidores
+item-mp-server-list-sub = Página de status de onde a lista é obtida (vazio = padrão)
+
+item-app-icon = Ícone do app
+item-app-icon-sub = Alterar o ícone do aplicativo. *Efeito após reiniciar*
+item-app-icon-reset = Restaurar ícone
+item-app-bg = Plano de fundo
+item-app-bg-sub = Alterar o plano de fundo da tela principal
+item-app-bg-reset = Restaurar plano de fundo
+item-appearance-import-sub = A ilustração no canto inferior esquerdo da tela principal (PNG transparente recomendado)
+item-appearance-reset = Restaurar ilustração
+item-app-icon-imported = Ícone importado - reinicie para aplicar
+item-app-icon-reset-done = Ícone padrão restaurado - reinicie para aplicar
+item-app-bg-imported = Plano de fundo importado
+item-app-bg-reset-done = Plano de fundo padrão restaurado
+item-appearance-reset-done = Ilustração padrão restaurada
+
+migrate-label = Importar minhas músicas jogadas
+migrate-desc = Varre os rankings oficiais para achar músicas com sua pontuação e baixa as que batem com os filtros (sem filtro, varre todas as músicas, o que é lento)
+migrate-min-diff = Nível mínimo
+migrate-min-rating = Nota mínima
+migrate-unlimited = Qualquer
+migrate-ranked-only = Apenas ranked
+migrate-skip = Pular já baixadas
+migrate-start = Iniciar importação
+migrate-cancel = Cancelar
+migrate-fetching = Buscando suas pontuações no servidor oficial...
+migrate-searching-meta = Buscando informações das músicas...
+migrate-none = Nenhuma música corresponde aos filtros
+migrate-progress = Baixando { $done }/{ $total }: { $name }
+migrate-done = Concluído: { $ok } com sucesso, { $failed } com falha
+migrate-imported = { $count } música(s) importada(s)
+migrate-need-login = Entre primeiro no servidor oficial
+
+migrate-enumerating = Listando músicas ({ $pages } páginas)...
+migrate-checking = Verificando suas pontuações { $done }/{ $total }...
+
+item-pro-api-url = URL do servidor Pro
+item-pro-api-url-sub = Phira Pro: as pontuações também são enviadas aqui e os rankings mesclam entradas oficiais e Pro; deixe vazio para desativar os recursos Pro
+item-pro-api-url-off = Desativado (somente oficial)
+
+chart-import-label = Importar músicas em lote
+chart-import-desc = Importa um zip gerado pela exportação em lote do cliente oficial (um único pacote também funciona); as músicas importadas aparecem na biblioteca local na hora
+chart-import-btn = Escolher arquivo e importar

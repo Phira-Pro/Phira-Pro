@@ -40,6 +40,8 @@ pub struct Record {
     pub counts: [u32; 4],
     /// 判定误差分布（早 ← → 晚）
     pub hist: Vec<u32>,
+    /// 本局有效命中的偏差标准差（秒）。用于成绩详情页显示「无瑕度」。
+    pub std: f32,
 }
 
 impl Record {
@@ -167,7 +169,8 @@ pub fn record_play(
     num_of_notes: u32,
     counts: [u32; 4],
     hist: &[u32],
-) -> Result<()> {
+    std: f32,
+) -> Result<i64> {
     let key = if let Some(id) = chart_id {
         format!("id:{id}")
     } else if let Some(path) = local_path {
@@ -175,8 +178,9 @@ pub fn record_play(
     } else {
         format!("name:{name}|{difficulty:.2}")
     };
+    let time = chrono::Utc::now().timestamp_millis();
     push(Record {
-        time: chrono::Utc::now().timestamp_millis(),
+        time,
         key,
         name: name.to_owned(),
         level: level.to_owned(),
@@ -187,5 +191,7 @@ pub fn record_play(
         num_of_notes,
         counts,
         hist: hist.to_vec(),
-    })
+        std,
+    })?;
+    Ok(time)
 }

@@ -214,6 +214,9 @@ pub fn request_file(id: impl Into<String>) {
     let id: String = id.into();
     #[cfg(target_env = "ohos")]
     let is_photo = id == "avatar";
+    // Phira Pro：图片类导入（图标 / 背景 / 立绘）在 Android 上走相册选择器。
+    #[cfg(target_os = "android")]
+    let is_photo = matches!(id.as_str(), "icon_import" | "background_import" | "appearance_import");
     *CHOSEN_FILE.lock().unwrap() = (Some(id), None);
     cfg_if! {
         if #[cfg(target_os = "android")] {
@@ -221,7 +224,12 @@ pub fn request_file(id: impl Into<String>) {
                 let env = miniquad::native::attach_jni_env();
                 let ctx = ndk_context::android_context().context();
                 let class = (**env).GetObjectClass.unwrap()(env, ctx);
-                let method = (**env).GetMethodID.unwrap()(env, class, c"chooseFile".as_ptr() as _, c"()V".as_ptr() as _);
+                // 图片类优先用相册（GET_CONTENT image/*）；老包里没有 choosePhoto 时回退文件选择器。
+                let name = if is_photo { c"choosePhoto" } else { c"chooseFile" };
+                let mut method = (**env).GetMethodID.unwrap()(env, class, name.as_ptr() as _, c"()V".as_ptr() as _);
+                if method.is_null() {
+                    method = (**env).GetMethodID.unwrap()(env, class, c"chooseFile".as_ptr() as _, c"()V".as_ptr() as _);
+                }
                 (**env).CallVoidMethod.unwrap()(env, ctx, method);
             }
         } else if #[cfg(target_os = "ios")] {
@@ -333,6 +341,11 @@ pub fn take_file() -> Option<(String, String)> {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn return_file(id: String, file: String) {
     *CHOSEN_FILE.lock().unwrap() = (Some(id), Some(file));
+}
+
+/// 复制文本到系统剪贴板。
+pub fn copy_to_clipboard(text: &str) {
+    unsafe { get_internal_gl() }.quad_context.clipboard_set(text);
 }
 
 pub trait Scene {

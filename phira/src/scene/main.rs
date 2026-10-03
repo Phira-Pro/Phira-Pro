@@ -8,7 +8,7 @@ use crate::{
     mp::MPPanel,
     page::{ChartItem, ExportInfo, HomePage, NextPage, Page, ResPackItem, SharedState},
     save_data,
-    scene::{confirm_dialog, import_chart_to, parse_warnings_to_string, SongScene, TEX_BACKGROUND, TEX_ICON_BACK},
+    scene::{confirm_dialog, import_chart_to, parse_warnings_to_string, SongScene, TEX_BACKGROUND, TEX_BACKGROUND_BLUR, TEX_BACKGROUND_BLUR_DEFAULT, TEX_BACKGROUND_DEFAULT, TEX_ICON_BACK},
 };
 use anyhow::{anyhow, Context, Result};
 use macroquad::prelude::*;
@@ -43,10 +43,26 @@ use uuid::Uuid;
 
 const LOW_PASS: f32 = 0.95;
 
+/// Phira Pro：把图片缩到很小再当纹理放大画出来（线性过滤）＝一次廉价的模糊。
+/// 供「服务器列表」浮层当磨砂背景用，避免浮层内容与背后界面糊在一起。
+fn blurred_texture(image: &image::DynamicImage) -> SafeTexture {
+    const W: u32 = 32;
+    const H: u32 = 18;
+    let small = image
+        .resize_exact(W, H, image::imageops::FilterType::Triangle)
+        .into_rgba8();
+    let tex = Texture2D::from_rgba8(W as u16, H as u16, small.as_raw());
+    tex.set_filter(FilterMode::Linear);
+    tex.into()
+}
+
 pub static BGM_VOLUME_UPDATED: AtomicBool = AtomicBool::new(false);
 
 /// 外观资源（例如立绘）被导入或替换后置位；主页在 `update` 里消费它并重新加载。
 pub static APPEARANCE_UPDATED: AtomicBool = AtomicBool::new(false);
+
+/// Phira Pro：背景图被导入 / 恢复默认后置位；主场景在 `update` 里消费并重新加载。
+pub static BACKGROUND_UPDATED: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
     static RESPACK_ITEM: RefCell<Option<ResPackItem>> = RefCell::default();
@@ -156,6 +172,9 @@ pub struct MainScene {
     bgm: Option<Music>,
 
     background: SafeTexture,
+    /// Phira Pro：内置背景图（含磨砂版），供「恢复默认背景」使用。
+    bg_default: SafeTexture,
+    bg_default_blur: SafeTexture,
     btn_back: RectButton,
     icon_back: SafeTexture,
 
@@ -223,6 +242,8 @@ impl MainScene {
 
         let mut sf = Self::new_inner(bgm, fallback).await?;
         sf.pages.push(Box::new(HomePage::new(Arc::clone(&sf.icons)).await?));
+        // 生成序列码 / 刷新解锁状态。未解锁时主界面照常进入，只是功能被锁。
+        crate::refresh_unlock();
         Ok(sf)
     }
 
@@ -240,14 +261,27 @@ impl MainScene {
         load_sfx!(UI_BTN_HITSOUND, "button.ogg");
         load_sfx!(UI_SWITCH_SOUND, "switch.ogg");
 
-        let background: SafeTexture = match dir::load_appearance_image("background") {
-            Some(image) => image.into(),
-            None => load_texture("background.jpg").await?.into(),
+        // 内置背景图（「恢复默认背景」时用）。
+        let bg_default: SafeTexture = load_texture("background.jpg").await?.into();
+        let bg_default_blur = load_file("background.jpg")
+            .await
+            .ok()
+            .and_then(|bytes| image::load_from_memory(&bytes).ok())
+            .map(|image| blurred_texture(&image))
+            .unwrap_or_else(|| bg_default.clone());
+        // 自定义背景（`data/appearance/background.*`）优先。
+        let bg_image = dir::load_appearance_image("background");
+        let (background, background_blur): (SafeTexture, SafeTexture) = match &bg_image {
+            Some(image) => (image.clone().into(), blurred_texture(image)),
+            None => (bg_default.clone(), bg_default_blur.clone()),
         };
         let icon_back: SafeTexture = load_texture("back.png").await?.into();
 
         TEX_BACKGROUND.with(|it| *it.borrow_mut() = Some(background));
         TEX_ICON_BACK.with(|it| *it.borrow_mut() = Some(icon_back));
+        TEX_BACKGROUND_BLUR.with(|it| *it.borrow_mut() = Some(background_blur));
+        TEX_BACKGROUND_DEFAULT.with(|it| *it.borrow_mut() = Some(bg_default));
+        TEX_BACKGROUND_BLUR_DEFAULT.with(|it| *it.borrow_mut() = Some(bg_default_blur));
 
         Ok(())
     }
@@ -262,6 +296,8 @@ impl MainScene {
             bgm,
 
             background: TEX_BACKGROUND.with(|it| it.borrow().clone().unwrap()),
+            bg_default: TEX_BACKGROUND_DEFAULT.with(|it| it.borrow().clone().unwrap()),
+            bg_default_blur: TEX_BACKGROUND_BLUR_DEFAULT.with(|it| it.borrow().clone().unwrap()),
             btn_back: RectButton::new(),
             icon_back: TEX_ICON_BACK.with(|it| it.borrow().clone().unwrap()),
 
@@ -422,7 +458,12 @@ impl Scene for MainScene {
         if crate::hud::edit_active() {
             return Ok(crate::hud::editor_touch(touch));
         }
-        if self.pages.last_mut().unwrap().touch(touch, s)? {
+        // Phira Pro 授权锁：非「设置」页且不在主界面时，页面内容整体不可点（只提示），
+        // 但「返回」键照常可用——它在下面紧接着处理，所以这里不做拦截。
+        let locked_here = !crate::is_unlocked() && !self.pages.last().unwrap().is_settings() && self.pages.len() > 1;
+        if locked_here {
+            crate::page::show_locked_hint();
+        } else if self.pages.last_mut().unwrap().touch(touch, s)? {
             return Ok(true);
         }
         if self.btn_back.touch(touch) && self.pages.len() > 1 {
@@ -528,6 +569,16 @@ impl Scene for MainScene {
         } else if let Some(true) = s.fader.done(s.t) {
             self.pages.pop().unwrap().exit()?;
             self.pages.last_mut().unwrap().enter(s)?;
+        }
+        // Phira Pro：自定义背景被导入 / 恢复默认 → 就地重载背景与磨砂背景。
+        if BACKGROUND_UPDATED.swap(false, Ordering::Relaxed) {
+            let (bg, blur) = match dir::load_appearance_image("background") {
+                Some(image) => (image.clone().into(), blurred_texture(&image)),
+                None => (self.bg_default.clone(), self.bg_default_blur.clone()),
+            };
+            self.background = bg;
+            TEX_BACKGROUND.with(|it| *it.borrow_mut() = Some(self.background.clone()));
+            TEX_BACKGROUND_BLUR.with(|it| *it.borrow_mut() = Some(blur));
         }
         if let Some(bgm) = &mut self.bgm {
             if BGM_VOLUME_UPDATED.fetch_and(false, Ordering::Relaxed) {

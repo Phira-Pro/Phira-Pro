@@ -1,7 +1,7 @@
 prpr_l10n::tl_file!("login");
 
 use crate::{
-    client::{Client, ErrorCode, LoginParams, User, UserManager, API_URL},
+    client::{api_url, Client, ErrorCode, LoginParams, User, UserManager},
     get_data_mut,
     icons::Icons,
     page::Fader,
@@ -557,7 +557,7 @@ impl Login {
             }
             if self.btn_forget_pwd.touch(touch) {
                 button_hit();
-                let _ = open_url(&format!("{API_URL}/reset-password"));
+                let _ = open_url(&format!("{}/reset-password", api_url()));
             }
             return true;
         }

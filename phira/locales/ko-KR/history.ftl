@@ -26,3 +26,14 @@ trend-axis = 과거 ← → 최근
 list-more = 이전 기록 { $count }개는 표시되지 않음
 stat-avg = 평균
 stat-all-title = 모든 채보
+
+
+daily-title = 일일 챌린지
+daily-start = 시작
+daily-todo = 미완료
+daily-done = 완료 { $score }
+daily-no-chart = 먼저 채보를 가져오세요
+daily-speed = 속도 1.1x
+daily-strict = 엄격 판정 ±60ms
+daily-health = 체력 바 모드
+daily-nohints = 힌트 없음

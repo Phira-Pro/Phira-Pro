@@ -26,3 +26,14 @@ trend-axis = lama ← → baru
 list-more = { $count } catatan lama tidak ditampilkan
 stat-avg = Rata-rata
 stat-all-title = Semua chart
+
+
+daily-title = Tantangan Harian
+daily-start = Mulai
+daily-todo = belum selesai
+daily-done = selesai { $score }
+daily-no-chart = Impor chart dulu
+daily-speed = Kecepatan 1,1x
+daily-strict = Penilaian ketat ±60ms
+daily-health = Mode bar darah
+daily-nohints = Tanpa petunjuk

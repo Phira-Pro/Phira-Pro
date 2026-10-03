@@ -7,8 +7,8 @@ use tracing::warn;
 use super::{process_lines, L10N_LOCAL};
 use crate::{
     core::{
-        Anim, AnimFloat, AnimVector, BpmList, Chart, ChartExtra, ChartSettings, JudgeLine, JudgeLineCache, JudgeLineKind, Keyframe, Note, NoteKind,
-        Object, HEIGHT_RATIO,
+        Anim, AnimFloat, AnimVector, BlockArea, BlockMoveEvent, BlockRotateEvent, BlockScaleEvent, BpmList, Chart, ChartExtra, ChartSettings, JudgeLine,
+        JudgeLineCache, JudgeLineKind, Keyframe, Note, NoteKind, Object, Vector, HEIGHT_RATIO,
     },
     ext::NotNanExt,
     judge::{HitSound, JudgeStatus},
@@ -70,6 +70,121 @@ struct PgrChart {
     format_version: u32,
     offset: f32,
     judge_line_list: Vec<PgrJudgeLine>,
+    #[serde(default)]
+    block_area_list: Vec<PgrBlockArea>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PgrVector2 {
+    x: f32,
+    y: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PgrRotateEvent {
+    anchor: PgrVector2,
+    time: f64,
+    #[serde(default)]
+    ease_type: i32,
+    #[serde(default)]
+    rotation: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PgrMoveEvent {
+    end_position: PgrVector2,
+    time: f64,
+    #[serde(default)]
+    ease_type_x: i32,
+    #[serde(default)]
+    ease_type_y: i32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PgrScaleEvent {
+    anchor: PgrVector2,
+    time: f64,
+    #[serde(default)]
+    ease_type_x: i32,
+    #[serde(default)]
+    ease_type_y: i32,
+    scale: PgrVector2,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PgrBlockArea {
+    top_right_percentage: PgrVector2,
+    bottom_left_percentage: PgrVector2,
+    #[serde(default)]
+    appear_time: f64,
+    #[serde(default)]
+    enable_time: f64,
+    #[serde(default)]
+    disable_time: f64,
+    #[serde(default)]
+    disappear_time: f64,
+    #[serde(default)]
+    is_subtract: bool,
+    #[serde(default)]
+    rotate_events: Vec<PgrRotateEvent>,
+    #[serde(default)]
+    move_events: Vec<PgrMoveEvent>,
+    #[serde(default)]
+    scale_events: Vec<PgrScaleEvent>,
+}
+
+fn v2(p: PgrVector2) -> Vector {
+    Vector::new(p.x, p.y)
+}
+
+fn parse_block_areas(list: Vec<PgrBlockArea>) -> Vec<BlockArea> {
+    list.into_iter()
+        .map(|b| BlockArea {
+            top_right: v2(b.top_right_percentage),
+            bottom_left: v2(b.bottom_left_percentage),
+            appear_time: b.appear_time,
+            enable_time: b.enable_time,
+            disable_time: b.disable_time,
+            disappear_time: b.disappear_time,
+            is_subtract: b.is_subtract,
+            rotate_events: b
+                .rotate_events
+                .into_iter()
+                .map(|e| BlockRotateEvent {
+                    anchor: v2(e.anchor),
+                    time: e.time,
+                    ease: e.ease_type,
+                    rotation: e.rotation,
+                })
+                .collect(),
+            move_events: b
+                .move_events
+                .into_iter()
+                .map(|e| BlockMoveEvent {
+                    end: v2(e.end_position),
+                    time: e.time,
+                    ease_x: e.ease_type_x,
+                    ease_y: e.ease_type_y,
+                })
+                .collect(),
+            scale_events: b
+                .scale_events
+                .into_iter()
+                .map(|e| BlockScaleEvent {
+                    anchor: v2(e.anchor),
+                    time: e.time,
+                    ease_x: e.ease_type_x,
+                    ease_y: e.ease_type_y,
+                    scale: v2(e.scale),
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 macro_rules! validate_events {
@@ -293,5 +408,9 @@ pub fn parse_phigros(source: &str, extra: ChartExtra) -> Result<Chart> {
         .collect::<Result<Vec<_>>>()?;
 
     process_lines(&mut lines);
-    Ok(Chart::new(pgr.offset, lines, BpmList::default(), ChartSettings::default(), extra, HashMap::new()))
+    let mut chart = Chart::new(pgr.offset, lines, BpmList::default(), ChartSettings::default(), extra, HashMap::new());
+    // Block-area times are authored in seconds (the official runtime compares
+    // them directly against the song time), so no beat conversion is applied.
+    chart.block_areas = parse_block_areas(pgr.block_area_list);
+    Ok(chart)
 }

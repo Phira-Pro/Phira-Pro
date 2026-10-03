@@ -2,7 +2,7 @@
 
 use crate::{
     config::{Config, JudgeWindows},
-    core::{BadNote, Chart, NoteKind, Point, Resource, Vector, NOTE_WIDTH_RATIO_BASE},
+    core::{block_touch_blocked, BadNote, Chart, NoteKind, Point, Resource, Vector, NOTE_WIDTH_RATIO_BASE},
     ext::{get_viewport, NotNanExt},
 };
 use macroquad::prelude::{
@@ -404,9 +404,11 @@ impl JudgeInner {
 
     pub fn result(&self, no_combo_score: bool) -> PlayResult {
         let early = self.diffs.iter().filter(|it| **it < 0.).count() as u32;
+        // 误差：和正常游玩一致的口径——本局所有有效命中的真实标准差（关于均值）。
+        // 唯一例外：「一个有效命中都没有」（全 Miss）时没有样本，用 Miss 的 250ms 兜底。
         let (mean, std) = match self.offset_stats() {
             Some((_, mean, std)) => (mean as f32, std as f32),
-            None => (0., 0.),
+            None => (0., if self.counts[3] > 0 { 0.25 } else { 0. }),
         };
         PlayResult {
             score: self.score(no_combo_score),
@@ -709,6 +711,7 @@ impl Judge {
     }
 
     pub fn update(&mut self, res: &mut Resource, chart: &mut Chart, bad_notes: &mut Vec<BadNote>) {
+        chart.blocked_touches.clear();
         if res.config.autoplay() {
             self.auto_play_update(res, chart);
             return;
@@ -813,7 +816,7 @@ impl Judge {
                 }
             }
         }
-        let touches: Vec<Touch> = touches
+        let mut touches: Vec<Touch> = touches
             .into_values()
             .map(|mut it| {
                 it.time = if it.time.is_infinite() {
@@ -824,6 +827,24 @@ impl Judge {
                 it
             })
             .collect();
+        // Phigros 9th-chapter block areas: a touch that lands inside an active
+        // zone (`enableTime <= t < disableTime`) is removed from the touch list,
+        // so the notes underneath it are never hit and end up as misses.
+        if !chart.block_areas.is_empty() {
+            let aspect = res.aspect_ratio;
+            let areas = &chart.block_areas;
+            let mut blocked = Vec::new();
+            touches.retain(|touch| {
+                let p = Vector::new(touch.position.x, -touch.position.y);
+                if block_touch_blocked(areas, p, t, aspect) {
+                    blocked.push((touch.id, p));
+                    false
+                } else {
+                    true
+                }
+            });
+            chart.blocked_touches = blocked;
+        }
         // pos[line][touch]
         let mut pos = Vec::<Vec<Option<Point>>>::with_capacity(chart.lines.len());
         for id in 0..chart.lines.len() {
@@ -869,6 +890,8 @@ impl Judge {
             }
             let t = time_of(touch);
             let mut closest = (None, X_DIFF_MAX, limits.bad, limits.bad + (X_DIFF_MAX / NOTE_WIDTH_RATIO_BASE - 1.).max(0.) * DIST_FACTOR);
+            // 判定范围与这次点击重合、但被红 / 黄保护挡在竞争之外的那些红 / 黄键里，离点击时刻最近的时差。
+            let mut protected_dt: Option<f64> = None;
             for (line_id, ((line, pos), (idx, st))) in chart.lines.iter_mut().zip(pos.iter()).zip(self.notes.iter_mut()).enumerate() {
                 let Some(pos) = pos[id] else {
                     continue;
@@ -881,18 +904,16 @@ impl Judge {
                     if !click && matches!(note.kind, NoteKind::Click | NoteKind::Hold { .. }) {
                         continue;
                     }
-                    // 保护机制：点击（蓝键）不被叠在附近的 Drag（黄键）/ Flick（红键）抢走，
-                    // 直接跳过它们，继续找真正要判定的 Tap / Hold。
-                    if click {
-                        if drag_protect && matches!(note.kind, NoteKind::Drag) {
-                            continue;
-                        }
-                        if flick_protect && matches!(note.kind, NoteKind::Flick) {
-                            continue;
-                        }
-                    }
+                    // 红 / 黄保护：一次「点击」判不到红 / 黄键，所以它们不参与「点中了谁」的竞争；
+                    // 但要记下它们离点击时刻的时差，用来判断这一下是不是冲它们去的
+                    // （见下方 `protected_dt` / 「按时刻就近归属」）。
+                    let protected = click
+                        && ((drag_protect && matches!(note.kind, NoteKind::Drag))
+                            || (flick_protect && matches!(note.kind, NoteKind::Flick)));
                     let dt = (note.time - t) / spd;
-                    if dt >= closest.3 {
+                    // 不能因为已经找到更近的蓝键就提前 break：还要把 bad 窗内、可能被保护的
+                    // 红 / 黄键一并看一遍，否则「按时刻就近归属」会因为漏看它们而失效。
+                    if dt >= closest.3.max(limits.bad) {
                         break;
                     }
                     // 晚按（dt < 0）时按配置放宽；默认 0 → 和早按完全对称。
@@ -907,13 +928,20 @@ impl Judge {
                     if dist > X_DIFF_MAX {
                         continue;
                     }
-                    if dt
-                        > if matches!(note.kind, NoteKind::Click) {
-                            limits.bad - limits.perfect * (dist - 0.9).max(0.)
-                        } else {
-                            limits.good
-                        }
-                    {
+                    let gate = if protected {
+                        // 保护判定放宽到 bad 窗：最终归属由「谁更贴近点击时刻」决定。
+                        limits.bad
+                    } else if matches!(note.kind, NoteKind::Click) {
+                        limits.bad - limits.perfect * (dist - 0.9).max(0.)
+                    } else {
+                        limits.good
+                    };
+                    if dt > gate {
+                        continue;
+                    }
+                    if protected {
+                        // 被保护的红 / 黄键只记录时差，不参与点中竞争。
+                        protected_dt = Some(protected_dt.map_or(dt, |cur| cur.min(dt)));
                         continue;
                     }
                     let dt = if matches!(note.kind, NoteKind::Flick | NoteKind::Drag) {
@@ -927,10 +955,18 @@ impl Judge {
                     }
                 }
             }
+            // 按时刻就近归属：如果被保护的红 / 黄键比这次点击能点到的任何蓝键 / hold 都更贴近点击时刻，
+            // 说明这一下是冲红 / 黄键去的 —— 不能把它算到判定范围重合的蓝键 / hold 头上
+            // （不 Bad、不 Miss、也不 Good，保持未判定留给之后正常打）。
+            // 同刻（或几乎同刻）时仍算给蓝键 / hold，保证「蓝 + 黄同刻」的叠键能正常点出来。
+            if let (Some(pdt), Some(_)) = (protected_dt, closest.0) {
+                if pdt + SAME_TIME_EPS < closest.2 {
+                    continue;
+                }
+            }
             if let (Some((line_id, id)), _, dt, _) = closest {
                 let line = &mut chart.lines[line_id];
                 if matches!(line.notes[id as usize].kind, NoteKind::Drag) {
-                    debug!("reject by drag");
                     continue;
                 }
                 if click {
@@ -1206,7 +1242,10 @@ impl Judge {
                         break;
                     }
                 } else if t < note.time {
-                    continue;
+                    // `idx` 按时间有序：遇到未来音符后，后面全是未来音符，直接 break 退出即可。
+                    // （原来是 `continue`，会在**每帧**把该线从 `st` 到结尾的**全部**音符扫一遍，
+                    // 非 Click 音符极多的谱面（Flick/Drag 观赏谱）会因此每帧扫描数百万个音符而卡死。）
+                    break;
                 }
                 if matches!(note.judge, JudgeStatus::PreJudge) {
                     let diff = if let JudgeStatus::Hold(.., diff, _, _) = note.judge {
@@ -1251,7 +1290,10 @@ impl Judge {
                 continue;
             }
             if match judgement {
-                Judgement::Perfect => {
+                // 大 P 与 P 都算命中：都要出打击特效与音效。
+                // （漏掉 `PerfectPlus` 会让大 P 以及自动判定的拖拽 / 滑动音符完全没有特效和音效，
+                // 多押时几路按键的时间戳略有差异、常常一个大 P 一个不是，看起来就像「只渲染了一个」。）
+                Judgement::Perfect | Judgement::PerfectPlus => {
                     res.with_model(line_tr * note.object.now(res), |res| {
                         res.emit_at_origin(note.rotation(line), note.fx_color.unwrap_or_else(|| res.res_pack.info.fx_perfect()))
                     });
@@ -1277,7 +1319,7 @@ impl Judge {
                                 mat *= note.now_transform(
                                     res,
                                     &line.ctrl_obj.borrow_mut(),
-                                    ((note.height - line.height.now() as f64) / res.aspect_ratio as f64 * note.speed) as f32,
+                                    ((note.height - line.height.now() as f64) / res.aspect_ratio as f64 * note.speed * res.config.flow_speed as f64) as f32,
                                     incline_sin,
                                 );
                                 mat

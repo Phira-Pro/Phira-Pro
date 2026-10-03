@@ -1,12 +1,11 @@
-use prpr::core::{easing_from, StaticTween, TweenFunction, Tweenable};
-use std::rc::Rc;
+use prpr::core::{easing_from, StaticTween, TweenRef, Tweenable};
 
 pub struct Anim<T: Tweenable> {
     pub from: T,
     pub to: T,
     pub start_time: f32,
     pub end_time: f32,
-    pub interpolator: Rc<dyn TweenFunction>,
+    pub interpolator: TweenRef,
 }
 
 impl<T: Tweenable + Default> Default for Anim<T> {

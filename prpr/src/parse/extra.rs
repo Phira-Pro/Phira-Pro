@@ -2,7 +2,7 @@ use super::RPE_TWEEN_MAP;
 use anyhow::{Context, Result};
 use macroquad::prelude::{Color, Vec2};
 use serde::Deserialize;
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, sync::Arc};
 
 use super::L10N_LOCAL;
 #[cfg(feature = "video")]
@@ -69,7 +69,7 @@ impl<V> ExtAnim<V> {
                             if e.easing_left.abs() < EPS as f32 && (e.easing_right - 1.0).abs() < EPS as f32 {
                                 StaticTween::get_rc(tween)
                             } else {
-                                Rc::new(ClampedTween::new(tween, e.easing_left..e.easing_right))
+                                Arc::new(ClampedTween::new(tween, e.easing_left..e.easing_right))
                             }
                         },
                     });

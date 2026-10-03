@@ -89,7 +89,7 @@ item-use-keyboard = 使用键盘游玩
 item-use-keyboard-sub = 开启后可以使用键盘进行游戏，但成绩无法上传
 item-prefer-reduced-motion = 减少动画效果
 item-prefer-reduced-motion-sub = 减少动画和视觉特效
-item-speed = 速度
+item-speed = 谱面倍速
 item-note-size = 音符大小
 
 item-chart-debug = 谱面调试
@@ -98,6 +98,18 @@ item-show-fps = 显示帧率
 item-show-fps-sub = 在左下角显示当前帧率
 item-touch-debug = 触摸调试
 item-touch-debug-sub = 游玩过程中显示触摸点
+item-touch-color = 触点颜色
+item-touch-color-sub = 点击循环切换调试触点的颜色
+item-touch-alpha = 触点透明度
+item-touch-size = 触点大小
+item-reset-settings = 恢复默认设置
+item-reset-settings-sub = 把设置页上的所有选项恢复为默认值
+item-reset-settings-btn = 恢复
+reset-settings-title = 恢复默认设置
+reset-settings-text = 将把设置页上的所有选项（语言、主题、判定 / 玩法、调试等）恢复为默认值；账号、谱面、成绩与已导入资源都会保留。
+reset-settings-done = 已恢复默认设置
+reset-settings-cancel = 取消
+reset-settings-confirm = 确定
 
 load-cali-failed = 加载音频失败
 
@@ -147,9 +159,9 @@ about-content =
   以及许多志愿谱面审核员！完整列表参见 https://phira.moe/staff
 
 item-drag-protect = 黄键保护
-item-drag-protect-sub = 点击（蓝键）不会被叠在附近的黄键（Drag）吃掉
+item-drag-protect-sub = 点击按时刻就近归属：这一下若是冲黄键（Drag）去的，重合的蓝键 / hold 不会被误判
 item-flick-protect = 红键保护
-item-flick-protect-sub = 点击（蓝键）不会被叠在附近的红键（Flick）吃掉
+item-flick-protect-sub = 点击按时刻就近归属：这一下若是冲红键（Flick）去的，重合的蓝键 / hold 不会被误判
 item-combo-text = 连击文字
 item-combo-text-sub = 游戏里连击数下面那行显示的文字（最长 16 个字符）
 combo-text-default = 默认
@@ -160,7 +172,7 @@ item-judge-chart-sub = 结算画面画一张判定时间分布图（早 ← → 
 item-hp-scale = 血条整体倍率
 item-hp-color = 血条颜色
 item-upload = 上传成绩
-item-upload-sub = 【本构建不支持上传】开关目前无实际作用，成绩只存本机
+item-upload-sub = 本构建未包含上传通道，开关暂无实际作用：成绩只存本机
 item-upload-consent = 成绩上传协议
 item-upload-consent-open = 查看
 item-history = 成绩历史
@@ -182,7 +194,7 @@ font-reset-done = 已恢复默认字体，重启 App 后生效
 upload-consent-title = 成绩上传：知情同意与免责声明
 upload-consent-accept = 我已阅读并同意
 upload-consent-deny = 不同意
-upload-consent-text = 开启后会把这局成绩（谱面 ID、分数 / 准确率 / 判定、谱面版本时间戳、账号凭证）上传到 Phira 官方服务器，不上传设备信息或其它文件；关闭后成绩只存本机。注意本构建的上传通道在编译期是关闭的，开关目前只声明意愿、成绩实际只存本机。本改版为非官方改版，与 TeamFlos / Phira 官方无关；若成绩与官方客户端不一致，后果由使用者自行承担。
+upload-consent-text = 本改版的成绩不会被发往任何服务器，只会保存在本机。若此项启用，上传内容为：本局成绩（谱面 ID、分数 / 准确率 / 判定、谱面版本时间戳、账号凭证），不含设备信息或其它文件；并且只有「未改动判定与玩法」的对局才会计入——自动游玩、全屏判定、严格判定、判定窗口调整、晚按补偿、黄键 / 红键保护、Hold 尾判、血条倍率、降速、键盘模式等任一开启都会被拒绝。联机对战会强制把这些选项还原为官方默认值以保证公平。本改版为非官方改版，与 TeamFlos / Phira 官方无关；若成绩与官方客户端不一致，后果由使用者自行承担。
 item-blacklist = 玩家黑名单
 item-blacklist-sub = 名单内的 Phira ID 不会在本机任何排行榜与用户列表里显示
 item-blacklist-open = 管理
@@ -192,3 +204,107 @@ judge-window-invalid = 请输入一个数字
 item-hud = HUD 自定义
 item-hud-sub = 拖动调整主菜单、谱面库、设置等页面的组件位置与大小
 item-hud-open = 管理
+item-transfer = 数据迁移
+item-transfer-sub = 从官方 Phira 导入谱面与设置
+transfer-open = 打开
+item-backup = 备份与还原
+item-backup-sub = 备份或还原本机数据
+backup-open = 打开
+transfer-label = 数据迁移
+transfer-desc = 选择官方 Phira 数据目录下的 data.json，即可导入其中的谱面、皮肤、字体与外观。
+transfer-pick = 选择 data.json
+transfer-import = 开始导入
+transfer-import-config = 同时导入设置
+transfer-scan = 检测到 { $charts } 个谱面、{ $respacks } 个皮肤、{ $appearance } 个外观文件
+transfer-done = 导入完成（{ $charts } 个谱面、{ $respacks } 个皮肤、{ $appearance } 个外观）。请重启 Phira Pro 以载入。
+transfer-unsupported = 当前平台暂不支持此操作
+transfer-failed = 操作失败
+backup-label = 备份与还原
+backup-desc = 备份会把整个数据目录打包为 zip；还原会覆盖同名文件（需重启生效）。
+backup-create = 备份到文件
+backup-restore = 从备份还原
+backup-created = 备份完成：{ $count } 个文件
+backup-restored = 还原完成：{ $count } 个文件。请重启 Phira Pro。
+transfer-working = 正在处理…
+
+item-api-url = API 地址
+item-api-url-sub = 自定义 API 基础地址（登录 / 谱面 / 成绩）。留空使用官方服务器；需以 http(s):// 开头，修改后重启生效。
+
+item-status-url = 服务器状态页
+item-web-url-sub = 网页前端地址（谱面页 / 用户页 / 合集页 / 条款链接）。留空使用官方站点；需以 http(s):// 开头。
+item-url-invalid = 无效的地址（需以 http:// 或 https:// 开头）
+item-status-url-sub = 设置页「服务器状态」按钮打开的地址。留空使用官方状态页；需以 http(s):// 开头。
+item-web-url = Web 地址
+
+activation-serial = 序列码
+activation-serial-copied = 序列码已复制
+activation-code = 解密码
+activation-code-empty = 点此输入 / 粘贴
+activation-code-set = 已填写（点此修改）
+activation-confirm = 确认
+activation-locked = 请先在设置中输入解密码
+activation-ok = 解密码正确，功能已全部解锁
+activation-failed = 解密码不正确
+
+item-flow-speed = 谱面流速
+item-flow-speed-sub = 只等比例改变音符流速，音乐与音调完全不变。该设置下的成绩不可上传。
+item-fade-strength = 上/下隐强度
+item-fade-strength-sub = 音符出现 / 消失的高度。0 表示官方表现。
+aspect-official = 官方
+item-custom-aspect = 自定义游玩宽高比
+item-custom-aspect-sub = 覆盖谱面自带的宽高比
+item-aspect-ratio = 游玩宽高比
+item-aspect-ratio-sub = 支持 16:9 或 1.7778 这样的小数
+aspect-invalid = 宽高比格式不正确，例如 16:9 或 1.7778
+item-offset-indicator = 判定偏移条
+item-offset-indicator-sub = 局内顶部显示早/晚判定的偏移指示条
+
+item-mp-local-addr = 本地联机服务器
+item-mp-local-addr-sub = 「本地联机」按钮连接的地址（主机:端口）；留空则在本机开服
+item-mp-local-addr-none = （在本机开服）
+item-mp-local-addr-invalid = 无效的本地联机地址
+
+item-mp-server-list = 服务器列表地址
+item-mp-server-list-sub = 抓取状态站页面里的联机服务器（留空用默认）
+
+item-app-icon = 自定义APP图标
+item-app-icon-sub = 更换程序图标。*重启后生效*
+item-app-icon-reset = 恢复默认图标
+item-app-bg = 自定义背景
+item-app-bg-sub = 更换主界面背景图
+item-app-bg-reset = 恢复默认背景
+item-appearance-import-sub = 主界面左下角的立绘（建议透明底 PNG）
+item-appearance-reset = 恢复默认立绘
+item-app-icon-imported = 图标已导入，重启后生效
+item-app-icon-reset-done = 已恢复默认图标，重启后生效
+item-app-bg-imported = 背景已导入
+item-app-bg-reset-done = 已恢复默认背景
+item-appearance-reset-done = 已恢复默认立绘
+
+migrate-label = 从官服导入我的成绩谱面
+migrate-desc = 扫描官服谱面榜单，找出你在其中留有成绩的谱面并按条件下载（不设筛选时会扫描全部谱面，较慢）
+migrate-min-diff = 等级下限
+migrate-min-rating = 评分下限
+migrate-unlimited = 不限
+migrate-ranked-only = 仅计入 rks
+migrate-skip = 跳过已下载
+migrate-start = 开始导入
+migrate-cancel = 取消
+migrate-fetching = 正在查询官服成绩…
+migrate-searching-meta = 正在获取谱面信息…
+migrate-none = 没有符合条件的谱面
+migrate-progress = 下载中 { $done }/{ $total }：{ $name }
+migrate-done = 完成：成功 { $ok }，失败 { $failed }
+migrate-imported = 已导入 { $count } 张谱面
+migrate-need-login = 请先登录官服账号
+
+migrate-enumerating = 正在枚举谱面（共 { $pages } 页）…
+migrate-checking = 正在检查成绩 { $done }/{ $total }…
+
+item-pro-api-url = 自服地址（Phira Pro）
+item-pro-api-url-sub = Phira Pro：成绩会额外上传到这里，排行榜会把官服与自服的记录合并；留空则关闭自服功能
+item-pro-api-url-off = 已关闭（纯官服模式）
+
+chart-import-label = 批量导入谱面
+chart-import-desc = 导入官方客户端「批量导出」生成的 zip（也可以只选单个谱面包）；导入后直接出现在本地谱面库
+chart-import-btn = 选择文件并导入

@@ -15,7 +15,7 @@ use std::{
 use tempfile::tempfile;
 use url::Url;
 
-use crate::client::{basic_client_builder, Chart, Ptr, API_URL};
+use crate::client::{api_url, basic_client_builder, web_url, Chart, Ptr};
 
 /// Upper bound for deeplink downloads from untrusted sources.
 pub const MAX_DEEPLINK_DOWNLOAD: u64 = 100 << 20;
@@ -30,11 +30,14 @@ pub fn take_deeplink() -> Option<String> {
     PENDING_DEEPLINK.lock().unwrap().take()
 }
 
+/// 「官方」host：跟随当前设置的 API 地址（自建 / 私服时即自己的 API host）。
+/// 首次使用时求值，所以改了 API 地址需要重启才会更新。
 static OFFICIAL_HOST: LazyLock<String> = LazyLock::new(|| {
-    Url::parse(API_URL)
+    let api = api_url();
+    Url::parse(&api)
         .ok()
         .and_then(|url| url.host_str().map(ToOwned::to_owned))
-        .unwrap_or_else(|| API_URL.trim_start_matches("https://").trim_end_matches('/').to_owned())
+        .unwrap_or_else(|| api.trim_start_matches("https://").trim_end_matches('/').to_owned())
 });
 
 pub fn official_host() -> &'static str {
@@ -43,6 +46,16 @@ pub fn official_host() -> &'static str {
 
 const DLINK_HOST: &str = "phira.moe";
 const DLINK_PATH: &str = "/dlink/";
+
+/// dlink 包装器允许的 host 集合：官方 `phira.moe`，以及当前配置的 Web 前端 host
+/// （自建 / 私服时站点会用自己的域名生成分享链接）。
+fn is_dlink_host(host: Option<&str>) -> bool {
+    let Some(host) = host else { return false };
+    if host == DLINK_HOST {
+        return true;
+    }
+    Url::parse(&web_url()).ok().and_then(|u| u.host_str().map(ToOwned::to_owned)).as_deref() == Some(host)
+}
 
 #[derive(Clone)]
 pub struct DeepLinkTarget {
@@ -54,9 +67,10 @@ fn is_official(url: &Url) -> bool {
     url.host_str() == Some(&OFFICIAL_HOST) && url.port().is_none()
 }
 
-/// The `<action>` segment of an `https://phira.moe/dlink/<action>` wrapper.
+/// The `<action>` segment of a `https://<dlink host>/dlink/<action>` wrapper.
+/// host 见 [`is_dlink_host`]：官方 `phira.moe` 或当前配置的 Web 前端 host。
 fn dlink_action(url: &Url) -> Option<&str> {
-    if url.host_str() != Some(DLINK_HOST) {
+    if !is_dlink_host(url.host_str()) {
         return None;
     }
     url.path().strip_prefix(DLINK_PATH)

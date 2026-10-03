@@ -356,7 +356,7 @@ impl Scene for ProfileScene {
             return Ok(true);
         }
         if self.btn_open_web.touch(touch, t) {
-            open_url(&format!("https://phira.moe/user/{}", self.id))?;
+            open_url(&format!("{}/user/{}", crate::client::web_url(), self.id))?;
             return Ok(true);
         }
         if !get_data().me.as_ref().is_some_and(|it| it.id == self.id) && self.btn_block.touch(touch, t) {

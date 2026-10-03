@@ -84,3 +84,30 @@ msg-room-cycle = { $cycle ->
   [true] 房间已切换为循环模式
   *[other] 房间已切换为普通模式
 }
+
+# ---- Phira Pro：本地联机 ----
+local-mp-host = 本地联机
+local-mp-rooms = 房间列表
+local-mp-only-public = 仅公开
+local-mp-all = 全部
+local-mp-started = 本地联机已开启
+local-mp-already = 本地联机已在运行
+local-mp-start-failed = 启动本地联机失败
+local-mp-rooms-failed = 获取房间列表失败
+local-mp-rooms-empty = 没有房间
+local-mp-public = 公开
+local-mp-private = 私人
+local-mp-state-select = 选谱中
+local-mp-state-ready = 准备中
+local-mp-state-playing = 游玩中
+room-play-disabled = 房间里请由房主开始游戏
+
+local-mp-servers = 服务器列表
+local-mp-servers-loading = 正在获取服务器列表…
+local-mp-servers-empty = 没有获取到服务器
+local-mp-servers-failed = 获取服务器列表失败
+local-mp-servers-offline = 离线
+
+room-password = 房间密码
+room-password-prompt = 房间密码（没有密码请留空）
+local-mp-password = 密码

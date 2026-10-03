@@ -133,12 +133,12 @@ impl Page for BlacklistPage {
                 y += 0.085 + GAP;
 
                 // ---------------- 标题 ----------------
-                ui.text(tl!("label")).pos(0.004, y).anchor(0., 0.).size(0.115).color(WHITE).draw();
+                ui.text(tl!("label")).pos(0.004, y).anchor(0., 0.).size(0.45).color(WHITE).draw();
                 let n = self.entries.len();
                 ui.text(tl!("count", "count" => n.to_string()))
-                    .pos(w - 0.004, y + 0.025)
+                    .pos(w - 0.004, y + 0.012)
                     .anchor(1., 0.)
-                    .size(0.06)
+                    .size(0.32)
                     .color(semi_white(0.55))
                     .draw();
                 y += 0.13;
@@ -147,7 +147,7 @@ impl Page for BlacklistPage {
                     ui.text(tl!("empty"))
                         .pos(w / 2., y + 0.04)
                         .anchor(0.5, 0.)
-                        .size(0.08)
+                        .size(0.35)
                         .color(semi_white(0.5))
                         .draw();
                     y += 0.12;
@@ -168,7 +168,7 @@ impl Page for BlacklistPage {
                         .pos(r.x + 0.026, cy)
                         .anchor(0., 0.5)
                         .no_baseline()
-                        .size(0.08)
+                        .size(0.34)
                         .draw();
                     let name = UserManager::name_and_color(entry.id)
                         .map(|(n, _)| n)
@@ -179,7 +179,7 @@ impl Page for BlacklistPage {
                         .anchor(0., 0.5)
                         .no_baseline()
                         .max_width(r.w - 0.30 - 0.26)
-                        .size(0.075)
+                        .size(0.34)
                         .color(semi_white(0.9))
                         .draw();
                     let br = Rect::new(r.right() - 0.235, cy - 0.032, 0.22, 0.064);

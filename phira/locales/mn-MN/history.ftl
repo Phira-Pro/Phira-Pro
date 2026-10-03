@@ -26,3 +26,14 @@ trend-axis = хуучин ← → шинэ
 list-more = { $count } хуучин бичлэг харагдахгүй
 stat-avg = Дундаж
 stat-all-title = Бүх дуу
+
+
+daily-title = Өдөр тутмын сорилт
+daily-start = Эхлэх
+daily-todo = хийгээгүй
+daily-done = хийсэн { $score }
+daily-no-chart = Эхлээд дуу оруулна уу
+daily-speed = Хурд 1.1x
+daily-strict = Чанга үнэлгээ ±60ms
+daily-health = Амь баганын горим
+daily-nohints = Зөвлөмжгүй

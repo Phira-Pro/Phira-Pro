@@ -67,7 +67,7 @@ pub struct PlayerView {
 
 impl PlayerView {
     pub fn new(info: UserInfo, chart: Chart, emitter: ParticleEmitter) -> Self {
-        let judge = Judge::new(&chart);
+        let judge = Judge::new(&chart, false);
         Self {
             id: info.id,
             name: info.name,

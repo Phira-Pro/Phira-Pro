@@ -22,7 +22,7 @@ use std::{
     sync::atomic::AtomicU32,
 };
 
-pub const MAX_SIZE: usize = 64; // needs tweaking
+pub const MAX_SIZE: usize = 8192; // 每个批次的最大 quad 数。原值 64 会让高物量谱面每帧产生上千次 draw call。
 pub static DPI_VALUE: AtomicU32 = AtomicU32::new(250);
 pub const BUFFER_SIZE: usize = 1024;
 

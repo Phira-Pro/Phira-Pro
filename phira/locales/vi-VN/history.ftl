@@ -26,3 +26,14 @@ trend-axis = cũ ← → mới
 list-more = Còn { $count } bản ghi cũ hơn không hiển thị
 stat-avg = Trung bình
 stat-all-title = Tất cả bản nhạc
+
+
+daily-title = Thử thách hằng ngày
+daily-start = Bắt đầu
+daily-todo = chưa hoàn thành
+daily-done = đã xong { $score }
+daily-no-chart = Hãy nhập vài bản nhạc trước
+daily-speed = Tốc độ 1.1x
+daily-strict = Phán định nghiêm ngặt ±60ms
+daily-health = Chế độ thanh máu
+daily-nohints = Không gợi ý

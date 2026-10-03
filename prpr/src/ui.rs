@@ -337,6 +337,18 @@ impl DRectButton {
         self.inner.pts = None;
     }
 
+    /// 外部原因取消了这次按压（例如列表开始拖动，后续触控事件不再交给按钮）：
+    /// 立刻进入回弹动画，避免按钮卡在「按下」形态、看起来比别的按钮小一圈。
+    pub fn cancel(&mut self, t: f32) {
+        if self.inner.touching() {
+            self.inner.cancel();
+        }
+        if self.last_touching {
+            self.last_touching = false;
+            self.start_time = Some(t);
+        }
+    }
+
     pub fn render_shadow(&mut self, ui: &mut Ui, r: Rect, t: f32, f: impl FnOnce(&mut Ui, Path)) {
         let p = self.progress(t);
         let config = ShadowConfig {

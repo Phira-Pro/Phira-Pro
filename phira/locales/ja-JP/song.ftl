@@ -75,3 +75,12 @@ mods-no-fail = 失敗なし
 mods-no-fail-sub = 失敗は記録されるだけで、途中終了しません
 mods-no-combo-score = コンボスコアなし
 mods-no-combo-score-sub = 最大コンボをスコアに含めません（スコア = 精度 × 1000000）。*この MOD ではスコア送信不可*
+ldb-local = ローカル
+ldb-acc = 精度
+ldb-local-title = ローカル記録
+ldb-local-empty = ローカル記録はまだありません。プレイ後にここで確認できます。
+ldb-local-no-hit = ローカル記録 { $count } 件、このクリックはどの行にも命中しませんでした
+
+mp-forced-official = オンライン対戦：変更されていた判定 / ゲームプレイの項目を公式デフォルトに戻しました
+
+flash-autoplay-unrated = 自動再生がオン：このプレイはアップロードされず、判定設定は初期値に戻されました

@@ -26,3 +26,14 @@ trend-axis = 舊 ← → 新
 list-more = 還有 { $count } 筆更早的記錄
 stat-avg = 平均
 stat-all-title = 全部譜面
+
+
+daily-title = 今日挑戰
+daily-start = 開始挑戰
+daily-todo = 未完成
+daily-done = 已完成 { $score }
+daily-no-chart = 還沒有匯入譜面，無法產生挑戰
+daily-speed = 速度 1.1x
+daily-strict = 嚴格判定 ±60ms
+daily-health = 血條模式
+daily-nohints = 關閉所有提示

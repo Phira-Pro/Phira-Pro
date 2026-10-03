@@ -437,7 +437,7 @@ impl Page for FavoritesPage {
                 if self.open_web_btn.touch(touch, rt) {
                     if let Some(index) = self.active_folder {
                         let col = get_data().collection_by_index(index);
-                        open_url(&format!("https://phira.moe/collection/{}", col.id.unwrap()))?;
+                        open_url(&format!("{}/collection/{}", crate::client::web_url(), col.id.unwrap()))?;
                     }
                     return Ok(true);
                 }

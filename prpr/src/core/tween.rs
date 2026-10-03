@@ -1,8 +1,14 @@
 use macroquad::prelude::{vec2, Color, Rect, Vec2};
-use once_cell::sync::Lazy;
-use std::{any::Any, ops::Range, rc::Rc};
+use std::{any::Any, ops::Range, sync::Arc};
 
 pub type TweenId = u8;
+
+/// 缓动函数的共享句柄。
+///
+/// Phira Pro：由 `Rc` 改为 `Arc`，并加 `Send + Sync`，使 `Anim` / `Keyframe` / `Note` /
+/// `Chart` 变成 `Send` —— 这样后台线程才能解析谱面（见 `scene/game.rs` 的 PEC 后台解析），
+/// 避免加载界面被同步解析冻结。值语义与 `Rc` 完全一致，只是引用计数变成了原子操作。
+pub type TweenRef = Arc<dyn TweenFunction + Send + Sync>;
 
 const PI: f32 = std::f32::consts::PI;
 
@@ -112,13 +118,13 @@ pub static TWEEN_FUNCTIONS: [fn(f32) -> f32; 33] = [
 	f1!(bounce),	f2!(bounce),	f3!(bounce),
 ];
 
-thread_local! {
-    static TWEEN_FUNCTION_RCS: Lazy<Vec<Rc<dyn TweenFunction>>> = Lazy::new(|| {
-        (0..33)
-            .map(|it| -> Rc<dyn TweenFunction> { Rc::new(StaticTween(it)) })
-            .collect()
-    });
-}
+// Phira Pro：改成全局缓存（原来按线程缓存）。`TweenRef` 已是 `Arc`，全线程共享同一份即可，
+// 也让后台解析线程创建的缓动对象能被主线程安全使用。
+static TWEEN_FUNCTION_RCS: std::sync::LazyLock<Vec<TweenRef>> = std::sync::LazyLock::new(|| {
+    (0..33)
+        .map(|it| -> TweenRef { Arc::new(StaticTween(it)) })
+        .collect()
+});
 
 macro_rules! i1 {
     ($fn:ident) => {
@@ -266,13 +272,11 @@ pub static INT_TWEEN_FUNCTIONS:[fn(f32) -> f32; 33] =[
     i1!(int_bounce),	i2!(int_bounce),	i3!(int_bounce),
 ];
 
-thread_local! {
-    static INT_TWEEN_FUNCTION_RCS: Lazy<Vec<Rc<dyn TweenFunction>>> = Lazy::new(|| {
-        (0..33)
-            .map(|it| -> Rc<dyn TweenFunction> { Rc::new(IntStaticTween(it)) })
-            .collect()
-    });
-}
+static INT_TWEEN_FUNCTION_RCS: std::sync::LazyLock<Vec<TweenRef>> = std::sync::LazyLock::new(|| {
+    (0..33)
+        .map(|it| -> TweenRef { Arc::new(IntStaticTween(it)) })
+        .collect()
+});
 
 pub trait TweenFunction {
     fn y(&self, x: f32) -> f32;
@@ -301,8 +305,8 @@ impl TweenFunction for StaticTween {
 }
 
 impl StaticTween {
-    pub fn get_rc(tween: TweenId) -> Rc<dyn TweenFunction> {
-        TWEEN_FUNCTION_RCS.with(|rcs| Rc::clone(&rcs[tween as usize]))
+    pub fn get_rc(tween: TweenId) -> TweenRef {
+        Arc::clone(&TWEEN_FUNCTION_RCS[tween as usize])
     }
 }
 
@@ -318,8 +322,8 @@ impl TweenFunction for IntStaticTween {
 }
 
 impl IntStaticTween {
-    pub fn get_rc(tween: TweenId) -> Rc<dyn TweenFunction> {
-        INT_TWEEN_FUNCTION_RCS.with(|rcs| Rc::clone(&rcs[tween as usize]))
+    pub fn get_rc(tween: TweenId) -> TweenRef {
+        Arc::clone(&INT_TWEEN_FUNCTION_RCS[tween as usize])
     }
 }
 
@@ -381,10 +385,10 @@ impl ClampedTween {
     }
 }
 
-pub struct GeneralIntTween(Rc<dyn TweenFunction>);
+pub struct GeneralIntTween(TweenRef);
 
 impl GeneralIntTween {
-    pub fn new(tween: Rc<dyn TweenFunction>) -> Self {
+    pub fn new(tween: TweenRef) -> Self {
         Self(tween)
     }
 }

@@ -369,11 +369,9 @@ impl Scene for EventScene {
                         show_error(err.context(tl!("load-ldb-failed")));
                     }
                     Ok(mut ldb) => {
-                        // 黑名单：剔除名单内的玩家，并按可见顺序重新连续编号。
+                        // 黑名单：只剔除名单内的玩家，保留服务器返回的真实名次
+                        // （按过滤后的下标重新编号会覆盖掉真实名次）。
                         ldb.retain(|it| !crate::blacklist::contains(it.player));
-                        for (i, it) in ldb.iter_mut().enumerate() {
-                            it.rank = (i + 1) as i32;
-                        }
                         for item in ldb.iter() {
                             UserManager::request(item.player);
                         }
@@ -533,6 +531,7 @@ impl Scene for EventScene {
                     ui,
                     &tl!("ldb"),
                     LDB_WIDTH,
+                    false,
                     rt,
                     &mut self.ldb_scroll,
                     &mut self.ldb_fader,

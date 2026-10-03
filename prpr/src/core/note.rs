@@ -7,7 +7,7 @@ pub use crate::{
 use macroquad::prelude::*;
 
 const HOLD_PARTICLE_INTERVAL: f64 = 0.15;
-const FADEOUT_TIME: f64 = 0.16;
+pub const FADEOUT_TIME: f64 = 0.16;
 const BAD_TIME: f64 = 0.5;
 
 #[derive(Clone, Debug)]
@@ -192,7 +192,12 @@ impl Note {
     }
 
     pub fn render(&self, res: &mut Resource, config: &mut RenderConfig, bpm_list: &mut BpmList) {
-        if matches!(self.judge, JudgeStatus::Judged) && !matches!(self.kind, NoteKind::Hold { .. }) {
+        let is_hold = matches!(self.kind, NoteKind::Hold { .. });
+        if matches!(self.judge, JudgeStatus::Judged) && !is_hold {
+            return;
+        }
+        // 已经过去的普通音符直接返回，省掉后面几十行的无谓计算（高物量谱面下这是主要开销）。
+        if !config.draw_below && !is_hold && (res.time - FADEOUT_TIME >= self.time || (self.fake && res.time >= self.time)) {
             return;
         }
         if config.appear_before.is_finite() {
@@ -215,7 +220,10 @@ impl Note {
             ..self.color
         };
         color.a *= res.alpha * ctrl_obj.alpha.now_opt().unwrap_or(1.);
-        let spd = self.speed * ctrl_obj.y.now_opt().unwrap_or(1.) as f64;
+        // Phira Pro 谱面流速：只等比缩放音符的**视觉**流速。`line_height` 与 `height` 都乘在
+        // 同一个 `spd` 上，所以两者差值 `base` 也跟着等比放大，音符看起来更快/更慢地接近判定线；
+        // 判定时间、音乐与音调完全不受影响。
+        let spd = self.speed * res.config.flow_speed as f64 * ctrl_obj.y.now_opt().unwrap_or(1.) as f64;
 
         let line_height = config.line_height / res.aspect_ratio as f64 * spd;
         let height = self.height / res.aspect_ratio as f64 * spd;
@@ -245,10 +253,21 @@ impl Note {
         } else {
             &res.res_pack.note_style
         };
+        // Phira Pro 上/下隐强度：0 表示沿用官方表现（按 Bad 判定窗口计时渐变）；
+        // 大于 0 时改用「高度」（音符距判定线的距离 `base`，单位是判定区高度）来渐变。
+        let fade = res.config.fade_strength as f64;
         let mod_alpha = if res.config.has_mod(Mods::FADE_OUT) {
-            ((self.time - res.time - res.windows.bad) / res.windows.bad).clamp(0., 1.)
+            if fade > 0. {
+                (base / fade).clamp(0., 1.)
+            } else {
+                ((self.time - res.time - res.windows.bad) / res.windows.bad).clamp(0., 1.)
+            }
         } else if res.config.has_mod(Mods::FADE_IN) {
-            (1. - (self.time - res.time - res.windows.bad) / res.windows.bad).clamp(0., 1.)
+            if fade > 0. {
+                (1. - base / fade).clamp(0., 1.)
+            } else {
+                (1. - (self.time - res.time - res.windows.bad) / res.windows.bad).clamp(0., 1.)
+            }
         } else {
             1.
         };

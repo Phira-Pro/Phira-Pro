@@ -26,3 +26,14 @@ trend-axis = eski ← → yeni
 list-more = { $count } daha eski kayıt gösterilmiyor
 stat-avg = Ortalama
 stat-all-title = Tüm haritalar
+
+
+daily-title = Günlük Meydan Okuma
+daily-start = Başla
+daily-todo = henüz yapılmadı
+daily-done = tamamlandı { $score }
+daily-no-chart = Önce birkaç harita içe aktarın
+daily-speed = Hız 1.1x
+daily-strict = Katı yargılama ±60ms
+daily-health = Can barı modu
+daily-nohints = İpucu yok

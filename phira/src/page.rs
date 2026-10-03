@@ -29,7 +29,10 @@ mod respack;
 pub use respack::{ResPackItem, ResPackPage};
 
 mod settings;
-pub use settings::SettingsPage;
+pub use settings::{show_locked_hint, SettingsPage};
+
+mod transfer;
+pub use transfer::TransferPage;
 use tokio::sync::Notify;
 
 use crate::{
@@ -523,6 +526,11 @@ pub enum NextPage {
 
 pub trait Page {
     fn label(&self) -> Cow<'static, str>;
+
+    /// Phira Pro 授权：是否为「设置」页。未解锁时只有它可以用。
+    fn is_settings(&self) -> bool {
+        false
+    }
 
     fn can_play_bgm(&self) -> bool {
         true

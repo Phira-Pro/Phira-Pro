@@ -486,13 +486,13 @@ async fn the_main() -> Result<()> {
 /// 界面显示的改版版本号。仅用于本地展示，绝不上报服务端：
 /// 与服务器交互的版本号一律仍取 `CARGO_PKG_VERSION`（见 `client.rs`、`home.rs`、`event.rs`）。
 #[cfg(not(flash))]
-pub const PRO_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-pro.5");
+pub const PRO_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-pro.6");
 /// Phira Pro Flash（轻量版）的展示用版本号。
 #[cfg(flash)]
 pub const PRO_VERSION: &str = "flash.1";
 /// 带 `v` 前缀的展示用版本号。
 #[cfg(not(flash))]
-pub const PRO_VERSION_TAG: &str = concat!("v", env!("CARGO_PKG_VERSION"), "-pro.5");
+pub const PRO_VERSION_TAG: &str = concat!("v", env!("CARGO_PKG_VERSION"), "-pro.6");
 #[cfg(flash)]
 pub const PRO_VERSION_TAG: &str = "vflash.1";
 

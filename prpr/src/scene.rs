@@ -214,8 +214,8 @@ pub fn request_file(id: impl Into<String>) {
     let id: String = id.into();
     #[cfg(target_env = "ohos")]
     let is_photo = id == "avatar";
-    // Phira Pro：图片类导入（图标 / 背景 / 立绘）在 Android 上走相册选择器。
-    #[cfg(target_os = "android")]
+    // Phira Pro：图片类导入（图标 / 背景 / 立绘）在 Android / iOS 上走相册选择器。
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     let is_photo = matches!(id.as_str(), "icon_import" | "background_import" | "appearance_import");
     *CHOSEN_FILE.lock().unwrap() = (Some(id), None);
     cfg_if! {
@@ -233,12 +233,38 @@ pub fn request_file(id: impl Into<String>) {
                 (**env).CallVoidMethod.unwrap()(env, ctx, method);
             }
         } else if #[cfg(target_os = "ios")] {
-            use objc2::{available, define_class, rc::Retained, runtime::ProtocolObject, MainThreadMarker, MainThreadOnly};
-            use objc2_foundation::{NSArray, NSObject, NSObjectProtocol, NSString, NSURL};
-            use objc2_ui_kit::{UIDocumentPickerDelegate, UIDocumentPickerViewController};
+            use objc2::runtime::{AnyObject, ProtocolObject};
+            use objc2::{available, define_class, msg_send, rc::Retained, MainThreadMarker, MainThreadOnly};
+            use objc2_foundation::{NSArray, NSDictionary, NSObject, NSObjectProtocol, NSString, NSTemporaryDirectory, NSURL};
+            use objc2_ui_kit::{
+                UIApplication, UIDocumentPickerDelegate, UIDocumentPickerViewController, UIImage, UIImagePickerController,
+                UIImagePickerControllerDelegate, UIImagePickerControllerInfoKey, UIImagePickerControllerOriginalImage,
+                UIImagePickerControllerSourceType, UINavigationControllerDelegate, UIViewController,
+            };
+
+            // 本项目是**非 scene 老式 App**（Info.plist 没有 UIApplicationSceneManifest），而
+            // inputbox 的 `get_top_view_controller` 走 scene 查找，容易拿不到 / 拿到别的窗口，
+            // 结果选择器被挂到不可交互的窗口上——表现为「弹窗能显示、点不动」。这里优先取 App 自己的 key window。
+            fn top_view_controller(mtm: MainThreadMarker) -> Option<Retained<UIViewController>> {
+                let root = {
+                    let app = UIApplication::sharedApplication(mtm);
+                    #[allow(deprecated)]
+                    let window = app.keyWindow();
+                    match window {
+                        Some(window) => window.rootViewController(),
+                        None => inputbox::backend::IOS::get_top_view_controller(mtm),
+                    }
+                };
+                let mut top = root?;
+                while let Some(presented) = top.presentedViewController() {
+                    top = presented;
+                }
+                Some(top)
+            }
 
             thread_local! {
                 static DELEGATE: RefCell<Option<Retained<PickerDelegate>>> = const { RefCell::new(None) };
+                static PHOTO_DELEGATE: RefCell<Option<Retained<PhotoDelegate>>> = const { RefCell::new(None) };
             }
 
             define_class! {
@@ -259,25 +285,31 @@ pub fn request_file(id: impl Into<String>) {
                     fn did_pick_documents_at_urls(&self, controller: &UIDocumentPickerViewController, urls: &NSArray<NSURL>) {
                         use objc2_foundation::{NSData, NSDataReadingOptions, NSTemporaryDirectory};
 
-                        let url = urls.firstObject().unwrap();
+                        let Some(url) = urls.firstObject() else {
+                            controller.dismissViewControllerAnimated_completion(true, None);
+                            show_error(Error::msg("No file was selected").context(ttl!("read-file-failed")));
+                            return;
+                        };
                         let need_close = unsafe { url.startAccessingSecurityScopedResource() };
 
-                        let data = match NSData::dataWithContentsOfURL_options_error(&url, NSDataReadingOptions::Uncached) {
-                            Ok(data) => data,
-                            Err(err) => {
-                                let message = err.localizedDescription().to_string();
-                                show_error(Error::msg(message).context(ttl!("read-file-failed")));
-                                return;
+                        let imported: Result<String> = (|| {
+                            let data = NSData::dataWithContentsOfURL_options_error(&url, NSDataReadingOptions::Uncached)
+                                .map_err(|err| Error::msg(err.localizedDescription().to_string()).context(ttl!("read-file-failed")))?;
+                            let dir = NSTemporaryDirectory();
+                            let path = format!("{}{}", dir, uuid::Uuid::new_v4());
+                            if !data.writeToFile_atomically(&NSString::from_str(&path), true) {
+                                return Err(Error::msg("Unable to copy the selected file to app storage").context(ttl!("read-file-failed")));
                             }
-                        };
+                            Ok(path)
+                        })();
                         if need_close {
                             unsafe { url.stopAccessingSecurityScopedResource() };
                         }
-
-                        let dir = NSTemporaryDirectory();
-                        let path = format!("{}{}", dir, uuid::Uuid::new_v4());
-                        data.writeToFile_atomically(&NSString::from_str(&path), true);
-                        CHOSEN_FILE.lock().unwrap().1 = Some(path);
+                        controller.dismissViewControllerAnimated_completion(true, None);
+                        match imported {
+                            Ok(path) => CHOSEN_FILE.lock().unwrap().1 = Some(path),
+                            Err(err) => show_error(err),
+                        }
                     }
                 }
             }
@@ -285,45 +317,109 @@ pub fn request_file(id: impl Into<String>) {
             impl PickerDelegate {
                 fn new(mtm: MainThreadMarker) -> Retained<Self> {
                     let this = Self::alloc(mtm).set_ivars(());
-                    unsafe { objc2::msg_send![super(this), init] }
+                    unsafe { msg_send![super(this), init] }
+                }
+            }
+
+            // ---- 相册选择器委托（自定义图标 / 背景 / 立绘）----
+            define_class! {
+                // SAFETY:
+                // - The superclass NSObject does not have any subclassing requirements.
+                // - `PhotoDelegate` does not implement `Drop`.
+                #[unsafe(super = NSObject)]
+                #[thread_kind = MainThreadOnly]
+                struct PhotoDelegate;
+
+                // SAFETY: `NSObjectProtocol` has no safety requirements.
+                unsafe impl NSObjectProtocol for PhotoDelegate {}
+
+                // SAFETY: `UINavigationControllerDelegate` has no safety requirements.
+                unsafe impl UINavigationControllerDelegate for PhotoDelegate {}
+
+                // SAFETY: `UIImagePickerControllerDelegate` has no safety requirements.
+                unsafe impl UIImagePickerControllerDelegate for PhotoDelegate {
+                    // SAFETY: The signature is correct.
+                    #[unsafe(method(imagePickerController:didFinishPickingMediaWithInfo:))]
+                    unsafe fn did_finish_picking_media(
+                        &self,
+                        picker: &UIImagePickerController,
+                        info: &NSDictionary<UIImagePickerControllerInfoKey, AnyObject>,
+                    ) {
+                        if let Some(image) = info.objectForKey(UIImagePickerControllerOriginalImage) {
+                            if let Some(image) = image.downcast_ref::<UIImage>() {
+                                if let Some(data) = image.png_representation() {
+                                    let dir = NSTemporaryDirectory();
+                                    let path = format!("{}{}", dir, uuid::Uuid::new_v4());
+                                    data.writeToFile_atomically(&NSString::from_str(&path), true);
+                                    CHOSEN_FILE.lock().unwrap().1 = Some(path);
+                                }
+                            }
+                        }
+                        picker.dismissViewControllerAnimated_completion(true, None);
+                    }
+
+                    // SAFETY: The signature is correct.
+                    #[unsafe(method(imagePickerControllerDidCancel:))]
+                    fn did_cancel_picking(&self, picker: &UIImagePickerController) {
+                        picker.dismissViewControllerAnimated_completion(true, None);
+                    }
+                }
+            }
+
+            impl PhotoDelegate {
+                fn new(mtm: MainThreadMarker) -> Retained<Self> {
+                    let this = Self::alloc(mtm).set_ivars(());
+                    unsafe { msg_send![super(this), init] }
                 }
             }
 
             let mtm = MainThreadMarker::new().unwrap();
+            let Some(presenting) = top_view_controller(mtm) else { return };
 
-            let picker = UIDocumentPickerViewController::alloc(mtm);
-            let picker = if available!(ios = 14.0.0) {
-                use objc2_uniform_type_identifiers::UTType;
-
-                let ext = |e: &str| UTType::typeWithFilenameExtension(&NSString::from_str(e)).unwrap();
-                let types = NSArray::from_retained_slice(&[
-                    ext("zip"),
-                    ext("pez"),
-                    ext("jpg"),
-                    ext("png"),
-                    ext("jpeg"),
-                    ext("json"),
-                    ext("mp3"),
-                    ext("ogg"),
-                ]);
-                UIDocumentPickerViewController::initForOpeningContentTypes(picker, &types)
-            } else {
+            if is_photo {
+                let picker: Retained<UIImagePickerController> = unsafe { msg_send![UIImagePickerController::alloc(mtm), init] };
                 #[allow(deprecated)]
-                {
-                    use objc2_ui_kit::UIDocumentPickerMode;
+                picker.setSourceType(UIImagePickerControllerSourceType::PhotoLibrary);
+                picker.setAllowsEditing(false);
+                let dlg = PhotoDelegate::new(mtm);
+                let delegate: &AnyObject = unsafe { &*(&*dlg as *const PhotoDelegate as *const AnyObject) };
+                unsafe { picker.setDelegate(Some(delegate)) };
+                PHOTO_DELEGATE.with(|it| *it.borrow_mut() = Some(dlg));
+                presenting.presentViewController_animated_completion(&picker, true, None);
+            } else {
+                let picker = UIDocumentPickerViewController::alloc(mtm);
+                let picker = if available!(ios = 14.0.0) {
+                    use objc2_uniform_type_identifiers::UTType;
 
-                    let ext = NSString::from_str;
-                    let types = NSArray::from_retained_slice(&[ext("public.image"), ext("public.archive")]);
-                    UIDocumentPickerViewController::initWithDocumentTypes_inMode(picker, &types, UIDocumentPickerMode::Import)
-                }
-            };
-            let dlg_obj = PickerDelegate::new(mtm);
-            picker.setDelegate(Some(ProtocolObject::from_ref(&*dlg_obj)));
-            DELEGATE.with(|it| *it.borrow_mut() = Some(dlg_obj));
+                    let ext = |e: &str| UTType::typeWithFilenameExtension(&NSString::from_str(e)).unwrap();
+                    let types = NSArray::from_retained_slice(&[
+                        ext("zip"),
+                        ext("pez"),
+                        ext("jpg"),
+                        ext("png"),
+                        ext("jpeg"),
+                        ext("json"),
+                        ext("mp3"),
+                        ext("ogg"),
+                    ]);
+                    // Copy provider-backed files into the app before the picker dismisses. This
+                    // avoids a stale security-scoped URL when import processing starts next frame.
+                    UIDocumentPickerViewController::initForOpeningContentTypes_asCopy(picker, &types, true)
+                } else {
+                    #[allow(deprecated)]
+                    {
+                        use objc2_ui_kit::UIDocumentPickerMode;
 
-            inputbox::backend::IOS::get_top_view_controller(mtm)
-                .unwrap()
-                .presentViewController_animated_completion(&picker, true, None);
+                        let ext = NSString::from_str;
+                        let types = NSArray::from_retained_slice(&[ext("public.image"), ext("public.archive")]);
+                        UIDocumentPickerViewController::initWithDocumentTypes_inMode(picker, &types, UIDocumentPickerMode::Import)
+                    }
+                };
+                let dlg = PickerDelegate::new(mtm);
+                picker.setDelegate(Some(ProtocolObject::from_ref(&*dlg)));
+                DELEGATE.with(|it| *it.borrow_mut() = Some(dlg));
+                presenting.presentViewController_animated_completion(&picker, true, None);
+            }
         } else if #[cfg(target_env = "ohos")] {
             miniquad::native::call_request_callback(format!(r#"{{"action": "chooseFile", "isPhoto": {}}}"#, is_photo));
         } else { // desktop

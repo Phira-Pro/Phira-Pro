@@ -299,3 +299,5 @@ item-pro-api-url-off = 已关闭（纯官服模式）
 chart-import-label = 批量导入谱面
 chart-import-desc = 导入官方客户端「批量导出」生成的 zip（也可以只选单个谱面包）；导入后直接出现在本地谱面库
 chart-import-btn = 选择文件并导入
+item-block-simple = 噪域低性能模式
+item-block-simple-sub = 仅显示半透明范围，关闭噪声材质、触摸特效和音乐滤波；判定规则不变

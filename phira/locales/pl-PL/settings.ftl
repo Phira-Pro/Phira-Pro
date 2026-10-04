@@ -265,3 +265,5 @@ item-pro-api-url-off = Wyłączone (tylko oficjalne)
 chart-import-label = Importuj mapy zbiorczo
 chart-import-desc = Importuje zip z eksportu zbiorczego oficjalnego klienta (pojedynczy pakiet też działa); zaimportowane mapy od razu pojawią się w bibliotece lokalnej
 chart-import-btn = Wybierz plik i importuj
+item-block-simple = Uproszczone obszary blokujące
+item-block-simple-sub = Tylko półprzezroczyste obszary; bez szumu, efektów dotyku i filtra muzyki. Ocena bez zmian.

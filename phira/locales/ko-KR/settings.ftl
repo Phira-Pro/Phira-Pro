@@ -286,3 +286,5 @@ item-pro-api-url-off = 사용 안 함 (공식만)
 chart-import-label = 채보 일괄 가져오기
 chart-import-desc = 공식 클라이언트의 일괄 내보내기로 만든 zip을 가져옵니다 (단일 채보 팩도 가능). 가져온 채보는 곧바로 로컬 채보 목록에 나타납니다
 chart-import-btn = 파일 선택 후 가져오기
+item-block-simple = 노이즈 영역 간단 렌더링
+item-block-simple-sub = 반투명 영역만 표시하고 노이즈, 터치 효과 및 음악 필터를 끕니다. 판정은 유지됩니다.

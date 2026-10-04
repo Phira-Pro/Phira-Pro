@@ -144,6 +144,8 @@ pub struct Config {
     #[serde(rename = "adjust_time_new")]
     pub adjust_time: bool,
     pub aggressive: bool,
+    /// Flat block ranges; skips materials, hover and music filtering, not judgement.
+    pub block_area_simple: bool,
     pub ap_fc_indicator: bool,
     pub aspect_ratio: Option<f32>,
     pub audio_buffer_size: Option<u32>,
@@ -376,6 +378,7 @@ impl Default for Config {
         Self {
             adjust_time: false,
             aggressive: true,
+            block_area_simple: false,
             ap_fc_indicator: true,
             aspect_ratio: None,
             audio_buffer_size: None,

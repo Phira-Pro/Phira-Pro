@@ -1,6 +1,8 @@
 //! Native JudgeControl/ProgressControl gesture transitions (4.0.1).
 //! LevelControl's serialized preset is 1500 Hz / 0.1 s, overriding its ctor.
 //! The filter is attached to the chart AudioSource, not the hit-sound mixer.
+//! Unity's resonance control is not a portable DSP coefficient. Use a maximally
+//! flat second-order response here, without a boost at the cutoff frequency.
 
 #[derive(Default)]
 pub(crate) struct BlockAudio {
@@ -14,7 +16,9 @@ impl BlockAudio {
     }
 
     pub(crate) fn sync(&mut self, music: &mut sasa::Music, touching: bool) {
-        self.sync_with(touching, |cutoff, seconds| music.try_set_low_pass_filter(cutoff, 1., seconds));
+        self.sync_with(touching, |cutoff, seconds| {
+            music.try_set_low_pass_filter(cutoff, std::f32::consts::FRAC_1_SQRT_2, seconds)
+        });
     }
 
     pub(crate) fn suspend(&mut self, music: &mut sasa::Music) {

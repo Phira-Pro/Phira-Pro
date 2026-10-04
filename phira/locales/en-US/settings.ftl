@@ -300,3 +300,5 @@ item-pro-api-url-off = Disabled (official only)
 chart-import-label = Batch Import Charts
 chart-import-desc = Import a zip produced by the official client's batch export (a single chart pack also works); imported charts show up in your local library right away
 chart-import-btn = Choose file & import
+item-block-simple = Simple block areas
+item-block-simple-sub = Draw translucent ranges only; disable noise, touch effects and music filtering. Judgement is unchanged.

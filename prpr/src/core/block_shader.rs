@@ -3,13 +3,15 @@
 //! Visual masks use the native SubtractBlockBlender threshold window; this is
 //! intentionally separate from the already verified input parity semantics.
 //!
-//! Masks are rasterized at native 1/8-resolution pixel centers, then dilated as in
+//! Masks retain the native effect RT dimensions, with compose pixels refined to
+//! that grid instead of replicating each native 1/8-resolution pixel four times.
+//! They are then dilated as in
 //! `EdgeMask` / `GlowMask`. They are uploaded as an ordinary texture: no camera
 //! changes or additional framebuffer/render passes are needed. The scene color
 //! is copied from the existing chart pass (resolving its MSAA target first).
 //! Material arithmetic and texture settings come from the exported GLSL/.mat.
 
-use super::{BlockArea, BlockPhase, Matrix, Resource, Vector};
+use super::{BlockArea, BlockPhase, Resource, Vector};
 use macroquad::prelude::*;
 use miniquad::{TextureWrap, UniformType};
 use once_cell::sync::Lazy;
@@ -19,6 +21,8 @@ use std::cell::RefCell;
 mod mask;
 #[path = "block_touch.rs"]
 mod touch;
+#[path = "block_simple.rs"]
+mod simple;
 
 /// A resolved rectangle (axis-aligned in its own space).
 #[derive(Clone, PartialEq)]
@@ -277,6 +281,10 @@ pub fn draw_disabled_zones(res: &mut Resource, aspect: f32, zones: &[Zone]) {
 
 /// Touch centers are chart coordinates; IDs preserve native slot lifetimes.
 pub fn draw_zones_with_touches(res: &mut Resource, aspect: f32, zones: &[Zone], touches: &[(u64, Vector)], flip_x: bool) {
+    if res.config.block_area_simple {
+        simple::draw(aspect, zones, false);
+        return;
+    }
     let projection = unsafe { get_internal_gl() }.quad_gl.get_projection_matrix();
     let mut touches: Vec<_> = touches
         .iter()
@@ -308,6 +316,10 @@ pub(crate) fn draw_zones_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
 }
 
 pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], time: f32, disabled: bool, touches: &[(u64, Vec2)]) {
+    if res.config.block_area_simple {
+        simple::draw(aspect, zones, disabled);
+        return;
+    }
     let needed = if disabled {
         zones.iter().any(|z| !z.active && z.opacity > 0.)
     } else {
@@ -317,14 +329,7 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         return;
     }
     let Some(m) = MATERIAL.as_ref() else {
-        for z in zones.iter().filter(|z| !z.invert && z.active != disabled) {
-            let m = Matrix::new_translation(&z.center)
-                * nalgebra::Rotation2::new(z.angle).to_homogeneous()
-                * Matrix::identity().append_nonuniform_scaling(&(z.half * 2.));
-            res.apply_model_of(&m, |_| {
-                draw_rectangle(-0.5, -0.5, 1., 1., Color::new(1., 0., 0., if z.active { 0.4 } else { 0.12 }));
-            });
-        }
+        simple::draw(aspect, zones, disabled);
         return;
     };
     // ActiveBlock is postprocessing after sprites, notes and HUD; Disabled is

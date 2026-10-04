@@ -34,14 +34,21 @@ pub(super) struct Masks {
     warp_x: Vec<(f32, usize, usize)>,
     warp_y: Vec<(f32, usize)>,
     enabled_compose: Vec<u8>,
+    uniform_compose: Option<u8>,
     point_aux: Vec<[u8; 3]>,
 }
 
 impl Masks {
     pub fn render_displaced(&mut self, width: usize, height: usize, aspect: f32, zones: &[Zone], time: f32) {
-        let (bw, bh) = ((width / 8).max(1), (height / 8).max(1));
-        let (ew, eh) = (bw * 2, bh * 2);
-        if self.last_dim == (ew, eh, aspect) && self.last_zones == zones && self.last_time == Some(time) {
+        // Refine Compose to the existing EffectRT grid: half-sized boundary
+        // cells without larger effect textures, more shader work or narrower
+        // edge/glow rings. Native geometry and displacement math stay intact.
+        let (bw, bh) = ((width / 8).max(1) * 2, (height / 8).max(1) * 2);
+        let (ew, eh) = (bw, bh);
+        if self.last_dim == (ew, eh, aspect)
+            && self.last_zones == zones
+            && (self.last_time == Some(time) || self.uniform_compose.is_some())
+        {
             return;
         }
         if self.last_dim != (ew, eh, aspect) || self.last_zones != zones {
@@ -100,6 +107,7 @@ impl Masks {
                 };
                 self.point_aux[i] = [self.layers[4][i], ready_s, disabled];
             }
+            self.uniform_compose = self.enabled_compose.first().copied().filter(|v| self.enabled_compose.iter().all(|p| p == v));
         }
         self.width = ew;
         self.height = eh;
@@ -120,38 +128,39 @@ impl Masks {
         let dt = d * (time / 20. * 2.59);
         self.warp_x.clear();
         self.warp_y.clear();
-        self.warp_x.extend((0..bw).map(|x| {
-            let u = (x as f32 + 0.5) / bw as f32;
-            (u, noise_index(dt + u * 2.13, texture.width()) as usize * 3, noise_index(-dt + u * 2.13, texture.width()) as usize * 3)
-        }));
-        self.warp_y.extend((0..bh).map(|y| {
-            let v = (y as f32 + 0.5) / bh as f32;
-            (v, noise_index(dt + v * 1.02, texture.height()) as usize * texture_stride)
-        }));
+        if self.uniform_compose.is_none() {
+            self.warp_x.extend((0..bw).map(|x| {
+                let u = (x as f32 + 0.5) / bw as f32;
+                (u, noise_index(dt + u * 2.13, texture.width()) as usize * 3, noise_index(-dt + u * 2.13, texture.width()) as usize * 3)
+            }));
+            self.warp_y.extend((0..bh).map(|y| {
+                let v = (y as f32 + 0.5) / bh as f32;
+                (v, noise_index(dt + v * 1.02, texture.height()) as usize * texture_stride)
+            }));
+        }
         static CENTERED_NOISE: Lazy<[f32; 256]> = Lazy::new(|| std::array::from_fn(|value| medium(medium(value as f32 / 255.) - 0.5)));
         let centered = &*CENTERED_NOISE;
         for y in 0..bh {
             for x in 0..bw {
-                let (u, xa, xb) = self.warp_x[x];
-                let (v, row) = self.warp_y[y];
-                let a = centered[pixels[row + xa] as usize];
-                let b = centered[pixels[row + xb] as usize];
-                let duv = [(d * a + b * -d) * 0.1 + u, (d * a + b * d) * 0.1 + v];
-                let sx = (duv[0] * bw as f32).floor().clamp(0., (bw - 1) as f32) as usize;
-                let sy = (duv[1] * bh as f32).floor().clamp(0., (bh - 1) as f32) as usize;
                 let i = y * bw + x;
-                let di = sy * bw + sx;
-                let mask = self.enabled_compose[di];
+                let mask = if let Some(value) = self.uniform_compose {
+                    value
+                } else {
+                    let (u, xa, xb) = self.warp_x[x];
+                    let (v, row) = self.warp_y[y];
+                    let a = centered[pixels[row + xa] as usize];
+                    let b = centered[pixels[row + xb] as usize];
+                    let duv = [(d * a + b * -d) * 0.1 + u, (d * a + b * d) * 0.1 + v];
+                    let sx = (duv[0] * bw as f32).floor().clamp(0., (bw - 1) as f32) as usize;
+                    let sy = (duv[1] * bh as f32).floor().clamp(0., (bh - 1) as f32) as usize;
+                    self.enabled_compose[sy * bw + sx]
+                };
                 let [ready_n, ready_s, disabled] = self.point_aux[i];
-                let rgba = [mask, 0, 0, disabled, mask, 0, 0, disabled];
-                let aux = [ready_n, ready_s, disabled, 0, ready_n, ready_s, disabled, 0];
-                for yy in [y * 2, y * 2 + 1] {
-                    let dst = (yy * ew + x * 2) * 4;
-                    self.rgba[dst..dst + 8].copy_from_slice(&rgba);
-                    self.aux_rgba[dst..dst + 8].copy_from_slice(&aux);
-                    if mask != 0 {
-                        self.active[yy * stride + x * 2 / 64] |= 3 << ((x * 2) % 64);
-                    }
+                let dst = i * 4;
+                self.rgba[dst..dst + 4].copy_from_slice(&[mask, 0, 0, disabled]);
+                self.aux_rgba[dst..dst + 4].copy_from_slice(&[ready_n, ready_s, disabled, 0]);
+                if mask != 0 {
+                    self.active[y * stride + x / 64] |= 1 << (x % 64);
                 }
             }
         }
@@ -409,9 +418,9 @@ mod tests {
             zone(0.0, 0.0, 1.0, 0.6, 0.0, true),
             zone(0.15, 0.2, 0.12, 0.21, 1.32, true),
         ];
-        let (width, height, aspect) = (129, 75, 16. / 9.);
+        let (width, height, aspect) = (130, 76, 16. / 9.);
         let mut masks = Masks::default();
-        masks.render_displaced(width * 8, height * 8, aspect, &zones, 0.);
+        masks.render_displaced(width * 4, height * 4, aspect, &zones, 0.);
         for y in 0..height {
             for x in 0..width {
                 let p = Vector::new((x as f32 + 0.5) * 2. / width as f32 - 1., ((y as f32 + 0.5) * 2. / height as f32 - 1.) / aspect);
@@ -476,18 +485,16 @@ mod tests {
     }
 
     #[test]
-    fn native_mask_and_effect_dimensions_match_start_and_point_upsampling() {
+    fn refined_compose_reuses_effect_dimensions_without_two_by_two_replication() {
         let mut masks = Masks::default();
         masks.render_displaced(960, 540, 16. / 9., &[zone(0., 0., 0.5, 0.25, 0., false)], 1.);
         assert_eq!((masks.width, masks.height), (240, 134));
-        // The compose mask is nearest-upsampled from 120x67 into the effect RT.
-        for y in (0..134).step_by(2) {
-            for x in (0..240).step_by(2) {
-                let sample = |px: usize, py: usize| masks.rgba[(py * 240 + px) * 4];
-                assert_eq!(sample(x, y), sample(x + 1, y));
-                assert_eq!(sample(x, y), sample(x, y + 1));
-            }
-        }
+        assert_eq!(masks.sources_rgba.len(), 240 * 134 * 4);
+        // Detail must come from additional samples, not smoothed coarse cells.
+        assert!((0..134).step_by(2).any(|y| (0..240).step_by(2).any(|x| {
+            let sample = |px: usize, py: usize| masks.rgba[(py * 240 + px) * 4];
+            sample(x, y) != sample(x + 1, y) || sample(x, y) != sample(x, y + 1)
+        })));
     }
 
     #[test]
@@ -568,5 +575,19 @@ mod tests {
         assert_eq!(mask.sources_rgba[3], 26);
         assert_eq!(mask.raw_disabled_green[0], 6);
         assert_eq!(mask.rgba[3], 120);
+    }
+
+    #[test]
+    fn uniform_compose_reuses_masks_across_time_but_invalidates_on_geometry_change() {
+        let full = zone(0., 0., 3., 3., 0., false);
+        let mut masks = Masks::default();
+        masks.render_displaced(960, 540, 16. / 9., &[full.clone()], 1.);
+        let revision = masks.revision;
+        assert_eq!(masks.uniform_compose, Some(255));
+        masks.render_displaced(960, 540, 16. / 9., &[full], 2.);
+        assert_eq!(masks.revision, revision);
+        masks.render_displaced(960, 540, 16. / 9., &[zone(0., 0., 0.3, 0.2, 0., false)], 2.);
+        assert_eq!(masks.uniform_compose, None);
+        assert!(masks.revision > revision);
     }
 }

@@ -10,6 +10,7 @@ members = [
     "prpr-pbc",
     "tools/auto-offset-cli",
 ]
+exclude = ["vendor", "phira-mp", "phira-mp-next"]
 resolver = "2"
 
 [workspace.lints.rust]
@@ -36,8 +37,8 @@ inputbox = "0.1.5"
 lru = "0.16.3"
 lyon = "1.0.19"
 
-macroquad = { path = "../vendor/prpr-macroquad", default-features = false }
-miniquad = { path = "../vendor/prpr-miniquad" }
+macroquad = { path = "vendor/prpr-macroquad", default-features = false }
+miniquad = { path = "vendor/prpr-miniquad" }
 nalgebra = "0.34.1"
 
 objc2 = "0.6.4"
@@ -47,8 +48,8 @@ objc2-ui-kit = "0.3.2"
 objc2-uniform-type-identifiers = "0.3.2"
 once_cell = "1.21.4"
 phira = { path = "phira", default-features = false }
-phira-mp-client = { path = "../phira-mp/phira-mp-client" }
-phira-mp-common = { path = "../phira-mp/phira-mp-common" }
+phira-mp-client = { path = "phira-mp/phira-mp-client" }
+phira-mp-common = { path = "phira-mp/phira-mp-common" }
 pollster = "0.4.0"
 prpr = { path = "prpr", default-features = false }
 prpr-auto-offset = { path = "prpr-auto-offset" }
@@ -58,10 +59,10 @@ rand = "0.8.5"
 regex = "1.12.3"
 # Phira Pro：内嵌联机服务端（Pimeng/phira-mp-next 的 lib 目标）。
 # 只用于「本地联机（房主）」——客户端内起服务端，局域网内可连，免登录。
-rphira-mp = { path = "../phira-mp-next" }
+rphira-mp = { path = "phira-mp-next" }
 reqwest = { version = "0.13.2", default-features = false }
 rfd = "0.17.2"
-sasa = { path = "../vendor/sasa", default-features = false }
+sasa = { path = "vendor/sasa", default-features = false }
 serde = "1.0.228"
 serde_json = "1.0.149"
 serde_yaml = "0.9.34"

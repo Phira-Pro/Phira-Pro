@@ -290,3 +290,5 @@ item-pro-api-url-off = Deaktiviert (nur offiziell)
 chart-import-label = Charts stapelweise importieren
 chart-import-desc = Importiert ein ZIP aus dem Stapel-Export des offiziellen Clients (auch ein einzelnes Chart-Paket); importierte Charts erscheinen sofort in der lokalen Bibliothek
 chart-import-btn = Datei wählen und importieren
+item-block-simple = Einfache Blockbereiche
+item-block-simple-sub = Nur transparente Bereiche; ohne Rauschen, Berührungseffekte und Musikfilter. Die Wertung bleibt unverändert.

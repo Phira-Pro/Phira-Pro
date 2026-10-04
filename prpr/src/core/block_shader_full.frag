@@ -534,15 +534,20 @@ vec4 fullActive() {
 }
 
 vec2 basePixelUV(vec2 uv) {
-    vec2 size = _EffectRT_TexelSize.zw * 0.5;
+    vec2 size = _EffectRT_TexelSize.zw;
     return (floor(uv * size) + 0.5) / size;
 }
 float composeSample(vec2 uv) { return texture2D(uMasks, basePixelUV(uv)).r; }
 vec2 effectSample(vec2 uv) { return texture2D(uMasks, uv).gb; }
 vec4 auxSample(vec2 uv) { return texture2D(uAuxMasks, basePixelUV(uv)); }
-float hoverSample(vec2 uv) { return texture2D(uAuxMasks, basePixelUV(uv)).a; }
+float hoverSample(vec2 uv) {
+    // Hover retains the native 1/8 grid; refined Compose uses the effect grid.
+    vec2 size = _EffectRT_TexelSize.zw * 0.5;
+    return texture2D(uAuxMasks, (floor(uv * size) + 0.5) / size).a;
+}
 vec4 snapshotSample(vec2 uv) {
-    vec2 size = max(floor(_ScreenParams.xy / 3.0), vec2(1.0));
+    // BlockRender.Start uses signed integer division by SIX (0x2aaaaaab).
+    vec2 size = max(floor(_ScreenParams.xy / 6.0), vec2(1.0));
     uv = (floor(clamp(uv, 0.0, 1.0) * size) + 0.5) / size;
     return texture2D(uScene, uv);
 }

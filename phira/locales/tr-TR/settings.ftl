@@ -278,3 +278,5 @@ item-pro-api-url-off = Kapalı (yalnızca resmî)
 chart-import-label = Haritaları Toplu İçe Aktar
 chart-import-desc = Resmî istemcinin toplu dışa aktarımıyla oluşan zip'i içe aktarır (tek paket de olur); içe aktarılan haritalar yerel kitaplığında hemen görünür
 chart-import-btn = Dosya seç ve içe aktar
+item-block-simple = Basit blok alanları
+item-block-simple-sub = Yalnızca yarı saydam alanlar; gürültü, dokunma efektleri ve müzik filtresi kapalı. Yargılama değişmez.

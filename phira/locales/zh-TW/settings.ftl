@@ -291,3 +291,5 @@ item-pro-api-url-off = 已關閉（純官服模式）
 chart-import-label = 批量匯入譜面
 chart-import-desc = 匯入官方客戶端「批量匯出」產生的 zip（也可以只選單一譜面包）；匯入後直接出現在本機譜面庫
 chart-import-btn = 選擇檔案並匯入
+item-block-simple = 噪域低效能模式
+item-block-simple-sub = 僅顯示半透明範圍，關閉雜訊材質、觸摸特效及音樂濾波；判定規則不變

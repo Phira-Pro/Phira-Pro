@@ -544,7 +544,7 @@ impl GameScene {
         }
 
         let (mut chart, chart_bytes, chart_format) = Self::load_chart(fs.deref_mut(), &info).await?;
-        if !chart.block_areas.is_empty() {
+        if !chart.block_areas.is_empty() && !config.block_area_simple {
             crate::core::prepare_block_effects();
         }
         if config.mods.contains(Mods::NO_SHADER) {
@@ -1417,8 +1417,10 @@ impl Scene for GameScene {
         if tm.paused() || self.pause_rewind.is_some() {
             self.block_audio.suspend(&mut self.music);
         } else {
-            self.block_audio
-                .sync(&mut self.music, matches!(self.state, State::Playing) && !self.chart.blocked_touches.is_empty());
+            self.block_audio.sync(
+                &mut self.music,
+                !self.res.config.block_area_simple && matches!(self.state, State::Playing) && !self.chart.blocked_touches.is_empty(),
+            );
         }
         if let Some(update) = &mut self.update_fn {
             update(self.res.time, &mut self.res, &mut self.judge);

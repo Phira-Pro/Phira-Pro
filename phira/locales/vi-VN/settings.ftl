@@ -291,3 +291,5 @@ item-pro-api-url-off = Đã tắt (chỉ chính thức)
 chart-import-label = Nhập phổ hàng loạt
 chart-import-desc = Nhập zip do bản chính thức xuất hàng loạt tạo ra (một gói phổ cũng được); phổ đã nhập sẽ hiện ngay trong thư viện cục bộ
 chart-import-btn = Chọn tệp và nhập
+item-block-simple = Vùng chặn đơn giản
+item-block-simple-sub = Chỉ hiển thị vùng bán trong suốt; tắt nhiễu, hiệu ứng chạm và bộ lọc nhạc. Giữ nguyên phán định.

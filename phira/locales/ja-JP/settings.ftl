@@ -275,3 +275,5 @@ item-pro-api-url-off = 無効（公式のみ）
 chart-import-label = 譜面を一括インポート
 chart-import-desc = 公式クライアントの一括エクスポートで作った zip をインポートします（単体の譜面パックでも可）。インポートした譜面はすぐにローカル譜面庫に表示されます
 chart-import-btn = ファイルを選んでインポート
+item-block-simple = 噪域の軽量描画
+item-block-simple-sub = 半透明の範囲のみを描画。ノイズ、タッチ演出、音楽フィルターを無効化。判定は変更しません

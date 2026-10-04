@@ -273,3 +273,5 @@ item-pro-api-url-off = Nonaktif (resmi saja)
 chart-import-label = Impor Lagu Massal
 chart-import-desc = Impor zip hasil ekspor massal klien resmi (satu paket lagu juga bisa); lagu yang diimpor langsung muncul di pustaka lokal
 chart-import-btn = Pilih file & impor
+item-block-simple = Area blok sederhana
+item-block-simple-sub = Hanya area transparan; tanpa derau, efek sentuhan dan filter musik. Penilaian tidak berubah.

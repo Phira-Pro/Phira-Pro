@@ -278,3 +278,5 @@ item-pro-api-url-off = Desativado (somente oficial)
 chart-import-label = Importar músicas em lote
 chart-import-desc = Importa um zip gerado pela exportação em lote do cliente oficial (um único pacote também funciona); as músicas importadas aparecem na biblioteca local na hora
 chart-import-btn = Escolher arquivo e importar
+item-block-simple = Áreas de bloqueio simplificadas
+item-block-simple-sub = Apenas áreas translúcidas; sem ruído, efeitos de toque e filtro de música. Julgamento inalterado.

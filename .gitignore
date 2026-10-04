@@ -70,3 +70,8 @@ derive_key.py
 # OHOS
 
 /phira/dist/
+
+
+vendor/
+phira-mp/
+phira-mp-next/

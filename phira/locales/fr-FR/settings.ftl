@@ -291,3 +291,5 @@ item-pro-api-url-off = Désactivé (officiel uniquement)
 chart-import-label = Importer des partitions en lot
 chart-import-desc = Importe un zip produit par l'export en lot du client officiel (un seul pack marche aussi) ; les partitions importées apparaissent aussitôt dans la bibliothèque locale
 chart-import-btn = Choisir un fichier et importer
+item-block-simple = Zones de blocage simplifiées
+item-block-simple-sub = Zones translucides uniquement, sans bruit, effets tactiles ni filtre audio. Jugement inchangé.

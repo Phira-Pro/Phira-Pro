@@ -1,15 +1,10 @@
 inner.rs
-/assets/blockarea
 
 /target
-/assets/font.ttf
 /cache
 /data
 /.cargo
 /config.txt
-/assets/background.jpg
-/assets/res
-/monitor-config.yml
 /.vscode
 
 /prpr-avc/static-lib

@@ -28,6 +28,13 @@ tasks.register('cargoNdkBuild') {
     inputs.files(file("${repoRoot}/phira/Cargo.toml"), file("${repoRoot}/prpr/Cargo.toml"), file("${repoRoot}/prpr-avc/Cargo.toml"), file("${repoRoot}/rust-toolchain.toml"))
     inputs.property('rustflags', System.getenv('RUSTFLAGS') ?: '')
     inputs.property('ndkDir', ndkDir)
+    // Cargo embeds GIT_HASH. A new commit must invalidate Gradle's task cache
+    // even when it only changed files outside the Rust source directories.
+    inputs.property('sourceRevision', providers.exec {
+        workingDir repoRoot
+        commandLine 'git', 'rev-parse', 'HEAD'
+        ignoreExitValue = true
+    }.standardOutput.asText.map { it.trim() ?: 'unknown' })
     outputs.dir(outDir)
 
     doLast {
@@ -65,6 +72,7 @@ def hasSigning = signStorePassword && signKeyAlias && signKeyPassword
 
 android {
     namespace 'org.flos.phirapro'
+    ndkVersion '27.2.12479018'
     compileSdk 35
     buildToolsVersion '35.0.0'
 

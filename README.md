@@ -9,7 +9,9 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 ## 下载
 
-在 [Releases](https://github.com/baiji666/Phira-Pro/releases) 页面下载最新的 `PhiraPro-v0.8.2-pro.x-win64.zip`，解压后运行 `phira-main.exe`。
+在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows 压缩包或 Android arm64 APK。Windows 解压后运行 `phira-main.exe`；Android 安装 APK，更新时保留应用数据。
+
+本轮功能、验证范围及 Actions 使用方法见 [pro.7 更新说明](docs/development/pro-7.md)。
 
 ## 相对官方版新增的功能
 
@@ -70,7 +72,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 cargo build --release -p phira-main
 ```
 
-> 按上游约定，仓库不包含部分资源文件（`assets/res`、`assets/font.ttf`、`assets/background.jpg` 等，见 [.gitignore](.gitignore)）。自行构建后需要补齐这些资源才能完整运行。
+Windows 使用 `scripts/package-windows.ps1`，Android 使用 `scripts/package-android.ps1`（JDK 21、Android SDK、NDK 27.2.12479018、cargo-ndk）。产物分别放在仓库父目录的 `dist/windows` 和 `dist/android`。Android 签名配置不入库，详见更新说明；GitHub Actions 可分别手动运行 Android APK / iOS IPA 工作流。
 
 ## 授权与致谢
 

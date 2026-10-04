@@ -4,7 +4,6 @@ proceed = CONTINUAR
 
 new-best = NOVO MELHOR
 max-combo = COMBO MÁXIMO
-rks-delta = RKS DELTA
 accuracy = precisão
 error = Erro
 

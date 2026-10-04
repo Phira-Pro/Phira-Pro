@@ -130,10 +130,6 @@ item-judge-chart = 判定分布図
 item-judge-chart-sub = リザルトに判定タイミングの分布図を描画（早 ← → 遅）
 item-hp-scale = ライフバー倍率
 item-hp-color = ライフバーの色
-item-upload = スコア送信
-item-upload-sub = このビルドにはアップロード経路が含まれていないため、このスイッチは効果がありません：スコアは端末内にのみ保存されます
-item-upload-consent = 送信の同意
-item-upload-consent-open = 表示
 item-history = スコア履歴
 item-history-sub = 各プレイを端末内に保存：一覧 / 推移 / PB 比較 / 判定分布 / インポート・エクスポート
 item-history-open = 開く
@@ -150,10 +146,6 @@ font-reset-btn = 初期化
 font-imported = フォントを読み込みました。再起動後に有効
 font-import-failed = フォントの読み込みに失敗
 font-reset-done = 組み込みフォントに戻しました。再起動後に有効
-upload-consent-title = スコア送信：同意と免責事項
-upload-consent-accept = 読み、同意します
-upload-consent-deny = 同意しない
-upload-consent-text = この改造版のスコアはどのサーバーにも送信されず、端末内にのみ保存されます。この項目を有効にすると、アップロードされる内容は本局の成績（譜面 ID、スコア / 精度 / 判定、譜面バージョンのタイムスタンプ、アカウント情報）のみで、端末情報やその他のファイルは含まれません。また「判定と玩法を変更していない」プレイのみが集計対象となり、オートプレイ、全画面判定、厳格判定、判定幅の調整、遅押し補正、黄鍵 / 赤鍵保護、Hold の終端判定、HP 倍率、減速、キーボードモードのいずれかが有効な場合は拒否されます。オンライン対戦では公平性のためこれらの設定が公式デフォルトに強制されます。本改造版は非公式であり、TeamFlos / Phira 公式とは無関係です。公式クライアントと成績が異なる場合、その結果は利用者の自己責任となります。
 item-blacklist = プレイヤーブロックリスト
 item-blacklist-sub = ここに登録した Phira ID を、端末内のすべてのランキングとユーザー一覧で非表示にします
 item-blacklist-open = 管理
@@ -254,10 +246,6 @@ migrate-need-login = 先に公式サーバーへログインしてください
 
 migrate-enumerating = 譜面を列挙中（全 { $pages } ページ）...
 migrate-checking = スコアを確認中 { $done }/{ $total }...
-
-item-pro-api-url = 自服のアドレス（Phira Pro）
-item-pro-api-url-sub = Phira Pro：スコアはここにもアップロードされ、ランキングは公式と自服の記録を統合します。空欄にすると自服機能を無効化します
-item-pro-api-url-off = 無効（公式のみ）
 
 chart-import-label = 譜面を一括インポート
 chart-import-desc = 公式クライアントの一括エクスポートで作った zip をインポートします（単体の譜面パックでも可）。インポートした譜面はすぐにローカル譜面庫に表示されます

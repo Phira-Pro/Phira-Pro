@@ -3,7 +3,6 @@ proceed = Diproses
 detail = Detail
 new-best = Rekor baru
 max-combo = Maks kombo
-rks-delta = Perubahan RKS
 accuracy = Akurasi
 error = Kesalahan
 uploading = Sedang diunggah

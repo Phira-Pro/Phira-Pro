@@ -26,7 +26,6 @@ use crate::{
 };
 use ::rand::{thread_rng, Rng};
 use anyhow::{bail, Context, Error, Result};
-use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::{DateTime, Utc};
 use core::f32;
 use futures_util::StreamExt;
@@ -45,7 +44,7 @@ use prpr::{
     judge::icon_index,
     scene::{
         request_file, request_input, return_file, return_input, show_error, show_message, take_file, take_input, BasicPlayer, GameMode, LoadingScene,
-        LocalSceneTask, NextScene, RecordUpdateState, SaveFn, Scene, SimpleRecord, UpdateFn, UploadFn,
+        LocalSceneTask, NextScene, RecordUpdateState, SaveFn, Scene, SimpleRecord, UpdateFn, UploadFn, UploadScore,
     },
     task::Task,
     time::TimeManager,
@@ -55,7 +54,7 @@ use regex::Regex;
 use reqwest::Method;
 use sanitize_filename::sanitize;
 use sasa::{AudioClip, Frame, Music, MusicParams};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
@@ -916,15 +915,12 @@ impl SongScene {
         let can_rated = id.is_some() || local_path.starts_with(':');
         #[cfg(feature = "video")]
         let local_path = local_path.to_owned();
-        #[cfg(record)]
+        // 是否计入成绩：与上传闸门同口径——本局未改动判定 / 玩法（`is_official_play`）、
+        // 非离线、且谱面可计成绩。
         let rated = {
             let config = &get_data().config;
-            // 开「上传成绩」会把本局的 mod 强制回官方，所以判定"计不计成绩"时也按官方口径看 mod。
-            let unrated = mods.intersects(Mods::UNRATED) && !config.upload_record;
-            config.upload_record && !config.offline_mode && can_rated && !unrated && !config.use_keyboard && config.speed >= 1.0 - 1e-3
+            !config.offline_mode && can_rated && config.is_official_play(mods)
         };
-        #[cfg(not(record))]
-        let rated = false;
         if !rated && can_rated && mode == GameMode::Normal {
             show_message(tl!("warn-unrated")).warn();
         }
@@ -1013,14 +1009,7 @@ impl SongScene {
                     Some(format!("{}/{}", dir::respacks()?, get_data().respacks[id - 1]))
                 }
             };
-            let chart_updated = info.chart_updated;
             config.mods = mods;
-            // 开「上传成绩」时本局强制按官方默认判定 / 玩法（忽略谱面的 mod 选择）。
-            #[cfg(record)]
-            if config.upload_record {
-                let mut m = config.mods;
-                config.force_official_play(&mut m);
-            }
             // 联机对战必须保证公平：把任何改动过的判定 / 玩法选项临时还原成官方默认值
             // （自动游玩 / 全屏判定 / 严格判定 / 判定窗口 / 晚按补偿 / 黄红键保护 / 尾判 /
             // 血条倍率 / 降速 / 键盘模式等）。只作用于本局用的配置副本，不动玩家保存的设置。
@@ -1034,45 +1023,20 @@ impl SongScene {
                 rks: it.rks,
                 historic_best: record.map_or(0, |it| it.score as u32),
             });
-            let upload_fn: Option<UploadFn> = Some(Arc::new(move |data: Vec<u8>| {
+            let upload_fn: Option<UploadFn> = Some(Arc::new(move |score: UploadScore| {
                 Task::new(async move {
-                    #[derive(Serialize)]
-                    #[serde(rename_all = "camelCase")]
-                    struct Req {
-                        chart: i32,
-                        token: String,
-                        chart_updated: Option<DateTime<Utc>>,
-                    }
-                    #[derive(Deserialize)]
-                    #[serde(rename_all = "camelCase")]
-                    struct Resp {
-                        id: i32,
-                        exp_delta: f64,
-                        new_best: bool,
-                        improvement: u32,
-                        new_rks: f32,
-                    }
-                    let body = Req {
-                        chart: id.unwrap(),
-                        token: STANDARD.encode(data),
-                        chart_updated,
-                    };
-                    let resp: Resp = recv_raw(crate::client::pro_score_upload(&body)?).await?.json().await?;
-                    leaderboard::invalidate(id.unwrap());
-                    RECORD_ID.store(resp.id, Ordering::Relaxed);
+                    let resp = crate::client::pro_upload_score(&score).await?;
+                    leaderboard::invalidate(id.unwrap_or(score.chart));
+                    RECORD_ID.store(resp.id as i32, Ordering::Relaxed);
                     Ok(RecordUpdateState {
                         best: resp.new_best,
                         improvement: resp.improvement,
-                        gain_exp: resp.exp_delta as f32,
-                        new_rks: Some(resp.new_rks),
                     })
                 })
             }));
-            // 成绩上传默认关（上游同为默认关）：关掉时 upload_fn 置 None。
-            // 能否上传最终由 prpr 侧的 `Config::is_official_play` 决定——改动过判定 /
-            // 玩法的对局一律不上传。
-            #[cfg(record)]
-            let upload_fn = upload_fn.filter(|_| get_data().config.upload_record && !crate::client::pro_api_url().is_empty());
+            // 上传门槛：需要有登录账号（未登录不产生上传任务）；能否上传最终由 prpr 侧的
+            // `Config::is_official_play` 决定——改动过判定 / 玩法的对局一律不上传。
+            let upload_fn = upload_fn.filter(|_| get_data().me.is_some());
             if is_unlock {
                 #[cfg(not(feature = "video"))]
                 {

@@ -268,12 +268,6 @@ impl Page for SettingsPage {
         if changed {
             self.save_time = t;
         }
-        // 打开「上传成绩」后，玩家一旦改动判定 / 玩法设置就自动关闭并还原成打开前的配置。
-        #[cfg(record)]
-        if get_data().config.upload_record && get_data_mut().config.sync_upload() {
-            save_data()?;
-            self.save_time = f32::INFINITY;
-        }
         if t > self.save_time + Self::SAVE_TIME {
             save_data()?;
             self.save_time = f32::INFINITY;
@@ -432,30 +426,6 @@ fn render_switch(ui: &mut Ui, r: Rect, t: f32, btn: &mut DRectButton, on: bool) 
     btn.render_text(ui, r, t, if on { ttl!("switch-on") } else { ttl!("switch-off") }, 0.5, on);
 }
 
-/// 成绩上传协议弹窗。
-///
-/// `ask` = true：这是「要打开上传」的流程，两个按钮，点了同意才继续；`false`：只是查看协议。
-#[cfg(record)]
-fn show_upload_consent(ask: bool) {
-    let mut dialog = Dialog::plain(tl!("upload-consent-title"), tl!("upload-consent-text").into_owned());
-    if ask {
-        dialog = dialog
-            .buttons(vec![tl!("upload-consent-deny").into_owned(), tl!("upload-consent-accept").into_owned()])
-            .listener(move |_dialog, pos| {
-                if pos == 1 {
-                    let config = &mut get_data_mut().config;
-                    config.upload_agreed = true;
-                    config.enable_upload();
-                    let _ = save_data();
-                }
-                false
-            });
-    } else {
-        dialog = dialog.buttons(vec![tl!("ok").into_owned()]);
-    }
-    dialog.show();
-}
-
 #[inline]
 fn right_rect(w: f32) -> Rect {
     let rh = item_row_h() * 2. / 3.;
@@ -552,8 +522,6 @@ struct GeneralList {
     server_status_btn: DRectButton,
     /// 打开「API 地址」输入（自建 / 私服用）。
     api_url_btn: DRectButton,
-    /// Phira Pro：自服（`phira-pro-api`）地址，留空关闭自服功能。
-    pro_api_url_btn: DRectButton,
     /// 打开「Web 前端地址」输入（自建 / 私服用）。
     web_url_btn: DRectButton,
     /// 打开「服务器状态页地址」输入（自建 / 私服用）。
@@ -621,7 +589,6 @@ impl GeneralList {
             offline_btn: DRectButton::new(),
             server_status_btn: DRectButton::new(),
             api_url_btn: DRectButton::new(),
-            pro_api_url_btn: DRectButton::new(),
             web_url_btn: DRectButton::new(),
             status_url_btn: DRectButton::new(),
             #[cfg(not(target_env = "ohos"))]
@@ -818,10 +785,6 @@ impl GeneralList {
             request_input("api_url", InputBox::new().default_text(&config.api_url));
             return Ok(Some(true));
         }
-        if self.pro_api_url_btn.touch(touch, t) {
-            request_input("pro_api_url", InputBox::new().default_text(&config.pro_api_url));
-            return Ok(Some(true));
-        }
         if self.web_url_btn.touch(touch, t) {
             request_input("web_url", InputBox::new().default_text(&config.web_url));
             return Ok(Some(true));
@@ -937,10 +900,9 @@ impl GeneralList {
             return Ok(true);
         }
         if let Some((id, text)) = take_input() {
-            if matches!(id.as_str(), "api_url" | "pro_api_url" | "web_url" | "status_url") {
+            if matches!(id.as_str(), "api_url" | "web_url" | "status_url") {
                 let text = text.trim().trim_end_matches('/').to_owned();
-                // 官服地址留空表示回退到官方地址；自服地址留空表示关闭自服功能；
-                // 其余情况必须是合法的 http(s) URL。
+                // 官服地址留空表示回退到官方地址；其余情况必须是合法的 http(s) URL。
                 let valid =
                     text.is_empty() || ((text.starts_with("http://") || text.starts_with("https://")) && Url::parse(&text).is_ok());
                 if !valid {
@@ -949,7 +911,6 @@ impl GeneralList {
                 }
                 match id.as_str() {
                     "api_url" => data.config.api_url = text,
-                    "pro_api_url" => data.config.pro_api_url = text,
                     "web_url" => data.config.web_url = text,
                     _ => data.config.status_url = text,
                 }
@@ -1057,16 +1018,6 @@ impl GeneralList {
                 Cow::Owned(config.api_url.clone())
             };
             self.api_url_btn.render_text(ui, rr, t, shown, 0.4, false);
-        }
-        item! {
-            render_title(ui, tl!("item-pro-api-url"), Some(tl!("item-pro-api-url-sub")));
-            // 留空 = 关闭自服功能。
-            let shown: String = if config.pro_api_url.is_empty() {
-                tl!("item-pro-api-url-off").to_string()
-            } else {
-                config.pro_api_url.clone()
-            };
-            self.pro_api_url_btn.render_text(ui, rr, t, &shown, 0.4, false);
         }
         item! {
             render_title(ui, tl!("item-web-url"), Some(tl!("item-web-url-sub")));
@@ -1339,10 +1290,6 @@ struct ChartList {
     flick_protect_btn: DRectButton,
     combo_text_btn: DRectButton,
     judge_chart_btn: DRectButton,
-    #[cfg(record)]
-    upload_btn: DRectButton,
-    #[cfg(record)]
-    upload_consent_btn: DRectButton,
     history_btn: DRectButton,
     next_page: Option<NextPage>,
 }
@@ -1386,10 +1333,6 @@ impl ChartList {
             flick_protect_btn: DRectButton::new(),
             combo_text_btn: DRectButton::new(),
             judge_chart_btn: DRectButton::new(),
-            #[cfg(record)]
-            upload_btn: DRectButton::new(),
-            #[cfg(record)]
-            upload_consent_btn: DRectButton::new(),
             history_btn: DRectButton::new(),
             next_page: None,
         }
@@ -1534,25 +1477,6 @@ impl ChartList {
         }
         if self.hp_color_btn.touch(touch, t) {
             config.hp_color = config.hp_color.next();
-            return Ok(Some(true));
-        }
-        #[cfg(record)]
-        if self.upload_btn.touch(touch, t) {
-            if config.upload_record {
-                // 已经开着：关掉，并还原成打开前的配置
-                config.disable_upload();
-            } else if config.upload_agreed {
-                // 之前同意过：直接打开（切到官方默认）
-                config.enable_upload();
-            } else {
-                // 第一次打开：先看协议，同意了才真正打开
-                show_upload_consent(true);
-            }
-            return Ok(Some(true));
-        }
-        #[cfg(record)]
-        if self.upload_consent_btn.touch(touch, t) {
-            show_upload_consent(false);
             return Ok(Some(true));
         }
         if self.history_btn.touch(touch, t) {
@@ -1824,17 +1748,6 @@ impl ChartList {
             ui.fill_rect(rr.feather(-0.012), Color::new(cr, cg, cb, 0.95));
         }
         h += 0.04;
-        #[cfg(record)]
-        {
-            item! {
-                render_title(ui, tl!("item-upload"), Some(tl!("item-upload-sub")));
-                render_switch(ui, rr, t, &mut self.upload_btn, config.upload_record);
-            }
-            item! {
-                render_title(ui, tl!("item-upload-consent"), None);
-                self.upload_consent_btn.render_text(ui, rr, t, tl!("item-upload-consent-open"), 0.5, false);
-            }
-        }
         item! {
             render_title(ui, tl!("item-history"), Some(tl!("item-history-sub")));
             self.history_btn.render_text(ui, rr, t, tl!("item-history-open"), 0.5, false);

@@ -1,6 +1,6 @@
 prpr_l10n::tl_file!("ending");
 
-use super::{draw_background, game::SimpleRecord, loading::UploadFn, NextScene, Scene};
+use super::{draw_background, game::{SimpleRecord, UploadScore}, loading::UploadFn, NextScene, Scene};
 use crate::{
     config::{Config, JudgeWindows, Mods},
     core::{BOLD_FONT, PGR_FONT},
@@ -24,10 +24,10 @@ const TOAST_FADE: f32 = 0.8;
 
 #[derive(Deserialize)]
 pub struct RecordUpdateState {
+    /// 本局是否刷新了该谱面的最佳成绩。
     pub best: bool,
-    pub improvement: u32,
-    pub gain_exp: f32,
-    pub new_rks: Option<f32>,
+    /// 相比旧最佳的分数提升；首次上传等于本局分数。
+    pub improvement: i32,
 }
 
 pub struct EndingScene {
@@ -60,7 +60,7 @@ pub struct EndingScene {
 
     upload_fn: Option<UploadFn>,
     upload_task: Option<(Task<Result<RecordUpdateState>>, MessageHandle)>,
-    record_data: Option<Vec<u8>>,
+    record_data: Option<UploadScore>,
     best_record: Option<SimpleRecord>,
 
     btn_retry: DRectButton,
@@ -97,7 +97,7 @@ impl EndingScene {
         upload_fn: Option<UploadFn>,
         player_rks: Option<f32>,
         historic_best: u32,
-        record_data: Option<Vec<u8>>,
+        record_data: Option<UploadScore>,
         best_record: Option<SimpleRecord>,
         avg_fps: Option<f32>,
     ) -> Result<Self> {
@@ -127,17 +127,12 @@ impl EndingScene {
             update_state: if upload_task.is_some() {
                 None
             } else {
-                let (best, improvement) = if result.score > historic_best {
-                    (true, result.score - historic_best)
+                let (best, improvement) = if (result.score as i32) > (historic_best as i32) {
+                    (true, result.score as i32 - historic_best as i32)
                 } else {
                     (false, 0)
                 };
-                Some(RecordUpdateState {
-                    best,
-                    improvement,
-                    gain_exp: 0.,
-                    new_rks: None,
-                })
+                Some(RecordUpdateState { best, improvement })
             },
             rated: upload_task.is_some(),
 
@@ -456,8 +451,8 @@ impl Scene for EndingScene {
 
             let p = ran(t, 0.8, 1.8);
             let p = 1. - (1. - p).powi(3);
-            let mut y = tp;
-            let mut x = lf + 0.42;
+            let y = tp;
+            let x = lf + 0.42;
             let r = ui
                 .text(tl!("max-combo"))
                 .pos(x, y)
@@ -511,29 +506,6 @@ impl Scene for EndingScene {
                     .color(BLACK)
                     .draw_using(&BOLD_FONT);
             });
-
-            let dy = r.h + 0.03;
-            y += dy;
-            x -= dy / 1.9 * 0.4;
-
-            let r = ui
-                .text(tl!("rks-delta"))
-                .pos(x, y)
-                .anchor(1., 0.)
-                .color(semi_white(0.6))
-                .size(s)
-                .draw_using(&BOLD_FONT);
-            let text = if let Some((new_rks, now)) = self.update_state.as_ref().and_then(|it| it.new_rks).zip(self.player_rks) {
-                let delta = new_rks - now;
-                if delta.abs() > 1e-5 {
-                    format!("{:+.2}", delta)
-                } else {
-                    "-".to_owned()
-                }
-            } else {
-                "-".to_owned()
-            };
-            ui.text(text).pos(r.right() + 0.03, y).size(s).draw_using(&BOLD_FONT);
 
             let spd = if (self.speed - 1.).abs() <= 1e-4 {
                 String::new()
@@ -690,9 +662,7 @@ impl Scene for EndingScene {
             ui.avatar(r.x + s, r.y + s, s, t, Ok(Some(self.player.clone())));
             let lf = r.x + s * 2. + pad;
             ui.text(&self.player_name).pos(lf, r.y + s).anchor(0., 1.).max_width(mw).size(0.6).draw();
-            ui.text(if let Some(new_rks) = self.update_state.as_ref().and_then(|it| it.new_rks) {
-                format!("{new_rks:.2}")
-            } else if let Some(rks) = &self.player_rks {
+            ui.text(if let Some(rks) = &self.player_rks {
                 format!("{rks:.2}")
             } else {
                 String::new()

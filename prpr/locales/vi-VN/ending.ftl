@@ -2,7 +2,6 @@ retry = THỬ LẠI
 proceed = TIẾP TỤC
 new-best = KỈ LỤC MỚI
 max-combo = MAX COMBO
-rks-delta = THAY ĐỔI RKS
 accuracy = Độ chính xác
 error = Lỗi
 uploading = Đang tải lên kết quả…

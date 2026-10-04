@@ -146,10 +146,6 @@ item-judge-chart = 結算判定分布圖
 item-judge-chart-sub = 結算畫面畫一張判定時間分布圖（早 ← → 晚），0ms 居中、左藍右橙
 item-hp-scale = 血條整體倍率
 item-hp-color = 血條顏色
-item-upload = 上傳成績
-item-upload-sub = 本構建未包含上傳通道，開關暫無實際作用：成績只存本機
-item-upload-consent = 成績上傳協議
-item-upload-consent-open = 檢視
 item-history = 成績歷史
 item-history-sub = 本機保存的每次遊玩記錄：列表 / 趨勢 / PB 對比 / 判定分布對比 / 匯入匯出
 item-history-open = 開啟
@@ -166,10 +162,6 @@ font-reset-btn = 恢復預設
 font-imported = 字型已匯入，重啟 App 後生效
 font-import-failed = 匯入字型失敗
 font-reset-done = 已恢復預設字型，重啟 App 後生效
-upload-consent-title = 成績上傳：知情同意與免責聲明
-upload-consent-accept = 我已閱讀並同意
-upload-consent-deny = 不同意
-upload-consent-text = 本改版的成績不會被送往任何伺服器，只會保存在本機。若此項啟用，上傳內容為：本局成績（譜面 ID、分數 / 準確率 / 判定、譜面版本時間戳、帳號憑證），不含裝置資訊或其它檔案；並且只有「未改動判定與玩法」的對局才會計入——自動遊玩、全螢幕判定、嚴格判定、判定視窗調整、晚按補償、黃鍵 / 紅鍵保護、Hold 尾判、血條倍率、降速、鍵盤模式等任一開啟都會被拒絕。連線對戰會強制把這些選項還原為官方預設值以保證公平。本改版為非官方改版，與 TeamFlos / Phira 官方無關；若成績與官方客戶端不一致，後果由使用者自行承擔。
 item-blacklist = 玩家黑名單
 item-blacklist-sub = 名單內的 Phira ID 不會在本機任何排行榜與使用者列表顯示
 item-blacklist-open = 管理
@@ -270,10 +262,6 @@ migrate-need-login = 請先登入官服帳號
 
 migrate-enumerating = 正在列舉譜面（共 { $pages } 頁）…
 migrate-checking = 正在檢查成績 { $done }/{ $total }…
-
-item-pro-api-url = 自服位址（Phira Pro）
-item-pro-api-url-sub = Phira Pro：成績會額外上傳到這裡，排行榜會把官服與自服的紀錄合併；留空則關閉自服功能
-item-pro-api-url-off = 已關閉（純官服模式）
 
 chart-import-label = 批量匯入譜面
 chart-import-desc = 匯入官方客戶端「批量匯出」產生的 zip（也可以只選單一譜面包）；匯入後直接出現在本機譜面庫

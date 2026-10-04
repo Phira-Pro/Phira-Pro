@@ -125,10 +125,6 @@ item-judge-chart = Rozkład ocen
 item-judge-chart-sub = Rysuje rozkład czasów ocen na ekranie wyniku (wcześnie → późno)
 item-hp-scale = Mnożnik paska życia
 item-hp-color = Kolor paska życia
-item-upload = Wysyłanie wyników
-item-upload-sub = Ta wersja nie zawiera kanału wysyłania, więc przełącznik nic nie robi: wyniki zostają lokalnie
-item-upload-consent = Zgoda na wysyłanie
-item-upload-consent-open = Zobacz
 item-history = Historia wyników
 item-history-sub = Każda rozgrywka zapisana lokalnie: lista / trend / porównanie PB / rozkład ocen / import i eksport
 item-history-open = Otwórz
@@ -145,10 +141,6 @@ font-reset-btn = Przywróć
 font-imported = Czcionka zaimportowana; uruchom ponownie
 font-import-failed = Nie udało się zaimportować czcionki
 font-reset-done = Przywrócono wbudowaną czcionkę; uruchom ponownie
-upload-consent-title = Wysyłanie wyników: zgoda i wyłączenie odpowiedzialności
-upload-consent-accept = Przeczytałem i zgadzam się
-upload-consent-deny = Nie zgadzam się
-upload-consent-text = Wyniki tej wersji nie są wysyłane na żaden serwer i pozostają na tym urządzeniu. Gdy ta opcja jest włączona, przesyłany jest wyłącznie wynik tej rozgrywki (ID mapy, wynik / dokładność / oceny, znacznik czasu wersji mapy, dane logowania konta) - bez informacji o urządzeniu ani innych plików; a liczą się tylko rozgrywki bez zmienionego oceniania i rozgrywki - włączenie autoplaya, oceniania pełnoekranowego, oceniania ścisłego, zmiany okien oceniania, tolerancji późnych trafień, ochrony żółtych / czerwonych, oceny końca Hold, mnożnika HP, zmniejszenia prędkości lub trybu klawiatury powoduje odrzucenie. Mecze online wymuszają przywrócenie tych opcji do oficjalnych wartości domyślnych dla uczciwości. Ta wersja jest nieoficjalna i niezwiązana z TeamFlos / Phira; w razie rozbieżności wyników z oficjalnym klientem odpowiedzialność ponosi użytkownik.
 item-blacklist = Czarna lista graczy
 item-blacklist-sub = Ukryj te ID Phira we wszystkich lokalnych rankingach i listach graczy
 item-blacklist-open = Zarządzaj
@@ -249,10 +241,6 @@ migrate-need-login = Najpierw zaloguj się na oficjalnym serwerze
 
 migrate-enumerating = Pobieranie listy map ({ $pages } stron)...
 migrate-checking = Sprawdzanie twoich wyników { $done }/{ $total }...
-
-item-pro-api-url = Adres serwera Pro
-item-pro-api-url-sub = Phira Pro: wyniki są też wysyłane tutaj, a rankingi łączą wpisy oficjalne i Pro; pozostaw puste, aby wyłączyć funkcje Pro
-item-pro-api-url-off = Wyłączone (tylko oficjalne)
 
 chart-import-label = Importuj mapy zbiorczo
 chart-import-desc = Importuje zip z eksportu zbiorczego oficjalnego klienta (pojedynczy pakiet też działa); zaimportowane mapy od razu pojawią się w bibliotece lokalnej

@@ -3,13 +3,21 @@
 mod model;
 pub use model::*;
 
-use std::{borrow::Cow, collections::HashMap, fmt, marker::PhantomData, sync::Arc};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    fmt,
+    marker::PhantomData,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use crate::{get_data, get_data_mut, save_data};
 use anyhow::{anyhow, bail, Context, Result};
-use arc_swap::ArcSwap;
+use arc_swap::{ArcSwap, ArcSwapOption};
+use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
-use prpr::scene::SimpleRecord;
+use prpr::{config::PRO_API_URL, scene::SimpleRecord};
 use prpr_l10n::LANG_IDENTS;
 use reqwest::{header, ClientBuilder, Method, RequestBuilder, Response, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -53,70 +61,136 @@ pub fn api_url() -> String {
     base_url(&get_data().config.api_url, DEFAULT_API_URL)
 }
 
-/// Phira Pro：自服（`phira-pro-api`）基础地址；**留空 = 关闭全部自服功能**。
-pub fn pro_api_url() -> String {
-    get_data().config.pro_api_url.trim().trim_end_matches('/').to_owned()
+// —— Phira Pro：成绩固定上传到 `PRO_API_URL`，鉴权用 exchange 换来的私服 JWE。 —— //
+
+/// 私服（Phira Pro）Token：由 `POST /api/v1/auth/token` 换得的 JWE 及其过期时刻。
+#[derive(Clone)]
+struct ProToken {
+    token: String,
+    expires_at: Instant,
 }
 
-/// 构造一个打到自服的请求（带官服 token 鉴权）。自服未配置时返回 `None`。
+/// 私服 Token 缓存。为空或临近过期时由 [`ensure_pro_token`] 用官方 refreshToken 重新换取。
+static PRO_TOKEN: Lazy<ArcSwapOption<ProToken>> = Lazy::new(ArcSwapOption::empty);
+
+fn current_pro_token() -> Result<String> {
+    PRO_TOKEN
+        .load()
+        .as_ref()
+        .map(|it| it.token.clone())
+        .ok_or_else(|| anyhow!("Phira Pro Token 不可用"))
+}
+
+/// 用本地保存的官方 refreshToken 换取私服 Token（JWE）并缓存。
 ///
-/// 复用独立连接池，并为每个请求附加当前 token，避免重复鉴权头。
-pub fn pro_request(method: Method, path: impl AsRef<str>) -> Option<RequestBuilder> {
-    let base = pro_api_url();
-    if base.is_empty() {
-        return None;
+/// 需先完成官方登录（本地存有 refreshToken）；未登录时返回错误。
+pub async fn pro_exchange_token() -> Result<()> {
+    let refresh_token = get_data()
+        .tokens
+        .as_ref()
+        .map(|it| it.1.clone())
+        .ok_or_else(|| anyhow!("尚未登录，无法获取 Phira Pro Token"))?;
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Req {
+        refresh_token: String,
     }
-    if method == Method::POST && is_score_upload(path.as_ref()) {
-        return Some(pro_auth(SCORE_CLIENT.load().post(score_upload_url(&base).ok()?)));
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Resp {
+        token: String,
+        expires_at: DateTime<Utc>,
     }
-    let req = PRO_CLIENT.load().request(method, base + path.as_ref());
-    Some(pro_auth(req))
+    let resp: Resp = recv_raw(
+        PRO_CLIENT
+            .load()
+            .post(format!("{PRO_API_URL}/api/v1/auth/token"))
+            .json(&Req { refresh_token }),
+    )
+    .await?
+    .json()
+    .await?;
+    let remaining = resp.expires_at.signed_duration_since(Utc::now()).to_std().unwrap_or_default();
+    PRO_TOKEN.store(Some(Arc::new(ProToken {
+        token: resp.token,
+        expires_at: Instant::now() + remaining,
+    })));
+    Ok(())
 }
 
-fn pro_auth(mut req: RequestBuilder) -> RequestBuilder {
+/// 确保私服 Token 可用；缺失或 30 秒内过期时重新换取。
+async fn ensure_pro_token() -> Result<()> {
+    if let Some(token) = PRO_TOKEN.load().as_ref() {
+        if token.expires_at > Instant::now() + Duration::from_secs(30) {
+            return Ok(());
+        }
+    }
+    pro_exchange_token().await
+}
+
+fn pro_auth(token: &str, mut req: RequestBuilder) -> Result<RequestBuilder> {
     if let Ok(locale) = header::HeaderValue::from_str(&client_locale()) {
         req = req.header(header::ACCEPT_LANGUAGE, locale);
     }
-    if let Some(token) = CLIENT_TOKEN.load().as_ref() {
-        if let Ok(value) = header::HeaderValue::from_str(&format!("Bearer {token}")) {
-            req = req.header(header::AUTHORIZATION, value);
-        }
+    let mut value = header::HeaderValue::from_str(&format!("Bearer {token}"))?;
+    value.set_sensitive(true);
+    Ok(req.header(header::AUTHORIZATION, value))
+}
+
+async fn send_pro(client: &reqwest::Client, method: &Method, path: &str, body: Option<&serde_json::Value>) -> Result<Response> {
+    let req = client.request(method.clone(), format!("{PRO_API_URL}{path}"));
+    let req = match body {
+        Some(body) => req.json(body),
+        None => req,
+    };
+    Ok(pro_auth(&current_pro_token()?, req)?.send().await?)
+}
+
+/// 发送私服请求并处理鉴权：收到 401 时重新换取 Token 再重试一次。
+async fn pro_send(client: Arc<reqwest::Client>, method: Method, path: &str, body: Option<serde_json::Value>) -> Result<Response> {
+    ensure_pro_token().await?;
+    let response = send_pro(&client, &method, path, body.as_ref()).await?;
+    if response.status() != StatusCode::UNAUTHORIZED {
+        return check_response(response).await;
     }
-    req
+    pro_exchange_token().await?;
+    check_response(send_pro(&client, &method, path, body.as_ref()).await?).await
 }
 
-fn score_upload_url(base: &str) -> Result<reqwest::Url> {
-    let mut url = reqwest::Url::parse(base.trim()).context("未配置有效的 Phira Pro 成绩服务器")?;
-    let host = url.host_str().unwrap_or_default().trim_end_matches('.');
-    if !matches!(url.scheme(), "http" | "https") || host.is_empty() || !url.username().is_empty() || url.password().is_some() {
-        bail!("无效的 Phira Pro 成绩服务器地址");
-    }
-    for domain in ["5wyxi.com", "phira.cn", "phira.moe"] {
-        if host == domain || host.ends_with(&format!(".{domain}")) {
-            bail!("Phira Pro 已禁止向官服上传成绩，请配置自建服务器");
-        }
-    }
-    let path = format!("{}/play/upload", url.path().trim_end_matches('/'));
-    url.set_path(&path);
-    url.set_query(None);
-    url.set_fragment(None);
-    Ok(url)
+pub async fn pro_get(path: impl AsRef<str>) -> Result<Response> {
+    let client = Arc::clone(&PRO_CLIENT.load());
+    pro_send(client, Method::GET, path.as_ref(), None).await
 }
 
-fn is_score_upload(path: &str) -> bool {
-    let path = path.split(['?', '#']).next().unwrap_or_default().trim_end_matches('/');
-    path == "/play/upload" || reqwest::Url::parse(path).is_ok_and(|url| url.path().trim_end_matches('/').ends_with("/play/upload"))
+/// 私服成绩上传的响应。
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScoreUploadResp {
+    pub id: i64,
+    pub new_best: bool,
+    pub improvement: i32,
 }
 
-/// Scores have a dedicated destination and never follow HTTP redirects.
-/// An unavailable Pro server is an upload error, with no official-server fallback.
-pub fn pro_score_upload<T: Serialize>(data: &T) -> Result<RequestBuilder> {
-    let url = score_upload_url(&pro_api_url())?;
-    Ok(pro_auth(SCORE_CLIENT.load().post(url)).json(data))
+/// 上传一局成绩到 Phira Pro（`POST /api/v1/scores`）。
+///
+/// 使用独立连接池且不跟随重定向，避免把带鉴权的成绩体转发到别处；失败不回退官服。
+pub async fn pro_upload_score<T: Serialize>(body: &T) -> Result<ScoreUploadResp> {
+    let client = Arc::clone(&SCORE_CLIENT.load());
+    let response = pro_send(client, Method::POST, "/api/v1/scores", Some(serde_json::to_value(body)?)).await?;
+    Ok(response.json().await?)
 }
 
-pub fn pro_get(path: impl AsRef<str>) -> Option<RequestBuilder> {
-    pro_request(Method::GET, path)
+#[derive(Deserialize)]
+struct PlayerRank {
+    rank: i64,
+}
+
+/// 查询某玩家在某谱面的私服名次；`metric` 取 `"score"` 或 `"stdScore"`。
+///
+/// 名次只统计私服（不含官服、不受 top20 限制）；该玩家在该谱面无成绩时后端返回 404。
+pub async fn pro_player_rank(chart: i32, player: i32, metric: &str) -> Result<i64> {
+    let path = format!("/api/v1/charts/{chart}/players/{player}/rank?metric={metric}");
+    Ok(pro_get(path).await?.json::<PlayerRank>().await?.rank)
 }
 
 /// 当前使用的 Phira 网页前端地址（谱面页 / 用户页 / 合集页 / 条款链接等）。
@@ -161,6 +235,8 @@ fn build_client(access_token: Option<&str>) -> Result<Arc<reqwest::Client>> {
 }
 
 pub fn set_access_token_sync(access_token: Option<&str>) -> Result<()> {
+    // 登录 / 登出 / 切换账号：丢弃旧账号的私服 Token，之后按需重新 exchange。
+    PRO_TOKEN.store(None);
     CLIENT.store(build_client(access_token)?);
     PRO_CLIENT.store(Arc::new(basic_client_builder().build()?));
     SCORE_CLIENT.store(Arc::new(basic_client_builder().redirect(score_redirect_policy()).build()?));
@@ -211,7 +287,11 @@ impl fmt::Display for ErrorCode {
 impl std::error::Error for ErrorCode {}
 
 pub async fn recv_raw(request: RequestBuilder) -> Result<Response> {
-    let response = request.send().await?;
+    check_response(request.send().await?).await
+}
+
+/// 把非 2xx 响应转成带 `error` / `code` 的错误；成功则原样返回。
+async fn check_response(response: Response) -> Result<Response> {
     if !response.status().is_success() {
         let status = response.status().as_str().to_owned();
         let text = response.text().await.context("failed to receive text")?;
@@ -293,14 +373,6 @@ impl Client {
     }
 
     pub fn request(method: Method, path: impl AsRef<str>) -> RequestBuilder {
-        if method == Method::POST && is_score_upload(path.as_ref()) {
-            // Also guard generic/legacy callers. An invalid configuration
-            // creates a failed builder, never an official request.
-            return match score_upload_url(&pro_api_url()) {
-                Ok(url) => pro_auth(SCORE_CLIENT.load().post(url)),
-                Err(_) => SCORE_CLIENT.load().post("Pro score server is not configured"),
-            };
-        }
         CLIENT.load().request(method, api_url() + path.as_ref())
     }
 
@@ -424,6 +496,8 @@ impl Client {
     /// is no longer needed here (the native anti-addiction bridge that used it
     /// is gone).
     async fn store_login(_id: i32, token: String, refresh_token: String) -> Result<()> {
+        // 换号后旧账号的私服 Token 必须作废，否则会把成绩记到上一个账号名下。
+        PRO_TOKEN.store(None);
         set_access_token(&token).await?;
         get_data_mut().tokens = Some((token, refresh_token));
         save_data()?;
@@ -574,70 +648,6 @@ impl Client {
             return Ok(None);
         }
         Ok(Some(new_modified))
-    }
-}
-
-#[cfg(test)]
-mod score_upload_tests {
-    use super::*;
-
-    #[test]
-    fn scores_reject_official_hosts_and_invalid_destinations() {
-        for base in [
-            "",
-            "https://phira.5wyxi.com",
-            "https://PHIRA.5WYXI.COM.",
-            "https://api.phira.cn:443",
-            "https://phira.moe.",
-            "https://sub.phira.moe",
-            "ftp://api.phira.pro",
-            "https://user:pass@api.phira.pro",
-        ] {
-            assert!(score_upload_url(base).is_err(), "{base}");
-        }
-    }
-
-    #[test]
-    fn scores_use_only_the_configured_pro_origin() {
-        assert_eq!(score_upload_url("https://api.phira.pro/").unwrap().as_str(), "https://api.phira.pro/play/upload");
-        assert_eq!(score_upload_url(" http://127.0.0.1:8080/api/?old=1#x ").unwrap().as_str(), "http://127.0.0.1:8080/api/play/upload");
-        assert!(is_score_upload("/play/upload/?retry=1"));
-        assert!(is_score_upload("https://phira.5wyxi.com/play/upload"));
-        assert!(!is_score_upload("/record/query/10"));
-    }
-
-    #[tokio::test]
-    async fn score_upload_does_not_forward_its_body_on_redirect() {
-        use std::{
-            io::{Read, Write},
-            net::TcpListener,
-            time::Duration,
-        };
-        let source = TcpListener::bind("127.0.0.1:0").unwrap();
-        let target = TcpListener::bind("127.0.0.1:0").unwrap();
-        target.set_nonblocking(true).unwrap();
-        let url = format!("http://{}/play/upload", source.local_addr().unwrap());
-        let location = format!("http://{}/play/upload", target.local_addr().unwrap());
-        let server = std::thread::spawn(move || {
-            let (mut connection, _) = source.accept().unwrap();
-            connection.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
-            let mut bytes = [0; 4096];
-            let n = connection.read(&mut bytes).unwrap();
-            assert!(String::from_utf8_lossy(&bytes[..n]).starts_with("POST /play/upload "));
-            write!(connection, "HTTP/1.1 307 Temporary Redirect\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
-        });
-        let response = reqwest::Client::builder()
-            .redirect(score_redirect_policy())
-            .build()
-            .unwrap()
-            .post(score_upload_url(url.trim_end_matches("/play/upload")).unwrap())
-            .body("score-token")
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(response.status(), reqwest::StatusCode::TEMPORARY_REDIRECT);
-        server.join().unwrap();
-        assert_eq!(target.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
     }
 }
 

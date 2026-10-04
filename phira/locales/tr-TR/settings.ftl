@@ -133,10 +133,6 @@ item-judge-chart = Yargı dağılımı
 item-judge-chart-sub = Sonuç ekranına zamanlama dağılımı çizer (erken → geç)
 item-hp-scale = Can barı çarpanı
 item-hp-color = Can barı rengi
-item-upload = Skor yükle
-item-upload-sub = Bu sürümde gönderme kanalı yok, bu yüzden anahtarın etkisi yok: skorlar cihazda kalır
-item-upload-consent = Yükleme onayı
-item-upload-consent-open = Görüntüle
 item-history = Skor geçmişi
 item-history-sub = Her oyun yerel olarak kaydedilir: liste / eğilim / PB karşılaştırması / yargı dağılımı / içe ve dışa aktarma
 item-history-open = Aç
@@ -153,10 +149,6 @@ font-reset-btn = Sıfırla
 font-imported = Yazı tipi içe aktarıldı; uygulamayı yeniden başlatın
 font-import-failed = Yazı tipi içe aktarılamadı
 font-reset-done = Yerleşik yazı tipine dönüldü; uygulamayı yeniden başlatın
-upload-consent-title = Skor yükleme: onay ve sorumluluk reddi
-upload-consent-accept = Okudum ve kabul ediyorum
-upload-consent-deny = Kabul etmiyorum
-upload-consent-text = Bu sürümün skorları hiçbir sunucuya gönderilmez ve yalnızca bu cihazda saklanır. Bu seçenek açıldığında yüklenen içerik yalnızca bu oyunun sonucudur (harita ID'si, skor / isabet / yargılar, harita sürümü zaman damgası, hesap kimlik bilgileri) - cihaz bilgisi veya başka dosya içermez; ve yalnızca yargı ile oynanışı değiştirilmemiş oyunlar sayılır - otomatik oynatma, tam ekran yargı, katı yargı, yargı aralığı ayarı, geç basma toleransı, sarı / kırmızı koruma, Hold son yargısı, HP çarpanı, hız düşürme veya klavye modundan herhangi biri açıksa reddedilir. Çevrimiçi maçlar adalet için bu seçenekleri resmî varsayılanlara zorlar. Bu sürüm resmî değildir ve TeamFlos / Phira ile ilgisi yoktur; sonuçlar resmî istemciden farklıysa sorumluluk kullanıcıya aittir.
 item-blacklist = Oyuncu engelli listesi
 item-blacklist-sub = Bu Phira kimliklerini cihazdaki tüm sıralamalardan ve kullanıcı listelerinden gizle
 item-blacklist-open = Yönet
@@ -257,10 +249,6 @@ migrate-need-login = Önce resmî sunucuya giriş yapın
 
 migrate-enumerating = Haritalar listeleniyor ({ $pages } sayfa)...
 migrate-checking = Skorların kontrol ediliyor { $done }/{ $total }...
-
-item-pro-api-url = Pro Sunucu Adresi
-item-pro-api-url-sub = Phira Pro: skorlar buraya da yüklenir ve sıralamalar resmî ile Pro kayıtlarını birleştirir; boş bırakırsanız Pro özellikleri kapanır
-item-pro-api-url-off = Kapalı (yalnızca resmî)
 
 chart-import-label = Haritaları Toplu İçe Aktar
 chart-import-desc = Resmî istemcinin toplu dışa aktarımıyla oluşan zip'i içe aktarır (tek paket de olur); içe aktarılan haritalar yerel kitaplığında hemen görünür

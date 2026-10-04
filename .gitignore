@@ -41,4 +41,12 @@ inner.rs
 
 vendor/
 docs/
-phira-android/
+
+# Android：壳工程源码入库；忽略 Gradle 构建输出与签名密钥（密钥走 CI Secret）
+/phira-android/.gradle/
+/phira-android/local.properties
+/phira-android/build/
+/phira-android/app/build/
+/phira-android/*.keystore
+/phira-android/*.jks
+/phira-android/keystore.properties

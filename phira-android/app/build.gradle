@@ -1,0 +1,126 @@
+plugins {
+    id 'com.android.application'
+}
+
+// ---------------------------------------------------------------------------
+// Rust 原生库：libphira.so 由 cargo-ndk 交叉编译，连同 NDK 的 libc++_shared.so
+// 一起放进 Gradle 的 jniLibs 目录。这样 `./gradlew assembleRelease` 一条命令
+// 即可产出完整 APK，CI 无需任何 apktool / 解包工程。
+// ---------------------------------------------------------------------------
+def repoRoot = file("${rootProject.projectDir}/..")
+def abi = 'arm64-v8a'
+def rustTarget = 'aarch64-linux-android'
+def rustJniLibs = "${project.layout.buildDirectory.get().asFile}/rustJniLibs"
+
+def hostOs = System.getProperty('os.name').toLowerCase()
+def ndkHostTag = hostOs.contains('win') ? 'windows-x86_64' : (hostOs.contains('mac') ? 'darwin-x86_64' : 'linux-x86_64')
+def ndkDir = System.getenv('ANDROID_NDK_HOME') ?: "${System.getenv('ANDROID_HOME')}/ndk/27.2.12479018"
+
+tasks.register('cargoNdkBuild') {
+    group = 'rust'
+    description = '用 cargo-ndk 编译 libphira.so 并准备 jniLibs'
+
+    def outDir = file("${rustJniLibs}/${abi}")
+    inputs.files(fileTree("${repoRoot}/phira/src"), fileTree("${repoRoot}/prpr/src"), fileTree("${repoRoot}/prpr-avc/src"))
+    inputs.file("${repoRoot}/Cargo.lock")
+    inputs.file("${repoRoot}/Cargo.toml")
+    outputs.dir(outDir)
+
+    doLast {
+        outDir.mkdirs()
+        exec {
+            workingDir repoRoot
+            commandLine 'cargo', 'ndk', '-t', abi, '--platform', '26', 'build', '--release', '-p', 'phira'
+        }
+        copy {
+            from "${repoRoot}/target/${rustTarget}/release/libphira.so"
+            into outDir
+        }
+        copy {
+            from "${ndkDir}/toolchains/llvm/prebuilt/${ndkHostTag}/sysroot/usr/lib/${rustTarget}/libc++_shared.so"
+            into outDir
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 签名密钥：CI 通过组织级 Secret 注入环境变量；本地从（已被 .gitignore 忽略的）
+// keystore.properties 读取。两者都不可用时 release 产物不带签名，本地调试不受影响。
+// ---------------------------------------------------------------------------
+def signProps = new Properties()
+def signPropsFile = file("${rootProject.projectDir}/keystore.properties")
+if (signPropsFile.exists()) {
+    signPropsFile.withInputStream { signProps.load(it) }
+}
+
+def signStoreFile = System.getenv('PHIRA_PRO_KEYSTORE_PATH') ?: "${rootProject.projectDir}/phirapro.keystore"
+def signStorePassword = System.getenv('PHIRA_PRO_KEYSTORE_PASSWORD') ?: signProps.getProperty('storePassword')
+def signKeyAlias = System.getenv('PHIRA_PRO_KEY_ALIAS') ?: signProps.getProperty('keyAlias')
+def signKeyPassword = System.getenv('PHIRA_PRO_KEY_PASSWORD') ?: signProps.getProperty('keyPassword')
+def hasSigning = signStorePassword && signKeyAlias && signKeyPassword
+
+android {
+    namespace 'org.flos.phirapro'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+
+    defaultConfig {
+        applicationId 'org.flos.phirapro'
+        minSdk 22
+        targetSdk 33
+        versionCode 41
+        versionName '0.8.2-pro.6'
+        ndk { abiFilters abi }
+    }
+
+    sourceSets {
+        main {
+            // 直接复用仓库根目录的 assets（与桌面端同一份，已被 git 跟踪）
+            assets.srcDirs += ["${repoRoot}/assets"]
+            // cargo-ndk 的产物目录
+            jniLibs.srcDirs += [rustJniLibs]
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (hasSigning) {
+                storeFile file(signStoreFile)
+                storePassword signStorePassword
+                keyAlias signKeyAlias
+                keyPassword signKeyPassword
+                // keystore 是 PKCS12（现代 keytool 的默认类型），显式声明以免按文件名误判
+                storeType 'pkcs12'
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            if (hasSigning) { signingConfig signingConfigs.release }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packaging {
+        // 与旧 APK 一致：解压原生库（extractNativeLibs=true）
+        jniLibs { useLegacyPackaging = true }
+    }
+
+    lint { abortOnError false }
+}
+
+tasks.named('preBuild') { dependsOn 'cargoNdkBuild' }
+
+dependencies {
+    // inputbox 的 Android 支持（AAR 随 Rust crate 分发，见 settings.gradle 的本地 maven）
+    implementation 'androidx.startup:startup-runtime:1.1.1'
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.0.21'
+    implementation 'moe.mivik:inputbox:0.1.4'
+}

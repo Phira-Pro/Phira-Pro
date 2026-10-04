@@ -133,3 +133,6 @@ ldb-local-empty = Belum ada rekor lokal. Mainkan satu ronde untuk melihatnya di 
 ldb-local-no-hit = Klik tidak mengenai salah satu dari { $count } baris lokal
 
 flash-autoplay-unrated = Autoplay aktif: hasil ini tidak akan diunggah dan pengaturan penilaian dikembalikan ke bawaan
+
+mods-perfect-sound = Perfect-time sounds
+mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.

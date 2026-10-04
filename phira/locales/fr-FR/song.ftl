@@ -142,3 +142,6 @@ ldb-local-empty = Aucune partie locale pour l'instant. Jouez une partie pour l'a
 ldb-local-no-hit = Le clic n'a touché aucune des { $count } lignes locales
 
 flash-autoplay-unrated = Lecture automatique activée : cette partie ne sera pas envoyée et les réglages de jugement ont été rétablis par défaut
+
+mods-perfect-sound = Perfect-time sounds
+mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.

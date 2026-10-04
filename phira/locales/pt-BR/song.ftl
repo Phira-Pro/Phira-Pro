@@ -139,3 +139,6 @@ ldb-local-empty = Ainda sem registros locais. Jogue uma rodada para ver aqui.
 ldb-local-no-hit = O clique não atingiu nenhuma das { $count } linhas locais
 
 flash-autoplay-unrated = Reprodução automática ativada: esta partida não será enviada e as configurações de julgamento foram restauradas ao padrão
+
+mods-perfect-sound = Perfect-time sounds
+mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.

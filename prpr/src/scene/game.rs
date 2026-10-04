@@ -523,7 +523,7 @@ impl GameScene {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         mode: GameMode,
-        info: ChartInfo,
+        mut info: ChartInfo,
         mut config: Config,
         mut fs: Box<dyn FileSystem>,
         player: Option<BasicPlayer>,
@@ -533,6 +533,9 @@ impl GameScene {
         update_fn: Option<UpdateFn>,
         save_fn: Option<SaveFn>,
     ) -> Result<Self> {
+        if config.fixed_background {
+            info.background_dim = config.background_dim.clamp(0., 1.);
+        }
         match mode {
             GameMode::TweakOffset => {
                 config.mods.insert(Mods::AUTOPLAY);
@@ -654,7 +657,7 @@ impl GameScene {
         res.audio.create_music(
             res.music.clone(),
             MusicParams {
-                amplifier: res.config.volume_music as _,
+                amplifier: res.config.music_amplifier(&res.music, res.config.volume_music),
                 playback_rate: res.config.speed as _,
                 ..Default::default()
             },
@@ -939,7 +942,7 @@ impl GameScene {
                     self.music = res.audio.create_music(
                         res.music.clone(),
                         MusicParams {
-                            amplifier: res.config.volume_music as _,
+                            amplifier: res.config.music_amplifier(&res.music, res.config.volume_music),
                             playback_rate: res.config.speed as _,
                             ..Default::default()
                         },
@@ -1410,8 +1413,9 @@ impl Scene for GameScene {
             self.judge.update(&mut self.res, &mut self.chart, &mut self.bad_notes);
             self.gl.quad_gl.viewport(None);
         } else {
-            // A paused/view scene must not retain the previous frame's finger
-            // IDs, hover, or a music filter after resuming.
+            self.judge.observe_paused_input();
+            // Pause hides hover and suspends the filter, while release events
+            // still end the infected finger's lifetime.
             self.chart.blocked_touches.clear();
         }
         if tm.paused() || self.pause_rewind.is_some() {
@@ -1629,6 +1633,7 @@ impl Scene for GameScene {
         if res.config.particle {
             res.emitter.draw(dt);
         }
+        crate::core::hide_cover::draw(res);
         self.ui(ui, tm)?;
         self.overlay_ui(ui, tm)?;
         // Official ActiveBlock runs at CameraEvent.AfterForwardAlpha, after

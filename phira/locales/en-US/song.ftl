@@ -147,3 +147,6 @@ ldb-acc = ACC
 ldb-local-title = Local records
 ldb-local-empty = No local records yet. Play a round to see it here.
 ldb-local-no-hit = Click did not hit any of the { $count } local rows
+
+mods-perfect-sound = Perfect-time sounds
+mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.

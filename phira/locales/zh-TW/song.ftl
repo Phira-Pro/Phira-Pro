@@ -146,3 +146,6 @@ ldb-local-title = 本地記錄
 ldb-local-empty = 暫無本機紀錄，遊玩一局後即可在此查看。
 ldb-local-no-hit = 本地榜共 { $count } 條，本次點擊未命中任何列
 
+
+mods-perfect-sound = 正解音
+mods-perfect-sound-sub = 在音符的 0ms 时机播放音效，用于熟悉节奏；开启后不可上传成绩。

@@ -1,6 +1,5 @@
 use super::{chart::ChartSettings, BpmList, CtrlObject, JudgeLine, Matrix, Object, Point, Resource};
 pub use crate::{
-    config::Mods,
     judge::{HitSound, JudgeStatus},
     parse::RPE_HEIGHT,
 };
@@ -253,24 +252,9 @@ impl Note {
         } else {
             &res.res_pack.note_style
         };
-        // Phira Pro 上/下隐强度：0 表示沿用官方表现（按 Bad 判定窗口计时渐变）；
-        // 大于 0 时改用「高度」（音符距判定线的距离 `base`，单位是判定区高度）来渐变。
-        let fade = res.config.fade_strength as f64;
-        let mod_alpha = if res.config.has_mod(Mods::FADE_OUT) {
-            if fade > 0. {
-                (base / fade).clamp(0., 1.)
-            } else {
-                ((self.time - res.time - res.windows.bad) / res.windows.bad).clamp(0., 1.)
-            }
-        } else if res.config.has_mod(Mods::FADE_IN) {
-            if fade > 0. {
-                (1. - base / fade).clamp(0., 1.)
-            } else {
-                (1. - (self.time - res.time - res.windows.bad) / res.windows.bad).clamp(0., 1.)
-            }
-        } else {
-            1.
-        };
+        // Hidden mods now use opaque screen covers, shared across all lines.
+        // Keep the chart's own note alpha, without a second timing fade.
+        let mod_alpha = 1.0_f64;
         let draw = |res: &mut Resource, tex: Texture2D| {
             let mut color = color;
             if !config.draw_below {

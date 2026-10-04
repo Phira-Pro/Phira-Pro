@@ -140,3 +140,6 @@ ldb-local-empty = 아직 로컬 기록이 없습니다. 한 판 플레이하면 
 ldb-local-no-hit = 로컬 기록 { $count }개 중 어떤 행에도 클릭이 닿지 않았습니다
 
 flash-autoplay-unrated = 자동 재생 켜짐: 이번 플레이는 업로드되지 않으며 판정 설정이 기본값으로 되돌아갔습니다
+
+mods-perfect-sound = Perfect-time sounds
+mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.

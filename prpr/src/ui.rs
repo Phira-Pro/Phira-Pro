@@ -55,6 +55,7 @@ use std::{
 
 pub static PREFER_REDUCED_MOTION: AtomicBool = AtomicBool::new(false);
 pub static UI_SFX_VOLUME: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
+pub static FONT_DISPLAY_SCALE: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 /// 软件 UI 主题的强调色，打包为 0xRRGGBB。由配置在加载时写入。
 pub static UI_ACCENT: AtomicU32 = AtomicU32::new(0x2196f3);
 /// 软件 UI 主题的表面色（按钮、弹窗底色），打包为 0xRRGGBB。
@@ -316,6 +317,9 @@ impl DRectButton {
 
     pub fn build(&mut self, ui: &mut Ui, t: f32, r: Rect, f: impl FnOnce(&mut Ui, Path)) {
         self.inner.set(ui, r);
+        if !ui.rect_visible(r.feather(0.015)) {
+            return;
+        }
         // let r = r.feather((1. - self.progress(t)) * self.delta);
         let ct = r.center();
         let ct = Vector::new(ct.x, ct.y);
@@ -513,6 +517,7 @@ impl DRectButton {
 pub struct Slider {
     range: Range<f32>,
     step: f32,
+    button_step: f32,
 
     btn_dec: DRectButton,
     btn_inc: DRectButton,
@@ -530,6 +535,7 @@ impl Slider {
         Self {
             range,
             step,
+            button_step: step,
 
             btn_dec: DRectButton::new().with_delta(-0.002),
             btn_inc: DRectButton::new().with_delta(-0.002),
@@ -542,11 +548,11 @@ impl Slider {
 
     pub fn touch(&mut self, touch: &Touch, t: f32, dst: &mut f32) -> Option<bool> {
         if self.btn_dec.touch(touch, t) {
-            *dst = (*dst - self.step).max(self.range.start);
+            *dst = (*dst - self.button_step).max(self.range.start);
             return Some(true);
         }
         if self.btn_inc.touch(touch, t) {
-            *dst = (*dst + self.step).min(self.range.end);
+            *dst = (*dst + self.button_step).min(self.range.end);
             return Some(true);
         }
         if let Some((id, start_pos, unlocked)) = &mut self.touch {
@@ -578,6 +584,11 @@ impl Slider {
             }
         }
         None
+    }
+
+    pub fn with_button_step(mut self, step: f32) -> Self {
+        self.button_step = step;
+        self
     }
 
     pub fn render(&mut self, ui: &mut Ui, mut r: Rect, t: f32, p: f32, text: String) {
@@ -691,6 +702,7 @@ pub struct Ui<'a> {
     pub transform: Matrix,
     pub gl_transform: Mat4,
     scissor: Option<(i32, i32, i32, i32)>,
+    cull_enabled: bool,
     touches: Option<Vec<Touch>>,
 
     vertex_buffers: VertexBuffers<Vertex, u16>,
@@ -719,6 +731,7 @@ impl<'a> Ui<'a> {
             transform: Matrix::identity(),
             gl_transform: Mat4::IDENTITY,
             scissor: None,
+            cull_enabled: true,
             touches: None,
 
             vertex_buffers: VertexBuffers::new(),
@@ -755,6 +768,9 @@ impl<'a> Ui<'a> {
     }
 
     pub fn fill_rect(&mut self, rect: Rect, shading: impl IntoShading) {
+        if !self.rect_visible(rect) {
+            return;
+        }
         let mut b = self.builder(shading);
         b.add(rect.x, rect.y);
         b.add(rect.x + rect.w, rect.y);
@@ -788,6 +804,9 @@ impl<'a> Ui<'a> {
     }
 
     pub fn fill_circle(&mut self, x: f32, y: f32, radius: f32, shading: impl IntoShading) {
+        if !self.rect_visible(Rect::new(x - radius, y - radius, radius * 2., radius * 2.)) {
+            return;
+        }
         self.draw_lyon(shading.into_shading(), |this, shaded| {
             this.fill_tess
                 .tessellate_circle(lm::point(x, y), radius, &this.fill_options, &mut BuffersBuilder::new(&mut this.vertex_buffers, shaded))
@@ -834,6 +853,33 @@ impl<'a> Ui<'a> {
         let pt = self.to_global((rect.x, rect.y));
         let vec = self.vec_to_global((rect.w, rect.h));
         Rect::new(pt.0, pt.1, vec.0, vec.1)
+    }
+
+    /// Reject fully clipped UI geometry before glyph uploads/tessellation.
+    /// Transform all four corners to keep rotations and mirrored HUD safe.
+    pub(crate) fn rect_visible(&self, rect: Rect) -> bool {
+        // Perspective home-card scopes have an additional GPU model matrix.
+        // Their screen footprint is not represented by the 2D UI transform.
+        if !self.cull_enabled {
+            return true;
+        }
+        let vp = get_viewport();
+        let mut min = vec2(f32::INFINITY, f32::INFINITY);
+        let mut max = vec2(f32::NEG_INFINITY, f32::NEG_INFINITY);
+        for (x, y) in [
+            (rect.x, rect.y),
+            (rect.right(), rect.y),
+            (rect.x, rect.bottom()),
+            (rect.right(), rect.bottom()),
+        ] {
+            let p = self.to_global((x, y));
+            let p =
+                vec2(vp.0 as f32 + (p.0 + 1.) * vp.2 as f32 * 0.5, screen_height() - (vp.1 + vp.3) as f32 + (p.1 * vp.2 as f32 + vp.3 as f32) * 0.5);
+            min = min.min(p);
+            max = max.max(p);
+        }
+        let (x, y, w, h) = self.scissor.unwrap_or((vp.0, screen_height() as i32 - vp.1 - vp.3, vp.2, vp.3));
+        max.x >= x as f32 - 2. && max.y >= y as f32 - 2. && min.x <= (x + w) as f32 + 2. && min.y <= (y + h) as f32 + 2.
     }
 
     pub fn vec_to_global(&self, vec: (f32, f32)) -> (f32, f32) {
@@ -897,11 +943,13 @@ impl<'a> Ui<'a> {
     #[inline]
     pub fn with_gl<R>(&mut self, transform: Mat4, f: impl FnOnce(&mut Self) -> R) -> R {
         let old = self.gl_transform;
+        let old_cull = std::mem::replace(&mut self.cull_enabled, false);
         // self.gl_transform = old * transform;
         let gl = unsafe { get_internal_gl() }.quad_gl;
         gl.push_model_matrix(transform);
         let res = f(self);
         self.gl_transform = old;
+        self.cull_enabled = old_cull;
         unsafe { get_internal_gl() }.flush();
         gl.pop_model_matrix();
         res

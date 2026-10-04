@@ -146,3 +146,6 @@ ldb-local-empty = Chưa có kỷ lục máy. Chơi một ván để xem ở đâ
 ldb-local-no-hit = Cú nhấp không trúng hàng nào trong { $count } hàng
 
 flash-autoplay-unrated = Tự động chơi đã bật: lượt này sẽ không được tải lên và cài đặt phán định đã khôi phục mặc định
+
+mods-perfect-sound = Perfect-time sounds
+mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.

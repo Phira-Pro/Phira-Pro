@@ -436,6 +436,7 @@ pub struct Resource {
 
     pub audio: AudioManager,
     pub music: AudioClip,
+    pub(crate) hide_covers: [Option<SafeTexture>; 2],
     pub track_length: f64,
     pub sfx_click: Sfx,
     pub sfx_drag: Sfx,
@@ -512,6 +513,7 @@ impl Resource {
 
         let mut audio = create_audio_manger(&config)?;
         let music = AudioClip::new(fs.load_file(&info.music).await?)?;
+        let hide_covers = super::hide_cover::load(&config);
         let track_length = music.length();
         let buffer_size = Some(BUFFER_SIZE);
         let sfx_click = audio.create_sfx(res_pack.sfx_click.clone(), buffer_size)?;
@@ -561,6 +563,7 @@ impl Resource {
             audio,
             music,
             track_length,
+            hide_covers,
             sfx_click,
             sfx_drag,
             sfx_flick,

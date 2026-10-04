@@ -158,6 +158,22 @@ mod dir {
         Ok(format!("{}/font.ttf", root()?))
     }
 
+    pub fn import_font(path: &std::path::Path) -> Result<()> {
+        use anyhow::Context;
+        let size = std::fs::metadata(path)?.len();
+        anyhow::ensure!(size > 0 && size <= 32 * 1024 * 1024, "字体文件为空或超过 32 MB");
+        let bytes = std::fs::read(path).context("读取字体失败")?;
+        prpr::ui::FontArc::try_from_vec(bytes.clone()).context("无效或不支持的字体，请使用 TTF / OTF")?;
+        let destination = custom_font_path()?;
+        let staging = format!("{destination}.tmp");
+        std::fs::write(&staging, bytes)?;
+        // Validate before replacing the working font, so a failed import cannot
+        // corrupt the next launch. Windows rename does not replace an existing file.
+        std::fs::copy(&staging, destination)?;
+        let _ = std::fs::remove_file(staging);
+        Ok(())
+    }
+
     pub fn charts() -> Result<String> {
         ensure("data/charts")
     }
@@ -356,8 +372,15 @@ async fn the_main() -> Result<()> {
     let custom_font = dir::custom_font_path()
         .ok()
         .map(std::path::PathBuf::from)
-        .filter(|it| it.exists())
+        .filter(|it| it.metadata().is_ok_and(|m| m.len() <= 32 * 1024 * 1024))
         .and_then(|it| std::fs::read(it).ok());
+    let custom_font = custom_font.and_then(|bytes| match FontArc::try_from_vec(bytes) {
+        Ok(font) => Some(font),
+        Err(err) => {
+            warn!(?err, "invalid imported font; using builtin");
+            None
+        }
+    });
     let has_custom_font = custom_font.is_some();
 
     let mut builtin_font = None;
@@ -372,13 +395,18 @@ async fn the_main() -> Result<()> {
     }
     let builtin_font = builtin_font.ok_or_else(|| anyhow::anyhow!("no builtin font found in assets"))?;
 
-    let font = FontArc::try_from_vec(custom_font.unwrap_or_else(|| builtin_font.clone()))?;
+    let reference = FontArc::try_from_vec(builtin_font.clone())?;
+    let font = custom_font.unwrap_or_else(|| reference.clone());
     let fallback = if has_custom_font {
         FontArc::try_from_vec(builtin_font).ok()
     } else {
         None
     };
     let mut painter = TextPainter::new(font.clone(), fallback);
+    if has_custom_font {
+        painter.normalize_to(&reference);
+    }
+    prpr::ui::FONT_DISPLAY_SCALE.store(get_data().config.font_scale().to_bits(), std::sync::atomic::Ordering::Relaxed);
 
     let mut main = Main::new(Box::new(MainScene::new(font).await?), TimeManager::default(), None).await?;
 
@@ -496,13 +524,13 @@ async fn the_main() -> Result<()> {
 /// 界面显示的改版版本号。仅用于本地展示，绝不上报服务端：
 /// 与服务器交互的版本号一律仍取 `CARGO_PKG_VERSION`（见 `client.rs`、`home.rs`、`event.rs`）。
 #[cfg(not(flash))]
-pub const PRO_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-pro.6");
+pub const PRO_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-pro.7");
 /// Phira Pro Flash（轻量版）的展示用版本号。
 #[cfg(flash)]
 pub const PRO_VERSION: &str = "flash.1";
 /// 带 `v` 前缀的展示用版本号。
 #[cfg(not(flash))]
-pub const PRO_VERSION_TAG: &str = concat!("v", env!("CARGO_PKG_VERSION"), "-pro.6");
+pub const PRO_VERSION_TAG: &str = concat!("v", env!("CARGO_PKG_VERSION"), "-pro.7");
 #[cfg(flash)]
 pub const PRO_VERSION_TAG: &str = "vflash.1";
 

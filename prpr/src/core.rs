@@ -25,6 +25,7 @@ mod anim;
 pub use anim::{Anim, AnimFloat, AnimVector, Keyframe};
 
 mod block;
+pub(crate) mod hide_cover;
 pub use block::{block_touch_blocked, touch_inset_world, BlockArea, BlockMoveEvent, BlockPhase, BlockRotateEvent, BlockScaleEvent, BlockTransform};
 
 mod block_shader;

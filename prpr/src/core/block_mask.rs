@@ -36,6 +36,7 @@ pub(super) struct Masks {
     enabled_compose: Vec<u8>,
     uniform_compose: Option<u8>,
     point_aux: Vec<[u8; 3]>,
+    coverage_diff: [Vec<i32>; 2],
 }
 
 impl Masks {
@@ -45,10 +46,7 @@ impl Masks {
         // edge/glow rings. Native geometry and displacement math stay intact.
         let (bw, bh) = ((width / 8).max(1) * 2, (height / 8).max(1) * 2);
         let (ew, eh) = (bw, bh);
-        if self.last_dim == (ew, eh, aspect)
-            && self.last_zones == zones
-            && (self.last_time == Some(time) || self.uniform_compose.is_some())
-        {
+        if self.last_dim == (ew, eh, aspect) && self.last_zones == zones && (self.last_time == Some(time) || self.uniform_compose.is_some()) {
             return;
         }
         if self.last_dim != (ew, eh, aspect) || self.last_zones != zones {
@@ -63,12 +61,24 @@ impl Masks {
             self.raw_disabled_green.fill(0);
             self.ready_green.resize(bw * bh, 0);
             self.ready_green.fill(0);
+            for diff in &mut self.coverage_diff {
+                diff.resize((bw + 1) * bh, 0);
+                diff.fill(0);
+            }
             // The six official cameras capture enabled N/S, disabled N/S
             // (including ready), and ready-only N/S. BlockSprite blends
             // SrcAlpha, One; each subtract sprite has alpha .1.
             for z in zones {
                 let layer = if z.active { usize::from(z.invert) } else { 2 + usize::from(z.invert) };
                 let opacity = if z.invert { 0.1 } else { z.opacity };
+                if z.active && (z.invert || z.opacity == 1.) {
+                    let diff = &mut self.coverage_diff[usize::from(z.invert)];
+                    raster_rows(bw, bh, aspect, z, |y, first, last| {
+                        diff[y * (bw + 1) + first] += 1;
+                        diff[y * (bw + 1) + last] -= 1;
+                    });
+                    continue;
+                }
                 raster_rows(bw, bh, aspect, z, |y, first, last| {
                     for x in first..last {
                         let i = y * bw + x;
@@ -85,6 +95,26 @@ impl Masks {
                         }
                     }
                 });
+            }
+            // Prefix sums make heavily overlapping active rectangles cost
+            // O(rectangles * rows + pixels), rather than O(sum of their areas).
+            // Retain the exact R8 quantization of every native additive blend.
+            let mut subtract_values = [0_u8; 11];
+            for i in 1..subtract_values.len() {
+                subtract_values[i] = unorm(subtract_values[i - 1] as f32 / 255. + 0.1);
+            }
+            for y in 0..bh {
+                let mut counts = [0_i32; 2];
+                for x in 0..bw {
+                    let i = y * bw + x;
+                    for c in 0..2 {
+                        counts[c] += self.coverage_diff[c][y * (bw + 1) + x];
+                    }
+                    if counts[0] > 0 {
+                        self.layers[0][i] = 255;
+                    }
+                    self.layers[1][i] = subtract_values[counts[1].clamp(0, 10) as usize];
+                }
             }
             self.sources_rgba.resize(bw * bh * 4, 0);
             self.enabled_compose.resize(bw * bh, 0);
@@ -107,7 +137,11 @@ impl Masks {
                 };
                 self.point_aux[i] = [self.layers[4][i], ready_s, disabled];
             }
-            self.uniform_compose = self.enabled_compose.first().copied().filter(|v| self.enabled_compose.iter().all(|p| p == v));
+            self.uniform_compose = self
+                .enabled_compose
+                .first()
+                .copied()
+                .filter(|v| self.enabled_compose.iter().all(|p| p == v));
         }
         self.width = ew;
         self.height = eh;

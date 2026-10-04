@@ -44,6 +44,7 @@ pub struct EndingScene {
 
     info: ChartInfo,
     result: PlayResult,
+    display_score: u32,
     player_name: String,
     player_rks: Option<f32>,
     autoplay: bool,
@@ -102,10 +103,11 @@ impl EndingScene {
         avg_fps: Option<f32>,
     ) -> Result<Self> {
         let mut audio = create_audio_manger(config)?;
+        let amplifier = config.music_amplifier(&bgm, config.volume_music);
         let bgm = audio.create_music(
             bgm,
             MusicParams {
-                amplifier: config.volume_music,
+                amplifier,
                 loop_mix_time: 0.,
                 ..Default::default()
             },
@@ -142,6 +144,7 @@ impl EndingScene {
             rated: upload_task.is_some(),
 
             info,
+            display_score: result.displayed_score(config.theoretical_score),
             result,
             player_name: config.player_name.clone(),
             player_rks,
@@ -339,7 +342,7 @@ impl Scene for EndingScene {
             let mut x = lf;
             let p = ran(t, 0.9, 2.6);
             let mut digits = Vec::with_capacity(7);
-            let mut s = res.score;
+            let mut s = self.display_score;
             for _ in 0..7 {
                 digits.push(s % 10);
                 s /= 10;

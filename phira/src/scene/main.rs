@@ -113,7 +113,9 @@ struct IdleFps {
 
 impl IdleFps {
     const IDLE_AFTER: Duration = Duration::from_secs(2);
-    const TARGET_PERIOD: Duration = Duration::from_millis(16);
+    // Foreground pacing belongs to the display/VSync. A 16ms idle sleep
+    // quantizes a 120Hz display to 60Hz and also stalls menu animations.
+    const TARGET_PERIOD: Duration = Duration::ZERO;
     const BACKGROUND_PERIOD: Duration = Duration::from_millis(33);
     const MINIMIZED_PERIOD: Duration = Duration::from_millis(100);
 
@@ -164,6 +166,7 @@ pub struct MainScene {
     state: SharedState,
 
     bgm: Option<Music>,
+    bgm_normalization: f32,
 
     background: SafeTexture,
     /// Phira Pro：内置背景图（含磨砂版），供「恢复默认背景」使用。
@@ -211,24 +214,31 @@ impl MainScene {
         crate::hud::selftest();
 
         #[cfg(closed)]
-        let bgm = {
+        let (bgm, bgm_normalization) = {
             let bgm_clip = AudioClip::new(crate::load_res("res/bgm").await)?;
-            Some(UI_AUDIO.with(|it| {
-                it.borrow_mut().create_music(
-                    bgm_clip,
-                    sasa::MusicParams {
-                        amplifier: get_data().config.volume_bgm,
-                        loop_mix_time: 5.46,
-                        command_buffer_size: 64,
-                        ..Default::default()
-                    },
-                )
-            })?)
+            let gain = prpr::audio::music_normalization_gain(&bgm_clip);
+            let config = &get_data().config;
+            let amplifier = config.music_volume(config.volume_bgm) * if config.uniform_loudness { gain } else { 1. };
+            (
+                Some(UI_AUDIO.with(|it| {
+                    it.borrow_mut().create_music(
+                        bgm_clip,
+                        sasa::MusicParams {
+                            amplifier,
+                            loop_mix_time: 5.46,
+                            command_buffer_size: 64,
+                            ..Default::default()
+                        },
+                    )
+                })?),
+                gain,
+            )
         };
         #[cfg(not(closed))]
-        let bgm = None;
+        let (bgm, bgm_normalization) = (None, 1.);
 
         let mut sf = Self::new_inner(bgm, fallback).await?;
+        sf.bgm_normalization = bgm_normalization;
         sf.pages.push(Box::new(HomePage::new(Arc::clone(&sf.icons)).await?));
         Ok(sf)
     }
@@ -278,6 +288,7 @@ impl MainScene {
             state,
 
             bgm,
+            bgm_normalization: 1.,
 
             background: TEX_BACKGROUND.with(|it| it.borrow().clone().unwrap()),
             bg_default: TEX_BACKGROUND_DEFAULT.with(|it| it.borrow().clone().unwrap()),
@@ -493,7 +504,8 @@ impl Scene for MainScene {
         }
         if let Some(bgm) = &mut self.bgm {
             if BGM_VOLUME_UPDATED.fetch_and(false, Ordering::Relaxed) {
-                bgm.set_amplifier(get_data().config.volume_bgm)?;
+                let config = &get_data().config;
+                bgm.set_amplifier(config.music_volume(config.volume_bgm) * if config.uniform_loudness { self.bgm_normalization } else { 1. })?;
             }
         }
         if let Some(task) = &mut self.import_task {

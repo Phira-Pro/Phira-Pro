@@ -5,6 +5,7 @@ use prpr::core::{BlockArea, BlockPhase, MSRenderTarget, Matrix, Vector};
 use std::time::Instant;
 
 struct Resource {
+    config: prpr::config::Config,
     camera: Camera2D,
     chart_target: Option<MSRenderTarget>,
 }
@@ -32,6 +33,7 @@ fn conf() -> Conf {
 async fn main() {
     next_frame().await;
     let mut res = Resource {
+        config: Default::default(),
         camera: Camera2D::default(),
         chart_target: None,
     };

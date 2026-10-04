@@ -216,7 +216,7 @@ pub fn request_file(id: impl Into<String>) {
     let is_photo = id == "avatar";
     // Phira Pro：图片类导入（图标 / 背景 / 立绘）在 Android / iOS 上走相册选择器。
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    let is_photo = matches!(id.as_str(), "icon_import" | "background_import" | "appearance_import");
+    let is_photo = matches!(id.as_str(), "icon_import" | "background_import" | "appearance_import" | "hide_upper_import" | "hide_lower_import");
     *CHOSEN_FILE.lock().unwrap() = (Some(id), None);
     cfg_if! {
         if #[cfg(target_os = "android")] {
@@ -228,9 +228,20 @@ pub fn request_file(id: impl Into<String>) {
                 let name = if is_photo { c"choosePhoto" } else { c"chooseFile" };
                 let mut method = (**env).GetMethodID.unwrap()(env, class, name.as_ptr() as _, c"()V".as_ptr() as _);
                 if method.is_null() {
+                    if (**env).ExceptionCheck.unwrap()(env) != 0 { (**env).ExceptionClear.unwrap()(env); }
                     method = (**env).GetMethodID.unwrap()(env, class, c"chooseFile".as_ptr() as _, c"()V".as_ptr() as _);
                 }
-                (**env).CallVoidMethod.unwrap()(env, ctx, method);
+                if method.is_null() {
+                    if (**env).ExceptionCheck.unwrap()(env) != 0 { (**env).ExceptionClear.unwrap()(env); }
+                    show_error(anyhow::anyhow!("当前 Android 包缺少文件选择器，请更新完整安装包"));
+                } else {
+                    (**env).CallVoidMethod.unwrap()(env, ctx, method);
+                    if (**env).ExceptionCheck.unwrap()(env) != 0 {
+                        (**env).ExceptionClear.unwrap()(env);
+                        show_error(anyhow::anyhow!("无法打开 Android 文件选择器"));
+                    }
+                }
+                (**env).DeleteLocalRef.unwrap()(env, class);
             }
         } else if #[cfg(target_os = "ios")] {
             use objc2::runtime::{AnyObject, ProtocolObject};
@@ -672,11 +683,7 @@ impl Main {
                     // 会被顶出屏幕底边而看不见。
                     let vp = crate::ext::get_viewport();
                     let half_h = vp.3 as f32 / vp.2 as f32;
-                    ui.text(format!("{fps:.0}"))
-                        .pos(-0.99, half_h - 0.006)
-                        .anchor(0., 1.)
-                        .size(0.25)
-                        .draw();
+                    ui.text(format!("{fps:.0}")).pos(-0.99, half_h - 0.006).anchor(0., 1.).size(0.25).draw();
                 }
             }
             pop_camera_state();

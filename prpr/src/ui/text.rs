@@ -1,7 +1,7 @@
 use super::Ui;
 use crate::{
     core::{Matrix, Point, Vector},
-    ext::get_viewport,
+    ext::{get_viewport, RectExt},
 };
 use glyph_brush::{
     ab_glyph::{Font, FontArc, ScaleFont},
@@ -93,7 +93,7 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
     }
 
     fn get_scale(&self, w: i32) -> f32 {
-        0.04 * self.size * w as f32
+        0.04 * self.size * w as f32 * f32::from_bits(super::FONT_DISPLAY_SCALE.load(std::sync::atomic::Ordering::Relaxed))
     }
 
     fn bounds(&self, (x, y, w, h): (f32, f32, f32, f32)) -> Rect {
@@ -112,6 +112,7 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
 
         let default_text_painter = &mut self.ui.text_painter;
         let painter = painter.as_deref_mut().unwrap_or(default_text_painter);
+        let scale = scale * painter.primary_scale;
 
         let mut section = Section::new().with_layout(Layout::default().h_align(self.h_align));
         if painter.brush.fonts().len() > 1 {
@@ -123,7 +124,7 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
                     if last != i {
                         section = section.add_text(
                             Text::new(&text[last..i])
-                                .with_scale(scale)
+                                .with_scale(if last_contain { scale } else { scale / painter.primary_scale })
                                 .with_color(self.color)
                                 .with_font_id(FontId((!last_contain) as usize)),
                         );
@@ -135,7 +136,7 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
             if last != text.len() {
                 section = section.add_text(
                     Text::new(&text[last..])
-                        .with_scale(scale)
+                        .with_scale(if last_contain { scale } else { scale / painter.primary_scale })
                         .with_color(self.color)
                         .with_font_id(FontId((!last_contain) as usize)),
                 );
@@ -161,12 +162,17 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
             let Some(last) = painter.brush.glyphs(section.clone()).last().cloned() else {
                 return (section, (0., 0., 0., line_height));
             };
-            let last_end = last.glyph.position.x + painter.brush.fonts()[last.font_id].as_scaled(scale).h_advance(last.glyph.id);
+            let last_end = last.glyph.position.x + painter.brush.fonts()[last.font_id].as_scaled(last.glyph.scale).h_advance(last.glyph.id);
             if last_end <= bounds.max.x {
                 return (section, (0., 0., last_end, line_height));
             }
             let glyphs: Vec<_> = painter.brush.glyphs(section.clone()).cloned().collect();
-            let end = |glyph: &SectionGlyph| glyph.glyph.position.x + painter.brush.fonts()[glyph.font_id].as_scaled(scale).h_advance(glyph.glyph.id);
+            let end = |glyph: &SectionGlyph| {
+                glyph.glyph.position.x
+                    + painter.brush.fonts()[glyph.font_id]
+                        .as_scaled(glyph.glyph.scale)
+                        .h_advance(glyph.glyph.id)
+            };
             let font = painter.brush.fonts()[0].as_scaled(scale);
             let id = font.glyph_id('…');
             let w = font.h_advance(id);
@@ -215,6 +221,10 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
         let text = std::mem::take(&mut self.text).unwrap();
         let (section, bound) = self.measure_inner(&text, &mut painter);
         let rect = self.bounds(bound);
+        if self.scale == Matrix::identity() && !self.ui.rect_visible(rect.feather(0.008)) {
+            self.text = Some(text);
+            return rect;
+        }
         let vp = get_viewport();
         let s = vp.2 as f32 / 2.;
         if let Some(painter) = &mut painter {
@@ -276,6 +286,7 @@ impl MyVertex {
 }
 
 pub struct TextPainter {
+    primary_scale: f32,
     brush: GlyphBrush<[MyVertex; 4]>,
     cache_texture: Texture2D,
     data_buffer: Vec<u8>,
@@ -296,6 +307,7 @@ impl TextPainter {
         // TODO optimize
         let cache_texture = Self::new_cache_texture(brush.texture_dimensions());
         Self {
+            primary_scale: 1.,
             brush,
             cache_texture,
             data_buffer: Vec::new(),
@@ -303,6 +315,27 @@ impl TextPainter {
             draw_vertices: Vec::new(),
             draw_indices: Vec::new(),
         }
+    }
+
+    /// Match visible glyph height, rather than treating stroke weight as size.
+    /// Use common glyphs actually present in both fonts; bound extreme metrics.
+    pub fn normalize_to(&mut self, reference: &FontArc) {
+        let font = &self.brush.fonts()[0];
+        let mut ratios = Vec::new();
+        for c in ['国', '中', 'H', 'M', '0'] {
+            let (a, b) = (font.glyph_id(c), reference.glyph_id(c));
+            if a.0 == 0 || b.0 == 0 {
+                continue;
+            }
+            if let (Some(a), Some(b)) = (font.outline_glyph(a.with_scale(1000.)), reference.outline_glyph(b.with_scale(1000.))) {
+                let (a, b) = (a.px_bounds().height(), b.px_bounds().height());
+                if a > 0. && b > 0. {
+                    ratios.push(b / a);
+                }
+            }
+        }
+        ratios.sort_by(f32::total_cmp);
+        self.primary_scale = ratios.get(ratios.len() / 2).copied().unwrap_or(1.).clamp(0.5, 2.);
     }
 
     fn new_cache_texture(dim: (u32, u32)) -> Texture2D {

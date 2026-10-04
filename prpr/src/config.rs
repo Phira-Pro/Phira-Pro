@@ -101,12 +101,15 @@ bitflags! {
         /// 注：上游改版 Phirc Mod++ 把这个标志放在 `0x0200`，但我们的 `0x0200` 已被
         /// `STRICT_JUDGE` 占用，所以顺延到 `0x1000`（两边配置互不通用）。
         const NO_COMBO_SCORE = 0x1000;
+        /// Practice cue: sounds follow the chart clock, independent of judgement.
+        const PERFECT_SOUND = 0x2000;
 
         const UNRATED = Self::AUTOPLAY.bits()
             | Self::NO_SHADER.bits()
             | Self::FULLSCREEN_JUDGE.bits()
             | Self::NO_FAIL.bits()
-            | Self::NO_COMBO_SCORE.bits();
+            | Self::NO_COMBO_SCORE.bits()
+            | Self::PERFECT_SOUND.bits();
     }
 }
 
@@ -137,6 +140,18 @@ impl Mods {
 #[serde(default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
+    /// UI font scale selector: 80/90/100/110/120 percent.
+    pub font_size: usize,
+    /// Result-only score adds one per Perfect+; stored/uploaded score is unchanged.
+    pub theoretical_score: bool,
+    pub uniform_loudness: bool,
+    pub loudness: f32,
+    pub fixed_background: bool,
+    pub background_dim: f32,
+    pub hide_upper_color: u32,
+    pub hide_lower_color: u32,
+    pub hide_upper_image: Option<String>,
+    pub hide_lower_image: Option<String>,
     #[serde(rename = "adjust_time_new")]
     pub adjust_time: bool,
     pub aggressive: bool,
@@ -249,8 +264,7 @@ pub struct Config {
     /// Phira Pro：谱面流速。只等比缩放音符的**视觉**流速，音乐与音调完全不变。
     /// `1.0` 为官方表现。会改变成绩可比性，因此计入「不可上传」项。
     pub flow_speed: f32,
-    /// Phira Pro：上/下隐强度，即音符出现（上隐）/ 消失（下隐）的高度，
-    /// 取值为判定区高度的比例。`0.0` 表示沿用官方表现（按 Bad 判定窗口计时渐变）。
+    /// Opaque upper/lower cover height: 0..1 maps to 10%..90% of playfield.
     /// 由于上隐/下隐 Mod 本身就属于 UNRATED，这里不需要再单独参与成绩闸门。
     pub fade_strength: f32,
     /// Phira Pro：局内判定偏移条（屏幕上方那条早/晚指示）。默认开启。
@@ -363,6 +377,16 @@ pub struct JudgeWindows {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            font_size: 2,
+            theoretical_score: false,
+            uniform_loudness: false,
+            loudness: 1.,
+            fixed_background: false,
+            background_dim: 0.60,
+            hide_upper_color: 0,
+            hide_lower_color: 0,
+            hide_upper_image: None,
+            hide_lower_image: None,
             adjust_time: false,
             aggressive: true,
             block_area_simple: false,
@@ -443,12 +467,36 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn font_scale(&self) -> f32 {
+        [0.8, 0.9, 1., 1.1, 1.2][self.font_size.min(4)]
+    }
+
+    /// One gain for menu, preview and gameplay. Does not alter SFX volume.
+    pub fn music_volume(&self, fallback: f32) -> f32 {
+        if self.uniform_loudness {
+            self.loudness.clamp(0., 1.)
+        } else {
+            fallback
+        }
+    }
+
+    pub fn music_amplifier(&self, clip: &sasa::AudioClip, fallback: f32) -> f32 {
+        self.music_volume(fallback)
+            * if self.uniform_loudness {
+                crate::audio::music_normalization_gain(clip)
+            } else {
+                1.
+            }
+    }
     /// 强制各档窗口单调不减（perfect+ ≤ perfect ≤ good ≤ bad）。滑块越界或
     /// `data.json` 被手改成倒挂后，都会回到合法状态。
     pub fn clamp_judge_windows(&mut self) {
-        self.lim_perfect_ms = self.lim_perfect_ms.max(self.lim_perfect_plus_ms);
-        self.lim_good_ms = self.lim_good_ms.max(self.lim_perfect_ms);
-        self.lim_bad_ms = self.lim_bad_ms.max(self.lim_good_ms);
+        let windows = self.judge_windows();
+        let scale = if self.mods.contains(Mods::STRICT_JUDGE) { 2000. } else { 1000. };
+        self.lim_perfect_plus_ms = (windows.perfect_plus * scale) as f32;
+        self.lim_perfect_ms = (windows.perfect * scale) as f32;
+        self.lim_good_ms = (windows.good * scale) as f32;
+        self.lim_bad_ms = (windows.bad * scale) as f32;
     }
 
     /// 各档窗口的填写范围（毫秒），顺序为 perfect+ / perfect / good / bad。
@@ -503,10 +551,17 @@ impl Config {
     ///
     /// 这里会再夹一次单调性，因此即使配置倒挂也不会影响实际判定。
     pub fn judge_windows(&self) -> JudgeWindows {
-        let perfect_plus = self.lim_perfect_plus_ms;
-        let perfect = self.lim_perfect_ms.max(perfect_plus);
-        let good = self.lim_good_ms.max(perfect);
-        let bad = self.lim_bad_ms.max(good);
+        let valid = |v: f32, default: f64, range: (f32, f32)| {
+            if v.is_finite() {
+                v.clamp(range.0, range.1)
+            } else {
+                (default * 1000.) as f32
+            }
+        };
+        let perfect_plus = valid(self.lim_perfect_plus_ms, crate::judge::LIMIT_PERFECT_PLUS, Self::JUDGE_WINDOW_RANGES[0]);
+        let perfect = valid(self.lim_perfect_ms, crate::judge::LIMIT_PERFECT, Self::JUDGE_WINDOW_RANGES[1]).max(perfect_plus);
+        let good = valid(self.lim_good_ms, crate::judge::LIMIT_GOOD, Self::JUDGE_WINDOW_RANGES[2]).max(perfect);
+        let bad = valid(self.lim_bad_ms, crate::judge::LIMIT_BAD, Self::JUDGE_WINDOW_RANGES[3]).max(good);
         let scale = if self.mods.contains(Mods::STRICT_JUDGE) { 0.5 } else { 1. };
         let secs = |ms: f32| ms as f64 / 1000. * scale;
         JudgeWindows {
@@ -727,6 +782,7 @@ impl Config {
     /// 把当前主题色写入 `prpr::ui` 的全局量，供 `Ui::accent` / `Ui::background` 读取。
     /// 数值非法（或为空）时回落到默认色，绝不 panic。
     pub fn apply_ui_colors(&self) {
+        crate::ui::FONT_DISPLAY_SCALE.store(self.font_scale().to_bits(), std::sync::atomic::Ordering::Relaxed);
         /// 解析 "rrggbb"（允许 `#` 前缀），非法值回落到 `def`。
         fn parse_hex(s: &str, def: u32) -> u32 {
             let s = s.trim().trim_start_matches('#');
@@ -740,6 +796,7 @@ impl Config {
     }
 
     pub fn init(&mut self) {
+        crate::ui::FONT_DISPLAY_SCALE.store(self.font_scale().to_bits(), std::sync::atomic::Ordering::Relaxed);
         if let Some(flag) = self.autoplay {
             self.mods.set(Mods::AUTOPLAY, flag);
         }
@@ -846,11 +903,12 @@ mod tests {
         conf.lim_bad_ms = 50.0;
         let w = conf.judge_windows();
         assert!(w.perfect_plus <= w.perfect && w.perfect <= w.good && w.good <= w.bad);
-        assert!((w.bad - 0.2).abs() < 1e-12);
+        assert!((w.bad - 0.12).abs() < 1e-12);
 
         conf.clamp_judge_windows();
-        assert_eq!(conf.lim_good_ms, 200.0);
-        assert_eq!(conf.lim_bad_ms, 200.0);
+        assert_eq!(conf.lim_perfect_ms, 120.0);
+        assert_eq!(conf.lim_good_ms, 120.0);
+        assert_eq!(conf.lim_bad_ms, 120.0);
     }
 
     /// 全屏判定由 Mod 控制。

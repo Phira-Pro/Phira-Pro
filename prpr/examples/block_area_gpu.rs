@@ -6,6 +6,7 @@ use prpr::core::{BlockArea, BlockPhase, MSRenderTarget, Matrix, Vector};
 // Supply just the production renderer's model stack and optional chart target.
 // No audio or resource pack; render targets below exercise the existing MSAA path.
 struct Resource {
+    config: prpr::config::Config,
     camera: Camera2D,
     chart_target: Option<MSRenderTarget>,
 }
@@ -38,6 +39,7 @@ fn conf() -> Conf {
 async fn main() {
     let aspect = 16. / 9.;
     let mut res = Resource {
+        config: Default::default(),
         camera: Camera2D {
             zoom: vec2(1., aspect),
             ..Default::default()
@@ -63,7 +65,7 @@ async fn main() {
     native_reference(&active, &later, 9., &[]);
 
     // A gray underlay cannot detect channel/tint or HSV mistakes. Exercise the
-    // complete scene sampling with colored tiles and the native /3 Point RT.
+    // Complete scene sampling with colored tiles and the native /6 Point grid.
     for time in [1., 9.] {
         palette_scene();
         let source = screen_pixels();
@@ -102,6 +104,12 @@ async fn main() {
     let hovered_again = overlay_probe(&mut res, aspect, &active, 14.05, &touches, "hover-sdf-next");
     native_reference(&active, &hovered_again, 14.05, &touches);
     assert_ne!(hover.bytes, hovered_again.bytes, "hover SDF and shine must evolve");
+    let without_field = overlay_probe(&mut res, aspect, &[], 14.055, &touches, "hover-field-disappeared");
+    native_reference(&[], &without_field, 14.055, &touches);
+    assert!(
+        without_field.bytes.chunks_exact(4).any(|p| p != [25, 25, 25, 255]),
+        "infected held finger must retain hover after every field disappears"
+    );
     overlay_probe(&mut res, aspect, &active, 14.06, &[], "hover-hide-start");
     let hidden = overlay_probe(&mut res, aspect, &active, 14.17, &[], "hover-hidden");
     native_reference(&active, &hidden, 14.17, &[]);
@@ -351,7 +359,8 @@ fn palette_scene() {
 
 fn native_reference_scene(zones: &[Zone], port: &Image, time: f32, touches: &[(u64, Vec2)], input: Option<&Image>) {
     use miniquad::{TextureWrap, UniformType as U};
-    let source = std::fs::read_to_string("../_official_src/shader_code/Unlit_ActiveBlock.p0.txt").unwrap();
+    let root = std::env::var("PHIRA_OFFICIAL_SRC").unwrap_or_else(|_| "../legacy files/research/official_src".into());
+    let source = std::fs::read_to_string(format!("{root}/shader_code/Unlit_ActiveBlock.p0.txt")).unwrap();
     let fragment = source.split("#ifdef FRAGMENT").nth(1).unwrap();
     let fragment = &fragment[..fragment.rfind("\n#endif").unwrap()];
     let fragment = fragment
@@ -362,6 +371,7 @@ fn native_reference_scene(zones: &[Zone], port: &Image, time: f32, touches: &[(u
         .replace("SV_Target0", "gl_FragColor")
         .replace("textureLod(", "sampleLod(")
         .replace("texture(", "texture2D(")
+        .replace("texture2D(_SceneColor,", "sampleScene(")
         .replace("_Time", "uUnityTime")
         // Only texture plumbing changes: pack the four camera channels to fit
         // miniquad's sampler cache, preserving the complete native body.
@@ -374,7 +384,7 @@ fn native_reference_scene(zones: &[Zone], port: &Image, time: f32, touches: &[(u
         .replace("UNITY_LOCATION(9) uniform mediump sampler2D _DisplaceMap;", "")
         .replace(
             "void main()",
-            "uniform mediump sampler2D _Aux;\nvec4 sampleLod(sampler2D s, vec2 uv, float lod) { return texture2D(s, uv); }\nvoid main()",
+            "uniform mediump sampler2D _Aux;\nvec4 sampleLod(sampler2D s, vec2 uv, float lod) { return texture2D(s, uv); }\nvec4 sampleScene(vec2 uv) { vec2 size = floor(_ScreenParams.xy / 6.0); return texture2D(_SceneColor, (floor(clamp(uv, 0.0, 1.0) * size) + 0.5) / size); }\nvoid main()",
         );
     let vertex = r#"#version 100
 attribute vec3 position;
@@ -494,9 +504,20 @@ void main() {
     material.set_texture("_DisplaceMap", displace);
     material.set_texture("_SparkMap", spark);
     let noise = load(include_bytes!("../../assets/blockarea/FD_Noise_00000.png"), TextureWrap::Mirror);
-    // The independent oracle samples the original packed RGB565 data, rather
-    // than sharing the production shader's PNG recovery helper.
-    let packed = std::fs::read("target/block-area-native-textures/FD_Noise_00000.rgb565").unwrap();
+    // Accept original packed bytes for an independent asset audit. Without
+    // them, round-trip the lossless bit-replicated PNG into native RGB565;
+    // this checks shader arithmetic, not the original extraction process.
+    let packed = if let Ok(path) = std::env::var("PHIRA_NOISE_RGB565") {
+        std::fs::read(path).expect("PHIRA_NOISE_RGB565")
+    } else {
+        let image = image::load_from_memory(include_bytes!("../../assets/blockarea/FD_Noise_00000.png"))
+            .unwrap()
+            .to_rgb8();
+        image::imageops::flip_vertical(&image)
+            .pixels()
+            .flat_map(|p| (((p[0] as u16 >> 3) << 11) | ((p[1] as u16 >> 2) << 5) | (p[2] as u16 >> 3)).to_le_bytes())
+            .collect::<Vec<_>>()
+    };
     unsafe {
         use miniquad::gl::*;
         let mut bound = 0;
@@ -557,22 +578,15 @@ void main() {
     material.set_texture("_Aux", aux);
     let compose: Vec<u8> = masks.rgba.chunks_exact(4).flat_map(|p| [p[0], 0, 0, 255]).collect();
     let effect: Vec<u8> = masks.rgba.chunks_exact(4).flat_map(|p| [p[1], p[2], 0, 255]).collect();
-    let scene: Vec<u8> = (0..180)
-        .flat_map(|y| {
-            (0..320).flat_map(move |x| {
-                input.map_or([25, 25, 25, 255], |image| {
-                    let i = ((y * 3 + 1) * 960 + x * 3 + 1) * 4;
-                    image.bytes[i..i + 4].try_into().unwrap()
-                })
-            })
-        })
-        .collect();
+    // Emulate the /6 SceneColor camera's pixel-center samples against a full
+    // copy, as production does without attaching a new framebuffer.
+    let scene: Vec<u8> = input.map_or_else(|| [25, 25, 25, 255].repeat(960 * 540), |image| image.bytes.clone());
     let compose = Texture2D::from_rgba8(masks.width as u16, masks.height as u16, &compose);
     compose.set_filter(FilterMode::Nearest);
     let effect = Texture2D::from_rgba8(masks.width as u16, masks.height as u16, &effect);
     effect.set_filter(FilterMode::Linear);
-    let scene = Texture2D::from_rgba8(320, 180, &scene);
-    scene.set_filter(FilterMode::Nearest);
+    let scene = Texture2D::from_rgba8(960, 540, &scene);
+    scene.set_filter(FilterMode::Linear);
     material.set_texture("_ComposeRT", compose);
     material.set_texture("_EffectRT", effect);
     material.set_texture("_SceneColor", scene);

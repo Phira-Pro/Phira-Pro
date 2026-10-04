@@ -140,3 +140,6 @@ ldb-local-empty = Henüz yerel kayıt yok. Bir tur oynayınca burada görünecek
 ldb-local-no-hit = Tıklama { $count } yerel satırdan hiçbirine isabet etmedi
 
 flash-autoplay-unrated = Otomatik oynatma açık: bu deneme yüklenmeyecek ve yargılama ayarları varsayılana döndürüldü
+
+mods-perfect-sound = Perfect-time sounds
+mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.

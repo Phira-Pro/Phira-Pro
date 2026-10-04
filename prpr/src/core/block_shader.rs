@@ -19,10 +19,10 @@ use std::cell::RefCell;
 
 #[path = "block_mask.rs"]
 mod mask;
-#[path = "block_touch.rs"]
-mod touch;
 #[path = "block_simple.rs"]
 mod simple;
+#[path = "block_touch.rs"]
+mod touch;
 
 /// A resolved rectangle (axis-aligned in its own space).
 #[derive(Clone, PartialEq)]
@@ -195,9 +195,12 @@ fn load_block_material(disabled: bool, hover: bool) -> Result<Material, miniquad
     // otherwise consumes registers/instructions even with zero fingers.
     let mut fragment = FRAGMENT.replace("uniform int uLayer;", if disabled { "const int uLayer = 0;" } else { "const int uLayer = 3;" });
     if !hover {
-        fragment = fragment
-            .replace("uniform \tint _TouchPosCount;", "const int _TouchPosCount = 0;")
-            .replace("float hoverSample(vec2 uv) { return texture2D(uAuxMasks, basePixelUV(uv)).a; }", "float hoverSample(vec2 uv) { return 0.0; }");
+        fragment = fragment.replace("uniform \tint _TouchPosCount;", "const int _TouchPosCount = 0;");
+        // Match the generated multi-line definition. Replacing the old one-line
+        // spelling silently failed and kept the complete hover SDF alive on GPUs.
+        let start = fragment.rfind("float hoverSample(vec2 uv) {").expect("hover shader definition");
+        let end = start + fragment[start..].find('}').expect("hover shader body") + 1;
+        fragment.replace_range(start..end, "float hoverSample(vec2 uv) { return 0.0; }");
     }
     load_material(VERTEX, &fragment, params).map(|material| {
         for (name, value) in FLOATS {
@@ -362,8 +365,15 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         if hover {
             let bw = frame.masks.width / 2;
             let bh = frame.masks.height / 2;
-            for y in 0..bh {
-                for x in 0..bw {
+            for pixel in frame.masks.aux_rgba.chunks_exact_mut(4) {
+                pixel[3] = 0;
+            }
+            let screen_aspect = width as f32 / height as f32;
+            let (min, max) = frame.touch.bounds(screen_aspect).unwrap_or((Vec2::ZERO, Vec2::ZERO));
+            let (x0, y0) = ((min.x * bw as f32).floor().max(0.) as usize, (min.y * bh as f32).floor().max(0.) as usize);
+            let (x1, y1) = ((max.x * bw as f32).ceil().min(bw as f32) as usize, (max.y * bh as f32).ceil().min(bh as f32) as usize);
+            for y in y0..y1 {
+                for x in x0..x1 {
                     let value = frame
                         .touch
                         .sample(vec2((x as f32 + 0.5) / bw as f32, (y as f32 + 0.5) / bh as f32), width as f32 / height as f32);
@@ -452,6 +462,9 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         }
         m.set_uniform("_TouchPosShine", (0.63 + 0.37 * ((time * 43.).sin() * 0.5 + 0.5)) * 2.);
         gl_use_material(m);
+        // Keep one quad: subdividing it changes vertex interpolation at point
+        // sample boundaries, moving a few spark/noise texels between frames.
+        // Specialize the expensive hover path instead of changing native UVs.
         draw_rectangle(-1., -1. / aspect, 2., 2. / aspect, WHITE);
         gl_use_default_material();
     });

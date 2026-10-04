@@ -147,3 +147,6 @@ ldb-local-empty = ยังไม่มีสถิติในเครื่�
 ldb-local-no-hit = คลิกไม่โดนแถวใดใน { $count } แถว
 
 flash-autoplay-unrated = เปิดเล่นอัตโนมัติ: ผลรอบนี้จะไม่อัปโหลด และการตั้งค่าการตัดสินถูกคืนค่าเริ่มต้น
+
+mods-perfect-sound = Perfect-time sounds
+mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.

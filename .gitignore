@@ -40,5 +40,6 @@ inner.rs
 
 
 vendor/
-docs/
+/docs/*
+!/docs/development/
 phira-android/

@@ -124,6 +124,27 @@ impl TouchMask {
         self.slots.iter().any(|slot| slot.finger.is_some() || slot.scale > 0.0)
     }
 
+    /// Union of source sprite footprints in screen UV. Pixel evaluation outside
+    /// this region always returns zero and need not scan ten finger slots.
+    pub fn bounds(&self, aspect: f32) -> Option<(Vec2, Vec2)> {
+        let mut min = Vec2::splat(f32::INFINITY);
+        let mut max = Vec2::splat(f32::NEG_INFINITY);
+        for slot in &self.slots {
+            if slot.scale <= 0. {
+                continue;
+            }
+            let size = SPRITE_HEIGHT * slot.scale * 0.5;
+            let half = Vec2::new(size / aspect, size);
+            min = min.min(slot.center - half);
+            max = max.max(slot.center + half);
+        }
+        if min.x.is_finite() {
+            Some((min.max(Vec2::ZERO), max.min(Vec2::ONE)))
+        } else {
+            None
+        }
+    }
+
     /// R8 value at one native touch-camera pixel center. The caller duplicates
     /// each value to 2x2 pixels when packing it in the effect-sized aux texture.
     pub fn sample(&self, uv: Vec2, aspect: f32) -> u8 {

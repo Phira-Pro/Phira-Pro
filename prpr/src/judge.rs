@@ -1,7 +1,7 @@
 //! Judgement system
 
 use crate::{
-    config::{Config, JudgeWindows},
+    config::{Config, JudgeWindows, Mods},
     core::{block_touch_blocked, BadNote, Chart, NoteKind, Point, Resource, Vector, NOTE_WIDTH_RATIO_BASE},
     ext::{get_viewport, NotNanExt},
 };
@@ -13,8 +13,12 @@ use miniquad::{EventHandler, MouseButton};
 use once_cell::sync::Lazy;
 use sasa::{PlaySfxParams, Sfx};
 use serde::Serialize;
-use std::{cell::RefCell, collections::{HashMap, HashSet}, mem, num::FpCategory};
-use tracing::debug;
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    mem,
+    num::FpCategory,
+};
 
 pub const FLICK_SPEED_THRESHOLD: f32 = 0.8;
 /// Perfect+（大 P）的默认窗口。比 Perfect 更严格，且不参与准确率/分数计算。
@@ -40,6 +44,13 @@ pub enum HitSound {
 
 impl HitSound {
     pub fn play(&self, res: &mut Resource) {
+        if res.config.has_mod(Mods::PERFECT_SOUND) {
+            return;
+        }
+        self.play_chart_cue(res);
+    }
+
+    fn play_chart_cue(&self, res: &mut Resource) {
         match self {
             HitSound::None => {}
             HitSound::Click => play_sfx(&mut res.sfx_click, &res.config),
@@ -116,8 +127,16 @@ impl FlickTracker {
     pub fn push(&mut self, time: f32, position: Point) {
         let delta = position - self.last_point;
         self.last_point = position;
+        let dt = time - self.last_time;
+        self.last_time = time;
+        if dt <= 0. || !dt.is_finite() {
+            return;
+        }
+        if delta.norm_squared() <= f32::EPSILON * f32::EPSILON {
+            self.stopped = true;
+            return;
+        }
         if let Some(last_delta) = &self.last_delta {
-            let dt = time - self.last_time;
             let speed = delta.dot(last_delta) / dt;
             if speed < self.threshold {
                 self.stopped = true;
@@ -134,7 +153,6 @@ impl FlickTracker {
             // }
         }
         self.last_delta = Some(delta.normalize());
-        self.last_time = time;
     }
 }
 
@@ -177,6 +195,29 @@ pub fn judgement_of_offset(off: f64, limits: &JudgeWindows) -> Judgement {
     } else {
         Judgement::Miss
     }
+}
+
+/// Positive offsets are late. Apply optional leniency only on that side,
+/// leaving the raw offset available for timing statistics.
+fn judge_distance(offset: f64, late_leniency: f64) -> f64 {
+    if offset > 0. {
+        (offset - late_leniency).max(0.)
+    } else {
+        -offset
+    }
+}
+
+fn finger_blocked(infected: &mut HashSet<u64>, id: u64, phase: TouchPhase, inside: bool) -> bool {
+    if matches!(phase, TouchPhase::Started | TouchPhase::Ended | TouchPhase::Cancelled) {
+        infected.remove(&id);
+    }
+    if matches!(phase, TouchPhase::Ended | TouchPhase::Cancelled) {
+        return false;
+    }
+    if inside {
+        infected.insert(id);
+    }
+    infected.contains(&id)
 }
 
 /// 两个音符时间差小于这个值（秒）就视为「同一时刻」，越位保护不会把同拍的键互相挡住。
@@ -452,6 +493,67 @@ mod tests {
     use super::{judgement_of_offset, JudgeInner, Judgement, MAX_RECENT_HITS};
     use crate::config::JudgeWindows;
 
+    #[test]
+    fn finger_infection_survives_field_disappearance_until_release() {
+        use macroquad::prelude::TouchPhase::*;
+        let mut infected = std::collections::HashSet::new();
+        assert!(super::finger_blocked(&mut infected, 7, Started, true));
+        assert!(super::finger_blocked(&mut infected, 7, Stationary, false));
+        assert!(super::finger_blocked(&mut infected, 7, Moved, false));
+        assert!(!super::finger_blocked(&mut infected, 8, Started, false));
+        assert!(!super::finger_blocked(&mut infected, 7, Ended, true));
+        assert!(!super::finger_blocked(&mut infected, 7, Started, false));
+        assert!(super::finger_blocked(&mut infected, 7, Moved, true));
+        assert!(!super::finger_blocked(&mut infected, 7, Cancelled, true));
+    }
+
+    #[test]
+    fn configured_windows_and_late_leniency_keep_exact_boundaries() {
+        let mut config = crate::config::Config::default();
+        config.lim_perfect_plus_ms = 12.;
+        config.lim_perfect_ms = 40.;
+        config.lim_good_ms = 90.;
+        config.lim_bad_ms = 180.;
+        let w = config.judge_windows();
+        for (ms, expected) in [
+            (12., Judgement::PerfectPlus),
+            (40., Judgement::Perfect),
+            (90., Judgement::Good),
+            (180., Judgement::Bad),
+            (181., Judgement::Miss),
+        ] {
+            for sign in [-1., 1.] {
+                assert_eq!(judgement_of_offset(sign * ms / 1000., &w) as u8, expected as u8);
+            }
+        }
+        assert_eq!(super::judge_distance(-0.050, 0.030), 0.050);
+        assert!((super::judge_distance(0.050, 0.030) - 0.020).abs() < 1e-12);
+        assert_eq!(super::judge_distance(0.020, 0.030), 0.);
+    }
+
+    #[test]
+    fn stationary_and_duplicate_timestamp_flick_samples_stay_finite() {
+        let mut tracker = super::FlickTracker::new(275, 0., super::Point::new(0., 0.));
+        tracker.push(0., super::Point::new(0., 0.));
+        tracker.push(0.01, super::Point::new(0., 0.));
+        tracker.push(0.02, super::Point::new(0.05, 0.));
+        tracker.push(0.03, super::Point::new(0.10, 0.));
+        assert!(tracker.flicked);
+        assert!(tracker.last_delta.unwrap().iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn theoretical_result_bonus_does_not_change_saved_score() {
+        let result = super::PlayResult {
+            score: 1_000_000,
+            counts: [0, 0, 0, 0, 2000],
+            ..Default::default()
+        };
+        assert_eq!(result.displayed_score(true), 1_002_000);
+        assert_eq!(result.displayed_score(false), 1_000_000);
+        assert_eq!(result.score, 1_000_000);
+    }
+
     /// 时间偏移 → 判定等级的分档，早/晚对称，超过 bad 窗即 Miss。尾判走同一口径。
     #[test]
     fn offset_tiering() {
@@ -597,6 +699,9 @@ pub struct Judge {
     pub trackers: HashMap<u64, FlickTracker>,
     pub last_time: f64,
     pub infected: HashSet<u64>,
+    held_touches: HashMap<u64, Touch>,
+    sound_schedule: Vec<(f64, HitSound)>,
+    sound_cursor: usize,
 
     key_down_count: u32,
 
@@ -623,6 +728,14 @@ pub fn take_wheel() -> (f32, f32) {
 
 impl Judge {
     pub fn new(chart: &Chart, hold_tail_judge: bool) -> Self {
+        let mut sound_schedule: Vec<_> = chart
+            .lines
+            .iter()
+            .flat_map(|line| line.notes.iter())
+            .filter(|note| !note.fake)
+            .map(|note| (note.time, note.hitsound.clone()))
+            .collect();
+        sound_schedule.sort_by(|a, b| a.0.total_cmp(&b.0));
         let notes = chart
             .lines
             .iter()
@@ -646,6 +759,9 @@ impl Judge {
             trackers: HashMap::new(),
             last_time: 0.,
             infected: HashSet::new(),
+            held_touches: HashMap::new(),
+            sound_schedule,
+            sound_cursor: 0,
 
             key_down_count: 0,
 
@@ -658,8 +774,27 @@ impl Judge {
         self.notes.iter_mut().for_each(|it| it.1 = 0);
         self.trackers.clear();
         self.infected.clear();
+        self.held_touches.clear();
+        self.sound_cursor = 0;
+        self.key_down_count = 0;
         self.inner.reset();
         self.judgements.borrow_mut().clear();
+    }
+
+    /// Releases still arrive while gameplay judgement is paused. Consuming
+    /// their lifecycle prevents phantom infected fingers after resuming.
+    pub fn observe_paused_input(&mut self) {
+        TOUCHES.with(|status| {
+            let status = status.borrow();
+            self.key_down_count = self.key_down_count.saturating_add_signed(status.key_delta);
+            for touch in &status.touches {
+                if matches!(touch.phase, TouchPhase::Started | TouchPhase::Ended | TouchPhase::Cancelled) {
+                    self.held_touches.remove(&touch.id);
+                    self.infected.remove(&touch.id);
+                    self.trackers.remove(&touch.id);
+                }
+            }
+        });
     }
 
     /// Advance note pointers past notes before time `t`, marking them as judged.
@@ -676,6 +811,7 @@ impl Judge {
             }
         }
         self.last_time = t;
+        self.sound_cursor = self.sound_schedule.partition_point(|(time, _)| *time < t);
     }
 
     pub fn commit(&mut self, t: f64, what: Judgement, line_id: u32, note_id: u32, diff: f64) {
@@ -745,6 +881,15 @@ impl Judge {
 
     pub fn update(&mut self, res: &mut Resource, chart: &mut Chart, bad_notes: &mut Vec<BadNote>) {
         chart.blocked_touches.clear();
+        if res.config.has_mod(Mods::PERFECT_SOUND) {
+            while let Some((time, sound)) = self.sound_schedule.get(self.sound_cursor) {
+                if *time > res.time {
+                    break;
+                }
+                sound.play_chart_cue(res);
+                self.sound_cursor += 1;
+            }
+        }
         if res.config.autoplay() {
             self.auto_play_update(res, chart);
             return;
@@ -791,13 +936,21 @@ impl Judge {
                 });
             }
             let tr = Self::touch_transform(res.config.flip_x());
-            touches
+            let mut current: HashMap<_, _> = touches
                 .into_iter()
                 .map(|mut it| {
                     tr(&mut it);
                     (it.id, it)
                 })
-                .collect()
+                .collect();
+            for (&id, touch) in &self.held_touches {
+                current.entry(id).or_insert_with(|| Touch {
+                    phase: TouchPhase::Stationary,
+                    time: f64::NEG_INFINITY,
+                    ..touch.clone()
+                });
+            }
+            current
         };
         let (events, keys_down, key_delta) = TOUCHES.with(|it| {
             let guard = it.borrow();
@@ -824,31 +977,46 @@ impl Judge {
             {
                 t += delta;
                 let t = t as f32;
+                let mut event = Touch {
+                    id,
+                    phase,
+                    position: p,
+                    time,
+                };
+                Self::touch_transform(res.config.flip_x())(&mut event);
                 let p = to_local(p);
                 match phase {
                     TouchPhase::Started => {
+                        self.infected.remove(&id);
                         self.trackers.insert(id, FlickTracker::new(res.dpi, t, p));
-                        touches
-                            .entry(id)
-                            .or_insert_with(|| Touch {
-                                id,
-                                phase: TouchPhase::Started,
-                                position: vec2(p.x, p.y),
-                                time,
-                            })
-                            .phase = TouchPhase::Started;
+                        touches.insert(id, event);
                     }
                     TouchPhase::Moved | TouchPhase::Stationary => {
+                        let phase = touches.get(&id).map(|it| it.phase);
+                        if phase == Some(TouchPhase::Started) {
+                            event.phase = TouchPhase::Started;
+                        }
+                        touches.insert(id, event);
                         if let Some(tracker) = self.trackers.get_mut(&id) {
                             tracker.push(t, p);
                         }
                     }
                     TouchPhase::Ended | TouchPhase::Cancelled => {
                         self.trackers.remove(&id);
+                        self.infected.remove(&id);
+                        touches.remove(&id);
                     }
                 }
             }
         }
+        touches.retain(|id, touch| {
+            let down = !matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled);
+            if !down {
+                self.infected.remove(id);
+            }
+            down
+        });
+        self.held_touches.clone_from(&touches);
         let mut touches: Vec<Touch> = touches
             .into_values()
             .map(|mut it| {
@@ -867,12 +1035,12 @@ impl Judge {
             let aspect = res.aspect_ratio;
             let areas = &chart.block_areas;
             let mut blocked = Vec::new();
-            let down: HashSet<u64> = touches.iter().map(|touch| touch.id).collect();
-            self.infected.retain(|id| down.contains(id));
+            // Infection is a finger lifetime, not a field lifetime. Quiet
+            // frames must retain it until an explicit Ended/Cancelled event.
             touches.retain(|touch| {
                 let p = Vector::new(touch.position.x, -touch.position.y);
-                if self.infected.contains(&touch.id) || block_touch_blocked(areas, p, t, aspect) {
-                    self.infected.insert(touch.id);
+                let inside = !self.infected.contains(&touch.id) && block_touch_blocked(areas, p, t, aspect);
+                if finger_blocked(&mut self.infected, touch.id, TouchPhase::Stationary, inside) {
                     blocked.push((touch.id, p));
                     false
                 } else {
@@ -952,7 +1120,7 @@ impl Judge {
                         break;
                     }
                     // 晚按（dt < 0）时按配置放宽；默认 0 → 和早按完全对称。
-                    let dt = if dt < 0. { (dt + late_leniency).min(0.).abs() } else { dt };
+                    let dt = judge_distance(-dt, late_leniency);
                     let x = &mut note.object.translation.0;
                     x.set_time(t);
                     let dist = if limits.fullscreen {
@@ -1029,7 +1197,7 @@ impl Judge {
                                 self.judgements.borrow_mut().push((t, line_id as _, id, Err(perfect)));
                                 // 头判的偏移：按下时就进判定条（原来要等按住结束才显示）。
                                 let head_j = if perfect {
-                                    if (t - note.time).abs() / spd <= limits.perfect_plus {
+                                    if dt <= limits.perfect_plus {
                                         Judgement::PerfectPlus
                                     } else {
                                         Judgement::Perfect
@@ -1088,7 +1256,7 @@ impl Judge {
                     break;
                 }
                 let note = &mut chart.lines[line_id].notes[id as usize];
-                let dt = (t - note.time).abs() / spd;
+                let dt = judge_distance((t - note.time) / spd, late_leniency);
                 if dt <= if matches!(note.kind, NoteKind::Click) { limits.bad } else { limits.good } {
                     let perfect = dt <= limits.perfect;
                     match note.kind {
@@ -1114,7 +1282,7 @@ impl Judge {
                             self.judgements.borrow_mut().push((t, line_id as _, id, Err(perfect)));
                             // 头判的偏移：按下时就进判定条（原来要等按住结束才显示）。
                             let head_j = if perfect {
-                                if (t - note.time).abs() / spd <= limits.perfect_plus {
+                                if dt <= limits.perfect_plus {
                                     Judgement::PerfectPlus
                                 } else {
                                     Judgement::Perfect
@@ -1149,10 +1317,9 @@ impl Judge {
                             x.set_time(t);
                             let x = x.now();
                             let on_note = self.key_down_count != 0
-                                || limits.fullscreen
-                                || pos
-                                    .iter()
-                                    .any(|it| it.is_some_and(|it| (it.x - x).abs() as f64 / note.judge_area as f64 <= X_DIFF_MAX));
+                                || pos.iter().any(|it| {
+                                    it.is_some_and(|it| limits.fullscreen || (it.x - x).abs() as f64 / note.judge_area as f64 <= X_DIFF_MAX)
+                                });
                             if on_note {
                                 *up_time = f64::INFINITY;
                             } else {
@@ -1177,10 +1344,9 @@ impl Judge {
                         x.set_time(t);
                         let x = x.now();
                         if self.key_down_count == 0
-                            && !limits.fullscreen
                             && !pos
                                 .iter()
-                                .any(|it| it.is_some_and(|it| (it.x - x).abs() as f64 / note.judge_area as f64 <= X_DIFF_MAX))
+                                .any(|it| it.is_some_and(|it| limits.fullscreen || (it.x - x).abs() as f64 / note.judge_area as f64 <= X_DIFF_MAX))
                         {
                             if t > *up_time + UP_TOLERANCE {
                                 note.judge = JudgeStatus::Judged;
@@ -1199,7 +1365,7 @@ impl Judge {
                 }
                 // process miss
                 let dt = (t - note.time) / spd;
-                if dt > limits.bad {
+                if dt > limits.bad + late_leniency {
                     note.judge = JudgeStatus::Judged;
                     judgements.push((Judgement::Miss, line_id, *id, None));
                     if res.config.hold_tail_judge && matches!(note.kind, NoteKind::Hold { .. }) {
@@ -1214,7 +1380,7 @@ impl Judge {
                 if !matches!(note.kind, NoteKind::Drag) && (self.key_down_count == 0 || !matches!(note.kind, NoteKind::Flick)) {
                     continue;
                 }
-                let dt = dt.abs();
+                let dt = judge_distance(dt, late_leniency);
                 let x = &mut note.object.translation.0;
                 x.set_time(t);
                 let x = x.now();
@@ -1257,7 +1423,7 @@ impl Judge {
                         if *end_time <= t {
                             note.judge = JudgeStatus::Judged;
                             let judgement = if perfect {
-                                if (diff - note.time).abs() / spd <= limits.perfect_plus {
+                                if judge_distance((diff - note.time) / spd, late_leniency) <= limits.perfect_plus {
                                     Judgement::PerfectPlus
                                 } else {
                                     Judgement::Perfect
@@ -1573,6 +1739,13 @@ pub struct PlayResult {
     pub hist: [u32; HIST_BUCKETS],
     pub early_kind: [u32; 5],
     pub late_kind: [u32; 5],
+}
+
+impl PlayResult {
+    pub fn displayed_score(&self, theoretical: bool) -> u32 {
+        self.score
+            .saturating_add(if theoretical { self.counts[Judgement::PerfectPlus as usize] } else { 0 })
+    }
 }
 
 pub fn icon_index(score: u32, full_combo: bool) -> usize {

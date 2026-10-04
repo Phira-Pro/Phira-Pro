@@ -152,11 +152,12 @@ fn edit_transit() -> Option<f32> {
 }
 
 fn create_music(clip: AudioClip) -> Result<Music> {
+    let amplifier = get_data().config.music_amplifier(&clip, get_data().config.volume_music * 0.7);
     let mut music = UI_AUDIO.with(|it| {
         it.borrow_mut().create_music(
             clip,
             MusicParams {
-                amplifier: get_data().config.volume_music * 0.7,
+                amplifier,
                 loop_mix_time: 0.,
                 ..Default::default()
             },
@@ -920,7 +921,7 @@ impl SongScene {
         let rated = {
             let config = &get_data().config;
             // 开「上传成绩」会把本局的 mod 强制回官方，所以判定"计不计成绩"时也按官方口径看 mod。
-            let unrated = mods.intersects(Mods::UNRATED) && !config.upload_record;
+            let unrated = mods.contains(Mods::PERFECT_SOUND) || (mods.intersects(Mods::UNRATED) && !config.upload_record);
             config.upload_record && !config.offline_mode && can_rated && !unrated && !config.use_keyboard && config.speed >= 1.0 - 1e-3
         };
         #[cfg(not(record))]
@@ -1017,7 +1018,7 @@ impl SongScene {
             config.mods = mods;
             // 开「上传成绩」时本局强制按官方默认判定 / 玩法（忽略谱面的 mod 选择）。
             #[cfg(record)]
-            if config.upload_record {
+            if config.upload_record && !config.mods.contains(Mods::PERFECT_SOUND) {
                 let mut m = config.mods;
                 config.force_official_play(&mut m);
             }
@@ -1072,7 +1073,8 @@ impl SongScene {
             // 能否上传最终由 prpr 侧的 `Config::is_official_play` 决定——改动过判定 /
             // 玩法的对局一律不上传。
             #[cfg(record)]
-            let upload_fn = upload_fn.filter(|_| get_data().config.upload_record && !crate::client::pro_api_url().is_empty());
+            let upload_fn =
+                upload_fn.filter(|_| config.upload_record && !config.mods.contains(Mods::PERFECT_SOUND) && !crate::client::pro_api_url().is_empty());
             if is_unlock {
                 #[cfg(not(feature = "video"))]
                 {
@@ -1502,6 +1504,7 @@ impl SongScene {
                 index += 1;
             };
             item(tl!("mods-autoplay"), Some(tl!("mods-autoplay-sub")), Mods::AUTOPLAY);
+            item(tl!("mods-perfect-sound"), Some(tl!("mods-perfect-sound-sub")), Mods::PERFECT_SOUND);
             item(tl!("mods-flip-x"), Some(tl!("mods-flip-x-sub")), Mods::FLIP_X);
             item(tl!("mods-fade-in"), Some(tl!("mods-fade-in-sub")), Mods::FADE_IN);
             item(tl!("mods-fade-out"), Some(tl!("mods-fade-out-sub")), Mods::FADE_OUT);

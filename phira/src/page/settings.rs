@@ -1,4 +1,6 @@
 prpr_l10n::tl_file!("settings");
+mod experience;
+use experience::ExperienceList;
 
 use super::{BlacklistPage, HistoryPage, NextPage, OffsetPage, Page, SharedState, TransferPage};
 use crate::{
@@ -14,6 +16,7 @@ use bytesize::ByteSize;
 use inputbox::InputBox;
 use macroquad::prelude::*;
 use once_cell::sync::Lazy;
+use prpr::ui::Dialog;
 use prpr::{
     core::BOLD_FONT,
     ext::{open_url, poll_future, semi_white, LocalTask, RectExt, SafeTexture},
@@ -21,7 +24,6 @@ use prpr::{
     task::Task,
     ui::{DRectButton, RectButton, Scroll, Slider, Ui, PREFER_REDUCED_MOTION, UI_SFX_VOLUME},
 };
-use prpr::ui::Dialog;
 use prpr_l10n::{LanguageIdentifier, LANG_IDENTS, LANG_NAMES};
 use reqwest::Url;
 use serde::Deserialize;
@@ -43,9 +45,7 @@ const UI_PRESETS: [(u32, u32); 6] = [
     (0xb0bec5, 0x263238),
 ];
 /// 调试触点可选颜色（0xRRGGBB）。点一次循环切到下一个。
-const TOUCH_POINT_COLORS: [u32; 8] = [
-    0xff3b30, 0x34c759, 0x0a84ff, 0xffd60a, 0xff2d55, 0x5ac8fa, 0xffffff, 0x8e8e93,
-];
+const TOUCH_POINT_COLORS: [u32; 8] = [0xff3b30, 0x34c759, 0x0a84ff, 0xffd60a, 0xff2d55, 0x5ac8fa, 0xffffff, 0x8e8e93];
 
 /// 主题预设的显示名。
 fn ui_preset_name(i: usize) -> String {
@@ -164,6 +164,7 @@ enum SettingListType {
     Audio,
     Chart,
     Debug,
+    Experience,
     About,
 }
 
@@ -172,6 +173,7 @@ pub struct SettingsPage {
     list_audio: AudioList,
     list_chart: ChartList,
     list_debug: DebugList,
+    list_experience: ExperienceList,
 
     tabs: Tabs<SettingListType>,
 
@@ -190,14 +192,16 @@ impl SettingsPage {
             list_audio: AudioList::new(),
             list_chart: ChartList::new(),
             list_debug: DebugList::new(),
+            list_experience: ExperienceList::new(),
 
             tabs: Tabs::new([
                 (SettingListType::General, || tl!("general")),
                 (SettingListType::Audio, || tl!("audio")),
                 (SettingListType::Chart, || tl!("chart")),
                 (SettingListType::Debug, || tl!("debug")),
+                (SettingListType::Experience, || tl!("experience")),
                 (SettingListType::About, || tl!("about")),
-            ] as [(SettingListType, TitleFn); 5]),
+            ] as [(SettingListType, TitleFn); 6]),
 
             scroll: Scroll::new(),
             save_time: f32::INFINITY,
@@ -227,6 +231,7 @@ impl Page for SettingsPage {
             SettingListType::Audio => self.list_audio.top_touch(touch, t),
             SettingListType::Chart => self.list_chart.top_touch(touch, t),
             SettingListType::Debug => self.list_debug.top_touch(touch, t),
+            SettingListType::Experience => self.list_experience.top_touch(touch, t),
             SettingListType::About => false,
         } {
             return Ok(true);
@@ -244,6 +249,7 @@ impl Page for SettingsPage {
             SettingListType::Audio => self.list_audio.touch(touch, t)?,
             SettingListType::Chart => self.list_chart.touch(touch, t)?,
             SettingListType::Debug => self.list_debug.touch(touch, t)?,
+            SettingListType::Experience => self.list_experience.touch(touch, t)?,
             SettingListType::About => None,
         } {
             if p {
@@ -262,6 +268,7 @@ impl Page for SettingsPage {
             SettingListType::Audio => self.list_audio.update(t)?,
             SettingListType::Chart => self.list_chart.update(t)?,
             SettingListType::Debug => self.list_debug.update(t)?,
+            SettingListType::Experience => self.list_experience.update(t)?,
             SettingListType::About => false,
         };
         self.scroll.update(t);
@@ -306,6 +313,7 @@ impl Page for SettingsPage {
                         SettingListType::Audio => self.list_audio.render(ui, r, t),
                         SettingListType::Chart => self.list_chart.render(ui, r, t),
                         SettingListType::Debug => self.list_debug.render(ui, r, t),
+                        SettingListType::Experience => self.list_experience.render(ui, r, t),
                         SettingListType::About => render_about(ui, r, &self.icon),
                     });
                 });
@@ -313,6 +321,10 @@ impl Page for SettingsPage {
                 Ok(())
             })
         })?;
+
+        if *self.tabs.selected() == SettingListType::Experience {
+            self.list_experience.render_top(ui, t);
+        }
 
         Ok(())
     }
@@ -771,12 +783,12 @@ impl GeneralList {
                 .add_filter("font", &["ttf", "otf", "ttc"])
                 .pick_file()
             {
-                match std::fs::copy(&path, dir::custom_font_path()?) {
+                match dir::import_font(&path) {
                     Ok(_) => {
                         self.has_custom_font = true;
                         show_message(tl!("font-imported")).ok();
                     }
-                    Err(err) => show_error(anyhow::Error::new(err).context(tl!("font-import-failed"))),
+                    Err(err) => show_error(err.context(tl!("font-import-failed"))),
                 }
             }
             request_mobile_file("font_import");
@@ -920,12 +932,12 @@ impl GeneralList {
                     }
                     Err(err) => show_error(err),
                 },
-                "font_import" => match std::fs::copy(&file, dir::custom_font_path()?) {
+                "font_import" => match dir::import_font(std::path::Path::new(&file)) {
                     Ok(_) => {
                         self.has_custom_font = true;
                         show_message(tl!("font-imported")).ok();
                     }
-                    Err(err) => show_error(anyhow::Error::new(err).context(tl!("font-import-failed"))),
+                    Err(err) => show_error(err.context(tl!("font-import-failed"))),
                 },
                 _ => prpr::scene::return_file(id, file),
             }
@@ -941,8 +953,7 @@ impl GeneralList {
                 let text = text.trim().trim_end_matches('/').to_owned();
                 // 官服地址留空表示回退到官方地址；自服地址留空表示关闭自服功能；
                 // 其余情况必须是合法的 http(s) URL。
-                let valid =
-                    text.is_empty() || ((text.starts_with("http://") || text.starts_with("https://")) && Url::parse(&text).is_ok());
+                let valid = text.is_empty() || ((text.starts_with("http://") || text.starts_with("https://")) && Url::parse(&text).is_ok());
                 if !valid {
                     show_error(anyhow::anyhow!("{}", tl!("item-url-invalid")));
                     return Ok(false);
@@ -1904,10 +1915,7 @@ impl DebugList {
             return Ok(Some(true));
         }
         if self.touch_color_btn.touch(touch) {
-            let idx = TOUCH_POINT_COLORS
-                .iter()
-                .position(|it| *it == config.touch_point_color)
-                .unwrap_or(0);
+            let idx = TOUCH_POINT_COLORS.iter().position(|it| *it == config.touch_point_color).unwrap_or(0);
             config.touch_point_color = TOUCH_POINT_COLORS[(idx + 1) % TOUCH_POINT_COLORS.len()];
             return Ok(Some(true));
         }

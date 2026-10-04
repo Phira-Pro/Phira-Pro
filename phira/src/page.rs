@@ -32,8 +32,8 @@ mod settings;
 pub use settings::SettingsPage;
 
 mod transfer;
-pub use transfer::TransferPage;
 use tokio::sync::Notify;
+pub use transfer::TransferPage;
 
 use crate::{
     client::{Chart, ChartRef, File},
@@ -459,6 +459,7 @@ pub struct SharedState {
 
 thread_local! {
     static FALLBACK: RefCell<Option<FontArc>> = RefCell::default();
+    static BOLD_REFERENCE: RefCell<Option<FontArc>> = RefCell::default();
     pub static BOLD_FONT_CKSUM: RefCell<Option<String>> = RefCell::default();
 }
 
@@ -474,13 +475,23 @@ fn load_font_with_cksum(data: Vec<u8>) -> Result<(FontArc, String)> {
 }
 
 fn set_bold_font((font, cksum): (FontArc, String)) {
-    BOLD_FONT.with(move |it| *it.borrow_mut() = Some(TextPainter::new(font, FALLBACK.with(|it| it.borrow().clone()))));
+    BOLD_FONT.with(move |it| {
+        let mut painter = TextPainter::new(font, FALLBACK.with(|it| it.borrow().clone()));
+        BOLD_REFERENCE.with(|reference| {
+            if let Some(reference) = reference.borrow().as_ref() {
+                painter.normalize_to(reference);
+            }
+        });
+        *it.borrow_mut() = Some(painter);
+    });
     BOLD_FONT_CKSUM.with(move |it| *it.borrow_mut() = Some(cksum));
 }
 
 impl SharedState {
     pub async fn new(fallback: FontArc) -> Result<Self> {
         FALLBACK.with(|it| *it.borrow_mut() = Some(fallback));
+        let builtin = load_font_with_cksum(load_file("bold.ttf").await?)?;
+        BOLD_REFERENCE.with(|it| *it.borrow_mut() = Some(builtin.0.clone()));
         let path: PathBuf = dir::bold_font_path()?.into();
         let mut font = None;
         if path.exists() {
@@ -488,7 +499,7 @@ impl SharedState {
         }
         let loaded = match font {
             Some(it) => it,
-            None => load_font_with_cksum(load_file("bold.ttf").await?)?,
+            None => builtin,
         };
         set_bold_font(loaded);
         Ok(Self {

@@ -123,3 +123,6 @@ ldb-local-empty = Орон нутагийн рекорд байхгүй. Нэг 
 ldb-local-no-hit = Товшилт { $count } мөрний аль нэгэнд ч хүрээгүй
 
 flash-autoplay-unrated = Автомат тоглолт асаалттай: энэ тоглолт байршигдахгүй бөгөөд үнэлгээний тохиргоо анхны утгад буцлаа
+
+mods-perfect-sound = Perfect-time sounds
+mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.

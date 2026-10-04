@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Phira Pro</string>
+    <string name="import_chart">导入到 Phira Pro</string>
+    <string name="import_respack">导入到 Phira Pro（资源包）</string>
+</resources>

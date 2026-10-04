@@ -5,7 +5,6 @@ detail = 详细信息
 
 new-best = 新纪录
 max-combo = 最高连击
-rks-delta = RKS变化
 accuracy = 准度
 error = 误差
 

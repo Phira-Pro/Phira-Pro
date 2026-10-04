@@ -141,10 +141,6 @@ item-judge-chart = 판정 분포도
 item-judge-chart-sub = 결과 화면에 판정 타이밍 분포를 그립니다 (빠름 ← → 늦음)
 item-hp-scale = 체력바 배율
 item-hp-color = 체력바 색상
-item-upload = 점수 업로드
-item-upload-sub = 이 빌드에는 업로드 경로가 없어 이 스위치는 효과가 없습니다: 점수는 기기에만 저장됩니다
-item-upload-consent = 업로드 동의
-item-upload-consent-open = 보기
 item-history = 점수 기록
 item-history-sub = 모든 플레이를 기기에 저장: 목록 / 추세 / PB 비교 / 판정 분포 / 가져오기·내보내기
 item-history-open = 열기
@@ -161,10 +157,6 @@ font-reset-btn = 초기화
 font-imported = 글꼴을 불러왔습니다. 재시작 후 적용
 font-import-failed = 글꼴을 불러오지 못했습니다
 font-reset-done = 기본 글꼴로 되돌렸습니다. 재시작 후 적용
-upload-consent-title = 점수 업로드: 동의 및 면책
-upload-consent-accept = 읽었으며 동의합니다
-upload-consent-deny = 동의하지 않음
-upload-consent-text = 이 개조판의 성적은 어떤 서버로도 전송되지 않으며 이 기기에만 저장됩니다. 이 항목을 켜면 업로드되는 내용은 이번 플레이의 성적(채보 ID, 점수 / 정확도 / 판정, 채보 버전 타임스탬프, 계정 자격 증명)뿐이며 기기 정보나 기타 파일은 포함되지 않습니다. 또한 '판정과 플레이 방식을 변경하지 않은' 플레이만 집계되며, 오토플레이, 전체 화면 판정, 엄격 판정, 판정 범위 조정, 늦은 입력 보정, 노랑 / 빨강 보호, Hold 꼬리 판정, 체력 배율, 속도 감소, 키보드 모드 중 하나라도 켜져 있으면 거부됩니다. 온라인 대전에서는 공정성을 위해 이 옵션들이 공식 기본값으로 강제됩니다. 이 개조판은 비공식이며 TeamFlos / Phira 공식과 무관합니다. 공식 클라이언트와 성적이 다를 경우 그 결과는 사용자 본인이 감수해야 합니다.
 item-blacklist = 플레이어 차단 목록
 item-blacklist-sub = 여기 등록한 Phira ID를 기기의 모든 순위표와 사용자 목록에서 숨깁니다
 item-blacklist-open = 관리
@@ -265,10 +257,6 @@ migrate-need-login = 먼저 공식 서버에 로그인하세요
 
 migrate-enumerating = 채보 목록을 불러오는 중 (총 { $pages }페이지)...
 migrate-checking = 점수 확인 중 { $done }/{ $total }...
-
-item-pro-api-url = 자체 서버 주소 (Phira Pro)
-item-pro-api-url-sub = Phira Pro: 점수가 여기에도 업로드되고 순위표는 공식과 자체 서버 기록을 합쳐 표시합니다. 비우면 자체 서버 기능이 꺼집니다
-item-pro-api-url-off = 사용 안 함 (공식만)
 
 chart-import-label = 채보 일괄 가져오기
 chart-import-desc = 공식 클라이언트의 일괄 내보내기로 만든 zip을 가져옵니다 (단일 채보 팩도 가능). 가져온 채보는 곧바로 로컬 채보 목록에 나타납니다

@@ -13,7 +13,7 @@ exclude = ["vendor"]
 resolver = "2"
 
 [workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(closed)', 'cfg(record)', 'cfg(flash)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(closed)', 'cfg(flash)'] }
 
 [workspace.package]
 version = "0.8.2"

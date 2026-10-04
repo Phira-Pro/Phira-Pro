@@ -2,7 +2,6 @@ retry = WIEDERHOLEN
 proceed = FORTFAHREN
 new-best = NEUER HIGHSCORE
 max-combo = MAXIMALKOMBO
-rks-delta = RKS-ÄNDERUNG
 accuracy = Genauigkeit
 error = Fehler
 uploading = Punktestand wird hochgeladen

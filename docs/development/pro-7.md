@@ -35,4 +35,8 @@ Windows 本地：在仓库运行 scripts/package-windows.ps1；产物统一放�
 
 云端操作：打开仓库 → Actions → Build iOS IPA → Run workflow → 选择分支 → Run workflow。成功后打开该次运行，在 Artifacts 下载 PhiraPro-unsigned-ipa，解压拿到 IPA。现有工作流不签名，需要自行重签安装，不会创建 GitHub Release。工作流必须已在默认分支存在，才能看到手动运行按钮。官方说明：https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow
 
-截至本次检查，云端只有 iOS 工作流。组织 Secrets 只是可供工作流读取的配置，不会自行建立 APK 构建。Android 包装工程目前在被 Git 忽略的 phira-android 中，需要提供可供 CI 获取的包装工程及签名变量名称后才能接通 APK 工作流；不要把 keystore、密码或 data.json 加入 Git。本次已验证 Android arm64 Rust 检查，不宣称云端 APK 已构建。
+Android 工作流已由其他开发者加入并合并：Actions → Build Android APK → Run workflow，成功后下载 PhiraPro-android-apk Artifact。工作流读取组织 Secrets：PHIRA_PRO_KEYSTORE_BASE64、PHIRA_PRO_KEYSTORE_PASSWORD、PHIRA_PRO_KEY_ALIAS、PHIRA_PRO_KEY_PASSWORD；必须允许此仓库访问这些 Secrets。日常运行不会自动发布 Release。
+
+Android 本地：配置 JDK 21、ANDROID_HOME、ANDROID_NDK_HOME（NDK 27.2.12479018）及 cargo-ndk，在仓库运行 scripts/package-android.ps1。签名用 PHIRA_PRO_KEYSTORE_PATH 和上述三个密码/别名环境变量，或未入库的 phira-android/keystore.properties。产物放在仓库外 dist/android，版本为 0.8.2-pro.7（versionCode 42，arm64-v8a）。不提交密钥、密码或用户数据。补齐 Android HTTPS 验证的 JVM 组件，修复旧版 Android 全屏 API 调用。
+
+本轮同步了独立服务器的新成绩上传接口；理论分数仍仅供结算显示，上传使用普通分数，正解音仍禁止上传。

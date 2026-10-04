@@ -128,10 +128,6 @@ item-judge-chart = Distribusi penilaian
 item-judge-chart-sub = Menggambar distribusi waktu di layar hasil (awal ke telat)
 item-hp-scale = Pengali bilah nyawa
 item-hp-color = Warna bilah nyawa
-item-upload = Unggah skor
-item-upload-sub = Build ini tidak menyertakan kanal unggah, jadi sakelarnya tidak berpengaruh: skor hanya tersimpan di perangkat
-item-upload-consent = Persetujuan unggah
-item-upload-consent-open = Lihat
 item-history = Riwayat skor
 item-history-sub = Setiap permainan disimpan lokal: daftar / tren / perbandingan PB / distribusi penilaian / impor & ekspor
 item-history-open = Buka
@@ -148,10 +144,6 @@ font-reset-btn = Reset
 font-imported = Font diimpor; restart untuk menerapkan
 font-import-failed = Gagal mengimpor font
 font-reset-done = Font bawaan dipulihkan; restart untuk menerapkan
-upload-consent-title = Unggah skor: persetujuan dan penafian
-upload-consent-accept = Saya sudah membaca dan setuju
-upload-consent-deny = Tidak setuju
-upload-consent-text = Skor dari versi mod ini tidak dikirim ke server mana pun dan hanya disimpan di perangkat ini. Jika opsi ini aktif, yang diunggah hanya hasil permainan ini (ID chart, skor / akurasi / penilaian, stempel waktu versi chart, kredensial akun) - tanpa informasi perangkat atau file lain; dan hanya permainan tanpa perubahan penilaian dan gameplay yang dihitung - mengaktifkan autoplay, penilaian layar penuh, penilaian ketat, penyesuaian jendela penilaian, toleransi tekan terlambat, perlindungan kuning / merah, penilaian ujung Hold, pengali HP, pengurangan kecepatan, atau mode keyboard akan ditolak. Pertandingan online memaksa opsi ini kembali ke default resmi demi keadilan. Versi mod ini tidak resmi dan tidak terkait dengan TeamFlos / Phira; jika hasil berbeda dari klien resmi, risiko ditanggung pengguna.
 item-blacklist = Daftar blokir pemain
 item-blacklist-sub = Sembunyikan ID Phira ini di semua papan peringkat dan daftar pengguna lokal
 item-blacklist-open = Kelola
@@ -252,10 +244,6 @@ migrate-need-login = Silakan masuk ke server resmi dulu
 
 migrate-enumerating = Mendaftar lagu ({ $pages } halaman)...
 migrate-checking = Memeriksa skormu { $done }/{ $total }...
-
-item-pro-api-url = URL Server Pro
-item-pro-api-url-sub = Phira Pro: skor juga diunggah ke sini dan papan peringkat menggabungkan entri resmi dan Pro; biarkan kosong untuk menonaktifkan fitur Pro
-item-pro-api-url-off = Nonaktif (resmi saja)
 
 chart-import-label = Impor Lagu Massal
 chart-import-desc = Impor zip hasil ekspor massal klien resmi (satu paket lagu juga bisa); lagu yang diimpor langsung muncul di pustaka lokal

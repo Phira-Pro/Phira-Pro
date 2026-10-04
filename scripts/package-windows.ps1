@@ -6,13 +6,11 @@ $deliveryRoot = Join-Path (Split-Path -Parent $workspace) 'dist\windows'
 $name = "PhiraPro-v$Version-win64"
 $package = Join-Path $deliveryRoot $name
 if (-not $SkipBuild) {
-    $previousFlags = $env:RUSTFLAGS
     Push-Location $workspace
     try {
-        $env:RUSTFLAGS = '--cfg record'
         & cargo build --locked --release -p phira-main
         if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
-    } finally { $env:RUSTFLAGS = $previousFlags; Pop-Location }
+    } finally { Pop-Location }
 }
 $exe = Join-Path $workspace 'target\release\phira-main.exe'
 if (-not (Test-Path -LiteralPath $exe)) { throw 'phira-main.exe missing' }

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 游戏是全屏 OpenGL 应用，用框架 Material 主题即可，无需 AppCompat / Material 库。 -->
+    <style name="Theme.PhiraPro" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+
+    <style name="Theme.PhiraPro.Player" parent="Theme.PhiraPro">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+</resources>

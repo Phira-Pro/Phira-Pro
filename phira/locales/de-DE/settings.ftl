@@ -145,10 +145,6 @@ item-judge-chart = Urteilsverteilung
 item-judge-chart-sub = Zeichnet im Ergebnis eine Timing-Verteilung (früh bis spät)
 item-hp-scale = Lebensleisten-Faktor
 item-hp-color = Lebensleisten-Farbe
-item-upload = Ergebnisse hochladen
-item-upload-sub = Dieser Build enthält keinen Upload-Kanal, der Schalter hat also keine Wirkung: Ergebnisse bleiben lokal
-item-upload-consent = Upload-Vereinbarung
-item-upload-consent-open = Ansehen
 item-history = Ergebnisverlauf
 item-history-sub = Jede Runde lokal gespeichert: Liste / Trend / PB-Vergleich / Urteilsverteilung / Import & Export
 item-history-open = Öffnen
@@ -165,10 +161,6 @@ font-reset-btn = Zurücksetzen
 font-imported = Schrift importiert; nach dem Neustart aktiv
 font-import-failed = Schrift konnte nicht importiert werden
 font-reset-done = Eingebaute Schrift wiederhergestellt; nach dem Neustart aktiv
-upload-consent-title = Ergebnis-Upload: Einwilligung und Haftungsausschluss
-upload-consent-accept = Gelesen und akzeptiert
-upload-consent-deny = Ablehnen
-upload-consent-text = Die Ergebnisse dieser Version werden an keinen Server gesendet und bleiben auf diesem Gerät. Wenn diese Option aktiviert ist, enthält der Upload nur das Ergebnis dieser Runde (Chart-ID, Punktzahl / Genauigkeit / Bewertungen, Zeitstempel der Chart-Version, Konto-Anmeldedaten) - keine Geräteinformationen oder andere Dateien; und nur Runden ohne veränderte Bewertung und Spielweise werden gezählt - Autoplay, Vollbild-Bewertung, strenge Bewertung, angepasste Bewertungsfenster, Toleranz für spätes Drücken, Gelb-/Rot-Schutz, Hold-Endbewertung, HP-Multiplikator, Geschwindigkeitsreduzierung oder Tastaturmodus führen zur Ablehnung. Online-Duelle erzwingen diese Optionen aus Fairnessgründen auf die offiziellen Standardwerte. Diese Version ist inoffiziell und steht in keiner Verbindung zu TeamFlos / Phira; weichen die Ergebnisse vom offiziellen Client ab, trägt der Nutzer die Konsequenzen.
 item-blacklist = Spieler-Blacklist
 item-blacklist-sub = Diese Phira-IDs in allen lokalen Ranglisten und Nutzerlisten ausblenden
 item-blacklist-open = Verwalten
@@ -269,10 +261,6 @@ migrate-need-login = Bitte zuerst beim offiziellen Server anmelden
 
 migrate-enumerating = Charts werden aufgelistet ({ $pages } Seiten)...
 migrate-checking = Deine Scores werden geprüft { $done }/{ $total }...
-
-item-pro-api-url = Pro-Server-URL
-item-pro-api-url-sub = Phira Pro: Scores werden zusätzlich hier hochgeladen und Bestenlisten führen offizielle und Pro-Einträge zusammen; leer lassen deaktiviert alle Pro-Funktionen
-item-pro-api-url-off = Deaktiviert (nur offiziell)
 
 chart-import-label = Charts stapelweise importieren
 chart-import-desc = Importiert ein ZIP aus dem Stapel-Export des offiziellen Clients (auch ein einzelnes Chart-Paket); importierte Charts erscheinen sofort in der lokalen Bibliothek

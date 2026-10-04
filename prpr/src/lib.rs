@@ -85,10 +85,6 @@ pub mod ui;
 #[cfg(feature = "log")]
 pub mod log;
 
-#[rustfmt::skip]
-#[cfg(record)]
-pub mod inner;
-
 pub use scene::Main;
 
 pub fn build_conf() -> macroquad::window::Conf {

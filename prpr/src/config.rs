@@ -10,10 +10,9 @@ pub static TIPS: Lazy<Vec<String>> = Lazy::new(|| include_str!("tips.txt").split
 
 /// Phira Pro：自服（`phira-pro-api`）基础地址。
 ///
-/// 「读官服、写自服」：谱面 / 用户 / 全局 rks 仍走官服；成绩仅上传到自服，
-/// 单谱排行榜把官服和自服的记录合并排序。
-/// **留空 = 关闭全部自服功能和成绩上传**。
-pub const DEFAULT_PRO_API_URL: &str = "https://api.phira.pro";
+/// 「读官服、写自服」：谱面 / 用户 / 全局 rks 仍走官服；成绩固定上传到这里，
+/// 单谱排行榜把官服与自服的记录合并展示。**固定值，不可配置。**
+pub const PRO_API_URL: &str = "https://api.phira.pro";
 
 /// Phira Pro：结算界面「应用推荐偏移」请求的落点。
 ///
@@ -195,21 +194,6 @@ pub struct Config {
     pub ending_judge_chart: bool,
     /// 尾判：开启后 hold 与 osu!mania 一样头尾各判一次（偏移条也会显示两次）。
     pub hold_tail_judge: bool,
-    /// 是否上传成绩到 Phira 官方服务器（默认关；打开前需先同意上传协议）。
-    ///
-    /// 这也是「官方游玩模式」总开关：打开时把判定 / 玩法设置临时切到官方默认（开启前的
-    /// 配置存到 [`Config::upload_saved`]），关闭（含手动改设置触发的自动关闭）时还原。
-    ///
-    /// 仅 `record` 构建存在；开源构建里整个「成绩上传」功能都不存在。
-    #[cfg(record)]
-    pub upload_record: bool,
-    /// 是否已阅读并同意「成绩上传知情同意与免责声明」。
-    #[cfg(record)]
-    pub upload_agreed: bool,
-    /// 「上传成绩 / 官方游玩模式」开启前保存的玩家自己的配置，关闭时用于还原。
-    #[cfg(record)]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub upload_saved: Option<Box<OfficialModeSaved>>,
     /// 软件 UI 主题：强调色（十六进制 RRGGBB，例如 "2196f3"）。
     pub ui_accent: String,
     /// 软件 UI 主题：表面色（按钮与弹窗底色，十六进制 RRGGBB）。
@@ -235,8 +219,6 @@ pub struct Config {
     /// Phira API 基础地址（登录、谱面列表、成绩上传等）。留空则回退到官方地址。
     /// 自建/私服时改成自己的 API 地址即可脱离官方服务。
     pub api_url: String,
-    /// Phira Pro：自服（`phira-pro-api`）地址，留空关闭全部自服功能。
-    pub pro_api_url: String,
     /// Phira 网页前端地址（谱面页 / 用户页 / 合集页 / 条款链接等）。留空则回退到官方地址。
     pub web_url: String,
     /// 服务器状态页地址（设置页「服务器状态」按钮）。留空则回退到官方地址。
@@ -274,93 +256,6 @@ pub struct Config {
     pub volume_sfx: f32,
     // for compatibility
     autoplay: Option<bool>,
-}
-
-/// 「官方游玩模式」开启前保存的、可能被强制改动的配置项（关闭时用于还原）。
-#[cfg(record)]
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(default)]
-#[serde(rename_all = "camelCase")]
-pub struct OfficialModeSaved {
-    pub offline_mode: bool,
-    pub use_keyboard: bool,
-    pub speed: f32,
-    pub flow_speed: f32,
-    pub mods: Mods,
-    pub lim_perfect_plus_ms: f32,
-    pub lim_perfect_ms: f32,
-    pub lim_good_ms: f32,
-    pub lim_bad_ms: f32,
-    pub late_leniency_ms: f32,
-    pub drag_protect: bool,
-    pub flick_protect: bool,
-    pub hold_tail_judge: bool,
-    pub hp_amount: f32,
-    pub hp_scale: f32,
-}
-
-#[cfg(record)]
-impl Default for OfficialModeSaved {
-    fn default() -> Self {
-        Self {
-            offline_mode: false,
-            use_keyboard: false,
-            speed: 1.,
-            flow_speed: 1.,
-            mods: Mods::empty(),
-            lim_perfect_plus_ms: (crate::judge::LIMIT_PERFECT_PLUS * 1000.) as f32,
-            lim_perfect_ms: (crate::judge::LIMIT_PERFECT * 1000.) as f32,
-            lim_good_ms: (crate::judge::LIMIT_GOOD * 1000.) as f32,
-            lim_bad_ms: (crate::judge::LIMIT_BAD * 1000.) as f32,
-            late_leniency_ms: 0.,
-            drag_protect: false,
-            flick_protect: false,
-            hold_tail_judge: false,
-            hp_amount: 1.,
-            hp_scale: 1.,
-        }
-    }
-}
-
-#[cfg(record)]
-impl OfficialModeSaved {
-    fn capture(c: &Config) -> Self {
-        Self {
-            offline_mode: c.offline_mode,
-            use_keyboard: c.use_keyboard,
-            speed: c.speed,
-            flow_speed: c.flow_speed,
-            mods: c.mods,
-            lim_perfect_plus_ms: c.lim_perfect_plus_ms,
-            lim_perfect_ms: c.lim_perfect_ms,
-            lim_good_ms: c.lim_good_ms,
-            lim_bad_ms: c.lim_bad_ms,
-            late_leniency_ms: c.late_leniency_ms,
-            drag_protect: c.drag_protect,
-            flick_protect: c.flick_protect,
-            hold_tail_judge: c.hold_tail_judge,
-            hp_amount: c.hp_amount,
-            hp_scale: c.hp_scale,
-        }
-    }
-
-    fn restore(self, c: &mut Config) {
-        c.offline_mode = self.offline_mode;
-        c.use_keyboard = self.use_keyboard;
-        c.speed = self.speed;
-        c.flow_speed = self.flow_speed;
-        c.mods = self.mods;
-        c.lim_perfect_plus_ms = self.lim_perfect_plus_ms;
-        c.lim_perfect_ms = self.lim_perfect_ms;
-        c.lim_good_ms = self.lim_good_ms;
-        c.lim_bad_ms = self.lim_bad_ms;
-        c.late_leniency_ms = self.late_leniency_ms;
-        c.drag_protect = self.drag_protect;
-        c.flick_protect = self.flick_protect;
-        c.hold_tail_judge = self.hold_tail_judge;
-        c.hp_amount = self.hp_amount;
-        c.hp_scale = self.hp_scale;
-    }
 }
 
 /// 一次游玩实际使用的判定窗口（单位：秒）。
@@ -415,12 +310,6 @@ impl Default for Config {
             combo_text: "COMBO".to_owned(),
             ending_judge_chart: false,
             hold_tail_judge: false,
-            #[cfg(record)]
-            upload_record: false,
-            #[cfg(record)]
-            upload_agreed: false,
-            #[cfg(record)]
-            upload_saved: None,
             ui_accent: "2196f3".to_owned(),
             ui_surface: "2a323c".to_owned(),
             show_fps: false,
@@ -436,7 +325,6 @@ impl Default for Config {
             lim_perfect_ms: (crate::judge::LIMIT_PERFECT * 1000.) as f32,
             mods: Mods::default(),
             api_url: String::new(),
-            pro_api_url: DEFAULT_PRO_API_URL.to_owned(),
             web_url: String::new(),
             status_url: String::new(),
             note_scale: 1.0,
@@ -705,10 +593,8 @@ impl Config {
     /// Phira Pro Flash：开启「自动游玩」时调用。
     ///
     /// 自动游玩是官方 Phira 自带的 Mod，因此保留；但它会让成绩不可上传
-    /// （`AUTOPLAY` 在 `UNRATED` 里，`is_official_play` 会判定为false）。
-    /// 这里把**所有会影响成绩可比性的设置项**恢复成官方默认，并确保当前不处于
-    /// 「可上传」状态：直接关掉上传开关，且不留可还原的旧配置（否则会在关闭上传时
-    /// 把非官方设置又还原回来）。`mods` 本身不动。
+    /// （`AUTOPLAY` 在 `UNRATED` 里，`is_official_play` 会判定为 false）。
+    /// 这里把**所有会影响成绩可比性的设置项**恢复成官方默认。`mods` 本身不动。
     #[cfg(flash)]
     pub fn sanitize_on_autoplay(&mut self) {
         self.offline_mode = false;
@@ -725,58 +611,6 @@ impl Config {
         self.hold_tail_judge = false;
         self.hp_amount = 1.;
         self.hp_scale = 1.;
-        #[cfg(record)]
-        {
-            self.upload_record = false;
-            self.upload_saved = None;
-        }
-    }
-
-    /// 打开「上传成绩」：先快照玩家当前配置，再强制切到官方默认。
-    /// （调用方需先取得上传协议同意。）
-    #[cfg(record)]
-    pub fn enable_upload(&mut self) {
-        if self.upload_record {
-            return;
-        }
-        self.upload_saved = Some(Box::new(OfficialModeSaved::capture(self)));
-        self.upload_record = true;
-        let mut mods = self.mods;
-        self.force_official_play(&mut mods);
-    }
-
-    /// 关闭「上传成绩」：把配置还原成打开前的样子。
-    #[cfg(record)]
-    pub fn disable_upload(&mut self) {
-        if !self.upload_record {
-            return;
-        }
-        self.upload_record = false;
-        if let Some(saved) = self.upload_saved.take() {
-            saved.restore(self);
-        }
-    }
-
-    /// 设置「上传成绩」的开 / 关。
-    #[cfg(record)]
-    pub fn set_upload(&mut self, on: bool) {
-        if on {
-            self.enable_upload();
-        } else {
-            self.disable_upload();
-        }
-    }
-
-    /// 已打开「上传成绩」但配置又被改得不再官方（说明玩家手动改过判定 / 玩法设置）
-    /// 时，自动关闭并还原。返回是否发生了自动关闭。
-    #[cfg(record)]
-    pub fn sync_upload(&mut self) -> bool {
-        if self.upload_record && !self.non_official_items(self.mods).is_empty() {
-            self.disable_upload();
-            true
-        } else {
-            false
-        }
     }
 
     /// 把当前主题色写入 `prpr::ui` 的全局量，供 `Ui::accent` / `Ui::background` 读取。
@@ -983,34 +817,5 @@ mod tests {
         assert_eq!(changed.len(), items.len());
         assert!(conf.is_official_play(mods));
         assert!(!mods.intersects(Mods::UNRATED | Mods::STRICT_JUDGE));
-    }
-
-    /// 「上传成绩」开关：打开切官方默认、关闭还原；手动改设置会触发自动关闭并还原。
-    #[cfg(record)]
-    #[test]
-    fn upload_switch() {
-        let mut conf = Config::default();
-        conf.speed = 0.8;
-        conf.lim_perfect_ms = 100.;
-        conf.late_leniency_ms = 70.;
-        conf.hp_scale = 1.5;
-        conf.mods.insert(Mods::AUTOPLAY);
-
-        conf.set_upload(true);
-        assert!(conf.upload_record);
-        assert!(conf.is_official_play(conf.mods));
-        assert!((conf.lim_perfect_ms - 80.).abs() < 1e-6);
-        assert!(conf.late_leniency_ms.abs() < 1e-6);
-        assert!((conf.speed - 1.).abs() < 1e-6);
-
-        // 手动改一项 → 自动关闭 + 还原。
-        conf.lim_perfect_ms = 99.;
-        assert!(conf.sync_upload());
-        assert!(!conf.upload_record);
-        assert!((conf.lim_perfect_ms - 100.).abs() < 1e-6);
-        assert!((conf.speed - 0.8).abs() < 1e-6);
-        assert!((conf.late_leniency_ms - 70.).abs() < 1e-6);
-        assert!((conf.hp_scale - 1.5).abs() < 1e-6);
-        assert!(conf.mods.contains(Mods::AUTOPLAY));
     }
 }

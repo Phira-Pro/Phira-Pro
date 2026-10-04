@@ -1,0 +1,75 @@
+import groovy.json.JsonSlurper
+import org.gradle.api.initialization.resolve.RepositoriesMode
+
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        // `inputbox` 的 Android 支持以 AAR 形式随 Rust crate `inputbox-android` 一起分发，
+        // 这里通过 cargo metadata 定位它自带的本地 Maven 仓库（见 inputbox 官方 README）。
+        // 该仓库同时提供 POM（packaging=aar），因此走标准 POM 元数据即可解析到 .aar。
+        maven {
+            url = findCrateBundledProject("inputbox-android")
+        }
+        maven {
+            url = "https://raw.githubusercontent.com/rustls/rustls-platform-verifier/maven-archive/android-release-support/maven/"
+            content { includeGroup "org.rustls" }
+        }
+    }
+}
+
+rootProject.name = "phira-pro-android"
+include ":app"
+
+// Cargo can contain both verifier 0.6 (miniquad) and 0.7 (reqwest). They share
+// the JVM classes; package the newest compatible component once, avoiding
+// duplicate classes from the old Maven coordinates.
+gradle.ext.rustlsAndroidVersion = cargoAndroidPackages()
+        .findAll { it.name == 'rustls-platform-verifier-android' }
+        .collect { it.version }
+        .sort { a, b ->
+            def av = a.tokenize('.').collect { it as int }
+            def bv = b.tokenize('.').collect { it as int }
+            for (int i = 0; i < 3; i++) {
+                if (av[i] != bv[i]) return av[i] <=> bv[i]
+            }
+            return 0
+        }.last()
+
+/**
+ * 找到某个 Rust crate 随源码一起分发的本地 Maven 仓库目录。
+ *
+ * @param packageName crate 名（如 `inputbox-android`）
+ * @return 该 crate 目录下 `maven/` 子目录的绝对路径
+ */
+String findCrateBundledProject(String packageName) {
+    def pkg = cargoAndroidPackages().find { it.name == packageName }
+    if (pkg == null) {
+        throw new GradleException("cargo metadata 未找到 crate `${packageName}`，请确认在仓库根目录可正常执行 cargo")
+    }
+    def manifestPath = file(pkg.manifest_path)
+    return new File(manifestPath.parentFile, "maven").path
+}
+
+List cargoAndroidPackages() {
+    if (gradle.ext.has('cargoAndroidPackages')) return gradle.ext.cargoAndroidPackages
+    def dependencyText = providers.exec {
+        commandLine(
+                "cargo", "metadata", "--locked", "--format-version", "1",
+                "--filter-platform", "aarch64-linux-android",
+                "--manifest-path", "${rootDir}/../phira/Cargo.toml"
+        )
+    }.standardOutput.asText.get()
+
+    gradle.ext.cargoAndroidPackages = new JsonSlurper().parseText(dependencyText).packages
+    return gradle.ext.cargoAndroidPackages
+}

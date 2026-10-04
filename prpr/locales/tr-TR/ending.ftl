@@ -2,7 +2,6 @@ retry = TEKRAR
 proceed = DEVAM
 new-best = YENİ REKOR
 max-combo = YENİ KOMBO
-rks-delta = RKS DELTA
 accuracy = Doğruluk
 error = Hata
 uploading = Sonuçlar yükleniyor

@@ -1,0 +1,15 @@
+// Phira Pro 的 Android 壳工程（独立 Gradle 工程，不再依赖 apktool 解包 APK）。
+//
+// 构建：./gradlew assembleRelease
+//   前置：
+//     - 环境变量 ANDROID_HOME     指向 Android SDK
+//     - 环境变量 ANDROID_NDK_HOME 指向 NDK 27.2.12479018（r27c）
+//     - cargo install cargo-ndk
+//     - rustup target add aarch64-linux-android
+//   产物：app/build/outputs/apk/release/app-release.apk
+//
+// Rust 侧（libphira.so）由 app 模块的 cargoNdkBuild 任务自动编译并放进 jniLibs。
+
+plugins {
+    id 'com.android.application' version '8.9.2' apply false
+}

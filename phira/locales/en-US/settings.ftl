@@ -167,10 +167,6 @@ item-judge-chart = Judgement Chart
 item-judge-chart-sub = Draw a judgement timing distribution chart on the ending screen (early <- -> late)
 item-hp-scale = Health Bar Rate
 item-hp-color = Health Bar Color
-item-upload = Upload Scores
-item-upload-sub = This build ships without the upload channel, so the switch has no effect: scores stay on this device
-item-upload-consent = Upload Consent
-item-upload-consent-open = View
 item-history = Score History
 item-history-sub = Every play saved locally: list / trend / PB comparison / judgement distribution / import & export
 item-history-open = Open
@@ -187,10 +183,6 @@ font-reset-btn = Reset
 font-imported = Font imported; restart the app to apply
 font-import-failed = Failed to import the font
 font-reset-done = Built-in font restored; restart the app to apply
-upload-consent-title = Score Upload: Informed Consent and Disclaimer
-upload-consent-accept = I have read and agree
-upload-consent-deny = Disagree
-upload-consent-text = Results from this build are not sent to any server and stay on this device. When enabled, the upload contains only: this play's result (chart ID, score / accuracy / judgements, chart version timestamp, account credentials) - no device information or other files; and only plays with unmodified judgement and gameplay count toward it - enabling any of autoplay, fullscreen judgement, strict judgement, adjusted judgement windows, late-hit leniency, drag / flick protection, hold tail judgement, HP multiplier, speed reduction, or keyboard mode will be rejected. Online matches force these options back to the official defaults for fairness. This build is unofficial and unaffiliated with TeamFlos / Phira; if results differ from the official client, you bear the consequences.
 item-blacklist = Player Blacklist
 item-blacklist-sub = Hide these Phira IDs from every local leaderboard and user list
 item-blacklist-open = Manage
@@ -279,10 +271,6 @@ migrate-need-login = Please sign in to the official server first
 
 migrate-enumerating = Listing charts ({ $pages } pages)...
 migrate-checking = Checking your scores { $done }/{ $total }...
-
-item-pro-api-url = Pro Server URL
-item-pro-api-url-sub = Phira Pro: records are also uploaded here and leaderboards merge official + Pro entries; leave empty to disable all Pro features
-item-pro-api-url-off = Disabled (official only)
 
 chart-import-label = Batch Import Charts
 chart-import-desc = Import a zip produced by the official client's batch export (a single chart pack also works); imported charts show up in your local library right away

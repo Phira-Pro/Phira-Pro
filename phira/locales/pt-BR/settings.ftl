@@ -133,10 +133,6 @@ item-judge-chart = Distribuição de julgamentos
 item-judge-chart-sub = Desenha a distribuição de tempo na tela de resultado (adiantado → atrasado)
 item-hp-scale = Multiplicador da barra de vida
 item-hp-color = Cor da barra de vida
-item-upload = Enviar pontuações
-item-upload-sub = Esta versão não inclui o canal de envio, então o interruptor não tem efeito: as pontuações ficam no aparelho
-item-upload-consent = Consentimento de envio
-item-upload-consent-open = Ver
 item-history = Histórico de pontuações
 item-history-sub = Cada partida salva localmente: lista / tendência / comparação de PB / distribuição de julgamentos / importar e exportar
 item-history-open = Abrir
@@ -153,10 +149,6 @@ font-reset-btn = Restaurar
 font-imported = Fonte importada; reinicie para aplicar
 font-import-failed = Falha ao importar a fonte
 font-reset-done = Fonte embutida restaurada; reinicie para aplicar
-upload-consent-title = Envio de pontuações: consentimento e isenção
-upload-consent-accept = Li e concordo
-upload-consent-deny = Discordo
-upload-consent-text = Os resultados desta versão não são enviados a nenhum servidor e ficam apenas neste dispositivo. Quando ativado, o envio contém somente o resultado desta partida (ID do chart, pontuação / precisão / julgamentos, carimbo de versão do chart, credenciais da conta) - nenhuma informação do dispositivo ou outro arquivo; e apenas partidas sem julgamento e jogabilidade alterados são contadas - ativar autoplay, julgamento em tela cheia, julgamento estrito, ajuste das janelas de julgamento, tolerância a toques tardios, proteção amarela / vermelha, julgamento de fim de Hold, multiplicador de HP, redução de velocidade ou modo teclado faz com que seja recusado. Partidas online forçam essas opções aos padrões oficiais por justiça. Esta versão é não oficial e não tem relação com a TeamFlos / Phira; se os resultados divergirem do cliente oficial, o usuário assume as consequências.
 item-blacklist = Lista de bloqueio
 item-blacklist-sub = Oculta estes IDs Phira em todos os rankings e listas de usuários locais
 item-blacklist-open = Gerenciar
@@ -257,10 +249,6 @@ migrate-need-login = Entre primeiro no servidor oficial
 
 migrate-enumerating = Listando músicas ({ $pages } páginas)...
 migrate-checking = Verificando suas pontuações { $done }/{ $total }...
-
-item-pro-api-url = URL do servidor Pro
-item-pro-api-url-sub = Phira Pro: as pontuações também são enviadas aqui e os rankings mesclam entradas oficiais e Pro; deixe vazio para desativar os recursos Pro
-item-pro-api-url-off = Desativado (somente oficial)
 
 chart-import-label = Importar músicas em lote
 chart-import-desc = Importa um zip gerado pela exportação em lote do cliente oficial (um único pacote também funciona); as músicas importadas aparecem na biblioteca local na hora

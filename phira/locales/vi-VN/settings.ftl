@@ -146,10 +146,6 @@ item-judge-chart = Biểu đồ phán định
 item-judge-chart-sub = Vẽ biểu đồ phân bố thời điểm phán định ở màn kết quả (sớm → muộn)
 item-hp-scale = Hệ số thanh máu
 item-hp-color = Màu thanh máu
-item-upload = Tải điểm lên
-item-upload-sub = Bản này không kèm kênh tải lên, nên công tắc không có tác dụng: điểm chỉ lưu trong máy
-item-upload-consent = Đồng ý tải lên
-item-upload-consent-open = Xem
 item-history = Lịch sử điểm
 item-history-sub = Mọi lượt chơi được lưu trong máy: danh sách / xu hướng / so sánh PB / phân bố phán định / nhập & xuất
 item-history-open = Mở
@@ -166,10 +162,6 @@ font-reset-btn = Đặt lại
 font-imported = Đã nhập phông; khởi động lại để áp dụng
 font-import-failed = Nhập phông thất bại
 font-reset-done = Đã khôi phục phông tích hợp; khởi động lại để áp dụng
-upload-consent-title = Tải điểm lên: đồng ý và miễn trừ trách nhiệm
-upload-consent-accept = Tôi đã đọc và đồng ý
-upload-consent-deny = Không đồng ý
-upload-consent-text = Điểm của bản mod này không được gửi đến bất kỳ máy chủ nào và chỉ lưu trên máy này. Khi bật mục này, nội dung tải lên chỉ gồm kết quả của ván này (ID phổ, điểm / độ chính xác / phán định, dấu thời gian phiên bản phổ, thông tin tài khoản) - không gồm thông tin thiết bị hay tệp khác; và chỉ những ván không thay đổi phán định và cách chơi mới được tính - bật bất kỳ mục nào trong số tự động chơi, phán định toàn màn hình, phán định nghiêm ngặt, chỉnh cửa sổ phán định, bù trừ nhấn muộn, bảo vệ vàng / đỏ, phán định đuôi Hold, hệ số HP, giảm tốc độ hoặc chế độ bàn phím đều bị từ chối. Đấu trực tuyến buộc các mục này về mặc định chính thức để đảm bảo công bằng. Bản mod này là không chính thức và không liên quan đến TeamFlos / Phira; nếu điểm khác với ứng dụng chính thức, người dùng tự chịu trách nhiệm.
 item-blacklist = Danh sách chặn người chơi
 item-blacklist-sub = Ẩn các ID Phira này khỏi mọi bảng xếp hạng và danh sách người dùng trong máy
 item-blacklist-open = Quản lý
@@ -270,10 +262,6 @@ migrate-need-login = Vui lòng đăng nhập máy chủ chính thức trước
 
 migrate-enumerating = Đang liệt kê phổ ({ $pages } trang)...
 migrate-checking = Đang kiểm tra điểm { $done }/{ $total }...
-
-item-pro-api-url = Địa chỉ máy chủ Pro
-item-pro-api-url-sub = Phira Pro: điểm cũng được tải lên đây và bảng xếp hạng gộp cả bản ghi chính thức lẫn Pro; để trống sẽ tắt các tính năng Pro
-item-pro-api-url-off = Đã tắt (chỉ chính thức)
 
 chart-import-label = Nhập phổ hàng loạt
 chart-import-desc = Nhập zip do bản chính thức xuất hàng loạt tạo ra (một gói phổ cũng được); phổ đã nhập sẽ hiện ngay trong thư viện cục bộ

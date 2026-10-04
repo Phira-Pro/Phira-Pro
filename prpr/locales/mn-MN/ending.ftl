@@ -2,7 +2,6 @@ retry = ДАХИН ОРОЛДОХ
 proceed = ҮРГЭЛЖЛҮҮЛЭХ
 new-best = ШИНЭ РЕКОРД
 max-combo = MAX COMBO
-rks-delta = RKS-ИЙН ӨӨРЧЛӨЛТ
 accuracy = Нарийвчлал
 error = Алдаа
 uploading = Үр дүнг байршуулж байна...

@@ -2,7 +2,6 @@ retry = 재시도
 proceed = 계속
 new-best = 새로운 최고 기록
 max-combo = 최대 콤보
-rks-delta = RKS 변화량
 accuracy = 정확도
 error = 오차
 uploading = 결과 업로드중…

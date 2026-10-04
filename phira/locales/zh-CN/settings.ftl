@@ -166,10 +166,6 @@ item-judge-chart = 结算判定分布图
 item-judge-chart-sub = 结算画面画一张判定时间分布图（早 ← → 晚），0ms 居中、左蓝右橙
 item-hp-scale = 血条整体倍率
 item-hp-color = 血条颜色
-item-upload = 上传成绩
-item-upload-sub = 本构建未包含上传通道，开关暂无实际作用：成绩只存本机
-item-upload-consent = 成绩上传协议
-item-upload-consent-open = 查看
 item-history = 成绩历史
 item-history-sub = 本地保存的每次游玩记录：列表 / 趋势 / PB 对比 / 判定分布对比 / 导入导出
 item-history-open = 打开
@@ -186,10 +182,6 @@ font-reset-btn = 恢复默认
 font-imported = 字体已导入，重启 App 后生效
 font-import-failed = 导入字体失败
 font-reset-done = 已恢复默认字体，重启 App 后生效
-upload-consent-title = 成绩上传：知情同意与免责声明
-upload-consent-accept = 我已阅读并同意
-upload-consent-deny = 不同意
-upload-consent-text = 本改版的成绩不会被发往任何服务器，只会保存在本机。若此项启用，上传内容为：本局成绩（谱面 ID、分数 / 准确率 / 判定、谱面版本时间戳、账号凭证），不含设备信息或其它文件；并且只有「未改动判定与玩法」的对局才会计入——自动游玩、全屏判定、严格判定、判定窗口调整、晚按补偿、黄键 / 红键保护、Hold 尾判、血条倍率、降速、键盘模式等任一开启都会被拒绝。联机对战会强制把这些选项还原为官方默认值以保证公平。本改版为非官方改版，与 TeamFlos / Phira 官方无关；若成绩与官方客户端不一致，后果由使用者自行承担。
 item-blacklist = 玩家黑名单
 item-blacklist-sub = 名单内的 Phira ID 不会在本机任何排行榜与用户列表里显示
 item-blacklist-open = 管理
@@ -278,10 +270,6 @@ migrate-need-login = 请先登录官服账号
 
 migrate-enumerating = 正在枚举谱面（共 { $pages } 页）…
 migrate-checking = 正在检查成绩 { $done }/{ $total }…
-
-item-pro-api-url = 自服地址（Phira Pro）
-item-pro-api-url-sub = Phira Pro：成绩会额外上传到这里，排行榜会把官服与自服的记录合并；留空则关闭自服功能
-item-pro-api-url-off = 已关闭（纯官服模式）
 
 chart-import-label = 批量导入谱面
 chart-import-desc = 导入官方客户端「批量导出」生成的 zip（也可以只选单个谱面包）；导入后直接出现在本地谱面库

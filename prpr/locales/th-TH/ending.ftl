@@ -9,7 +9,6 @@ proceed = PROCEED
 detail = DETAILS
 new-best = NEW BEST
 max-combo = MAX COMBO
-rks-delta = RKS CHANGE
 accuracy = Accuracy
 error = Error
 

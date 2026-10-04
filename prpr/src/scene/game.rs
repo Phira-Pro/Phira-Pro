@@ -294,12 +294,6 @@ fn combo_label(config: &crate::config::Config) -> &str {
     }
 }
 
-#[rustfmt::skip]
-#[cfg(record)]
-mod inner;
-#[cfg(record)]
-use inner::*;
-
 const WAIT_TIME: f64 = 0.5;
 const AFTER_TIME: f64 = 0.7;
 
@@ -338,6 +332,29 @@ impl SimpleRecord {
         }
         changed
     }
+}
+
+/// 上传到 Phira Pro 私服（`api.phira.pro`）的一局成绩载荷。
+///
+/// 字段名与私服契约一致（camelCase）。`notes` 与 `noteCount` 目前都取本局音符总数，
+/// 其中 `noteCount` 是服务端计算 `stdScore` 的分母。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadScore {
+    pub chart: i32,
+    pub perfect: i32,
+    pub good: i32,
+    pub bad: i32,
+    pub miss: i32,
+    pub max_combo: i32,
+    pub mods: i32,
+    pub notes: i32,
+    pub speed: f32,
+    pub std: f32,
+    pub score: i32,
+    pub accuracy: f32,
+    pub full_combo: bool,
+    pub note_count: i32,
 }
 
 fn fmt_time(t: f32) -> String {
@@ -1326,25 +1343,29 @@ impl Scene for GameScene {
             State::Ending => {
                 let t = time - self.res.track_length - WAIT_TIME;
                 if t >= AFTER_TIME + 0.3 {
-                    // 成绩上传（仅 record 构建）：开启「上传成绩」且本局严格按官方默认的
-                    // 判定 / 玩法进行（`is_official_play`）时，才产生可上传的成绩数据。
-                    #[cfg(record)]
-                    let record_data = {
-                        let mut data = None;
-                        if let Some(upload_fn) = &self.upload_fn {
-                            if self.res.config.upload_record && self.res.config.is_official_play(self.res.config.mods) {
-                                if let Some(player) = &self.player {
-                                    if let Some(chart) = &self.res.info.id {
-                                        data = Some(encode_record(self, player.id, *chart));
-                                    }
-                                }
-                            }
-                        }
-                        data
-                    };
-                    #[cfg(not(record))]
-                    let record_data = None;
                     let result = self.judge.result(self.res.config.has_mod(Mods::NO_COMBO_SCORE));
+                    // 成绩上传（固定到 Phira Pro 私服）：只有「未改动判定 / 玩法」的对局
+                    // （`is_official_play`）才构造可上传的成绩；其余对局只存本机。
+                    let record_data = if self.upload_fn.is_some() && self.res.config.is_official_play(self.res.config.mods) {
+                        self.res.info.id.map(|chart| UploadScore {
+                            chart,
+                            perfect: (result.counts[0] + result.counts[4]) as i32,
+                            good: result.counts[1] as i32,
+                            bad: result.counts[2] as i32,
+                            miss: result.counts[3] as i32,
+                            max_combo: result.max_combo as i32,
+                            mods: self.res.config.mods.bits(),
+                            notes: result.num_of_notes as i32,
+                            speed: self.res.config.speed,
+                            std: result.std,
+                            score: result.score as i32,
+                            accuracy: result.accuracy as f32,
+                            full_combo: result.max_combo == result.num_of_notes,
+                            note_count: result.num_of_notes as i32,
+                        })
+                    } else {
+                        None
+                    };
                     let record = if self.res.config.mods.intersects(Mods::UNRATED) || self.res.config.speed < 1.0 - 1e-3 {
                         None
                     } else {

@@ -5,7 +5,6 @@ use crate::{
     deeplink::{self, DeepLink, DeepLinkChartOpening, DeepLinkDownload, DeepLinkTarget},
     dir, get_data, get_data_mut,
     icons::Icons,
-    mp::MPPanel,
     page::{ChartItem, ExportInfo, HomePage, NextPage, Page, ResPackItem, SharedState},
     save_data,
     scene::{
@@ -13,12 +12,12 @@ use crate::{
         TEX_BACKGROUND_DEFAULT, TEX_ICON_BACK,
     },
 };
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use macroquad::prelude::*;
 use once_cell::sync::Lazy;
 use prpr::{
     core::ResPackInfo,
-    ext::{unzip_into, RectExt, SafeTexture, ScaleType},
+    ext::{unzip_into, SafeTexture, ScaleType},
     info::ChartInfo,
     parse::ParseWarnings,
     scene::{return_file, show_error, show_message, take_file, NextScene, Scene, DIALOG},
@@ -67,12 +66,6 @@ pub static BACKGROUND_UPDATED: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
     static RESPACK_ITEM: RefCell<Option<ResPackItem>> = RefCell::default();
-    pub static MP_PANEL: RefCell<Option<MPPanel>> = RefCell::default();
-}
-
-#[inline]
-fn position_file() -> Result<String> {
-    Ok(format!("{}/mp-pos", dir::root()?))
 }
 
 #[cfg(target_os = "windows")]
@@ -196,13 +189,6 @@ pub struct MainScene {
 
     icons: Arc<Icons>,
 
-    mp_btn: RectButton,
-    mp_icon: SafeTexture,
-    mp_btn_pos: Vec2,
-    mp_move: Option<(u64, Vec2, Vec2)>,
-    mp_moved: bool,
-    mp_save_pos_at: Option<Instant>,
-
     // batch import
     batch_import_confirm: Arc<AtomicBool>,
     batch_import: Option<(String, ExportInfo)>,
@@ -288,8 +274,6 @@ impl MainScene {
 
     async fn new_inner(bgm: Option<Music>, fallback: FontArc) -> Result<Self> {
         let state = SharedState::new(fallback).await?;
-        let icon_user = load_texture("user.png").await?;
-        MP_PANEL.with(|it| *it.borrow_mut() = Some(MPPanel::new(icon_user.into())));
         Ok(Self {
             state,
 
@@ -313,18 +297,6 @@ impl MainScene {
             deeplink_scene: None,
 
             icons: Arc::new(Icons::new().await?),
-
-            mp_btn: RectButton::new(),
-            mp_icon: SafeTexture::from(load_texture("multiplayer.png").await?).with_mipmap(),
-            mp_btn_pos: (|| -> Result<Vec2> {
-                let s = std::fs::read_to_string(position_file()?)?;
-                let (x, y) = s.split_once(',').ok_or_else(|| anyhow!("invalid"))?;
-                Ok(vec2(x.parse()?, y.parse()?))
-            })()
-            .unwrap_or_default(),
-            mp_move: None,
-            mp_moved: false,
-            mp_save_pos_at: None,
 
             batch_import_confirm: Arc::default(),
             batch_import: None,
@@ -362,11 +334,6 @@ impl Scene for MainScene {
         }
         self.state.update(tm);
         self.pages.last_mut().unwrap().enter(&mut self.state)?;
-        MP_PANEL.with(|it| {
-            if let Some(panel) = it.borrow_mut().as_mut() {
-                panel.enter();
-            }
-        });
         Ok(())
     }
 
@@ -414,43 +381,6 @@ impl Scene for MainScene {
                 self.deeplink_chart = None;
             }
             return Ok(true);
-        }
-
-        if get_data().config.mp_enabled {
-            if MP_PANEL.with(|it| it.borrow_mut().as_mut().is_some_and(|it| it.touch(tm, touch))) {
-                return Ok(true);
-            }
-            if self.mp_btn.touch(touch) && !self.mp_moved {
-                MP_PANEL.with(|it| {
-                    if let Some(panel) = it.borrow_mut().as_mut() {
-                        panel.show(tm.real_time() as _);
-                    }
-                });
-                self.mp_move = None;
-                self.mp_moved = false;
-                return Ok(true);
-            }
-            if let Some((id, pos, btn_pos)) = self.mp_move {
-                if touch.id == id {
-                    if matches!(touch.phase, TouchPhase::Cancelled | TouchPhase::Ended) {
-                        self.mp_move = None;
-                        self.mp_moved = false;
-                        return Ok(true);
-                    }
-                    let new_pos = touch.position;
-                    if !self.mp_moved && (new_pos - pos).length() > 0.03 {
-                        self.mp_moved = true;
-                    }
-                    if self.mp_moved {
-                        self.mp_btn_pos = new_pos - pos + btn_pos;
-                        self.mp_save_pos_at = Some(Instant::now() + Duration::from_secs(1));
-                    }
-                }
-                return Ok(true);
-            } else if self.mp_btn.touching() {
-                self.mp_move = Some((touch.id, touch.position, self.mp_btn_pos));
-                return Ok(true);
-            }
         }
 
         let s = &mut self.state;
@@ -518,15 +448,6 @@ impl Scene for MainScene {
             goto_hud_page(&mut self.pages, &self.icons, &mut self.state, p)?;
         }
         UI_AUDIO.with(|it| it.borrow_mut().recover_if_needed())?;
-        if get_data().config.mp_enabled {
-            MP_PANEL.with(|it| {
-                if let Some(panel) = it.borrow_mut().as_mut() {
-                    panel.update(tm)
-                } else {
-                    Ok(())
-                }
-            })?;
-        }
         let s = &mut self.state;
         s.update(tm);
         if s.fader.transiting() {
@@ -965,11 +886,6 @@ impl Scene for MainScene {
             }
         }
 
-        if self.mp_save_pos_at.is_some_and(|it| it < Instant::now()) {
-            std::fs::write(position_file()?, format!("{},{}", self.mp_btn_pos.x, self.mp_btn_pos.y))?;
-            self.mp_save_pos_at = None;
-        }
-
         Ok(())
     }
 
@@ -1025,23 +941,6 @@ impl Scene for MainScene {
             crate::hud::editor_render(ui);
         }
 
-        if get_data().config.mp_enabled {
-            let r = 0.06;
-            self.mp_btn_pos.y = self.mp_btn_pos.y.clamp(-ui.top, ui.top);
-            self.mp_btn_pos.x = self.mp_btn_pos.x.clamp(-1., 1.);
-            ui.fill_circle(self.mp_btn_pos.x, self.mp_btn_pos.y, r, ui.background());
-            let r = Rect::new(self.mp_btn_pos.x, self.mp_btn_pos.y, 0., 0.).feather(r);
-            self.mp_btn.set(ui, r);
-            let r = r.feather(-0.02);
-            ui.fill_rect(r, (*self.mp_icon, r));
-
-            MP_PANEL.with(|it| {
-                if let Some(panel) = it.borrow_mut().as_mut() {
-                    panel.render(tm, ui);
-                }
-            });
-        }
-
         if self.import_task.is_some() {
             ui.full_loading(itl!("importing"), s.t);
         }
@@ -1069,9 +968,7 @@ impl Scene for MainScene {
             }
             return next;
         }
-        let res = MP_PANEL
-            .with(|it| it.borrow_mut().as_mut().and_then(|it| it.next_scene()))
-            .unwrap_or(self.pages.last_mut().unwrap().next_scene(&mut self.state));
+        let res = self.pages.last_mut().unwrap().next_scene(&mut self.state);
         if !matches!(res, NextScene::None) {
             if let Some(bgm) = &mut self.bgm {
                 let _ = bgm.fade_out(0.5);

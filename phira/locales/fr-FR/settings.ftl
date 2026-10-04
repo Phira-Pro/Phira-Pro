@@ -44,11 +44,6 @@ item-offline-sub = Vous ne pourrez pas publier vos notes en mode hors-ligne
 item-server-status = État du serveur
 item-server-status-sub = Accéder à la page Web pour vérifier l'état du serveur
 check-status = Vérifier
-item-mp = Multijoueur
-item-mp-sub = Activer le mode multijoueur
-item-mp-addr = Serveur multijoueur
-item-mp-addr-sub = Adresse du serveur, «hôte:port»
-item-mp-addr-invalid = Adresse du serveur invalide
 item-lowq = Mode basse qualité
 item-lowq-sub = Réduire la qualité de l'IU pour augmentant les performances.
 item-clear-cache = Vider le cache
@@ -241,14 +236,6 @@ item-aspect-ratio-sub = Accepte 16:9 ou un décimal comme 1.7778
 aspect-invalid = Rapport d''écran invalide, p. ex. 16:9 ou 1.7778
 item-offset-indicator = Indicateur de décalage
 item-offset-indicator-sub = Affiche en jeu la barre d''écart (tôt/tard)
-
-item-mp-local-addr = Local Multiplayer Server
-item-mp-local-addr-sub = Address the Local Multiplayer button connects to (host:port); leave empty to host on this device.
-item-mp-local-addr-none = (host on this device)
-item-mp-local-addr-invalid = Invalid local server address.
-
-item-mp-server-list = URL de la liste des serveurs
-item-mp-server-list-sub = Page de statut d'où récupérer la liste (vide = par défaut)
 
 item-app-icon = Icône de l'application
 item-app-icon-sub = Changer l'icône de l'application. *Prend effet après redémarrage*

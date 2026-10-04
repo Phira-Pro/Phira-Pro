@@ -139,6 +139,4 @@ ldb-local-title = Yerel kayıtlar
 ldb-local-empty = Henüz yerel kayıt yok. Bir tur oynayınca burada görünecek.
 ldb-local-no-hit = Tıklama { $count } yerel satırdan hiçbirine isabet etmedi
 
-mp-forced-official = Çevrimiçi maç: değiştirilmiş yargı / oynanış seçenekleri resmî varsayılanlara döndürüldü
-
 flash-autoplay-unrated = Otomatik oynatma açık: bu deneme yüklenmeyecek ve yargılama ayarları varsayılana döndürüldü

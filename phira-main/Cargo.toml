@@ -5,10 +5,8 @@ edition = { workspace = true }
 license = { workspace = true }
 
 [features]
-default = ["video", "chat", "local-mp"]
+default = ["video"]
 video = ["phira/video"]
-chat = ["phira/chat"]
-local-mp = ["phira/local-mp"]
 
 [dependencies]
 phira = { workspace = true, default-features = false }

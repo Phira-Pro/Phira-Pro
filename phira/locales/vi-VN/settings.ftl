@@ -41,11 +41,6 @@ item-offline-sub = Tắt tất cả các chức năng trực tuyến.
 item-server-status = Tình trạng máy chủ
 item-server-status-sub = Kiểm tra tình trạng máy chủ hiện tại trên trang web.
 check-status = Kiểm tra
-item-mp = Nhiều người chơi
-item-mp-sub = Bật tính năng nhiều người chơi
-item-mp-addr = Máy chủ nhiều người chơi
-item-mp-addr-sub = Kết nối đến một máy chủ nhiều người chơi
-item-mp-addr-invalid = Địa chỉ không hợp lệ
 item-lowq = Độ phân giải thấp
 item-lowq-sub = Giảm chất lượng giao diện để tăng hiệu suất
 item-clear-cache = Xóa bộ nhớ đệm
@@ -241,14 +236,6 @@ item-aspect-ratio-sub = Hỗ trợ 16:9 hoặc số thập phân như 1.7778
 aspect-invalid = Tỉ lệ không hợp lệ, ví dụ 16:9 hoặc 1.7778
 item-offset-indicator = Thanh lệch phán định
 item-offset-indicator-sub = Hiện thanh lệch (sớm/muộn) khi chơi
-
-item-mp-local-addr = Local Multiplayer Server
-item-mp-local-addr-sub = Address the Local Multiplayer button connects to (host:port); leave empty to host on this device.
-item-mp-local-addr-none = (host on this device)
-item-mp-local-addr-invalid = Invalid local server address.
-
-item-mp-server-list = URL danh sách máy chủ
-item-mp-server-list-sub = Trang trạng thái để lấy danh sách máy chủ (trống = mặc định)
 
 item-app-icon = Biểu tượng ứng dụng
 item-app-icon-sub = Đổi biểu tượng ứng dụng. *Có hiệu lực sau khi khởi động lại*

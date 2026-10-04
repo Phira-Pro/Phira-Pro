@@ -132,6 +132,4 @@ ldb-local-title = Rekor lokal
 ldb-local-empty = Belum ada rekor lokal. Mainkan satu ronde untuk melihatnya di sini.
 ldb-local-no-hit = Klik tidak mengenai salah satu dari { $count } baris lokal
 
-mp-forced-official = Daring: opsi penilaian / gameplay yang diubah dikembalikan ke nilai resmi
-
 flash-autoplay-unrated = Autoplay aktif: hasil ini tidak akan diunggah dan pengaturan penilaian dikembalikan ke bawaan

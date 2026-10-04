@@ -41,11 +41,6 @@ item-offline-sub = Score จะไม่ถูกส่งเมื่ออย�
 item-server-status = สถานะของ Server
 item-server-status-sub = เปิดเพื่อดูสถานะของ Server บน Bowser ของคุณ.
 check-status = เปิด
-item-mp = Multiplayer
-item-mp-sub = เปิดโหมด Multiplayer
-item-mp-addr = Multiplayer server
-item-mp-addr-sub = Server address, 'host:port'
-item-mp-addr-invalid = Server ไม่ถูกต้อง
 item-lowq = Low quality mode
 item-lowq-sub = ลดคุณภาพของ UI เพื่อให้ประสิทธิภาพของเกมเพิ่มขึ้น
 item-clear-cache = ล้าง Cache
@@ -241,14 +236,6 @@ item-aspect-ratio-sub = รองรับ 16:9 หรือทศนิยม�
 aspect-invalid = รูปแบบอัตราส่วนไม่ถูกต้อง เช่น 16:9 หรือ 1.7778
 item-offset-indicator = แถบเบี่ยงเบนจังหวะ
 item-offset-indicator-sub = แสดงแถบเบี่ยงเบนเร็ว/ช้าขณะเล่น
-
-item-mp-local-addr = Local Multiplayer Server
-item-mp-local-addr-sub = Address the Local Multiplayer button connects to (host:port); leave empty to host on this device.
-item-mp-local-addr-none = (host on this device)
-item-mp-local-addr-invalid = Invalid local server address.
-
-item-mp-server-list = URL รายชื่อเซิร์ฟเวอร์
-item-mp-server-list-sub = หน้าสถานะที่ใช้ดึงรายชื่อเซิร์ฟเวอร์ (ว่าง = ค่าเริ่มต้น)
 
 item-app-icon = ไอคอนแอป
 item-app-icon-sub = เปลี่ยนไอคอนแอป *มีผลหลังรีสตาร์ท*

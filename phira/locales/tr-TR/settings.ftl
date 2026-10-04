@@ -41,11 +41,6 @@ item-practice-step = Tur başına artış
 item-hp-height = Bar kalınlığı
 item-offline = Çevrimdışı Mod
 item-offline-sub = Çevrimdışı moddayken müzik ekleyemezsiniz
-item-mp = Çoklu Oyunculu
-item-mp-sub = Çok oyunculu modu devreye sok
-item-mp-addr = Çok oyunculu sunucu
-item-mp-addr-sub = Snucu adresi, 'host:port'
-item-mp-addr-invalid = Geçersiz sunucu adresi
 item-lowq = Düşük kaliteli mod
 item-lowq-sub = Arayüz gecikmeliyse bunu seçin
 item-insecure = Emniyetsiz Mod
@@ -228,14 +223,6 @@ item-aspect-ratio-sub = 16:9 veya 1.7778 gibi ondalık destekler
 aspect-invalid = Geçersiz oran, örn. 16:9 veya 1.7778
 item-offset-indicator = Sapma Göstergesi
 item-offset-indicator-sub = Oyunda erken/geç sapma çubuğunu gösterir
-
-item-mp-local-addr = Local Multiplayer Server
-item-mp-local-addr-sub = Address the Local Multiplayer button connects to (host:port); leave empty to host on this device.
-item-mp-local-addr-none = (host on this device)
-item-mp-local-addr-invalid = Invalid local server address.
-
-item-mp-server-list = Sunucu Listesi Adresi
-item-mp-server-list-sub = Sunucu listesinin alınacağı durum sayfası (boş = varsayılan)
 
 item-app-icon = Uygulama Simgesi
 item-app-icon-sub = Uygulama simgesini değiştir. *Yeniden başlatınca etkin olur*

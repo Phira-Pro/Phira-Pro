@@ -45,11 +45,6 @@ item-offline-sub = Disable all online functionality.
 item-server-status = Server Status
 item-server-status-sub = Open the server status page in your browser.
 check-status = Open
-item-mp = Multiplayer
-item-mp-sub = Enable multiplayer functionality.
-item-mp-addr = Multiplayer Server
-item-mp-addr-sub = Connect to a custom multiplayer server.
-item-mp-addr-invalid = Invalid server address.
 item-lowq = Low Resolution Mode
 item-lowq-sub = Lower the quality of the UI, increasing peformance.
 item-clear-cache = Clear Cache
@@ -250,14 +245,6 @@ item-aspect-ratio-sub = Supports 16:9 or a decimal like 1.7778
 aspect-invalid = Invalid aspect ratio, e.g. 16:9 or 1.7778
 item-offset-indicator = Offset Indicator
 item-offset-indicator-sub = Shows the early/late judgement offset bar in game
-
-item-mp-local-addr = Local Multiplayer Server
-item-mp-local-addr-sub = Address the Local Multiplayer button connects to (host:port); leave empty to host on this device.
-item-mp-local-addr-none = (host on this device)
-item-mp-local-addr-invalid = Invalid local server address.
-
-item-mp-server-list = Server List URL
-item-mp-server-list-sub = Status page to fetch the server list from (blank = default)
 
 item-app-icon = App Icon
 item-app-icon-sub = Change the app icon. *Takes effect after restart*

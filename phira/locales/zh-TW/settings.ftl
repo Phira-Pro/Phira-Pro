@@ -42,11 +42,6 @@ item-offline-sub = 離線模式下無法上傳成績
 item-server-status = 伺服器狀態
 item-server-status-sub = 跳轉至網頁查看伺服器狀態
 check-status = 查看
-item-mp = 多人遊戲
-item-mp-sub = 啟用多人遊戲
-item-mp-addr = 多人遊戲伺服器
-item-mp-addr-sub = 伺服器網址格式為「主機位址:埠號」
-item-mp-addr-invalid = 伺服器網址無效
 item-lowq = 低畫質模式
 item-lowq-sub = 建議在畫面卡頓時啟用
 item-clear-cache = 清除快取
@@ -241,14 +236,6 @@ item-aspect-ratio-sub = 支援 16:9 或 1.7778 這樣的小數
 aspect-invalid = 寬高比格式不正確，例如 16:9 或 1.7778
 item-offset-indicator = 判定偏移條
 item-offset-indicator-sub = 局內頂部顯示早/晚判定的偏移指示條
-
-item-mp-local-addr = 本地連線伺服器
-item-mp-local-addr-sub = 「本地連線」按鈕連接的位址（主機:埠）；留空則在本機開服
-item-mp-local-addr-none = （在本機開服）
-item-mp-local-addr-invalid = 無效的本地連線位址
-
-item-mp-server-list = 伺服器列表位址
-item-mp-server-list-sub = 抓取狀態站頁面裡的連線伺服器（留空用預設）
 
 item-app-icon = 自訂APP圖示
 item-app-icon-sub = 更換程式圖示。*重新啟動後生效*

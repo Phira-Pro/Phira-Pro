@@ -8,10 +8,6 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 pub static TIPS: Lazy<Vec<String>> = Lazy::new(|| include_str!("tips.txt").split('\n').map(str::to_owned).collect());
 
-/// Phira Pro：「服务器列表」默认数据源（状态页接口；心跳会从同源的
-/// `/api/status-page/heartbeat/phira` 派生后再取一次）。
-pub const DEFAULT_MP_SERVER_LIST_URL: &str = "https://status.dmocken.top/api/status-page/phira";
-
 /// Phira Pro：自服（`phira-pro-api`）基础地址。
 ///
 /// 「读官服、写自服」：谱面 / 用户 / 全局 rks 仍走官服；成绩仅上传到自服，
@@ -219,13 +215,6 @@ pub struct Config {
     pub lim_perfect_plus_ms: f32,
     pub lim_perfect_ms: f32,
     pub mods: Mods,
-    pub mp_address: String,
-    /// Phira Pro：本地联机地址（「本地联机」按钮连的服务端）。留空 = 在本机开服务端当房主；
-    /// 填了局域网地址则直接连过去（填本机地址会顺带把服务端起起来）。
-    pub mp_local_address: String,
-    /// Phira Pro：「服务器列表」的数据来源（状态站页面，抓取里面的 主机:端口）。
-    pub mp_server_list_url: String,
-    pub mp_enabled: bool,
     /// Phira API 基础地址（登录、谱面列表、成绩上传等）。留空则回退到官方地址。
     /// 自建/私服时改成自己的 API 地址即可脱离官方服务。
     pub api_url: String,
@@ -262,8 +251,6 @@ pub struct Config {
     /// 取值为判定区高度的比例。`0.0` 表示沿用官方表现（按 Bad 判定窗口计时渐变）。
     /// 由于上隐/下隐 Mod 本身就属于 UNRATED，这里不需要再单独参与成绩闸门。
     pub fade_strength: f32,
-    /// Phira Pro：本地联机用的昵称（免登录时作为身份）。空 = 首次使用自动生成并保存。
-    pub mp_nickname: String,
     /// Phira Pro：局内判定偏移条（屏幕上方那条早/晚指示）。默认开启。
     pub offset_indicator: bool,
     pub volume_bgm: f32,
@@ -397,7 +384,6 @@ impl Default for Config {
             flick_protect: false,
             flow_speed: 1.,
             fade_strength: 0.,
-            mp_nickname: String::new(),
             offset_indicator: true,
             combo_text: "COMBO".to_owned(),
             ending_judge_chart: false,
@@ -422,10 +408,6 @@ impl Default for Config {
             lim_perfect_plus_ms: (crate::judge::LIMIT_PERFECT_PLUS * 1000.) as f32,
             lim_perfect_ms: (crate::judge::LIMIT_PERFECT * 1000.) as f32,
             mods: Mods::default(),
-            mp_address: "mp2.phira.cn:12345".to_owned(),
-            mp_local_address: String::new(),
-            mp_server_list_url: DEFAULT_MP_SERVER_LIST_URL.to_owned(),
-            mp_enabled: false,
             api_url: String::new(),
             pro_api_url: DEFAULT_PRO_API_URL.to_owned(),
             web_url: String::new(),

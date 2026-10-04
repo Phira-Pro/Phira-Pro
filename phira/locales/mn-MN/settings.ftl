@@ -41,11 +41,6 @@ item-offline-sub = Офлайн горимоор тоглоомын рекорд
 item-server-status = Серверийн төлөв
 item-server-status-sub = Серверийн төлөвийг шалгахын тулд вэб хуудсыг хараарай
 check-status = Шалгах
-item-mp = Олон тоглогч
-item-mp-sub = Олон тоглогчийн горимыг идэвхжүүлэх
-item-mp-addr = Олон тоглогчийн сервер
-item-mp-addr-sub = Серверийн хаяг, 'host:port'
-item-mp-addr-invalid = Буруу серверийн хаяг
 item-lowq = Бага чанарын горим
 item-lowq-sub = UI хоцролтой байгаад байвал үүнийг идэвхжүүлнэ үү
 item-insecure = Аюулгүй бус горим
@@ -194,14 +189,6 @@ item-aspect-ratio-sub = 16:9 эсвэл 1.7778 гэх мэт бутархайг 
 aspect-invalid = Харьцааны хэлбэр буруу, жишээ нь 16:9 эсвэл 1.7778
 item-offset-indicator = Хазгайтын заалт
 item-offset-indicator-sub = Тоглолтын үед эрт/оройн зөрүүний зурвасыг харуулна
-
-item-mp-local-addr = Local Multiplayer Server
-item-mp-local-addr-sub = Address the Local Multiplayer button connects to (host:port); leave empty to host on this device.
-item-mp-local-addr-none = (host on this device)
-item-mp-local-addr-invalid = Invalid local server address.
-
-item-mp-server-list = Серверийн жагсаалтын URL
-item-mp-server-list-sub = Серверийн жагсаалт татах статус хуудас (хоосон = өгөгдмөл)
 
 item-app-icon = Аппын дүрс
 item-app-icon-sub = Аппын дүрсийг солих. *Дахин эхлүүлсний дараа хүчинтэй*

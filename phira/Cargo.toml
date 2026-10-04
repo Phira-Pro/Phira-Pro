@@ -8,12 +8,8 @@ license = { workspace = true }
 crate-type = ["lib", "cdylib"]
 
 [features]
-# chat 默认开启：多人游戏里的聊天输入框本来就占位渲染，之前因为 feature 关着而无法发言。
-default = ["video", "chat", "local-mp"]
+default = ["video"]
 video = ["prpr/video"]
-# Phira Pro：本地联机（内嵌服务端，免登录，局域网可连）。
-local-mp = ["dep:rphira-mp"]
-chat = []
 aa = []
 hykb = []
 event_debug = []
@@ -55,14 +51,11 @@ miniquad = { workspace = true }
 nalgebra = { workspace = true }
 obfstr = "0.4.4"
 once_cell = { workspace = true }
-phira-mp-client = { workspace = true }
-phira-mp-common = { workspace = true }
 pollster = { workspace = true }
 prpr = { workspace = true, features = ["log"], default-features = false }
 prpr-l10n = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
-rphira-mp = { workspace = true, optional = true }
 reqwest = { workspace = true, default-features = false, features = [
     "json",
     "stream",

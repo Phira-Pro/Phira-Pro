@@ -13,7 +13,7 @@ use miniquad::{EventHandler, MouseButton};
 use once_cell::sync::Lazy;
 use sasa::{PlaySfxParams, Sfx};
 use serde::Serialize;
-use std::{cell::RefCell, collections::HashMap, mem, num::FpCategory};
+use std::{cell::RefCell, collections::{HashMap, HashSet}, mem, num::FpCategory};
 use tracing::debug;
 
 pub const FLICK_SPEED_THRESHOLD: f32 = 0.8;
@@ -596,6 +596,7 @@ pub struct Judge {
     pub notes: Vec<(Vec<u32>, usize)>,
     pub trackers: HashMap<u64, FlickTracker>,
     pub last_time: f64,
+    pub infected: HashSet<u64>,
 
     key_down_count: u32,
 
@@ -644,6 +645,7 @@ impl Judge {
             notes,
             trackers: HashMap::new(),
             last_time: 0.,
+            infected: HashSet::new(),
 
             key_down_count: 0,
 
@@ -655,6 +657,7 @@ impl Judge {
     pub fn reset(&mut self) {
         self.notes.iter_mut().for_each(|it| it.1 = 0);
         self.trackers.clear();
+        self.infected.clear();
         self.inner.reset();
         self.judgements.borrow_mut().clear();
     }
@@ -864,9 +867,12 @@ impl Judge {
             let aspect = res.aspect_ratio;
             let areas = &chart.block_areas;
             let mut blocked = Vec::new();
+            let down: HashSet<u64> = touches.iter().map(|touch| touch.id).collect();
+            self.infected.retain(|id| down.contains(id));
             touches.retain(|touch| {
                 let p = Vector::new(touch.position.x, -touch.position.y);
-                if block_touch_blocked(areas, p, t, aspect) {
+                if self.infected.contains(&touch.id) || block_touch_blocked(areas, p, t, aspect) {
+                    self.infected.insert(touch.id);
                     blocked.push((touch.id, p));
                     false
                 } else {

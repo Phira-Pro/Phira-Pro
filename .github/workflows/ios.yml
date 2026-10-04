@@ -1,0 +1,84 @@
+name: Build iOS IPA
+
+# 仅手动触发：Actions 页面点 "Run workflow" 才构建，日常不消耗 macOS runner 配额。
+on:
+  workflow_dispatch:
+
+jobs:
+  ipa:
+    name: Unsigned IPA
+    runs-on: macos-14
+    timeout-minutes: 90
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+
+      - name: Setup Rust toolchain
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-ios
+
+      # Rust 冷编译很慢，FFmpeg 静态库也要下载，缓存能省掉大部分时间。
+      - name: Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/xcode
+            prpr-avc/static-lib
+          key: ios-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'prpr-avc/ffmpeg-version') }}
+          restore-keys: ios-${{ runner.os }}-
+
+      # xcodebuild 会导出 SDKROOT，默认的 cc 通常就能链 iOS。这里显式指向 Xcode 自带的
+      # clang，避免 runner 上 xcode-select 状态影响解析。若链接阶段仍报 SDK 相关错误，
+      # 改为在 phira-main/build.rs 里追加 -isysroot $(xcrun --sdk iphoneos --show-sdk-path)。
+      - name: Point cargo at Xcode's iOS linker
+        run: echo "CARGO_TARGET_AARCH64_APPLE_IOS_LINKER=$(xcrun --sdk iphoneos --find clang)" >> "$GITHUB_ENV"
+
+      # 不签名：产物给使用者自行用 AltStore / Sideloadly 等重新签名。
+      # 出包不依赖 xcode/LocalSigning.xcconfig（它被 .gitignore 排除，CI 里不存在）。
+      - name: Build (unsigned)
+        run: |
+          xcodebuild \
+            -project phira.xcodeproj \
+            -scheme phira \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          APP="$(find build/dd/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n1)"
+          test -n "$APP" || { echo "no .app produced"; exit 1; }
+          test -f "$APP/phira-main" || { echo "$APP/phira-main missing"; exit 1; }
+
+          VERSION="$(sed -n 's/^MARKETING_VERSION *= *//p' xcode/Shared.xcconfig | tr -d '[:space:]')"
+          VERSION="${VERSION:-0.0.0}"
+
+          rm -rf out
+          mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          (cd out && zip -qry "PhiraPro-${VERSION}-unsigned.ipa" Payload)
+
+          ls -lh "out/PhiraPro-${VERSION}-unsigned.ipa"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhiraPro-unsigned-ipa
+          path: out/PhiraPro-*-unsigned.ipa
+          if-no-files-found: error

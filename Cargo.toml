@@ -9,7 +9,7 @@ members = [
     "prpr-pbc",
     "tools/auto-offset-cli",
 ]
-exclude = ["vendor", "phira-mp", "phira-mp-next"]
+exclude = ["vendor"]
 resolver = "2"
 
 [workspace.lints.rust]
@@ -36,8 +36,8 @@ inputbox = "0.1.5"
 lru = "0.16.3"
 lyon = "1.0.19"
 
-macroquad = { path = "vendor/prpr-macroquad", default-features = false }
-miniquad = { path = "vendor/prpr-miniquad" }
+macroquad = { git = "https://github.com/Phira-Pro/prpr-macroquad", default-features = false }
+miniquad = { git = "https://github.com/Phira-Pro/prpr-miniquad", branch = "master" }
 nalgebra = "0.34.1"
 
 objc2 = "0.6.4"
@@ -56,7 +56,7 @@ rand = "0.8.5"
 regex = "1.12.3"
 reqwest = { version = "0.13.2", default-features = false }
 rfd = "0.17.2"
-sasa = { path = "vendor/sasa", default-features = false }
+sasa = { git = "https://github.com/Phira-Pro/sasa", branch = "f64", default-features = false }
 serde = "1.0.228"
 serde_json = "1.0.149"
 serde_yaml = "0.9.34"

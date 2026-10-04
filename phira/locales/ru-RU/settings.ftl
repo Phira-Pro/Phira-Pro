@@ -41,11 +41,6 @@ item-offline-sub = Весь онлайн-доступ будет отключё�
 item-server-status = Состояние сервера
 item-server-status-sub = Открыть веб-сайт, чтобы проверить состояние сервера
 check-status = Проверить
-item-mp = Мультиплеер
-item-mp-sub = Включить мультиплеер
-item-mp-addr = Сервер мультиплеера
-item-mp-addr-sub = Адрес сервера в формате 'IP-адрес:порт'
-item-mp-addr-invalid = Неверный адрес сервера
 item-lowq = Пониженное качество
 item-lowq-sub = Включите, если интерфейс подлагивает.
 item-clear-cache = Очистить кэш
@@ -241,14 +236,6 @@ item-aspect-ratio-sub = Поддерживает 16:9 или десятичну�
 aspect-invalid = Неверное соотношение, например 16:9 или 1.7778
 item-offset-indicator = Индикатор смещения
 item-offset-indicator-sub = Показывает в игре полосу отклонения (рано/поздно)
-
-item-mp-local-addr = Local Multiplayer Server
-item-mp-local-addr-sub = Address the Local Multiplayer button connects to (host:port); leave empty to host on this device.
-item-mp-local-addr-none = (host on this device)
-item-mp-local-addr-invalid = Invalid local server address.
-
-item-mp-server-list = URL списка серверов
-item-mp-server-list-sub = Страница статуса для получения списка серверов (пусто — по умолчанию)
 
 item-app-icon = Значок приложения
 item-app-icon-sub = Сменить значок приложения. *Вступает в силу после перезапуска*

@@ -18,7 +18,6 @@ mod icons;
 mod images;
 mod login;
 mod migrate;
-mod mp;
 mod page;
 mod popup;
 mod rate;

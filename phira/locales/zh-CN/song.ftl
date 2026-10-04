@@ -168,5 +168,3 @@ ldb-acc = 准度
 ldb-local-title = 本地记录
 ldb-local-empty = 暂无本机记录，游玩一局后即可在此查看。
 ldb-local-no-hit = 本地榜共 { $count } 条，本次点击未命中任何行
-
-mp-forced-official = 联机对战：已把改动过的判定 / 玩法选项还原为官方默认值

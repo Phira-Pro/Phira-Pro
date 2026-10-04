@@ -550,11 +550,6 @@ struct GeneralList {
     cache_btn: DRectButton,
     offline_btn: DRectButton,
     server_status_btn: DRectButton,
-    mp_btn: DRectButton,
-    mp_addr_btn: DRectButton,
-    mp_local_addr_btn: DRectButton,
-    /// 打开「服务器列表地址」输入（Phira Pro：状态站数据源）。
-    mp_server_list_url_btn: DRectButton,
     /// 打开「API 地址」输入（自建 / 私服用）。
     api_url_btn: DRectButton,
     /// Phira Pro：自服（`phira-pro-api`）地址，留空关闭自服功能。
@@ -625,10 +620,6 @@ impl GeneralList {
             cache_btn: DRectButton::new(),
             offline_btn: DRectButton::new(),
             server_status_btn: DRectButton::new(),
-            mp_btn: DRectButton::new(),
-            mp_addr_btn: DRectButton::new(),
-            mp_local_addr_btn: DRectButton::new(),
-            mp_server_list_url_btn: DRectButton::new(),
             api_url_btn: DRectButton::new(),
             pro_api_url_btn: DRectButton::new(),
             web_url_btn: DRectButton::new(),
@@ -823,22 +814,6 @@ impl GeneralList {
             let _ = open_url(&crate::client::status_url());
             return Ok(Some(true));
         }
-        if self.mp_btn.touch(touch, t) {
-            config.mp_enabled ^= true;
-            return Ok(Some(true));
-        }
-        if self.mp_addr_btn.touch(touch, t) {
-            request_input("mp_addr", InputBox::new().default_text(&config.mp_address));
-            return Ok(Some(true));
-        }
-        if self.mp_local_addr_btn.touch(touch, t) {
-            request_input("mp_local_addr", InputBox::new().default_text(&config.mp_local_address));
-            return Ok(Some(true));
-        }
-        if self.mp_server_list_url_btn.touch(touch, t) {
-            request_input("mp_server_list_url", InputBox::new().default_text(&config.mp_server_list_url));
-            return Ok(Some(true));
-        }
         if self.api_url_btn.touch(touch, t) {
             request_input("api_url", InputBox::new().default_text(&config.api_url));
             return Ok(Some(true));
@@ -962,34 +937,7 @@ impl GeneralList {
             return Ok(true);
         }
         if let Some((id, text)) = take_input() {
-            if id == "mp_addr" {
-                if let Err(err) = text.parse::<http::uri::Authority>() {
-                    show_error(anyhow::Error::new(err).context(tl!("item-mp-addr-invalid")));
-                    return Ok(false);
-                } else {
-                    data.config.mp_address = text;
-                    return Ok(true);
-                }
-            } else if id == "mp_local_addr" {
-                // 留空表示「在本机开服务端当房主」；否则必须是合法的 host:port。
-                let text = text.trim().to_owned();
-                if !text.is_empty() && text.parse::<http::uri::Authority>().is_err() {
-                    show_error(anyhow::anyhow!("{}", tl!("item-mp-local-addr-invalid")));
-                    return Ok(false);
-                }
-                data.config.mp_local_address = text;
-                return Ok(true);
-            } else if id == "mp_server_list_url" {
-                // 留空表示回退到默认状态站；否则必须是合法的 http(s) URL。
-                let text = text.trim().trim_end_matches('/').to_owned();
-                let valid = text.is_empty() || ((text.starts_with("http://") || text.starts_with("https://")) && Url::parse(&text).is_ok());
-                if !valid {
-                    show_error(anyhow::anyhow!("{}", tl!("item-url-invalid")));
-                    return Ok(false);
-                }
-                data.config.mp_server_list_url = text;
-                return Ok(true);
-            } else if matches!(id.as_str(), "api_url" | "pro_api_url" | "web_url" | "status_url") {
+            if matches!(id.as_str(), "api_url" | "pro_api_url" | "web_url" | "status_url") {
                 let text = text.trim().trim_end_matches('/').to_owned();
                 // 官服地址留空表示回退到官方地址；自服地址留空表示关闭自服功能；
                 // 其余情况必须是合法的 http(s) URL。
@@ -1099,33 +1047,6 @@ impl GeneralList {
         item! {
             render_title(ui, tl!("item-server-status"), Some(tl!("item-server-status-sub")));
             self.server_status_btn.render_text(ui, rr, t, tl!("check-status"), 0.5, true);
-        }
-        item! {
-            render_title(ui, tl!("item-mp"), Some(tl!("item-mp-sub")));
-            render_switch(ui, rr, t, &mut self.mp_btn, config.mp_enabled);
-        }
-        item! {
-            render_title(ui, tl!("item-mp-addr"), Some(tl!("item-mp-addr-sub")));
-            self.mp_addr_btn.render_text(ui, rr, t, &config.mp_address, 0.4, false);
-        }
-        item! {
-            render_title(ui, tl!("item-mp-local-addr"), Some(tl!("item-mp-local-addr-sub")));
-            let shown = if config.mp_local_address.is_empty() {
-                tl!("item-mp-local-addr-none").into_owned()
-            } else {
-                config.mp_local_address.clone()
-            };
-            self.mp_local_addr_btn.render_text(ui, rr, t, shown, 0.4, false);
-        }
-        item! {
-            render_title(ui, tl!("item-mp-server-list"), Some(tl!("item-mp-server-list-sub")));
-            // 留空时显示实际生效的默认状态站。
-            let shown = if config.mp_server_list_url.is_empty() {
-                Cow::Borrowed(prpr::config::DEFAULT_MP_SERVER_LIST_URL)
-            } else {
-                Cow::Owned(config.mp_server_list_url.clone())
-            };
-            self.mp_server_list_url_btn.render_text(ui, rr, t, shown, 0.4, false);
         }
         item! {
             render_title(ui, tl!("item-api-url"), Some(tl!("item-api-url-sub")));

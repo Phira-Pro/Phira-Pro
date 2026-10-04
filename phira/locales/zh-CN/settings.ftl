@@ -45,11 +45,6 @@ item-offline-sub = 在离线模式下将不能上传成绩
 item-server-status = 服务器状态
 item-server-status-sub = 转到网页查看服务器状态
 check-status = 查看
-item-mp = 多人游戏
-item-mp-sub = 启用多人游戏
-item-mp-addr = 多人游戏服务器
-item-mp-addr-sub = 服务器地址，'主机:端口'
-item-mp-addr-invalid = 无效的服务器地址
 item-lowq = 低画质模式
 item-lowq-sub = 建议在画面卡顿时启用
 item-clear-cache = 清除缓存
@@ -249,14 +244,6 @@ item-aspect-ratio-sub = 支持 16:9 或 1.7778 这样的小数
 aspect-invalid = 宽高比格式不正确，例如 16:9 或 1.7778
 item-offset-indicator = 判定偏移条
 item-offset-indicator-sub = 局内顶部显示早/晚判定的偏移指示条
-
-item-mp-local-addr = 本地联机服务器
-item-mp-local-addr-sub = 「本地联机」按钮连接的地址（主机:端口）；留空则在本机开服
-item-mp-local-addr-none = （在本机开服）
-item-mp-local-addr-invalid = 无效的本地联机地址
-
-item-mp-server-list = 服务器列表地址
-item-mp-server-list-sub = 抓取状态站页面里的联机服务器（留空用默认）
 
 item-app-icon = 自定义APP图标
 item-app-icon-sub = 更换程序图标。*重启后生效*

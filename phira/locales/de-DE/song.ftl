@@ -146,6 +146,4 @@ ldb-local-title = Lokale Rekorde
 ldb-local-empty = Noch keine lokalen Rekorde. Spiele eine Runde, um sie hier zu sehen.
 ldb-local-no-hit = Klick traf keine der { $count } lokalen Zeilen
 
-mp-forced-official = Online-Duell: geänderte Urteils-/Gameplay-Optionen wurden auf die offiziellen Standardwerte zurückgesetzt
-
 flash-autoplay-unrated = Autoplay ist an: Dieser Durchlauf wird nicht hochgeladen und die Bewertungseinstellungen wurden auf die Standardwerte zurückgesetzt

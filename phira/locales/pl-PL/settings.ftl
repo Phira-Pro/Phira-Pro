@@ -216,14 +216,6 @@ aspect-invalid = Nieprawidłowe proporcje, np. 16:9 lub 1.7778
 item-offset-indicator = Wskaźnik przesunięcia
 item-offset-indicator-sub = Pokazuje w grze pasek odchyłek (wcześnie/późno)
 
-item-mp-local-addr = Local Multiplayer Server
-item-mp-local-addr-sub = Address the Local Multiplayer button connects to (host:port); leave empty to host on this device.
-item-mp-local-addr-none = (host on this device)
-item-mp-local-addr-invalid = Invalid local server address.
-
-item-mp-server-list = URL listy serwerów
-item-mp-server-list-sub = Strona statusu, z której pobierana jest lista serwerów (puste = domyślne)
-
 item-app-icon = Ikona aplikacji
 item-app-icon-sub = Zmień ikonę aplikacji. *Działa po restarcie*
 item-app-icon-reset = Przywróć domyślną ikonę

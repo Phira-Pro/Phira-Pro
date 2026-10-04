@@ -44,11 +44,6 @@ item-offline-sub = 오프라인 모드에서는 플레이 기록을 업로드할
 item-server-status = 서버 상태
 item-server-status-sub = 웹페이지로 이동하여 서버 상태를 확인하세요
 check-status = 확인
-item-mp = 멀티플레이어
-item-mp-sub = 멀티플레이어 모드 활성화
-item-mp-addr = 멀티플레이어 서버
-item-mp-addr-sub = 서버 주소, '호스트:포트'
-item-mp-addr-invalid = 잘못된 서버 주소
 item-lowq = 저화질 모드
 item-lowq-sub = UI가 느릴 때 이 기능을 활성화하세요.
 item-insecure = 보안 모드 끄기
@@ -236,14 +231,6 @@ item-aspect-ratio-sub = 16:9 또는 1.7778 같은 소수를 지원합니다
 aspect-invalid = 비율 형식이 올바르지 않습니다. 예: 16:9 또는 1.7778
 item-offset-indicator = 판정 오프셋 바
 item-offset-indicator-sub = 플레이 중 빠름/늦음 편차 막대를 표시합니다
-
-item-mp-local-addr = 로컬 멀티플레이 서버
-item-mp-local-addr-sub = 로컬 멀티플레이 버튼이 접속하는 주소(호스트:포트). 비우면 이 기기에서 호스트.
-item-mp-local-addr-none = (이 기기에서 호스트)
-item-mp-local-addr-invalid = 로컬 서버 주소가 올바르지 않습니다.
-
-item-mp-server-list = 서버 목록 URL
-item-mp-server-list-sub = 서버 목록을 가져올 상태 페이지 (비우면 기본값)
 
 item-app-icon = 앱 아이콘
 item-app-icon-sub = 앱 아이콘 변경. *재시작 후 적용*

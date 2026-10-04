@@ -43,11 +43,6 @@ item-show-fps-sub = Tampilkan FPS saat ini di kiri bawah
 item-hp-height = Ketebalan bilah
 item-offline = Mode Offline
 item-offline-sub = Anda tidak bisa mengupload skor anda di Mode Offline.
-item-mp = Multiplayer
-item-mp-sub = Hidupkan mode multiplayer
-item-mp-addr = Multiplayer server
-item-mp-addr-sub = Server address, 'host:port'
-item-mp-addr-invalid = Server address tidak valid
 item-lowq = Mode Kualitas Rendah
 item-lowq-sub = Aktifkan ini jika UI nge-lag
 item-insecure = Mode insecure
@@ -223,14 +218,6 @@ item-aspect-ratio-sub = Mendukung 16:9 atau desimal seperti 1.7778
 aspect-invalid = Rasio layar tidak valid, mis. 16:9 atau 1.7778
 item-offset-indicator = Indikator Offset
 item-offset-indicator-sub = Menampilkan bilah selisih awal/akhir saat bermain
-
-item-mp-local-addr = Local Multiplayer Server
-item-mp-local-addr-sub = Address the Local Multiplayer button connects to (host:port); leave empty to host on this device.
-item-mp-local-addr-none = (host on this device)
-item-mp-local-addr-invalid = Invalid local server address.
-
-item-mp-server-list = URL Daftar Server
-item-mp-server-list-sub = Halaman status untuk mengambil daftar server (kosong = bawaan)
 
 item-app-icon = Ikon Aplikasi
 item-app-icon-sub = Ganti ikon aplikasi. *Berlaku setelah mulai ulang*

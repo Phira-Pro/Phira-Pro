@@ -10,10 +10,10 @@ pub(crate) mod event;
 pub use event::EventScene;
 
 mod main;
-pub use main::{MainScene, APPEARANCE_UPDATED, BACKGROUND_UPDATED, BGM_VOLUME_UPDATED, MP_PANEL};
+pub use main::{MainScene, APPEARANCE_UPDATED, BACKGROUND_UPDATED, BGM_VOLUME_UPDATED};
 
 mod song;
-pub use song::{compress_folder, Downloading, SongScene, RECORD_ID};
+pub use song::{compress_folder, SongScene};
 #[cfg(feature = "video")]
 mod unlock;
 #[cfg(feature = "video")]

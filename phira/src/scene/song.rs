@@ -33,7 +33,6 @@ use futures_util::StreamExt;
 use inputbox::{InputBox, InputMode};
 use macroquad::prelude::*;
 use once_cell::sync::Lazy;
-use phira_mp_common::{ClientCommand, CompactPos, JudgeEvent, TouchFrame};
 use prpr::{
     config::Mods,
     core::{Tweenable, BOLD_FONT},
@@ -43,7 +42,7 @@ use prpr::{
     },
     fs::{self},
     info::ChartInfo,
-    judge::{icon_index, Judge},
+    judge::icon_index,
     scene::{
         request_file, request_input, return_file, return_input, show_error, show_message, take_file, take_input, BasicPlayer, GameMode, LoadingScene,
         LocalSceneTask, NextScene, RecordUpdateState, SaveFn, Scene, SimpleRecord, UpdateFn, UploadFn,
@@ -62,7 +61,7 @@ use sha2::{Digest, Sha256};
 use std::{
     any::Any,
     borrow::Cow,
-    collections::{hash_map, BTreeMap, HashMap, VecDeque},
+    collections::BTreeMap,
     fs::File,
     io::{BufWriter, Cursor, Seek, Write},
     path::Path,
@@ -897,7 +896,7 @@ impl SongScene {
         );
 
         self.scene_task =
-            Self::global_launch(self.info.id, local_path, self.mods, mode, None, Some(self.background.clone()), self.record.clone(), is_unlock)?;
+            Self::global_launch(self.info.id, local_path, self.mods, mode, Some(self.background.clone()), self.record.clone(), is_unlock)?;
 
         Ok(())
     }
@@ -909,7 +908,6 @@ impl SongScene {
         local_path: &str,
         mods: Mods,
         mode: GameMode,
-        client: Option<Arc<phira_mp_client::Client>>,
         background_output: Option<Arc<Mutex<Option<SafeTexture>>>>,
         record: Option<SimpleRecord>,
         is_unlock: bool,
@@ -930,111 +928,7 @@ impl SongScene {
         if !rated && can_rated && mode == GameMode::Normal {
             show_message(tl!("warn-unrated")).warn();
         }
-        let is_mp = client.is_some();
-        let update_fn = client.and_then(|mut client| {
-            let live = client.blocking_state().unwrap().live;
-            let token = get_data().tokens.as_ref().map(|it| it.0.clone()).unwrap();
-            let addr = get_data().config.mp_address.clone();
-            let mut reconnect_task: Option<Task<Result<phira_mp_client::Client>>> = None;
-            let update_fn: Option<UpdateFn> = if live {
-                Some(Box::new({
-                    let mut touch_ids: HashMap<u64, i8> = HashMap::new();
-                    let mut touch_last_update: HashMap<i8, f32> = HashMap::new();
-                    let mut touches: VecDeque<TouchFrame> = VecDeque::new();
-                    let mut judges: VecDeque<JudgeEvent> = VecDeque::new();
-                    let mut last_send_touch_time: f32 = 0.;
-                    move |t, res, judge| {
-                        if client.ping_fail_count() >= 1 && reconnect_task.is_none() {
-                            warn!("lost connection, auto re-connect");
-                            let token = token.clone();
-                            let addr = addr.clone();
-                            reconnect_task = Some(Task::new(async move {
-                                let client = phira_mp_client::Client::from_address(&addr).await?;
-                                client.authenticate(token).await?;
-                                Ok(client)
-                            }));
-                        }
-                        if let Some(task) = &mut reconnect_task {
-                            if let Some(res) = task.take() {
-                                match res {
-                                    Err(err) => {
-                                        warn!(?err, "failed to reconnect");
-                                    }
-                                    Ok(new) => {
-                                        warn!("reconnected!");
-                                        client = new.into();
-                                    }
-                                }
-                                reconnect_task = None;
-                            }
-                        }
-                        let points: Vec<_> = Judge::get_touches()
-                            .into_iter()
-                            .filter_map(|it| {
-                                if matches!(it.phase, TouchPhase::Stationary) {
-                                    return None;
-                                }
-                                let len = touch_ids.len();
-                                let mut id = match touch_ids.entry(it.id) {
-                                    hash_map::Entry::Occupied(val) => *val.get(),
-                                    hash_map::Entry::Vacant(place) => *place.insert(len.try_into().ok()?),
-                                };
-                                if matches!(it.phase, TouchPhase::Moved) && touch_last_update.get(&id).is_some_and(|it| *it as f64 + 1. / 20. >= t) {
-                                    return None;
-                                }
-                                touch_last_update.insert(id, t as f32);
-                                if matches!(it.phase, TouchPhase::Ended | TouchPhase::Cancelled) {
-                                    touch_ids.remove(&it.id);
-                                    id = !id;
-                                }
-                                Some((id, CompactPos::new(it.position.x, it.position.y * res.aspect_ratio)))
-                            })
-                            .collect();
-                        if !points.is_empty() {
-                            touches.push_back(TouchFrame { time: t as f32, points });
-                        }
-                        if last_send_touch_time as f64 + 1. < t || touches.len() > 20 {
-                            if touches.is_empty() {
-                                touches.push_back(TouchFrame {
-                                    time: t as f32,
-                                    points: Vec::new(),
-                                });
-                            }
-                            let frames = Arc::new(touches.drain(..).collect());
-                            client.blocking_send(ClientCommand::Touches { frames }).unwrap();
-                            last_send_touch_time = t as f32;
-                        }
-                        judges.extend(judge.judgements.borrow_mut().drain(..).map(|it| JudgeEvent {
-                            time: it.0 as f32,
-                            line_id: it.1,
-                            note_id: it.2,
-                            judgement: {
-                                use phira_mp_common::Judgement::*;
-                                use prpr::judge::Judgement as OJ;
-                                match it.3 {
-                                    Ok(OJ::PerfectPlus) => Perfect,
-                                    Ok(OJ::Perfect) => Perfect,
-                                    Ok(OJ::Good) => Good,
-                                    Ok(OJ::Bad) => Bad,
-                                    Ok(OJ::Miss) => Miss,
-                                    Err(true) => HoldPerfect,
-                                    Err(false) => HoldGood,
-                                }
-                            },
-                        }));
-                        if judges.len() > 10 || judges.front().is_some_and(|it| it.time + 0.6 < t as f32) {
-                            let judges = Arc::new(judges.drain(..).collect());
-                            client.blocking_send(ClientCommand::Judges { judges }).unwrap();
-                        }
-                    }
-                }))
-            } else {
-                None
-            };
-            update_fn
-        });
-
-        // Phira Pro：回放录制。仅在正常游玩（非自动）时挂载；与联机 update_fn 共存。
+        // Phira Pro：回放录制。仅在正常游玩（非自动）时挂载。
         let replay_rec = if mode == GameMode::Normal && !get_data().config.autoplay() {
             let chart = match id {
                 Some(id) => Some(crate::replay::ChartRef::Id(id)),
@@ -1045,16 +939,7 @@ impl SongScene {
         } else {
             None
         };
-        let update_fn = match (update_fn, replay_rec) {
-            (Some(a), Some(b)) => {
-                let (mut a, mut b) = (a, b);
-                Some(Box::new(move |t: f64, res: &mut prpr::core::Resource, judge: &mut prpr::judge::Judge| {
-                    a(t, &mut *res, &mut *judge);
-                    b(t, &mut *res, &mut *judge);
-                }) as UpdateFn)
-            }
-            (a, b) => a.or(b),
-        };
+        let update_fn: Option<UpdateFn> = replay_rec;
 
         let save_fn: Option<SaveFn> = Some(Box::new({
             let local_path = local_path.to_string();
@@ -1139,23 +1024,6 @@ impl SongScene {
             // 联机对战必须保证公平：把任何改动过的判定 / 玩法选项临时还原成官方默认值
             // （自动游玩 / 全屏判定 / 严格判定 / 判定窗口 / 晚按补偿 / 黄红键保护 / 尾判 /
             // 血条倍率 / 降速 / 键盘模式等）。只作用于本局用的配置副本，不动玩家保存的设置。
-            if is_mp {
-                let mut run_mods = config.mods;
-                let forced = config.force_official_play(&mut run_mods);
-                config.mods = run_mods;
-                if !forced.is_empty() {
-                    tracing::info!("mp: forces official judge/gameplay defaults: {forced:?}");
-                    show_message(tl!("mp-forced-official")).warn();
-                }
-                // 联机对局结束后要把成绩回传给房间：服务端是按 `record_id` 去拉成绩再
-                // 广播每个人的分数 / 准度的。所以这里强制走一次上传，否则脚本里没有
-                // record_id，只能发 abort，房间里就会显示成「放弃了游玩」。
-                // 没登录时上传本身会失败，结果和现在一致。
-                #[cfg(record)]
-                {
-                    config.upload_record = true;
-                }
-            }
             let preload = LoadingScene::load(fs.as_mut(), &info.illustration).await?;
             if let Some(output) = background_output {
                 *output.lock().unwrap() = Some(preload.1.clone());
@@ -1204,7 +1072,7 @@ impl SongScene {
             // 能否上传最终由 prpr 侧的 `Config::is_official_play` 决定——改动过判定 /
             // 玩法的对局一律不上传。
             #[cfg(record)]
-            let upload_fn = upload_fn.filter(|_| (get_data().config.upload_record || is_mp) && !crate::client::pro_api_url().is_empty());
+            let upload_fn = upload_fn.filter(|_| get_data().config.upload_record && !crate::client::pro_api_url().is_empty());
             if is_unlock {
                 #[cfg(not(feature = "video"))]
                 {
@@ -2101,12 +1969,6 @@ impl Scene for SongScene {
             return Ok(true);
         }
         if self.scene_task.is_none() && self.next_scene.is_none() && self.play_btn.touch(touch, t) {
-            // Phira Pro：联机房间里不能自己开始游玩（要由房主点「开始游戏」）。
-            if crate::scene::MP_PANEL.with(|it| it.borrow_mut().as_mut().is_some_and(|panel| panel.in_room())) {
-                use crate::mp::{mtl, L10N_LOCAL};
-                show_message(mtl!("room-play-disabled")).error();
-                return Ok(true);
-            }
             if self.local_path.is_some() {
                 self.launch(GameMode::Normal, false)?;
             } else {
@@ -3042,12 +2904,11 @@ impl Scene for SongScene {
             }
 
             // play button
-            let in_room = crate::scene::MP_PANEL.with(|it| it.borrow_mut().as_mut().is_some_and(|panel| panel.in_room()));
             let w = 0.26;
             let pad = 0.08;
             let r = Rect::new(1. - pad - w, ui.top - pad - w, w, w);
             self.play_btn.render_shadow(ui, r, t, |ui, path| {
-                ui.fill_path(&path, if in_room { semi_white(0.08) } else { semi_white(0.3) });
+                ui.fill_path(&path, semi_white(0.3));
                 let r = r.feather(-0.04);
                 ui.fill_rect(
                     r,
@@ -3059,7 +2920,7 @@ impl Scene for SongScene {
                         },
                         r,
                         ScaleType::Fit,
-                        if in_room { semi_white(0.2) } else { WHITE },
+                        WHITE,
                     ),
                 );
             });

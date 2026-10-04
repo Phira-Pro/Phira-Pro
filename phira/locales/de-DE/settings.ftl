@@ -41,11 +41,6 @@ item-offline-sub = Alle Online-Funktionen deaktivieren
 item-server-status = Serverstatus
 item-server-status-sub = Öffne die Serverstatus-Seite im Browser
 check-status = Öffnen
-item-mp = Mehrspieler
-item-mp-sub = Mehrspielerfunktion aktivieren
-item-mp-addr = Mehrspieler-Server
-item-mp-addr-sub = Mit einem eigenen Mehrspieler-Server verbinden
-item-mp-addr-invalid = Ungültige Serveradresse
 item-lowq = Niedrige Auflösung
 item-lowq-sub = Reduziert die UI-Qualität für bessere Performance
 item-clear-cache = Cache leeren
@@ -240,14 +235,6 @@ item-aspect-ratio-sub = Unterstützt 16:9 oder Dezimalwerte wie 1.7778
 aspect-invalid = Ungültiges Seitenverhältnis, z. B. 16:9 oder 1.7778
 item-offset-indicator = Versatzanzeige
 item-offset-indicator-sub = Zeigt im Spiel den Balken für frühen/späten Versatz
-
-item-mp-local-addr = Local Multiplayer Server
-item-mp-local-addr-sub = Address the Local Multiplayer button connects to (host:port); leave empty to host on this device.
-item-mp-local-addr-none = (host on this device)
-item-mp-local-addr-invalid = Invalid local server address.
-
-item-mp-server-list = Serverlisten-URL
-item-mp-server-list-sub = Statusseite, von der die Serverliste geladen wird (leer = Standard)
 
 item-app-icon = App-Symbol
 item-app-icon-sub = App-Symbol ändern. *Nach Neustart wirksam*

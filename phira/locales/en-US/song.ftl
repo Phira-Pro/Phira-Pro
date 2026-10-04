@@ -147,5 +147,3 @@ ldb-acc = ACC
 ldb-local-title = Local records
 ldb-local-empty = No local records yet. Play a round to see it here.
 ldb-local-no-hit = Click did not hit any of the { $count } local rows
-
-mp-forced-official = Multiplayer: modified judgement / gameplay options were reset to official defaults

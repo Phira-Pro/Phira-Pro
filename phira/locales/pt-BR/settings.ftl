@@ -41,11 +41,6 @@ item-practice-step = Aumento por volta
 item-hp-height = Espessura da barra
 item-offline = Modo offline
 item-offline-sub = Você não pode fazer upload de recordes reproduzidos no modo off-line
-item-mp = Multijogador
-item-mp-sub = Ativar o modo multijogador
-item-mp-addr = Servidor multijogador
-item-mp-addr-sub = Endereço do servidor, 'host:porta'
-item-mp-addr-invalid = Endereço de servidor inválido
 item-lowq = Modo de baixa qualidade
 item-lowq-sub = Habilite isto se a UI estiver lenta
 item-insecure = Modo inseguro
@@ -228,14 +223,6 @@ item-aspect-ratio-sub = Aceita 16:9 ou decimal como 1.7778
 aspect-invalid = Proporção inválida, ex. 16:9 ou 1.7778
 item-offset-indicator = Indicador de Desvio
 item-offset-indicator-sub = Mostra no jogo a barra de desvio (cedo/tarde)
-
-item-mp-local-addr = Local Multiplayer Server
-item-mp-local-addr-sub = Address the Local Multiplayer button connects to (host:port); leave empty to host on this device.
-item-mp-local-addr-none = (host on this device)
-item-mp-local-addr-invalid = Invalid local server address.
-
-item-mp-server-list = URL da lista de servidores
-item-mp-server-list-sub = Página de status de onde a lista é obtida (vazio = padrão)
 
 item-app-icon = Ícone do app
 item-app-icon-sub = Alterar o ícone do aplicativo. *Efeito após reiniciar*

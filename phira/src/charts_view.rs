@@ -7,7 +7,7 @@ use crate::{
     page::{ChartItem, Fader, CHOOSE_COVER, CHOSEN_COVER},
     popup::Popup,
     save_data,
-    scene::{render_release_to_refresh, SongScene, MP_PANEL},
+    scene::{render_release_to_refresh, SongScene},
 };
 use anyhow::Result;
 use core::f32;
@@ -194,7 +194,7 @@ impl ChartsView {
         NEED_UPDATE.fetch_and(false, Ordering::Relaxed)
     }
 
-    pub fn touch(&mut self, touch: &Touch, t: f32, rt: f32) -> Result<bool> {
+    pub fn touch(&mut self, touch: &Touch, t: f32, _rt: f32) -> Result<bool> {
         if self.chart_menu.showing() {
             self.chart_menu.touch(touch, t);
             return Ok(true);
@@ -220,25 +220,6 @@ impl ChartsView {
                 if let Some(chart) = &item.chart {
                     if item.btn.touch(touch, t) {
                         item.long_touch.reset();
-                        let handled_by_mp = MP_PANEL.with(|it| {
-                            if let Some(panel) = it.borrow_mut().as_mut() {
-                                if panel.in_room() {
-                                    if let Some(id) = chart.info.id {
-                                        panel.select_chart(id);
-                                        panel.show(rt);
-                                    } else {
-                                        use crate::mp::{mtl, L10N_LOCAL};
-                                        show_message(mtl!("select-chart-local")).error();
-                                    }
-                                    return true;
-                                }
-                            }
-                            false
-                        });
-                        if handled_by_mp {
-                            button_hit_large();
-                            continue;
-                        }
                         if let Some(after) = self.edit_move_state.take() {
                             button_hit();
                             movement = Some((id, after));
@@ -308,50 +289,6 @@ impl ChartsView {
                         return Ok(true);
                     }
                     let long_fired = item.btn.long_touch(touch, t, &mut item.long_touch);
-                    // Phira Pro：联机房间内，长按 = 打开谱面详情页（调整宽高比 / 镜像等，
-                    // 只对自己生效，不会替房主选谱）。房间外的长按仍然是多选 / 排序菜单。
-                    if long_fired {
-                        let in_room = MP_PANEL.with(|it| {
-                            it.borrow_mut()
-                                .as_mut()
-                                .is_some_and(|panel| panel.in_room())
-                        });
-                        if in_room {
-                            button_hit_large();
-                            let download_path = chart.info.id.map(|it| format!("download/{it}"));
-                            let scene = SongScene::new(
-                                chart.clone(),
-                                if let Some(path) = &chart.local_path {
-                                    Some(path.clone())
-                                } else {
-                                    let path = download_path.clone().unwrap();
-                                    if Path::new(&format!("{}/{path}", dir::charts()?)).exists() {
-                                        Some(path)
-                                    } else {
-                                        None
-                                    }
-                                },
-                                Arc::clone(&self.icons),
-                                self.rank_icons.clone(),
-                                chart
-                                    .local_path
-                                    .as_ref()
-                                    .and_then(|path| get_data().charts.iter().find(|it| &it.local_path == path).map(|it| it.mods))
-                                    .unwrap_or_default(),
-                            );
-                            self.transit = Some(TransitState {
-                                id: id as _,
-                                rect: None,
-                                chart: chart.clone(),
-                                start_time: t,
-                                next_scene: Some(NextScene::Overlay(Box::new(scene))),
-                                back: false,
-                                done: false,
-                                delete: false,
-                            });
-                            return Ok(true);
-                        }
-                    }
                     if self.allow_multi_select && self.multi_select.is_none() && long_fired {
                         self.scroll.y_scroller.halt();
                         self.editing_chart = Some(id);
@@ -403,58 +340,7 @@ impl ChartsView {
         let refreshed = self.can_refresh && self.scroll.y_scroller.pulled;
         self.chart_menu.update(t);
         self.scroll.update(t);
-        // Phira Pro：联机房间内长按谱面 = 打开谱面详情页。
-        // 这里用逐帧的 `update_long_touch`（而不是 touch 事件里的 `long_touch`）：
-        // 移动端按住手指不一定持续产生 Stationary/Moved 事件，事件驱动会漏掉长按，
-        // 导致安卓上长按没反应（桌面鼠标有 Moved 所以看起来正常）。
-        let in_room = MP_PANEL.with(|it| it.borrow_mut().as_mut().is_some_and(|panel| panel.in_room()));
-        if in_room {
-            if let Some(charts) = &mut self.charts {
-                for (id, item) in charts.iter_mut().enumerate() {
-                    if item.chart.is_none() || !item.btn.update_long_touch(t, &mut item.long_touch) {
-                        continue;
-                    }
-                    let Some(chart) = &item.chart else { continue };
-                    let chart = chart.clone();
-                    // 长按已触发：清掉按钮的按压状态，免得松手时又被判成「点击选谱」。
-                    item.btn.inner.cancel();
-                    self.scroll.y_scroller.halt();
-                    button_hit_large();
-                    let download_path = chart.info.id.map(|it| format!("download/{it}"));
-                    let scene = SongScene::new(
-                        chart.clone(),
-                        if let Some(path) = &chart.local_path {
-                            Some(path.clone())
-                        } else {
-                            let path = download_path.clone().unwrap();
-                            if Path::new(&format!("{}/{path}", dir::charts()?)).exists() {
-                                Some(path)
-                            } else {
-                                None
-                            }
-                        },
-                        Arc::clone(&self.icons),
-                        self.rank_icons.clone(),
-                        chart
-                            .local_path
-                            .as_ref()
-                            .and_then(|path| get_data().charts.iter().find(|it| &it.local_path == path).map(|it| it.mods))
-                            .unwrap_or_default(),
-                    );
-                    self.transit = Some(TransitState {
-                        id: id as _,
-                        rect: None,
-                        chart: chart.clone(),
-                        start_time: t,
-                        next_scene: Some(NextScene::Overlay(Box::new(scene))),
-                        back: false,
-                        done: false,
-                        delete: false,
-                    });
-                    return Ok(true);
-                }
-            }
-        } else if self.allow_multi_select && self.multi_select.is_none() {
+        if self.allow_multi_select && self.multi_select.is_none() {
             if let Some(charts) = &mut self.charts {
                 for (id, item) in charts.iter_mut().enumerate() {
                     if item.chart.is_some() && item.btn.update_long_touch(t, &mut item.long_touch) {

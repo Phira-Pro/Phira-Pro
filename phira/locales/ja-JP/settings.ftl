@@ -41,11 +41,6 @@ item-offline = オフラインモード
 item-offline-sub = オフラインモードではリザルトはアップロードされません
 item-lowq = 低画質モード
 item-lowq-sub = UIがスムーズに動作しない場合にオンにしてください
-item-mp = マルチプレイヤー
-item-mp-sub = マルチプレイヤーモードを有効化します
-item-mp-addr = マルチプレイサーバー
-item-mp-addr-sub = サーバーのアドレスです。'host:port'
-item-mp-addr-invalid = 無効なサーバーアドレスです
 
 item-adjust = 自動調整
 item-adjust-sub = 音楽とビートマップを同期させるために、動的に時間を調整します
@@ -225,14 +220,6 @@ item-aspect-ratio-sub = 16:9 や 1.7778 のような小数に対応
 aspect-invalid = 比率の形式が正しくありません（例: 16:9 や 1.7778）
 item-offset-indicator = 判定ずれバー
 item-offset-indicator-sub = プレイ中に早/遅のずれを示すバーを表示します
-
-item-mp-local-addr = ローカル対戦サーバー
-item-mp-local-addr-sub = 「ローカル対戦」ボタンが接続するアドレス（ホスト:ポート）。空欄ならこの端末でホスト。
-item-mp-local-addr-none = （この端末でホスト）
-item-mp-local-addr-invalid = ローカル対戦アドレスが無効です
-
-item-mp-server-list = サーバーリストURL
-item-mp-server-list-sub = サーバーリストを取得するステータスページ（空欄で既定）
 
 item-app-icon = アプリアイコン
 item-app-icon-sub = アプリアイコンを変更。*再起動後に反映*

@@ -56,7 +56,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 ### 其他
 
-- 修正 Windows 构建问题；内置 HarmonyOS Sans 作为回退字体；补齐新增文案的多语言翻译。
+- 修正 Windows 构建问题；修正 Linux 构建问题；内置 HarmonyOS Sans 作为回退字体；补齐新增文案的多语言翻译。
 
 ## 成绩与隐私
 

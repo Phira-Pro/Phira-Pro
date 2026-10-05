@@ -116,7 +116,7 @@ pub fn get_data_mut() -> &'static mut Data {
 }
 
 pub fn save_data() -> Result<()> {
-    transfer::write_atomic(std::path::Path::new(&format!("{}/data.json", dir::root()?)), &serde_json::to_vec(get_data())?)?;
+    std::fs::write(format!("{}/data.json", dir::root()?), serde_json::to_string(get_data())?)?;
     Ok(())
 }
 

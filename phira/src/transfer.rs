@@ -8,9 +8,8 @@
 //
 // 注：谱面 / 皮肤在下次启动时由 `Data::init` 重新扫描建索引，因此导入后需重启。
 
-use crate::{data::Data, dir, get_data_mut};
+use crate::{dir, get_data_mut};
 use anyhow::{Context, Result};
-use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -44,9 +43,15 @@ pub fn scan(data_json: &Path) -> Result<Scan> {
     let respacks = count_entries(&root.join("respack"));
     let appearance = count_entries(&root.join("appearance"));
     let has_font = root.join("font.ttf").is_file();
-    let v: serde_json::Value = serde_json::from_slice(&std::fs::read(data_json)?).context("data.json 格式无效")?;
-    anyhow::ensure!(v.is_object(), "data.json 必须是对象");
-    let name = { v.get("me").and_then(|m| m.get("name")).and_then(|n| n.as_str()).map(str::to_owned) };
+    let name = std::fs::read_to_string(data_json)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| {
+            v.get("me")
+                .and_then(|m| m.get("name"))
+                .and_then(|n| n.as_str())
+                .map(str::to_owned)
+        });
     Ok(Scan {
         root,
         charts,
@@ -123,11 +128,7 @@ pub fn import(scan: &Scan, import_config: bool) -> Result<Imported> {
         if let Some(theme) = v.get("theme").and_then(|it| it.as_u64()) {
             data.theme = theme as usize;
         }
-        if let Some(p) = v
-            .get("prefer_reduced_motion")
-            .or_else(|| v.get("preferReducedMotion"))
-            .and_then(|it| it.as_bool())
-        {
+        if let Some(p) = v.get("preferReducedMotion").and_then(|it| it.as_bool()) {
             data.prefer_reduced_motion = p;
             prpr::ui::PREFER_REDUCED_MOTION.store(p, std::sync::atomic::Ordering::Relaxed);
         }
@@ -149,37 +150,22 @@ pub fn import(scan: &Scan, import_config: bool) -> Result<Imported> {
     Ok(out)
 }
 
-/// Snapshot comes from the main thread, so a backup includes unsaved settings
-/// and never reads the application's mutable global state on a worker.
-pub fn create_backup<W: Write + Seek>(output: W, snapshot: &[u8]) -> Result<u64> {
-    backup_tree(&data_dir()?, output, snapshot)
-}
-
-fn backup_tree<W: Write + Seek>(root: &Path, output: W, snapshot: &[u8]) -> Result<u64> {
-    let _: Data = serde_json::from_slice(snapshot).context("备份 data.json 无法读取")?;
-    let mut zip = zip::ZipWriter::new(output);
+/// 把整个数据目录打包为 zip，返回打包的文件数。
+pub fn create_backup(dest: &Path) -> Result<u64> {
+    let root = data_dir()?;
+    let file = std::fs::File::create(dest)?;
+    let mut zip = zip::ZipWriter::new(std::io::BufWriter::new(file));
     let opts = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o755);
-    zip.start_file("data.json", opts)?;
-    zip.write_all(snapshot)?;
-    let mut n = 1u64;
-    for entry in WalkDir::new(root) {
-        let entry = entry.context("读取备份目录失败")?;
+    let mut n = 0u64;
+    for entry in WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
-        let rel = path.strip_prefix(root)?;
+        let Ok(rel) = path.strip_prefix(&root) else { continue };
         if rel.as_os_str().is_empty() {
             continue;
         }
-        // Saved JSON can lag behind the main-thread snapshot. Cache files can
-        // contain transient exports and are rebuilt by the app.
-        if rel == Path::new("data.json") || rel.starts_with("cache") {
-            continue;
-        }
         let name = rel.to_string_lossy().replace('\\', "/");
-        if name.starts_with("phira-backup-") && name.ends_with(".zip") && !name.contains('/') {
-            continue;
-        }
         if entry.file_type().is_dir() {
             zip.add_directory(format!("{name}/"), opts)?;
         } else if entry.file_type().is_file() {
@@ -189,58 +175,20 @@ fn backup_tree<W: Write + Seek>(root: &Path, output: W, snapshot: &[u8]) -> Resu
             n += 1;
         }
     }
-    let mut output = zip.finish()?;
-    output.flush()?;
+    zip.finish()?;
     Ok(n)
 }
 
-/// Validate and fully extract before publishing. Return the restored state to
-/// the main thread, so the next save cannot overwrite it with the old state.
-pub fn restore_backup(src: &Path) -> Result<PreparedRestore> {
-    prepare_restore(src, &data_dir()?)
-}
-
-pub struct PreparedRestore {
-    root: PathBuf,
-    staging: tempfile::TempDir,
-    bytes: Vec<u8>,
-    data: Data,
-    count: u64,
-}
-
-impl PreparedRestore {
-    /// Commit and replace the in-memory state together on the main thread.
-    /// Dropping a pending result leaves the existing data untouched.
-    pub fn publish(self) -> Result<(u64, Data)> {
-        for entry in WalkDir::new(self.staging.path()).min_depth(1) {
-            let entry = entry?;
-            if !entry.file_type().is_file() {
-                continue;
-            }
-            let rel = entry.path().strip_prefix(self.staging.path())?;
-            if rel == Path::new("data.json") {
-                continue;
-            }
-            copy_atomic(entry.path(), &self.root.join(rel))?;
-        }
-        write_atomic(&self.root.join("data.json"), &self.bytes)?;
-        Ok((self.count, self.data))
-    }
-}
-
-fn prepare_restore(src: &Path, root: &Path) -> Result<PreparedRestore> {
+/// 从备份 zip 还原（同名覆盖），返回还原的文件数。需重启生效。
+pub fn restore_backup(src: &Path) -> Result<u64> {
+    let root = data_dir()?;
     let file = std::fs::File::open(src)?;
     let mut zip = zip::ZipArchive::new(file)?;
-    let mut bytes = Vec::new();
-    zip.by_name("data.json").context("备份缺少根目录 data.json")?.read_to_end(&mut bytes)?;
-    let data: Data = serde_json::from_slice(&bytes).context("备份 data.json 无法读取")?;
-    let staging = tempfile::tempdir_in(root.parent().context("还原目录无效")?)?;
     let mut n = 0u64;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i)?;
-        let rel = entry.enclosed_name().context("备份包含不安全的文件路径")?;
-        anyhow::ensure!(!rel.as_os_str().is_empty(), "备份包含空路径");
-        let to = staging.path().join(rel);
+        let Some(rel) = entry.enclosed_name() else { continue };
+        let to = root.join(rel);
         if entry.is_dir() {
             std::fs::create_dir_all(&to)?;
         } else {
@@ -252,85 +200,5 @@ fn prepare_restore(src: &Path, root: &Path) -> Result<PreparedRestore> {
             n += 1;
         }
     }
-    Ok(PreparedRestore {
-        root: root.to_path_buf(),
-        staging,
-        bytes,
-        data,
-        count: n,
-    })
-}
-
-fn copy_atomic(source: &Path, dest: &Path) -> Result<()> {
-    let parent = dest.parent().context("还原路径无效")?;
-    std::fs::create_dir_all(parent)?;
-    let mut file = tempfile::NamedTempFile::new_in(parent)?;
-    std::io::copy(&mut std::fs::File::open(source)?, &mut file)?;
-    file.as_file().sync_all()?;
-    file.persist(dest).map_err(|err| err.error).context("还原文件失败")?;
-    Ok(())
-}
-
-pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    let parent = path.parent().context("保存路径无效")?;
-    std::fs::create_dir_all(parent)?;
-    let mut file = tempfile::NamedTempFile::new_in(parent)?;
-    file.write_all(bytes)?;
-    file.as_file().sync_all()?;
-    file.persist(path).map_err(|err| err.error).context("保存文件失败")?;
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Cursor;
-
-    #[test]
-    fn backup_restores_current_settings_records_and_unicode_assets() {
-        let src = tempfile::tempdir().unwrap();
-        let dst = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(src.path().join("charts/custom/谱面")).unwrap();
-        std::fs::write(src.path().join("charts/custom/谱面/chart.json"), b"chart").unwrap();
-        std::fs::write(src.path().join("data.json"), b"old invalid state").unwrap();
-        let mut data = Data::default();
-        data.language = Some("zh-CN".into());
-        data.config.shader_pre_render = true;
-        data.local_records.insert("custom/谱面".into(), None);
-        let bytes = serde_json::to_vec(&data).unwrap();
-        let mut archive = Cursor::new(Vec::new());
-        assert_eq!(backup_tree(src.path(), &mut archive, &bytes).unwrap(), 2);
-        let file = src.path().join("backup.zip");
-        std::fs::write(&file, archive.into_inner()).unwrap();
-        let prepared = prepare_restore(&file, dst.path()).unwrap();
-        assert!(!dst.path().join("data.json").exists());
-        let (n, restored) = prepared.publish().unwrap();
-        assert_eq!(n, 2);
-        assert_eq!(restored.language, data.language);
-        assert!(restored.config.shader_pre_render);
-        assert!(restored.local_records.contains_key("custom/谱面"));
-        let _: Data = serde_json::from_slice(&std::fs::read(dst.path().join("data.json")).unwrap()).unwrap();
-        assert_eq!(std::fs::read(dst.path().join("charts/custom/谱面/chart.json")).unwrap(), b"chart");
-    }
-
-    #[test]
-    fn invalid_backup_is_rejected_before_existing_files_are_modified() {
-        let root = tempfile::tempdir().unwrap();
-        let dest = root.path().join("data");
-        std::fs::create_dir(&dest).unwrap();
-        std::fs::write(dest.join("data.json"), b"keep").unwrap();
-        for invalid in [true, false] {
-            let file = root.path().join("bad.zip");
-            let mut zip = zip::ZipWriter::new(std::fs::File::create(&file).unwrap());
-            let opts = zip::write::SimpleFileOptions::default();
-            zip.start_file("data.json", opts).unwrap();
-            zip.write_all(if invalid { b"broken" } else { b"{}" }).unwrap();
-            zip.start_file("../escape", opts).unwrap();
-            zip.write_all(b"no").unwrap();
-            zip.finish().unwrap();
-            assert!(prepare_restore(&file, &dest).is_err());
-            assert_eq!(std::fs::read(dest.join("data.json")).unwrap(), b"keep");
-            assert!(!root.path().join("escape").exists());
-        }
-    }
+    Ok(n)
 }

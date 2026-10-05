@@ -43,7 +43,6 @@ vendor/
 !vendor/
 vendor/*
 !vendor/jni/
-!vendor/macroquad/
 /docs/*
 !/docs/development/
 

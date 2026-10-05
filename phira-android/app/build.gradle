@@ -25,7 +25,6 @@ tasks.register('cargoNdkBuild') {
     inputs.file("${repoRoot}/Cargo.lock")
     inputs.file("${repoRoot}/Cargo.toml")
     inputs.files(fileTree("${repoRoot}/vendor/jni"))
-    inputs.files(fileTree("${repoRoot}/vendor/macroquad"))
     inputs.files(fileTree("${repoRoot}/assets"), fileTree("${repoRoot}/phira/locales"), fileTree("${repoRoot}/prpr/locales"))
     inputs.files(file("${repoRoot}/phira/Cargo.toml"), file("${repoRoot}/prpr/Cargo.toml"), file("${repoRoot}/prpr-avc/Cargo.toml"), file("${repoRoot}/rust-toolchain.toml"))
     inputs.property('rustflags', System.getenv('RUSTFLAGS') ?: '')

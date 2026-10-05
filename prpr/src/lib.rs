@@ -94,9 +94,7 @@ pub fn build_conf() -> macroquad::window::Conf {
         window_title: "Phira".to_string(),
         window_width: 973,
         window_height: 608,
-        // Macroquad defaults to four samples even when Config selects low
-        // quality. MSRenderTarget already provides the chosen chart MSAA.
-        sample_count: 1,
+
         ..Default::default()
     }
 }

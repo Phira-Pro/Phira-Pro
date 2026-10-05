@@ -10,8 +10,6 @@ import android.util.Log;
 import android.view.Window;
 import android.view.View;
 import android.view.WindowManager;
-import android.view.Display;
-import android.hardware.display.DisplayManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Toast;
 
@@ -42,13 +40,6 @@ public class MainActivity extends Activity {
     private static final int REQ_EXPORT = 1003;
 
     private QuadSurface view;
-    private ParcelFileDescriptor exportDescriptor;
-    private DisplayManager displayManager;
-    private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
-        public void onDisplayAdded(int id) { }
-        public void onDisplayRemoved(int id) { }
-        public void onDisplayChanged(int id) { requestHighRefreshRate(); }
-    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -85,9 +76,6 @@ public class MainActivity extends Activity {
 
         view = new QuadSurface(this);
         setContentView(view);
-        displayManager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
-        if (displayManager != null) displayManager.registerDisplayListener(displayListener, null);
-        requestHighRefreshRate();
     }
 
     @Override
@@ -120,7 +108,6 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Log.i(TAG, "Lifecycle: onResume");
-        requestHighRefreshRate();
         QuadNative.prprActivityOnResume();
         QuadNative.activityOnResume();
     }
@@ -134,8 +121,6 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        finishExport();
-        if (displayManager != null) displayManager.unregisterDisplayListener(displayListener);
         QuadNative.prprActivityOnDestroy();
         QuadNative.activityOnDestroy();
         super.onDestroy();
@@ -226,7 +211,6 @@ public class MainActivity extends Activity {
                 startActivityForResult(intent, REQ_EXPORT);
             } catch (Exception e) {
                 Log.w(TAG, "showExportDialog failed", e);
-                QuadNative.processExportFd(null, -2);
             }
         });
     }
@@ -238,35 +222,16 @@ public class MainActivity extends Activity {
      * 删除它会直接毁掉用户刚导出的内容，因此这里刻意不做删除。
      */
     public void deleteUri(Uri uri) {
-        finishExport();
         Log.i(TAG, "deleteUri ignored (SAF destination is user-owned): " + uri);
-    }
-
-    /** Keep the provider's close notification alive while Rust owns a duplicate fd. */
-    public void finishExport() {
-        runOnUiThread(() -> {
-            if (exportDescriptor != null) {
-                try { exportDescriptor.close(); }
-                catch (java.io.IOException e) { Log.w(TAG, "export close failed", e); }
-                exportDescriptor = null;
-            }
-        });
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         Log.i(TAG, "File result: request=" + requestCode + ", result=" + resultCode);
-        if (resultCode != RESULT_OK || data == null) {
-            if (requestCode == REQ_EXPORT) QuadNative.processExportFd(null, -1);
-            if (requestCode == REQ_CHOOSE_FILE || requestCode == REQ_CHOOSE_PHOTO) QuadNative.setChosenFile("");
-            return;
-        }
+        if (resultCode != RESULT_OK || data == null) return;
         Uri uri = data.getData();
-        if (uri == null) {
-            if (requestCode == REQ_EXPORT) QuadNative.processExportFd(null, -2);
-            return;
-        }
+        if (uri == null) return;
 
         switch (requestCode) {
             case REQ_CHOOSE_FILE:
@@ -283,50 +248,16 @@ public class MainActivity extends Activity {
             case REQ_EXPORT: {
                 try {
                     ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(uri, "w");
-                    if (pfd == null) {
-                        QuadNative.processExportFd(null, -2);
-                        return;
-                    }
-                    exportDescriptor = pfd;
-                    // Rust owns the duplicate. Close the original after the
-                    // write, so SAF refreshes the displayed size and cloud data.
-                    QuadNative.processExportFd(uri, ParcelFileDescriptor.dup(pfd.getFileDescriptor()).detachFd());
+                    if (pfd == null) return;
+                    // fd 的所有权交给 Rust，这里绝不能 close
+                    QuadNative.processExportFd(uri, pfd.detachFd());
                 } catch (Exception e) {
-                    finishExport();
                     Log.w(TAG, "export fd failed: " + uri, e);
-                    QuadNative.processExportFd(null, -2);
                 }
                 break;
             }
             default:
                 break;
-        }
-    }
-    /** Rendering is paced by VSync; advertise the desired rate instead of accepting the 60 Hz game default. */
-    @SuppressWarnings("deprecation")
-    public void requestHighRefreshRate() {
-        if (view == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
-        Display display = view.getDisplay();
-        if (display == null) return;
-        Display.Mode current = display.getMode();
-        Display.Mode fastest = current;
-        for (Display.Mode mode : display.getSupportedModes()) {
-            // Changing refresh rate must not switch resolution or affect chart/input coordinates.
-            if (mode.getPhysicalWidth() == current.getPhysicalWidth()
-                    && mode.getPhysicalHeight() == current.getPhysicalHeight()
-                    && mode.getRefreshRate() > fastest.getRefreshRate()) fastest = mode;
-        }
-        float rate = Math.min(120f, fastest.getRefreshRate());
-        WindowManager.LayoutParams params = getWindow().getAttributes();
-        int modeId = Build.VERSION.SDK_INT < Build.VERSION_CODES.R ? fastest.getModeId() : 0;
-        if (Math.abs(params.preferredRefreshRate - rate) > 0.1f || params.preferredDisplayModeId != modeId) {
-            params.preferredRefreshRate = rate;
-            params.preferredDisplayModeId = modeId;
-            getWindow().setAttributes(params);
-            Log.i(TAG, "Refresh request=" + rate + " Hz, display=" + current.getRefreshRate() + " Hz");
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && view.getNativeSurface().isValid()) {
-            view.getNativeSurface().setFrameRate(rate, android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
         }
     }
 }

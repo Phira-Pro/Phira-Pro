@@ -2228,6 +2228,7 @@ dependencies = [
 [[package]]
 name = "macroquad"
 version = "0.3.25"
+source = "git+https://github.com/Phira-Pro/prpr-macroquad#450d7d8dac44127a5261acb7a714168780a78bbe"
 dependencies = [
  "bumpalo",
  "fontdue",
@@ -2241,6 +2242,7 @@ dependencies = [
 [[package]]
 name = "macroquad_macro"
 version = "0.1.7"
+source = "git+https://github.com/Phira-Pro/prpr-macroquad#450d7d8dac44127a5261acb7a714168780a78bbe"
 
 [[package]]
 name = "malloc_buf"

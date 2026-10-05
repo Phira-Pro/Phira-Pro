@@ -37,7 +37,6 @@ public class QuadSurface extends SurfaceView
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
-        ((MainActivity) getContext()).requestHighRefreshRate();
         QuadNative.surfaceOnSurfaceCreated(holder.getSurface());
     }
 
@@ -48,7 +47,6 @@ public class QuadSurface extends SurfaceView
 
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-        ((MainActivity) getContext()).requestHighRefreshRate();
         Surface surface = holder.getSurface();
         QuadNative.surfaceOnSurfaceChanged(surface, width, height);
     }

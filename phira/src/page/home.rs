@@ -774,6 +774,15 @@ impl Page for HomePage {
                     }
                     Ok(char) => {
                         info!(?char, "char loaded");
+                        let mut char = char;
+                        if let Some(local) = get_data().character.as_ref().filter(|local| local.id == char.id) {
+                            // Keep user edits when the server refreshes the same character's artwork/details.
+                            char.name.clone_from(&local.name);
+                            char.artist.clone_from(&local.artist);
+                            char.designer.clone_from(&local.designer);
+                            char.intro.clone_from(&local.intro);
+                            char.name_en_override.clone_from(&local.name_en_override);
+                        }
                         self.character = char;
                         get_data_mut().character = Some(self.character.clone());
                         let _ = save_data();

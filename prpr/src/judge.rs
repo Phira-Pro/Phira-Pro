@@ -220,44 +220,6 @@ fn finger_blocked(infected: &mut HashSet<u64>, id: u64, phase: TouchPhase, insid
     infected.contains(&id)
 }
 
-/// 两个音符时间差小于这个值（秒）就视为「同一时刻」，越位保护不会把同拍的键互相挡住。
-const SAME_TIME_EPS: f64 = 1e-3;
-
-/// 键盘「越位保护」：在目标音符之前，是否还存在更早、尚未判定、且受保护的
-/// 红键（Flick）/ 黄键（Drag）？
-///
-/// 键盘的一次按下只能判到蓝键 / 长条。如果它前面还压着一个键盘按不掉的红 / 黄键，
-/// 这次按下就不该「越位」去判后面的蓝键——否则会把本该留给红 / 黄键的时机漏给更晚的音符。
-/// 同一时刻的音符不算「更早」（见 [`SAME_TIME_EPS`]），所以同拍的蓝键依旧能正常按下。
-#[allow(clippy::too_many_arguments)]
-fn has_earlier_protected(
-    chart: &Chart,
-    notes: &[(Vec<u32>, usize)],
-    t: f64,
-    spd: f64,
-    bad: f64,
-    target_time: f64,
-    drag_protect: bool,
-    flick_protect: bool,
-) -> bool {
-    if !(drag_protect || flick_protect) {
-        return false;
-    }
-    for (line, (idx, st)) in chart.lines.iter().zip(notes) {
-        for id in &idx[*st..] {
-            let n = &line.notes[*id as usize];
-            if n.fake || !matches!(n.judge, JudgeStatus::NotJudged) {
-                continue;
-            }
-            let protected = (flick_protect && matches!(n.kind, NoteKind::Flick)) || (drag_protect && matches!(n.kind, NoteKind::Drag));
-            if protected && n.time + SAME_TIME_EPS < target_time && (t - n.time) / spd <= bad {
-                return true;
-            }
-        }
-    }
-    false
-}
-
 /// 一次命中的真实时间偏移，供局内 early/late 判定条绘制。
 #[derive(Debug, Clone, Copy)]
 pub struct RecentHit {
@@ -1093,8 +1055,6 @@ impl Judge {
             }
             let t = time_of(touch);
             let mut closest = (None, X_DIFF_MAX, limits.bad, limits.bad + (X_DIFF_MAX / NOTE_WIDTH_RATIO_BASE - 1.).max(0.) * DIST_FACTOR);
-            // 判定范围与这次点击重合、但被红 / 黄保护挡在竞争之外的那些红 / 黄键里，离点击时刻最近的时差。
-            let mut protected_dt: Option<f64> = None;
             for (line_id, ((line, pos), (idx, st))) in chart.lines.iter_mut().zip(pos.iter()).zip(self.notes.iter_mut()).enumerate() {
                 let Some(pos) = pos[id] else {
                     continue;
@@ -1107,14 +1067,10 @@ impl Judge {
                     if !click && matches!(note.kind, NoteKind::Click | NoteKind::Hold { .. }) {
                         continue;
                     }
-                    // 红 / 黄保护：一次「点击」判不到红 / 黄键，所以它们不参与「点中了谁」的竞争；
-                    // 但要记下它们离点击时刻的时差，用来判断这一下是不是冲它们去的
-                    // （见下方 `protected_dt` / 「按时刻就近归属」）。
+                    // 开启红 / 黄保护时，它们不参与普通点击的候选竞争；有效的蓝键仍可正常命中。
                     let protected =
                         click && ((drag_protect && matches!(note.kind, NoteKind::Drag)) || (flick_protect && matches!(note.kind, NoteKind::Flick)));
                     let dt = (note.time - t) / spd;
-                    // 不能因为已经找到更近的蓝键就提前 break：还要把 bad 窗内、可能被保护的
-                    // 红 / 黄键一并看一遍，否则「按时刻就近归属」会因为漏看它们而失效。
                     if dt >= closest.3.max(limits.bad) {
                         break;
                     }
@@ -1130,10 +1086,7 @@ impl Judge {
                     if dist > X_DIFF_MAX {
                         continue;
                     }
-                    let gate = if protected {
-                        // 保护判定放宽到 bad 窗：最终归属由「谁更贴近点击时刻」决定。
-                        limits.bad
-                    } else if matches!(note.kind, NoteKind::Click) {
+                    let gate = if matches!(note.kind, NoteKind::Click) {
                         limits.bad - limits.perfect * (dist - 0.9).max(0.)
                     } else {
                         limits.good
@@ -1142,8 +1095,7 @@ impl Judge {
                         continue;
                     }
                     if protected {
-                        // 被保护的红 / 黄键只记录时差，不参与点中竞争。
-                        protected_dt = Some(protected_dt.map_or(dt, |cur| cur.min(dt)));
+                        // 保护只屏蔽红 / 黄音符本身，不应吞掉同范围内可判定的蓝键。
                         continue;
                     }
                     let dt = if matches!(note.kind, NoteKind::Flick | NoteKind::Drag) {
@@ -1155,15 +1107,6 @@ impl Judge {
                     if key < closest.3 {
                         closest = (Some((line_id, *id)), dist, dt, key);
                     }
-                }
-            }
-            // 按时刻就近归属：如果被保护的红 / 黄键比这次点击能点到的任何蓝键 / hold 都更贴近点击时刻，
-            // 说明这一下是冲红 / 黄键去的 —— 不能把它算到判定范围重合的蓝键 / hold 头上
-            // （不 Bad、不 Miss、也不 Good，保持未判定留给之后正常打）。
-            // 同刻（或几乎同刻）时仍算给蓝键 / hold，保证「蓝 + 黄同刻」的叠键能正常点出来。
-            if let (Some(pdt), Some(_)) = (protected_dt, closest.0) {
-                if pdt + SAME_TIME_EPS < closest.2 {
-                    continue;
                 }
             }
             if let (Some((line_id, id)), _, dt, _) = closest {
@@ -1249,11 +1192,6 @@ impl Judge {
                 })
                 .min_by_key(|(line_id, id)| chart.lines[*line_id].notes[*id as usize].time.not_nan())
             {
-                // 越位保护：前面还压着一个键盘按不掉的红 / 黄键时，这次按下不去判后面的音符。
-                let target_time = chart.lines[line_id].notes[id as usize].time;
-                if has_earlier_protected(chart, &self.notes, t, spd, limits.bad, target_time, drag_protect, flick_protect) {
-                    break;
-                }
                 let note = &mut chart.lines[line_id].notes[id as usize];
                 let dt = judge_distance((t - note.time) / spd, late_leniency);
                 if dt <= if matches!(note.kind, NoteKind::Click) { limits.bad } else { limits.good } {

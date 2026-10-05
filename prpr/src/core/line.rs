@@ -314,7 +314,17 @@ impl JudgeLine {
                         let len = res.info.line_length;
                         draw_line(-len, 0., len, 0., if line_scaled { 0.0076 } else { 0.01 }, color);
                     }
-                    JudgeLineKind::Texture(texture, _) => {
+                    JudgeLineKind::Texture(texture, path) => {
+                        // These RPE texture names are area markers consumed by the
+                        // block-area compositor; drawing their solid source PNGs
+                        // would reveal the encoding texture over the rendered zone.
+                        let marker = matches!(
+                            path.rsplit(['/', '\\']).next().unwrap_or("").to_ascii_lowercase().as_str(),
+                            "issubtract0.png" | "issubtract1.png"
+                        );
+                        if marker {
+                            return;
+                        }
                         let mut color = color.unwrap_or(WHITE);
                         color.a = alpha.max(0.0);
                         if color.a == 0.0 {

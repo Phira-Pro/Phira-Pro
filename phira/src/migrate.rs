@@ -9,7 +9,7 @@
 prpr_l10n::tl_file!("settings");
 
 use crate::{
-    client::{basic_client_builder, recv_raw, Chart, Client, CLIENT_TOKEN},
+    client::{recv_raw, Chart, Client},
     data::LocalChart,
     dir,
 };
@@ -219,23 +219,27 @@ async fn check_played(me: i32, charts: Vec<Chart>, p: Arc<Progress>) -> Vec<Char
     checked.into_iter().filter_map(|(c, ok)| ok.then_some(c)).collect()
 }
 
-async fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
-    let mut req = basic_client_builder().build()?.get(url);
-    if let Some(token) = CLIENT_TOKEN.load().as_ref() {
-        req = req.header("Authorization", format!("Bearer {token}"));
-    }
-    let res = req.send().await?.error_for_status()?;
-    Ok(res.bytes().await?.to_vec())
-}
-
 /// 下载并落盘一张谱面（结构与在线游玩下载一致：`data/charts/download/{id}`）。
 async fn download_one(entity: &Chart) -> Result<LocalChart> {
     let id = entity.id;
     let path = format!("{}/{id}", dir::downloaded_charts()?);
     let path = std::path::Path::new(&path);
-    let bytes = fetch_bytes(&entity.file.url)
-        .await
-        .with_context(|| format!("下载 {} 失败", entity.name))?;
+    // 使用统一 File 下载通道，支持 AnyS 重定向、鉴权与 URL 缓存。迁移原先直接 GET
+    // `file.url`，部分谱面会因此对 anys:// 返回 404，或因短期文件 URL 过期而失败。
+    let bytes = match entity.file.fetch().await {
+        Ok(bytes) => bytes,
+        Err(first_error) => {
+            // 列表扫描到下载之间可能有一段时间，刷新一次谱面元数据以获得新文件地址。
+            let refreshed = Client::fetch::<Chart>(id)
+                .await
+                .with_context(|| format!("刷新谱面 {} 文件地址失败（首次下载错误：{first_error:#}）", entity.name))?;
+            refreshed
+                .file
+                .fetch()
+                .await
+                .with_context(|| format!("下载 {} 失败；使用更新后的文件地址仍失败（首次错误：{first_error:#}）", entity.name))?
+        }
+    };
     let parent = path.parent().unwrap();
     std::fs::create_dir_all(parent)?;
     let staging = tempfile::Builder::new().prefix(".migrate-").tempdir_in(parent)?;

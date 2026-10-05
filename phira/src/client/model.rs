@@ -276,6 +276,10 @@ pub struct Character {
     #[serde(default)]
     pub illu_adjust: (f32, f32, f32, f32),
 
+    /// Locally edited translucent English label. Empty means use the default derived from `id`.
+    #[serde(default)]
+    pub name_en_override: Option<String>,
+
     #[serde(skip)]
     name_en: Option<String>,
 }
@@ -295,12 +299,17 @@ impl Default for Character {
 
             illu_adjust: (0., 0., 0., 0.),
 
+            name_en_override: None,
+
             name_en: None,
         }
     }
 }
 impl Character {
     pub fn name_en(&mut self) -> &str {
+        if let Some(name) = self.name_en_override.as_deref().filter(|name| !name.is_empty()) {
+            return name;
+        }
         if self.name_en.is_none() {
             let words = self.id.split('_');
             let mut name_en = String::new();

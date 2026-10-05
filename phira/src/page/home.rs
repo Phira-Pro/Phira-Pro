@@ -19,12 +19,13 @@ use ::rand::{random, thread_rng, Rng};
 use anyhow::{bail, Context, Result};
 use chrono::NaiveDate;
 use image::DynamicImage;
+use inputbox::{InputBox, InputMode};
 use macroquad::prelude::*;
 use prpr::{
     core::BOLD_FONT,
     ext::{open_url, screen_aspect, semi_black, semi_white, RectExt, SafeTexture, ScaleType},
     info::ChartInfo,
-    scene::{show_error, NextScene},
+    scene::{request_input, return_input, show_error, take_input, NextScene},
     task::Task,
     ui::{button_hit_large, clip_rounded_rect, ClipType, DRectButton, Dialog, FontArc, RectButton, Scroll, Ui},
 };
@@ -105,6 +106,11 @@ pub struct HomePage {
     char_cached_size: f32,
     char_scroll: Scroll,
     char_edit_btn: RectButton,
+    char_name_btn: RectButton,
+    char_artist_btn: RectButton,
+    char_designer_btn: RectButton,
+    char_intro_btn: RectButton,
+    char_name_en_btn: RectButton,
 
     #[cfg(feature = "hykb")]
     beian_btn: RectButton,
@@ -228,6 +234,11 @@ impl HomePage {
             char_cached_size: 0.,
             char_scroll: Scroll::new().use_clip(ClipType::Clip),
             char_edit_btn: RectButton::new(),
+            char_name_btn: RectButton::new(),
+            char_artist_btn: RectButton::new(),
+            char_designer_btn: RectButton::new(),
+            char_intro_btn: RectButton::new(),
+            char_name_en_btn: RectButton::new(),
 
             #[cfg(feature = "hykb")]
             beian_btn: RectButton::new(),
@@ -461,6 +472,39 @@ impl Page for HomePage {
                 return Ok(true);
             }
         } else {
+            if self.char_name_btn.touch(touch) {
+                request_input("character-name", InputBox::new().title("Character name").default_text(&self.character.name));
+                return Ok(true);
+            }
+            if self.char_artist_btn.touch(touch) {
+                request_input("character-artist", InputBox::new().title("Character artist").default_text(&self.character.artist));
+                return Ok(true);
+            }
+            if self.char_designer_btn.touch(touch) {
+                request_input("character-designer", InputBox::new().title("Character designer").default_text(&self.character.designer));
+                return Ok(true);
+            }
+            if self.char_intro_btn.touch(touch) {
+                request_input(
+                    "character-intro",
+                    InputBox::new()
+                        .title("Character introduction")
+                        .default_text(&self.character.intro)
+                        .mode(InputMode::Multiline),
+                );
+                return Ok(true);
+            }
+            if self.char_name_en_btn.touch(touch) {
+                request_input(
+                    "character-name-en",
+                    InputBox::new()
+                        .title("Translucent English name")
+                        .prompt("Leave empty to use the default name")
+                        .default_text(self.character.name_en())
+                        .mode(InputMode::Text),
+                );
+                return Ok(true);
+            }
             if self.char_scroll.touch(touch, t) {
                 return Ok(true);
             }
@@ -499,6 +543,27 @@ impl Page for HomePage {
 
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
         let t = s.t;
+        if let Some((id, value)) = take_input() {
+            if id.starts_with("character-") {
+                let field = match id.as_str() {
+                    "character-name" => Some(&mut self.character.name),
+                    "character-artist" => Some(&mut self.character.artist),
+                    "character-designer" => Some(&mut self.character.designer),
+                    "character-intro" => Some(&mut self.character.intro),
+                    _ => None,
+                };
+                if let Some(field) = field {
+                    *field = value;
+                } else if id == "character-name-en" {
+                    self.character.name_en_override = (!value.trim().is_empty()).then_some(value);
+                }
+                self.char_cached_size = 0.;
+                get_data_mut().character = Some(self.character.clone());
+                save_data()?;
+            } else {
+                return_input(id, value);
+            }
+        }
         // HYKB builds require an account: while signed out, keep the login panel
         // forced open. Polling here (rather than only on entry) also covers the
         // player manually logging out and popping back to the home page.
@@ -793,6 +858,8 @@ impl Page for HomePage {
                     } else {
                         t = t.size(self.char_cached_size);
                     }
+                    let bounds = t.measure().feather(0.01);
+                    self.char_name_en_btn.set(t.ui, bounds);
                     t.draw();
 
                     r.x += 0.01;
@@ -806,7 +873,10 @@ impl Page for HomePage {
                         self.char_scroll.render(ui, |ui| {
                             let r = Rect::new(0., 0., r.w, r.h);
                             let r = r.feather(-0.03);
-                            let r = ui.text(&self.character.intro).pos(r.x, r.y).max_width(r.w).multiline().size(0.4).draw();
+                            let mut text = ui.text(&self.character.intro).pos(r.x, r.y).max_width(r.w).multiline().size(0.4);
+                            let bounds = text.measure().feather(0.01);
+                            self.char_intro_btn.set(text.ui, bounds);
+                            let r = text.draw();
                             (ow, r.h + 0.1)
                         });
                     });
@@ -815,26 +885,34 @@ impl Page for HomePage {
                 let r = Rect::new(r.x, r.y, 0.4, 0.12);
 
                 ui.alpha(cp, |ui| {
-                    let r = ui
+                    let mut name_text = ui
                         .text(&self.character.name)
                         .pos(r.x + (1. - cp) * 0.12 + 0.01, r.center().y)
                         .anchor(0., 0.5)
-                        .size(self.character.name_size.unwrap_or(1.4))
-                        .draw_using(&BOLD_FONT);
+                        .size(self.character.name_size.unwrap_or(1.4));
+                    let bounds = name_text.measure().feather(0.01);
+                    self.char_name_btn.set(name_text.ui, bounds);
+                    let r = name_text.draw_using(&BOLD_FONT);
 
                     let off = if self.character.baseline { 0. } else { 0.01 };
-                    ui.text(format!("Artist: {}", self.character.artist))
+                    let mut artist_text = ui
+                        .text(format!("Artist: {}", self.character.artist))
                         .pos(r.right() + (1. - cp) * 0.1 + 0.02, r.bottom() + off - 0.03)
                         .anchor(0., 1.)
                         .size(0.34)
-                        .color(semi_white(0.7))
-                        .draw();
-                    ui.text(format!("Designer: {}", self.character.designer))
+                        .color(semi_white(0.7));
+                    let bounds = artist_text.measure().feather(0.01);
+                    self.char_artist_btn.set(artist_text.ui, bounds);
+                    artist_text.draw();
+                    let mut designer_text = ui
+                        .text(format!("Designer: {}", self.character.designer))
                         .pos(r.right() + (1. - cp) * 0.1 + 0.016, r.bottom() + off)
                         .anchor(0., 1.)
                         .size(0.34)
-                        .color(semi_white(0.7))
-                        .draw();
+                        .color(semi_white(0.7));
+                    let bounds = designer_text.measure().feather(0.01);
+                    self.char_designer_btn.set(designer_text.ui, bounds);
+                    designer_text.draw();
                 });
 
                 gl.pop_model_matrix();

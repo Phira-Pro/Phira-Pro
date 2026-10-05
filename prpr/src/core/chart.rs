@@ -1,5 +1,6 @@
 use super::{
-    draw_disabled_zones, draw_zones_with_touches, BlockArea, BpmList, Effect, JudgeLine, JudgeLineKind, Matrix, Resource, UIElement, Vector, Zone,
+    draw_disabled_zones, draw_zones_with_touches, BlockArea, BlockRotateEvent, BpmList, Effect, JudgeLine, JudgeLineKind, Matrix, Point, Resource,
+    UIElement, Vector, Zone,
 };
 use crate::{core::Object, fs::FileSystem, judge::JudgeStatus, ui::Ui};
 use anyhow::{Context, Result};
@@ -53,6 +54,7 @@ pub struct Chart {
     /// Chart-space positions of touches blocked by the zones this frame.
     pub blocked_touches: Vec<(u64, Vector)>,
     block_frame: RefCell<BlockFrame>,
+    rpe_block_markers: Vec<usize>,
     line_transforms: Vec<Matrix>,
     line_rotations: Vec<f32>,
 }
@@ -71,6 +73,18 @@ impl Chart {
             })
             .collect::<Vec<_>>();
         order.sort_by_key(|it| (lines[*it].z_index, *it));
+        let rpe_block_markers = lines
+            .iter()
+            .enumerate()
+            .filter_map(|(id, line)| match &line.kind {
+                JudgeLineKind::Texture(_, path)
+                    if matches!(path.rsplit(['/', '\\']).next().unwrap_or("").to_ascii_lowercase().as_str(), "issubtract0.png" | "issubtract1.png") =>
+                {
+                    Some(id)
+                }
+                _ => None,
+            })
+            .collect();
         Self {
             offset,
             lines,
@@ -85,6 +99,7 @@ impl Chart {
             block_areas: Vec::new(),
             blocked_touches: Vec::new(),
             block_frame: RefCell::default(),
+            rpe_block_markers,
             line_transforms: Vec::new(),
             line_rotations: Vec::new(),
         }
@@ -233,6 +248,8 @@ impl Chart {
                     .iter()
                     .filter_map(|&id| Zone::from_area(&self.block_areas[id], res.time, res.aspect_ratio)),
             );
+            let marker_areas = self.rpe_marker_areas(res.aspect_ratio);
+            zones.extend(marker_areas.iter().filter_map(|area| Zone::from_area(area, res.time, res.aspect_ratio)));
             cache.key = Some(key);
         }
         drop(cache);
@@ -240,7 +257,75 @@ impl Chart {
     }
 
     pub(crate) fn touch_blocked(&self, p: Vector, time: f64, aspect: f32) -> bool {
+        let marker_areas = self.rpe_marker_areas(aspect);
         let mut cache = self.block_frame.borrow_mut();
-        super::block::block_touch_blocked_iter(cache.timeline.at(&self.block_areas, time).iter().map(|&id| &self.block_areas[id]), p, time, aspect)
+        let areas = cache
+            .timeline
+            .at(&self.block_areas, time)
+            .iter()
+            .map(|&id| &self.block_areas[id])
+            .chain(marker_areas.iter());
+        super::block::block_touch_blocked_iter(areas, p, time, aspect)
+    }
+
+    /// RPE charts commonly encode block areas as opaque texture lines named
+    /// `isSubtract0.png` (normal) / `isSubtract1.png` (subtract). Resolve those
+    /// animated lines into the same rectangle model used by official block areas.
+    fn rpe_marker_areas(&self, aspect: f32) -> Vec<BlockArea> {
+        self.rpe_block_markers
+            .iter()
+            .filter_map(|&id| {
+                let line = self.lines.get(id)?;
+                let (texture, path) = match &line.kind {
+                    JudgeLineKind::Texture(texture, path) => (texture, path),
+                    _ => return None,
+                };
+                let is_subtract = match path.rsplit(['/', '\\']).next()?.to_ascii_lowercase().as_str() {
+                    "issubtract0.png" => false,
+                    "issubtract1.png" => true,
+                    _ => return None,
+                };
+                let alpha = line.object.alpha.now_opt().unwrap_or(1.).max(0.);
+                let scale = line.object.scale.now_with_def(1., 1.);
+                if scale.x.abs() < 1e-6 || scale.y.abs() < 1e-6 || texture.width() <= 0. || texture.height() <= 0. {
+                    return None;
+                }
+                let center = self
+                    .line_transforms
+                    .get(id)
+                    .map(|matrix| matrix.transform_point(&Point::new(0., 0.)))
+                    .unwrap_or_else(|| {
+                        let mut pos = line.object.translation.now();
+                        pos.y /= aspect;
+                        Point::new(pos.x, pos.y)
+                    });
+                let rotation = self.line_rotations.get(id).copied().unwrap_or_else(|| line.object.rotation.now());
+                let half_x = texture.width() * scale.x.abs() * 0.5;
+                let half_y = texture.height() * scale.y.abs() * 0.5;
+                let to_pct_x = |x: f32| (x + 1.) * 0.5;
+                let to_pct_y = |y: f32| (y * aspect + 1.) * 0.5;
+                let c = Vector::new(center.x, center.y);
+                let top_right = Vector::new(to_pct_x(c.x + half_x), to_pct_y(c.y + half_y));
+                let bottom_left = Vector::new(to_pct_x(c.x - half_x), to_pct_y(c.y - half_y));
+                let anchor = Vector::new(to_pct_x(c.x), to_pct_y(c.y));
+                Some(BlockArea {
+                    top_right,
+                    bottom_left,
+                    appear_time: if alpha > 0. { 0. } else { f64::INFINITY },
+                    enable_time: if alpha > 0. { 0. } else { f64::INFINITY },
+                    disable_time: f64::INFINITY,
+                    disappear_time: f64::INFINITY,
+                    is_subtract,
+                    rotate_events: vec![BlockRotateEvent {
+                        anchor,
+                        time: 0.,
+                        ease: 0,
+                        rotation,
+                    }],
+                    move_events: Vec::new(),
+                    scale_events: Vec::new(),
+                })
+            })
+            .collect()
     }
 }

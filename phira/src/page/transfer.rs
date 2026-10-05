@@ -36,16 +36,6 @@ fn pick_json() -> Option<PathBuf> {
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
-fn pick_save(default_name: &str) -> Option<PathBuf> {
-    rfd::FileDialog::new().set_file_name(default_name).save_file()
-}
-
-#[cfg(any(target_os = "android", target_os = "ios", target_env = "ohos"))]
-fn pick_save(_default_name: &str) -> Option<PathBuf> {
-    None
-}
-
-#[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
 fn pick_zip() -> Option<PathBuf> {
     rfd::FileDialog::new().add_filter("Phira 备份", &["zip"]).pick_file()
 }
@@ -62,6 +52,9 @@ pub struct TransferPage {
     status: Option<Result<String>>,
     /// 后台任务：备份 / 还原 / 导入（完成后给出提示）。
     busy: Option<Task<Result<String>>>,
+    backup_snapshot: Option<Vec<u8>>,
+    exporting_backup: bool,
+    restoring: Option<Task<Result<transfer::PreparedRestore>>>,
     btn_pick: DRectButton,
     btn_import: DRectButton,
     btn_import_config: DRectButton,
@@ -92,6 +85,9 @@ impl TransferPage {
             import_config: true,
             status: None,
             busy: None,
+            backup_snapshot: None,
+            exporting_backup: false,
+            restoring: None,
             btn_pick: DRectButton::new().with_radius(0.008),
             btn_import: DRectButton::new().with_radius(0.008),
             btn_import_config: DRectButton::new().with_radius(0.008),
@@ -133,15 +129,65 @@ impl Page for TransferPage {
 
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
         self.scroll.update(s.t);
+        if self.backup_snapshot.is_some() {
+            if let Some(result) = super::library::take_export() {
+                let snapshot = self.backup_snapshot.take().unwrap();
+                match result {
+                    Ok(config) => {
+                        self.exporting_backup = true;
+                        self.start_task(move || {
+                            let n = transfer::create_backup(std::io::BufWriter::new(config.file), &snapshot)?;
+                            Ok(tl!("backup-created", "count" => n.to_string()))
+                        });
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(err) => show_error(err.into()),
+                }
+            }
+        }
+        if let Some((id, file)) = prpr::scene::take_file() {
+            if id == "_backup_restore" {
+                if !file.is_empty() {
+                    self.restoring = Some(Task::new(async move { transfer::restore_backup(std::path::Path::new(&file)) }));
+                }
+            } else {
+                prpr::scene::return_file(id, file);
+            }
+        }
+        if let Some(task) = &mut self.restoring {
+            if let Some(result) = task.take() {
+                self.restoring = None;
+                match result.and_then(|prepared| prepared.publish()) {
+                    Ok((n, data)) => {
+                        crate::set_data(data);
+                        crate::sync_data();
+                        get_data().config.apply_ui_colors();
+                        prpr::ui::PREFER_REDUCED_MOTION.store(get_data().prefer_reduced_motion, Ordering::Relaxed);
+                        save_data()?;
+                        s.reload_local_charts();
+                        show_message(tl!("backup-restored", "count" => n.to_string())).ok();
+                    }
+                    Err(err) => show_error(err.context(tl!("transfer-failed"))),
+                }
+            }
+        }
         if let Some(task) = &mut self.busy {
             if let Some(res) = task.take() {
                 self.busy = None;
                 match res {
                     Ok(msg) => {
+                        if self.exporting_backup {
+                            self.exporting_backup = false;
+                            super::library::resolve_export();
+                        }
                         self.status = Some(Ok(msg.clone()));
                         show_message(msg).ok();
                     }
                     Err(err) => {
+                        if self.exporting_backup {
+                            super::library::finish_export();
+                        }
+                        self.exporting_backup = false;
                         self.status = Some(Err(anyhow::anyhow!(format!("{err:#}"))));
                         show_error(err.context(tl!("transfer-failed")));
                     }
@@ -185,7 +231,7 @@ impl Page for TransferPage {
         if self.scroll.touch(touch, t) {
             return Ok(true);
         }
-        if self.busy.is_some() {
+        if self.busy.is_some() || self.restoring.is_some() || self.backup_snapshot.is_some() {
             // 处理中忽略其它点击
             return Ok(true);
         }
@@ -241,31 +287,18 @@ impl Page for TransferPage {
         }
 
         if self.btn_backup.touch(touch, t) {
-            if !DESKTOP {
-                self.status = Some(Ok(tl!("transfer-unsupported").into_owned()));
-                show_message(tl!("transfer-unsupported")).error();
-                return Ok(true);
-            }
-            if let Some(path) = pick_save(&Self::backup_name()) {
-                self.start_task(move || {
-                    let n = transfer::create_backup(&path)?;
-                    Ok(tl!("backup-created", "count" => n.to_string()))
-                });
-            }
+            self.backup_snapshot = Some(serde_json::to_vec(get_data())?);
+            super::library::request_export(Self::backup_name());
             return Ok(true);
         }
 
         if self.btn_restore.touch(touch, t) {
             if !DESKTOP {
-                self.status = Some(Ok(tl!("transfer-unsupported").into_owned()));
-                show_message(tl!("transfer-unsupported")).error();
+                prpr::scene::request_file("_backup_restore");
                 return Ok(true);
             }
             if let Some(path) = pick_zip() {
-                self.start_task(move || {
-                    let n = transfer::restore_backup(&path)?;
-                    Ok(tl!("backup-restored", "count" => n.to_string()))
-                });
+                self.restoring = Some(Task::new(async move { transfer::restore_backup(&path) }));
             }
             return Ok(true);
         }
@@ -342,7 +375,12 @@ impl Page for TransferPage {
                 const DESC_SIZE: f32 = 0.35;
 
                 // ---------------- 数据迁移 ----------------
-                ui.text(tl!("transfer-label")).pos(0.004, y).anchor(0., 0.).size(HEAD_SIZE).color(WHITE).draw();
+                ui.text(tl!("transfer-label"))
+                    .pos(0.004, y)
+                    .anchor(0., 0.)
+                    .size(HEAD_SIZE)
+                    .color(WHITE)
+                    .draw();
                 y += HEAD_SIZE * 0.17;
 
                 let dh = ui
@@ -357,7 +395,8 @@ impl Page for TransferPage {
                     .h;
                 y += dh + 0.05;
 
-                self.btn_pick.render_text(ui, Rect::new(0., y, w, 0.095), t, tl!("transfer-pick"), 0.55, false);
+                self.btn_pick
+                    .render_text(ui, Rect::new(0., y, w, 0.095), t, tl!("transfer-pick"), 0.55, false);
                 y += 0.095 + 0.014;
 
                 if let Some(scan) = &self.scan {
@@ -395,19 +434,30 @@ impl Page for TransferPage {
 
                     // 用 l10n 的「开 / 关」而不是 ✓ / ✗：内置字体缺这两个符号，
                     // 缺字不占宽会让整段文字在按钮里整体左偏，看起来"没居中"。
-                    let state = if self.import_config { crate::ttl!("switch-on") } else { crate::ttl!("switch-off") };
+                    let state = if self.import_config {
+                        crate::ttl!("switch-on")
+                    } else {
+                        crate::ttl!("switch-off")
+                    };
                     let cfg_label = format!("{}：{}", tl!("transfer-import-config"), state);
-                    self.btn_import_config.render_text(ui, Rect::new(0., y, w, 0.095), t, &cfg_label, 0.55, false);
+                    self.btn_import_config
+                        .render_text(ui, Rect::new(0., y, w, 0.095), t, &cfg_label, 0.55, false);
                     y += 0.095 + 0.012;
 
-                    self.btn_import.render_text(ui, Rect::new(0., y, w, 0.095), t, tl!("transfer-import"), 0.55, false);
+                    self.btn_import
+                        .render_text(ui, Rect::new(0., y, w, 0.095), t, tl!("transfer-import"), 0.55, false);
                     y += 0.095 + 0.02;
                 } else {
                     y += 0.02;
                 }
 
                 // ---------------- 从官服导入我的成绩谱面 ----------------
-                ui.text(tl!("migrate-label")).pos(0.004, y).anchor(0., 0.).size(HEAD_SIZE).color(WHITE).draw();
+                ui.text(tl!("migrate-label"))
+                    .pos(0.004, y)
+                    .anchor(0., 0.)
+                    .size(HEAD_SIZE)
+                    .color(WHITE)
+                    .draw();
                 y += HEAD_SIZE * 0.17;
 
                 let dh = ui
@@ -439,7 +489,8 @@ impl Page for TransferPage {
                 } else {
                     format!("{}：{}", tl!("migrate-min-rating"), crate::ttl!("migrate-unlimited"))
                 };
-                self.btn_mig_min_rating.render_text(ui, Rect::new(0., y, w, 0.095), t, &label, 0.55, false);
+                self.btn_mig_min_rating
+                    .render_text(ui, Rect::new(0., y, w, 0.095), t, &label, 0.55, false);
                 y += 0.095 + 0.012;
 
                 let label = format!("{}：{}", tl!("migrate-ranked-only"), on_off(self.mig_ranked_only));
@@ -450,7 +501,11 @@ impl Page for TransferPage {
                 self.btn_mig_skip.render_text(ui, Rect::new(0., y, w, 0.095), t, &label, 0.55, false);
                 y += 0.095 + 0.016;
 
-                let label = if self.mig_task.is_some() { tl!("migrate-cancel") } else { tl!("migrate-start") };
+                let label = if self.mig_task.is_some() {
+                    tl!("migrate-cancel")
+                } else {
+                    tl!("migrate-start")
+                };
                 self.btn_mig_start.render_text(ui, Rect::new(0., y, w, 0.095), t, label, 0.55, false);
                 y += 0.095 + 0.012;
 
@@ -473,7 +528,12 @@ impl Page for TransferPage {
                 y += 0.02;
 
                 // ---------------- 批量导入谱面（官方导出包） ----------------
-                ui.text(tl!("chart-import-label")).pos(0.004, y).anchor(0., 0.).size(HEAD_SIZE).color(WHITE).draw();
+                ui.text(tl!("chart-import-label"))
+                    .pos(0.004, y)
+                    .anchor(0., 0.)
+                    .size(HEAD_SIZE)
+                    .color(WHITE)
+                    .draw();
                 y += HEAD_SIZE * 0.17;
                 let dh = ui
                     .text(tl!("chart-import-desc"))
@@ -491,7 +551,12 @@ impl Page for TransferPage {
                 y += 0.095 + 0.02;
 
                 // ---------------- 备份与还原 ----------------
-                ui.text(tl!("backup-label")).pos(0.004, y).anchor(0., 0.).size(HEAD_SIZE).color(WHITE).draw();
+                ui.text(tl!("backup-label"))
+                    .pos(0.004, y)
+                    .anchor(0., 0.)
+                    .size(HEAD_SIZE)
+                    .color(WHITE)
+                    .draw();
                 y += HEAD_SIZE * 0.17;
 
                 let dh = ui
@@ -506,9 +571,11 @@ impl Page for TransferPage {
                     .h;
                 y += dh + 0.05;
 
-                self.btn_backup.render_text(ui, Rect::new(0., y, w, 0.095), t, tl!("backup-create"), 0.55, false);
+                self.btn_backup
+                    .render_text(ui, Rect::new(0., y, w, 0.095), t, tl!("backup-create"), 0.55, false);
                 y += 0.095 + 0.012;
-                self.btn_restore.render_text(ui, Rect::new(0., y, w, 0.095), t, tl!("backup-restore"), 0.55, false);
+                self.btn_restore
+                    .render_text(ui, Rect::new(0., y, w, 0.095), t, tl!("backup-restore"), 0.55, false);
                 y += 0.095 + 0.02;
 
                 // ---------------- 状态 ----------------
@@ -533,7 +600,7 @@ impl Page for TransferPage {
                 (w, y + 0.02)
             });
         });
-        if self.busy.is_some() {
+        if self.busy.is_some() || self.restoring.is_some() {
             ui.full_loading_simple(t);
         }
         Ok(())

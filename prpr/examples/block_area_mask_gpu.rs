@@ -2,7 +2,7 @@
 //! Production uses CPU masks and never changes the chart's framebuffer.
 use macroquad::prelude::*;
 use miniquad::{TextureWrap, UniformType as U};
-use prpr::core::{Vector, Zone};
+use prpr::core::{BlockArea, Vector, Zone};
 #[path = "../src/core/block_mask.rs"]
 mod mask;
 
@@ -17,7 +17,8 @@ fn conf() -> Conf {
 }
 const VERT: &str = "#version 100\nattribute vec3 position; uniform vec4 spriteTint; uniform mat4 Projection; uniform mat4 Model; varying highp vec2 vs_TEXCOORD0; varying highp vec2 vs_TEXCOORD1; varying highp vec4 vs_COLOR0; void main(){ gl_Position=Projection*Model*vec4(position,1.0); vs_TEXCOORD0=position.xy*0.5+0.5; vs_TEXCOORD1=vs_TEXCOORD0*vec2(2.13,1.02); vs_COLOR0=spriteTint; }";
 fn material(name: &str, pass: usize, kind: &str, uniforms: Vec<(String, U)>, textures: &[&str], blend: Option<miniquad::BlendState>) -> Material {
-    let src = std::fs::read_to_string(format!("../_official_src/shader_code/Unlit_{name}.p0.txt"))
+    let root = std::env::var("PHIRA_OFFICIAL_SRC").unwrap_or_else(|_| "../legacy files/research/official_src".into());
+    let src = std::fs::read_to_string(format!("{root}/shader_code/Unlit_{name}.p0.txt"))
         .unwrap()
         .replace("\r\n", "\n");
     let section = src.split("#ifdef FRAGMENT").nth(pass + 1).unwrap();
@@ -274,6 +275,7 @@ async fn main() {
     for (ci, zones) in cases.iter().enumerate() {
         for time in [1., 9.] {
             let mut cpu = mask::Masks::default();
+            cpu.capture_sources = true;
             cpu.render_displaced(960, 540, aspect, zones, time);
             let layers: Vec<_> = (0..4).map(|_| target(bw, bh)).collect();
             for (li, &t) in layers.iter().enumerate() {

@@ -25,6 +25,7 @@ fn conf() -> Conf {
         window_width: 2560,
         window_height: 1600,
         headless: true,
+        sample_count: 1,
         ..Default::default()
     }
 }

@@ -58,6 +58,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            PRODUCT_BUNDLE_IDENTIFIER=org.flos.phirapro \
             build
 
       - name: Package IPA
@@ -66,6 +67,9 @@ jobs:
           APP="$(find build/dd/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n1)"
           test -n "$APP" || { echo "no .app produced"; exit 1; }
           test -f "$APP/phira-main" || { echo "$APP/phira-main missing"; exit 1; }
+          BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
+          test "$BUNDLE_ID" = org.flos.phirapro || { echo "Unexpected Bundle ID: $BUNDLE_ID"; exit 1; }
+          test ! -f "$APP/embedded.mobileprovision" || { echo "Unsigned artifact contains a provisioning profile"; exit 1; }
 
           VERSION="$(sed -n 's/^MARKETING_VERSION *= *//p' xcode/Shared.xcconfig | tr -d '[:space:]')"
           VERSION="${VERSION:-0.0.0}"

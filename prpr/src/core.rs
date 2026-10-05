@@ -30,12 +30,14 @@ pub use block::{block_touch_blocked, touch_inset_world, BlockArea, BlockMoveEven
 
 mod block_shader;
 pub(crate) use block_shader::prepare_block_effects;
+pub(crate) use block_shader::{prepare_block_geometry, clear_prepared_block_geometry};
 mod block_audio;
 pub(crate) use block_audio::BlockAudio;
 pub(crate) use block_shader::reset_block_effects;
 pub use block_shader::{draw_disabled_zones, draw_zones, draw_zones_with_touches, Zone};
 
 mod chart;
+mod block_timeline;
 pub use chart::{Chart, ChartExtra, ChartSettings, HitSoundMap};
 
 mod effect;

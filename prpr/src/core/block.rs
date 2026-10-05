@@ -310,6 +310,10 @@ fn inset_local(size: f32, inset_world: f32) -> f32 {
 /// a point is blocked iff `anyNormal XOR (subtractCount odd)` holds for both the
 /// full rect and the inset rect.
 pub fn block_touch_blocked(areas: &[BlockArea], p: Vector, t: f64, aspect: f32) -> bool {
+    block_touch_blocked_iter(areas.iter(), p, t, aspect)
+}
+
+pub(super) fn block_touch_blocked_iter<'a>(areas: impl Iterator<Item = &'a BlockArea>, p: Vector, t: f64, aspect: f32) -> bool {
     let inset = touch_inset_world(aspect);
     let mut orig_non = false;
     let mut orig_sub = 0u32;

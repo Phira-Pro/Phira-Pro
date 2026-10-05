@@ -75,8 +75,10 @@ async fn main() {
             ],
         ),
     ] {
-        let metadata: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(format!("target/block-area-reference/{name}/metadata.json")).unwrap()).unwrap();
+        let reference = std::env::var("BLOCK_REFERENCE_DIR").unwrap_or_else(|_| "target/block-area-reference".into());
+        let metadata: Option<serde_json::Value> = std::fs::read(format!("{reference}/{name}/metadata.json"))
+            .ok().map(|bytes| serde_json::from_slice(&bytes).unwrap());
+        if metadata.is_none() { println!("{name}: no video alignment metadata; using requested chart seconds"); }
         let mut manifest = Vec::new();
         let mut scene = finish(async {
             let mut fs = fs_from_file(Path::new(path)).unwrap();
@@ -93,6 +95,7 @@ async fn main() {
             config.volume_sfx = 0.;
             config.volume_music = 0.;
             config.sample_count = 4;
+            config.shader_pre_render = std::env::var_os("BLOCK_CAPTURE_PRE_RENDER").is_some();
             GameScene::new(GameMode::View, info, config, fs, None, background, illustration, None, None, None)
                 .await
                 .unwrap()
@@ -101,11 +104,8 @@ async fn main() {
         scene.res.camera.render_target = Some(capture);
         let mut tm = TimeManager::manual(Box::new(|| 1000.));
         for requested in times {
-            let t = metadata["extraction"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|row| row["requested_video_seconds"].as_f64().is_some_and(|v| (v - requested).abs() < 0.00002))
+            let t = metadata.as_ref().and_then(|m| m["extraction"].as_array())
+                .and_then(|rows| rows.iter().find(|row| row["requested_video_seconds"].as_f64().is_some_and(|v| (v - requested).abs() < 0.00002)))
                 .and_then(|row| row["decoded_frame_pts_seconds"].as_f64())
                 .unwrap_or(requested);
             scene.res.time = t;

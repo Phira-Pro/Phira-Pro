@@ -6,6 +6,8 @@ pub mod dir;
 pub mod ext;
 pub mod fs;
 pub mod info;
+#[cfg(target_os = "ios")]
+pub mod frame_pacing;
 
 /// 把宽高比格式化成人类可读的比例形式，例如 `16:9`、`4:3`、`21:9`。
 ///
@@ -92,6 +94,9 @@ pub fn build_conf() -> macroquad::window::Conf {
         window_title: "Phira".to_string(),
         window_width: 973,
         window_height: 608,
+        // Macroquad defaults to four samples even when Config selects low
+        // quality. MSRenderTarget already provides the chosen chart MSAA.
+        sample_count: 1,
         ..Default::default()
     }
 }

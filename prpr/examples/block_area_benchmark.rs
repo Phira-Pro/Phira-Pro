@@ -1,5 +1,5 @@
 //! CPU mask benchmark at real chart times and tablet resolutions; no GL/audio.
-use prpr::core::Zone;
+use prpr::core::{BlockArea, Zone};
 #[path = "../src/core/block_mask.rs"]
 mod mask;
 use std::{hint::black_box, time::Instant};

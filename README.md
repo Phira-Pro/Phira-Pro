@@ -11,7 +11,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows 压缩包或 Android arm64 APK。Windows 解压后运行 `phira-main.exe`；Android 安装 APK，更新时保留应用数据。
 
-本轮功能、验证范围及 Actions 使用方法见 [pro.7 更新说明](docs/development/pro-7.md)。
+本轮功能、验证范围及 Actions 使用方法见 [pro.8 更新说明](docs/development/pro-8.md)。
 
 ## 相对官方版新增的功能
 

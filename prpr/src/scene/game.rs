@@ -571,7 +571,7 @@ impl GameScene {
             chart.extra.effects.clear();
             chart.extra.global_effects.clear();
         }
-        let effects = std::mem::take(&mut chart.extra.global_effects);
+        let mut effects = std::mem::take(&mut chart.extra.global_effects);
         if config.fxaa {
             chart
                 .extra
@@ -602,6 +602,25 @@ impl GameScene {
         )
         .await
         .context("Failed to load resources")?;
+
+        crate::core::clear_prepared_block_geometry();
+        if res.config.shader_pre_render {
+            let begun = std::time::Instant::now();
+            unsafe { get_internal_gl() }.flush();
+            res.update_size(crate::ext::get_viewport());
+            if !res.config.block_area_simple && !chart.block_areas.is_empty() {
+                let vp = res.camera.viewport.unwrap_or_else(crate::ext::get_viewport);
+                crate::core::prepare_block_geometry(&chart.block_areas, vp.2.max(1) as usize, vp.3.max(1) as usize, res.aspect_ratio);
+                next_frame().await;
+            }
+            if !res.no_effect {
+                for effect in chart.extra.effects.iter_mut().chain(effects.iter_mut()) {
+                    effect.prepare(*res.background);
+                    next_frame().await;
+                }
+            }
+            tracing::info!("shader loading preparation: {:.1} ms", begun.elapsed().as_secs_f64() * 1000.);
+        }
 
         // Prepare extra sfx from chart.hitsounds
         chart.hitsounds.drain().for_each(|(name, clip)| {

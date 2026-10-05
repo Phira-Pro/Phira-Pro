@@ -25,6 +25,7 @@ tasks.register('cargoNdkBuild') {
     inputs.file("${repoRoot}/Cargo.lock")
     inputs.file("${repoRoot}/Cargo.toml")
     inputs.files(fileTree("${repoRoot}/vendor/jni"))
+    inputs.files(fileTree("${repoRoot}/vendor/macroquad"))
     inputs.files(fileTree("${repoRoot}/assets"), fileTree("${repoRoot}/phira/locales"), fileTree("${repoRoot}/prpr/locales"))
     inputs.files(file("${repoRoot}/phira/Cargo.toml"), file("${repoRoot}/prpr/Cargo.toml"), file("${repoRoot}/prpr-avc/Cargo.toml"), file("${repoRoot}/rust-toolchain.toml"))
     inputs.property('rustflags', System.getenv('RUSTFLAGS') ?: '')
@@ -81,8 +82,8 @@ android {
         applicationId 'org.flos.phirapro'
         minSdk 22
         targetSdk 33
-        versionCode 42
-        versionName '0.8.2-pro.7'
+        versionCode 43
+        versionName '0.8.2-pro.8'
         ndk { abiFilters abi }
     }
 

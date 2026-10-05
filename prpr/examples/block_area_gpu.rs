@@ -31,6 +31,7 @@ fn conf() -> Conf {
         window_width: 960,
         window_height: 540,
         headless: true,
+        sample_count: std::env::var("BLOCK_GPU_SAMPLES").ok().and_then(|s| s.parse().ok()).unwrap_or(4),
         ..Default::default()
     }
 }

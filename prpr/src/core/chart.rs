@@ -1,10 +1,19 @@
-use super::{BlockArea, BpmList, Effect, JudgeLine, JudgeLineKind, Matrix, Resource, UIElement, Vector, Zone, draw_disabled_zones, draw_zones_with_touches};
+use super::{
+    draw_disabled_zones, draw_zones_with_touches, BlockArea, BpmList, Effect, JudgeLine, JudgeLineKind, Matrix, Resource, UIElement, Vector, Zone,
+};
 use crate::{core::Object, fs::FileSystem, judge::JudgeStatus, ui::Ui};
 use anyhow::{Context, Result};
 use macroquad::prelude::*;
 use nalgebra::Rotation2;
 use sasa::AudioClip;
 use std::{cell::RefCell, collections::HashMap};
+
+#[derive(Default)]
+struct BlockFrame {
+    timeline: super::block_timeline::BlockTimeline,
+    key: Option<(f64, f32, usize)>,
+    zones: Vec<Zone>,
+}
 
 #[derive(Default)]
 pub struct ChartExtra {
@@ -43,6 +52,9 @@ pub struct Chart {
     pub block_areas: Vec<BlockArea>,
     /// Chart-space positions of touches blocked by the zones this frame.
     pub blocked_touches: Vec<(u64, Vector)>,
+    block_frame: RefCell<BlockFrame>,
+    line_transforms: Vec<Matrix>,
+    line_rotations: Vec<f32>,
 }
 
 impl Chart {
@@ -72,6 +84,9 @@ impl Chart {
             hitsounds,
             block_areas: Vec::new(),
             blocked_touches: Vec::new(),
+            block_frame: RefCell::default(),
+            line_transforms: Vec::new(),
+            line_rotations: Vec::new(),
         }
     }
 
@@ -134,11 +149,13 @@ impl Chart {
         for line in &mut self.lines {
             line.object.set_time(res.time);
         }
-        // TODO optimize
-        let trs = self.lines.iter().map(|it| it.now_transform(res, &self.lines)).collect::<Vec<_>>();
-        let rotations = self.lines.iter().map(|it| it.fetch_rot(&self.lines)).collect::<Vec<_>>();
-        for ((line, tr), rot) in self.lines.iter_mut().zip(trs).zip(rotations) {
-            line.update(res, tr, rot);
+        self.line_transforms.clear();
+        self.line_rotations.clear();
+        self.line_transforms
+            .extend(self.lines.iter().map(|it| it.now_transform(res, &self.lines)));
+        self.line_rotations.extend(self.lines.iter().map(|it| it.fetch_rot(&self.lines)));
+        for ((line, tr), rot) in self.lines.iter_mut().zip(&self.line_transforms).zip(&self.line_rotations) {
+            line.update(res, *tr, *rot);
         }
         for effect in &mut self.extra.effects {
             effect.update(res);
@@ -204,13 +221,26 @@ impl Chart {
         });
     }
 
-    fn block_zones(&self, res: &Resource) -> Vec<Zone> {
-        let aspect = res.aspect_ratio;
-        let t = res.time;
-        self
-            .block_areas
-            .iter()
-            .filter_map(|b| Zone::from_area(b, t, aspect))
-            .collect()
+    fn block_zones(&self, res: &Resource) -> std::cell::Ref<'_, [Zone]> {
+        let key = (res.time, res.aspect_ratio, self.block_areas.len());
+        let mut cache = self.block_frame.borrow_mut();
+        if cache.key != Some(key) {
+            let BlockFrame { timeline, zones, .. } = &mut *cache;
+            zones.clear();
+            zones.extend(
+                timeline
+                    .at(&self.block_areas, res.time)
+                    .iter()
+                    .filter_map(|&id| Zone::from_area(&self.block_areas[id], res.time, res.aspect_ratio)),
+            );
+            cache.key = Some(key);
+        }
+        drop(cache);
+        std::cell::Ref::map(self.block_frame.borrow(), |cache| cache.zones.as_slice())
+    }
+
+    pub(crate) fn touch_blocked(&self, p: Vector, time: f64, aspect: f32) -> bool {
+        let mut cache = self.block_frame.borrow_mut();
+        super::block::block_touch_blocked_iter(cache.timeline.at(&self.block_areas, time).iter().map(|&id| &self.block_areas[id]), p, time, aspect)
     }
 }

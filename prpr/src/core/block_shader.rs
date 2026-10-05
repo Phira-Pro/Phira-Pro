@@ -140,10 +140,12 @@ const COLORS: &[(&str, [f32; 4])] = &[
 #[derive(Default)]
 struct FrameTextures {
     uploaded_masks: Option<u64>,
+    uploaded_aux: Option<u64>,
     masks: mask::Masks,
     effect: Option<Texture2D>,
     aux: Option<Texture2D>,
     scene: Option<Texture2D>,
+    scene_pass: Option<miniquad::RenderPass>,
     touch: touch::TouchMask,
     clock: Option<f32>,
 }
@@ -269,6 +271,14 @@ pub(crate) fn prepare_block_effects() {
     }
 }
 
+pub(crate) fn prepare_block_geometry(areas: &[BlockArea], width: usize, height: usize, aspect: f32) {
+    FRAME.with(|frame| frame.borrow_mut().masks.prepare_geometry(width, height, aspect, areas));
+}
+
+pub(crate) fn clear_prepared_block_geometry() {
+    FRAME.with(|frame| frame.borrow_mut().masks.clear_prepared_geometry());
+}
+
 /// Draw the visible zones for the current frame.
 pub fn draw_zones(res: &mut Resource, aspect: f32, zones: &[Zone]) {
     draw_layer_at(res, aspect, zones, get_time() as f32, false, &[]);
@@ -346,7 +356,6 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         gl.quad_context.screen_size()
     };
     let viewport = gl.quad_gl.get_viewport().unwrap_or((0, 0, width as i32, height as i32));
-    gl.flush();
     FRAME.with(|frame| {
         let mut frame = frame.borrow_mut();
         let (width, height) = (viewport.2.max(1) as usize, viewport.3.max(1) as usize);
@@ -355,6 +364,17 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
             frame.touch.update_fingers(touches, time);
         }
         let hover = !disabled && frame.touch.visible();
+        if !hover {
+            let visible = if disabled {
+                frame.masks.rgba.chunks_exact(4).any(|p| p[3] != 0)
+            } else {
+                frame.masks.rgba.chunks_exact(4).any(|p| p[..3] != [0, 0, 0]) || frame.masks.aux_rgba.chunks_exact(4).any(|p| p[..2] != [0, 0])
+            };
+            if !visible {
+                return;
+            }
+        }
+        gl.flush();
         let m = m[if disabled {
             0
         } else if hover {
@@ -386,7 +406,6 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
                 }
             }
         }
-        let dim = (width as u32, height as u32);
         let effect_dim = (frame.masks.width as u32, frame.masks.height as u32);
         let resized = frame
             .effect
@@ -415,7 +434,7 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
             if let Some(old) = frame.aux.replace(texture) {
                 old.delete();
             }
-        } else if hover || frame.uploaded_masks != Some(frame.masks.revision) {
+        } else if hover || frame.uploaded_aux != Some(frame.masks.aux_revision) {
             frame
                 .aux
                 .unwrap()
@@ -423,7 +442,26 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
                 .update(unsafe { get_internal_gl() }.quad_context, &frame.masks.aux_rgba);
         }
         frame.uploaded_masks = Some(frame.masks.revision);
-        if frame.scene.is_none_or(|texture| (texture.width() as u32, texture.height() as u32) != dim) {
+        frame.uploaded_aux = Some(frame.masks.aux_revision);
+        // Native SceneColor is 1/6 resolution. GLES3 can make the exact linear
+        // downsample in the GPU's blitter, saving ~35/36 snapshot storage and
+        // writes. GLES2 retains the old full-resolution sampling path.
+        let can_blit = unsafe { get_internal_gl() }.quad_context.features().instancing
+            && (pass.is_some() || {
+                // A multisampled system backbuffer cannot be resized in a blit.
+                // Game windows use one sample; keep probe/foreign-camera support.
+                let mut samples = 0;
+                unsafe {
+                    miniquad::gl::glGetIntegerv(0x80A9, &mut samples);
+                }
+                samples <= 1
+            });
+        let dim = if can_blit {
+            ((width / 6).max(1) as u32, (height / 6).max(1) as u32)
+        } else {
+            (width as u32, height as u32)
+        };
+        if !disabled && frame.scene.is_none_or(|texture| (texture.width() as u32, texture.height() as u32) != dim) {
             let texture = miniquad::Texture::new(
                 unsafe { get_internal_gl() }.quad_context,
                 miniquad::TextureAccess::Static,
@@ -431,20 +469,24 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
                 miniquad::TextureParams {
                     width: dim.0,
                     height: dim.1,
-                    // Native SceneColor downsamples the camera with a linear
-                    // blit, then point-samples that smaller RT. Sample its
-                    // quantized texel centers from this full-sized copy.
+                    // Native SceneColor uses a linear /6 camera blit, followed
+                    // by point-sampled texel centers in snapshotSample.
                     filter: miniquad::FilterMode::Linear,
                     ..Default::default()
                 },
             );
-            if let Some(old) = frame.scene.replace(Texture2D::from_miniquad_texture(texture)) {
+            let next_pass = can_blit.then(|| miniquad::RenderPass::new(unsafe { get_internal_gl() }.quad_context, texture, None));
+            let old = frame.scene.replace(Texture2D::from_miniquad_texture(texture));
+            if let Some(pass) = std::mem::replace(&mut frame.scene_pass, next_pass) {
+                // RenderPass::delete also owns/deletes its color texture.
+                pass.delete(unsafe { get_internal_gl() }.quad_context);
+            } else if let Some(old) = old {
                 old.delete();
             }
         }
-        let scene = frame.scene.unwrap();
+        let scene = frame.scene.unwrap_or(*EMPTY_TEX);
         if !disabled {
-            copy_scene(res, pass, viewport, scene);
+            copy_scene(res, pass, viewport, scene, frame.scene_pass);
         }
         m.set_texture("uDisplaceTex", *DISPLACE_TEX);
         m.set_texture("uSparkTex", *SPARK_TEX);
@@ -470,13 +512,56 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
     });
 }
 
-fn copy_scene(res: &Resource, pass: Option<miniquad::RenderPass>, viewport: (i32, i32, i32, i32), texture: Texture2D) {
+fn copy_scene(
+    res: &Resource,
+    pass: Option<miniquad::RenderPass>,
+    viewport: (i32, i32, i32, i32),
+    texture: Texture2D,
+    snapshot_pass: Option<miniquad::RenderPass>,
+) {
     use miniquad::gl::*;
     // These GLES3 constants are absent from this miniquad fork's desktop table.
     const READ_FRAMEBUFFER_BINDING: u32 = 0x8CAA;
     const ACTIVE_TEXTURE: u32 = 0x84E0;
     const TEXTURE_BINDING_2D: u32 = 0x8069;
     unsafe {
+        if let Some(destination) = snapshot_pass {
+            let mut read = 0;
+            let mut draw = 0;
+            glGetIntegerv(READ_FRAMEBUFFER_BINDING, &mut read);
+            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &mut draw);
+            let mut scissor = 0;
+            glGetIntegerv(GL_SCISSOR_TEST, &mut scissor);
+            glDisable(GL_SCISSOR_TEST);
+            let source = if let Some(target) = res.chart_target.as_ref().filter(|target| Some(target.input().render_pass) == pass) {
+                // Multisample resolve must keep the same size and use NEAREST;
+                // then downsample the resolved output with LINEAR.
+                target.blit();
+                target.output().render_pass.gl_internal_id(get_internal_gl().quad_context)
+            } else {
+                pass.map(|p| p.gl_internal_id(get_internal_gl().quad_context)).unwrap_or(read as u32)
+            };
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, source);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, destination.gl_internal_id(get_internal_gl().quad_context));
+            glBlitFramebuffer(
+                viewport.0,
+                viewport.1,
+                viewport.0 + viewport.2,
+                viewport.1 + viewport.3,
+                0,
+                0,
+                texture.width() as i32,
+                texture.height() as i32,
+                GL_COLOR_BUFFER_BIT,
+                GL_LINEAR,
+            );
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, read as u32);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, draw as u32);
+            if scissor != 0 {
+                glEnable(GL_SCISSOR_TEST);
+            }
+            return;
+        }
         let restore = if let Some(target) = res.chart_target.as_ref().filter(|target| Some(target.input().render_pass) == pass) {
             let mut read = 0;
             let mut draw = 0;

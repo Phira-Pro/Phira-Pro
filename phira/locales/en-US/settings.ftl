@@ -303,3 +303,6 @@ cover-editor = Cover editor
 cover-crop-help = Drag to position · Zoom to crop · Dashed: minimum · Solid: maximum
 cover-cancel = Cancel
 cover-apply = Apply
+
+item-shader-pre-render = Shader pre-rendering
+item-shader-pre-render-sub = Warms shaders and caches static block masks while loading. Slower loading; frame-rate gains vary with the chart.

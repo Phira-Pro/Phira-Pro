@@ -2,7 +2,7 @@
 
 use crate::{
     config::{Config, JudgeWindows, Mods},
-    core::{block_touch_blocked, BadNote, Chart, NoteKind, Point, Resource, Vector, NOTE_WIDTH_RATIO_BASE},
+    core::{BadNote, Chart, NoteKind, Point, Resource, Vector, NOTE_WIDTH_RATIO_BASE},
     ext::{get_viewport, NotNanExt},
 };
 use macroquad::prelude::{
@@ -1033,13 +1033,12 @@ impl Judge {
         // so the notes underneath it are never hit and end up as misses.
         if !chart.block_areas.is_empty() {
             let aspect = res.aspect_ratio;
-            let areas = &chart.block_areas;
             let mut blocked = Vec::new();
             // Infection is a finger lifetime, not a field lifetime. Quiet
             // frames must retain it until an explicit Ended/Cancelled event.
             touches.retain(|touch| {
                 let p = Vector::new(touch.position.x, -touch.position.y);
-                let inside = !self.infected.contains(&touch.id) && block_touch_blocked(areas, p, t, aspect);
+                let inside = !self.infected.contains(&touch.id) && chart.touch_blocked(p, t, aspect);
                 if finger_blocked(&mut self.infected, touch.id, TouchPhase::Stationary, inside) {
                     blocked.push((touch.id, p));
                     false

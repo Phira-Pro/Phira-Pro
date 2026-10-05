@@ -116,7 +116,7 @@ pub fn get_data_mut() -> &'static mut Data {
 }
 
 pub fn save_data() -> Result<()> {
-    std::fs::write(format!("{}/data.json", dir::root()?), serde_json::to_string(get_data())?)?;
+    transfer::write_atomic(std::path::Path::new(&format!("{}/data.json", dir::root()?)), &serde_json::to_vec(get_data())?)?;
     Ok(())
 }
 
@@ -289,6 +289,8 @@ async fn the_main() -> Result<()> {
     };
 
     init_assets();
+    #[cfg(target_os = "ios")]
+    prpr::frame_pacing::install();
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)
@@ -502,13 +504,13 @@ async fn the_main() -> Result<()> {
 /// 界面显示的改版版本号。仅用于本地展示，绝不上报服务端：
 /// 与服务器交互的版本号一律仍取 `CARGO_PKG_VERSION`（见 `client.rs`、`home.rs`、`event.rs`）。
 #[cfg(not(flash))]
-pub const PRO_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-pro.7");
+pub const PRO_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-pro.8");
 /// Phira Pro Flash（轻量版）的展示用版本号。
 #[cfg(flash)]
 pub const PRO_VERSION: &str = "flash.1";
 /// 带 `v` 前缀的展示用版本号。
 #[cfg(not(flash))]
-pub const PRO_VERSION_TAG: &str = concat!("v", env!("CARGO_PKG_VERSION"), "-pro.7");
+pub const PRO_VERSION_TAG: &str = concat!("v", env!("CARGO_PKG_VERSION"), "-pro.8");
 #[cfg(flash)]
 pub const PRO_VERSION_TAG: &str = "vflash.1";
 
@@ -570,6 +572,8 @@ pub extern "C" fn quad_main() {
 }
 
 fn on_pause_resume(pause: bool) {
+    #[cfg(target_os = "ios")]
+    prpr::frame_pacing::set_paused(pause);
     if let Some(tx) = MESSAGES_TX.lock().unwrap().as_mut() {
         let _ = tx.send(pause);
     }

@@ -294,3 +294,6 @@ cover-editor = 遮挡编辑器
 cover-crop-help = 拖动定位 · 缩放裁剪 · 虚线：最小遮挡 · 实线：最大遮挡
 cover-cancel = 取消
 cover-apply = 应用
+
+item-shader-pre-render = Shader 預渲染
+item-shader-pre-render-sub = 載入時預熱著色器並快取靜態噪域，載入會更慢；動態效果仍即時渲染，幀率提升因譜面而異

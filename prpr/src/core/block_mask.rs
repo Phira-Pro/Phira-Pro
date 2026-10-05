@@ -2,6 +2,7 @@
 //! Bit rows keep the nine-tap dilation inexpensive without any offscreen FBOs.
 use super::Zone;
 use once_cell::sync::Lazy;
+use std::collections::HashMap;
 
 static DISPLACE: Lazy<image::RgbImage> = Lazy::new(|| {
     let source = image::load_from_memory(include_bytes!("../../../assets/blockarea/BlockNoise1.png"))
@@ -17,10 +18,13 @@ pub(super) struct Masks {
     pub aux_rgba: Vec<u8>,
     /// Point-sampled raw camera outputs, packed enabled N/S and disabled N/S.
     pub sources_rgba: Vec<u8>,
+    /// Native camera capture is needed only by the independent mask oracle.
+    pub capture_sources: bool,
     pub raw_disabled_green: Vec<u8>,
     pub width: usize,
     pub height: usize,
     pub revision: u64,
+    pub aux_revision: u64,
     active: Vec<u64>,
     ping: Vec<u64>,
     pong: Vec<u64>,
@@ -35,11 +39,57 @@ pub(super) struct Masks {
     warp_y: Vec<(f32, usize)>,
     enabled_compose: Vec<u8>,
     uniform_compose: Option<u8>,
-    point_aux: Vec<[u8; 3]>,
-    coverage_diff: [Vec<i32>; 2],
+    base_rgba: Vec<u8>,
+    coverage_diff: [Vec<i32>; 8],
+    blend_steps: HashMap<u32, Option<u8>>,
+    prepared_rows: HashMap<[u32; 5], Box<[(u16, u16, u16)]>>,
+    prepared_dim: (usize, usize, f32),
+    prepared_bytes: usize,
+    source_bounds: Option<(usize, usize, usize, usize)>,
+    group_index: HashMap<[u32; 5], usize>,
+    groups: Vec<(Zone, [i32; 8])>,
 }
 
 impl Masks {
+    /// Pre-rasterize exact keyframe poses, never quantizing animated geometry
+    /// or chart time. Holds/static intervals reuse these poses; intermediates
+    /// fall back to live rasterization. Hard 16 MiB budget, retained on retry.
+    pub fn prepare_geometry(&mut self, width: usize, height: usize, aspect: f32, areas: &[super::BlockArea]) {
+        self.clear_prepared_geometry();
+        let (bw, bh) = ((width / 8).max(1) * 2, (height / 8).max(1) * 2);
+        self.prepared_dim = (bw, bh, aspect);
+        Lazy::force(&DISPLACE);
+        for area in areas {
+            let times = [area.appear_time, area.enable_time, area.disable_time, area.disappear_time.next_down()]
+                .into_iter()
+                .chain(area.rotate_events.iter().map(|e| e.time))
+                .chain(area.move_events.iter().map(|e| e.time))
+                .chain(area.scale_events.iter().map(|e| e.time));
+            for t in times {
+                let Some(zone) = super::Zone::from_area(area, t, aspect) else {
+                    continue;
+                };
+                let key = geometry_key(&zone);
+                if self.prepared_rows.contains_key(&key) {
+                    continue;
+                }
+                let mut rows = Vec::new();
+                raster_rows(bw, bh, aspect, &zone, |y, first, last| rows.push((y as u16, first as u16, last as u16)));
+                let bytes = rows.len() * std::mem::size_of::<(u16, u16, u16)>() + 96;
+                if self.prepared_bytes + bytes > 16 * 1024 * 1024 {
+                    return;
+                }
+                self.prepared_bytes += bytes;
+                self.prepared_rows.insert(key, rows.into_boxed_slice());
+            }
+        }
+    }
+
+    pub fn clear_prepared_geometry(&mut self) {
+        self.prepared_rows.clear();
+        self.prepared_bytes = 0;
+    }
+
     pub fn render_displaced(&mut self, width: usize, height: usize, aspect: f32, zones: &[Zone], time: f32) {
         // Refine Compose to the existing EffectRT grid: half-sized boundary
         // cells without larger effect textures, more shader work or narrower
@@ -61,94 +111,209 @@ impl Masks {
             self.raw_disabled_green.fill(0);
             self.ready_green.resize(bw * bh, 0);
             self.ready_green.fill(0);
-            for diff in &mut self.coverage_diff {
-                diff.resize((bw + 1) * bh, 0);
-                diff.fill(0);
+            if self.prepared_dim != (bw, bh, aspect) {
+                self.clear_prepared_geometry();
             }
+            if self.blend_steps.len() > 512 {
+                self.blend_steps.clear();
+            }
+            let mut used = [false; 8];
+            let mut additive = [true; 8];
+            let mut same_opacity = [true; 8];
+            let mut first_opacity = [None; 8];
+            for z in zones {
+                for (channel, opacity) in contributions(z).into_iter().flatten() {
+                    used[channel] = true;
+                    if let Some(first) = first_opacity[channel] {
+                        same_opacity[channel] &= first == opacity.to_bits();
+                    } else {
+                        first_opacity[channel] = Some(opacity.to_bits());
+                    }
+                    let step = *self.blend_steps.entry(opacity.to_bits()).or_insert_with(|| blend_step(opacity));
+                    additive[channel] &= step.is_some();
+                }
+            }
+            // Identical opacities need only a count and their reachable R8
+            // sequence, including .1's half-integer rounding. Mixed opacities
+            // use weighted sums only when every possible R8 input was proven.
+            let fast: [bool; 8] = std::array::from_fn(|c| used[c] && (same_opacity[c] || additive[c]));
+            let mut curves = [[0_u8; 256]; 8];
+            let mut curve_end = [0; 8];
+            for c in 0..8 {
+                if !used[c] || !same_opacity[c] {
+                    continue;
+                }
+                let opacity = f32::from_bits(first_opacity[c].unwrap());
+                for n in 1..256 {
+                    let value = unorm(curves[c][n - 1] as f32 / 255. + opacity);
+                    if value == curves[c][n - 1] {
+                        break;
+                    }
+                    curves[c][n] = value;
+                    curve_end[c] = n;
+                    if value == 255 {
+                        break;
+                    }
+                }
+            }
+            for channel in 0..8 {
+                if fast[channel] {
+                    self.coverage_diff[channel].resize((bw + 1) * bh, 0);
+                    self.coverage_diff[channel].fill(0);
+                }
+            }
+            self.group_index.clear();
+            self.groups.clear();
             // The six official cameras capture enabled N/S, disabled N/S
             // (including ready), and ready-only N/S. BlockSprite blends
             // SrcAlpha, One; each subtract sprite has alpha .1.
             for z in zones {
-                let layer = if z.active { usize::from(z.invert) } else { 2 + usize::from(z.invert) };
-                let opacity = if z.invert { 0.1 } else { z.opacity };
-                if z.active && (z.invert || z.opacity == 1.) {
-                    let diff = &mut self.coverage_diff[usize::from(z.invert)];
-                    raster_rows(bw, bh, aspect, z, |y, first, last| {
-                        diff[y * (bw + 1) + first] += 1;
-                        diff[y * (bw + 1) + last] -= 1;
+                let mut weights = [0_i32; 8];
+                let mut slow = false;
+                for (channel, opacity) in contributions(z).into_iter().flatten() {
+                    if fast[channel] {
+                        weights[channel] += if same_opacity[channel] {
+                            1
+                        } else {
+                            self.blend_steps[&opacity.to_bits()].unwrap() as i32
+                        };
+                    } else {
+                        slow = true;
+                    }
+                }
+                if weights != [0; 8] {
+                    let key = geometry_key(z);
+                    let group = *self.group_index.entry(key).or_insert_with(|| {
+                        self.groups.push((z.clone(), [0; 8]));
+                        self.groups.len() - 1
                     });
+                    for c in 0..8 {
+                        self.groups[group].1[c] += weights[c];
+                    }
+                }
+                if !slow {
                     continue;
                 }
-                raster_rows(bw, bh, aspect, z, |y, first, last| {
-                    for x in first..last {
-                        let i = y * bw + x;
-                        self.layers[layer][i] = unorm(self.layers[layer][i] as f32 / 255. + opacity);
-                        if z.invert && !z.active {
-                            self.raw_disabled_green[i] = unorm(self.raw_disabled_green[i] as f32 / 255. + 0.1 * z.opacity);
-                        }
-                        if z.ready {
-                            let ready = 4 + usize::from(z.invert);
-                            self.layers[ready][i] = unorm(self.layers[ready][i] as f32 / 255. + opacity);
-                            if z.invert {
-                                self.ready_green[i] = unorm(self.ready_green[i] as f32 / 255. + 0.1 * z.opacity);
+                let mut write = |y: usize, first: usize, last: usize| {
+                    for (channel, opacity) in contributions(z).into_iter().flatten() {
+                        if !fast[channel] {
+                            // Half-integer blends can round differently depending
+                            // on the previous R8 value. Preserve source ordering.
+                            let plane = match channel {
+                                6 => &mut self.raw_disabled_green,
+                                7 => &mut self.ready_green,
+                                _ => &mut self.layers[channel],
+                            };
+                            for pixel in &mut plane[y * bw + first..y * bw + last] {
+                                *pixel = unorm(*pixel as f32 / 255. + opacity);
                             }
                         }
                     }
-                });
+                };
+                if let Some(rows) = self.prepared_rows.get(&geometry_key(z)) {
+                    for &(y, first, last) in rows.iter() {
+                        write(y as usize, first as usize, last as usize);
+                    }
+                } else {
+                    raster_rows(bw, bh, aspect, z, write);
+                }
+            }
+            // Merge equal poses before visiting their rows. Source order is
+            // irrelevant only for the proven integer/count channels above.
+            for (z, weights) in &self.groups {
+                let mut write = |y: usize, first: usize, last: usize| {
+                    for c in 0..8 {
+                        if weights[c] == 0 {
+                            continue;
+                        }
+                        self.coverage_diff[c][y * (bw + 1) + first] += weights[c];
+                        self.coverage_diff[c][y * (bw + 1) + last] -= weights[c];
+                    }
+                };
+                if let Some(rows) = self.prepared_rows.get(&geometry_key(z)) {
+                    for &(y, first, last) in rows.iter() {
+                        write(y as usize, first as usize, last as usize);
+                    }
+                } else {
+                    raster_rows(bw, bh, aspect, z, write);
+                }
             }
             // Prefix sums make heavily overlapping active rectangles cost
             // O(rectangles * rows + pixels), rather than O(sum of their areas).
             // Retain the exact R8 quantization of every native additive blend.
-            let mut subtract_values = [0_u8; 11];
-            for i in 1..subtract_values.len() {
-                subtract_values[i] = unorm(subtract_values[i - 1] as f32 / 255. + 0.1);
+            for channel in 0..8 {
+                if !fast[channel] {
+                    continue;
+                }
+                let plane = match channel {
+                    6 => &mut self.raw_disabled_green,
+                    7 => &mut self.ready_green,
+                    _ => &mut self.layers[channel],
+                };
+                for y in 0..bh {
+                    let mut sum = 0_i32;
+                    for x in 0..bw {
+                        sum += self.coverage_diff[channel][y * (bw + 1) + x];
+                        plane[y * bw + x] = if same_opacity[channel] {
+                            curves[channel][sum.clamp(0, curve_end[channel] as i32) as usize]
+                        } else {
+                            sum.clamp(0, 255) as u8
+                        };
+                    }
+                }
             }
+            self.enabled_compose.resize(bw * bh, 0);
+            self.base_rgba.resize(bw * bh * 4, 0);
+            self.base_rgba.fill(0);
+            self.aux_rgba.resize(bw * bh * 4, 0);
+            self.aux_rgba.fill(0);
+            let mut bounds = (bw, bh, 0, 0);
             for y in 0..bh {
-                let mut counts = [0_i32; 2];
                 for x in 0..bw {
                     let i = y * bw + x;
-                    for c in 0..2 {
-                        counts[c] += self.coverage_diff[c][y * (bw + 1) + x];
+                    self.enabled_compose[i] = self.layers[0][i].abs_diff(if subtract_enabled(self.layers[1][i]) == 1. { 255 } else { 0 });
+                    if self.enabled_compose[i] != 0 {
+                        bounds.0 = bounds.0.min(x);
+                        bounds.1 = bounds.1.min(y);
+                        bounds.2 = bounds.2.max(x + 1);
+                        bounds.3 = bounds.3.max(y + 1);
                     }
-                    if counts[0] > 0 {
-                        self.layers[0][i] = 255;
-                    }
-                    self.layers[1][i] = subtract_values[counts[1].clamp(0, 10) as usize];
+                    let disabled = if self.layers[2][i] == 0 && self.layers[3][i] == 0 && self.raw_disabled_green[i] == 0 {
+                        0
+                    } else {
+                        let (sr, sg) = subtract_disabled(self.layers[3][i], self.raw_disabled_green[i]);
+                        unorm((sr * sg - self.layers[2][i] as f32 / 255.).abs())
+                    };
+                    let ready_s = if self.ready_green[i] == 0 {
+                        0
+                    } else {
+                        unorm(subtract_disabled(self.layers[5][i], self.ready_green[i]).1)
+                    };
+                    self.base_rgba[i * 4 + 3] = disabled;
+                    self.aux_rgba[i * 4..i * 4 + 3].copy_from_slice(&[self.layers[4][i], ready_s, disabled]);
                 }
             }
-            self.sources_rgba.resize(bw * bh * 4, 0);
-            self.enabled_compose.resize(bw * bh, 0);
-            self.point_aux.resize(bw * bh, [0; 3]);
-            for i in 0..bw * bh {
-                for c in 0..4 {
-                    self.sources_rgba[i * 4 + c] = self.layers[c][i];
+            self.source_bounds = (bounds.0 < bounds.2 && bounds.1 < bounds.3).then_some(bounds);
+            if cfg!(test) || self.capture_sources {
+                self.sources_rgba.resize(bw * bh * 4, 0);
+                for i in 0..bw * bh {
+                    for c in 0..4 {
+                        self.sources_rgba[i * 4 + c] = self.layers[c][i];
+                    }
                 }
-                self.enabled_compose[i] = self.layers[0][i].abs_diff(if subtract_enabled(self.layers[1][i]) == 1. { 255 } else { 0 });
-                let disabled = if self.layers[2][i] == 0 && self.layers[3][i] == 0 && self.raw_disabled_green[i] == 0 {
-                    0
-                } else {
-                    let (sr, sg) = subtract_disabled(self.layers[3][i], self.raw_disabled_green[i]);
-                    unorm((sr * sg - self.layers[2][i] as f32 / 255.).abs())
-                };
-                let ready_s = if self.ready_green[i] == 0 {
-                    0
-                } else {
-                    unorm(subtract_disabled(self.layers[5][i], self.ready_green[i]).1)
-                };
-                self.point_aux[i] = [self.layers[4][i], ready_s, disabled];
             }
             self.uniform_compose = self
                 .enabled_compose
                 .first()
                 .copied()
                 .filter(|v| self.enabled_compose.iter().all(|p| p == v));
+            self.aux_revision = self.aux_revision.wrapping_add(1);
         }
         self.width = ew;
         self.height = eh;
-        self.rgba.resize(ew * eh * 4, 0);
-        self.rgba.fill(0);
-        self.aux_rgba.resize(ew * eh * 4, 0);
-        self.aux_rgba.fill(0);
+        // Only Compose/Edge/Glow evolve with noise time. Ready/Disabled camera
+        // channels stay unchanged until geometry/phase/opacity changes.
+        self.rgba.clone_from(&self.base_rgba);
         let stride = ew.div_ceil(64);
         self.active.resize(stride * eh, 0);
         self.active.fill(0);
@@ -174,8 +339,17 @@ impl Masks {
         }
         static CENTERED_NOISE: Lazy<[f32; 256]> = Lazy::new(|| std::array::from_fn(|value| medium(medium(value as f32 / 255.) - 0.5)));
         let centered = &*CENTERED_NOISE;
-        for y in 0..bh {
-            for x in 0..bw {
+        // Both centered noise channels lie in [-.5,.5]. The native normalized
+        // direction therefore displaces UV by at most .070704 per axis. A
+        // conservative .072 envelope skips empty pixels with identical samples.
+        let pad_x = (bw as f32 * 0.072).ceil() as usize + 1;
+        let pad_y = (bh as f32 * 0.072).ceil() as usize + 1;
+        let (x0, y0, x1, y1) = self
+            .source_bounds
+            .map(|(x0, y0, x1, y1)| (x0.saturating_sub(pad_x), y0.saturating_sub(pad_y), (x1 + pad_x).min(bw), (y1 + pad_y).min(bh)))
+            .unwrap_or((0, 0, 0, 0));
+        for y in y0..y1 {
+            for x in x0..x1 {
                 let i = y * bw + x;
                 let mask = if let Some(value) = self.uniform_compose {
                     value
@@ -189,10 +363,8 @@ impl Masks {
                     let sy = (duv[1] * bh as f32).floor().clamp(0., (bh - 1) as f32) as usize;
                     self.enabled_compose[sy * bw + sx]
                 };
-                let [ready_n, ready_s, disabled] = self.point_aux[i];
                 let dst = i * 4;
-                self.rgba[dst..dst + 4].copy_from_slice(&[mask, 0, 0, disabled]);
-                self.aux_rgba[dst..dst + 4].copy_from_slice(&[ready_n, ready_s, disabled, 0]);
+                self.rgba[dst] = mask;
                 if mask != 0 {
                     self.active[y * stride + x / 64] |= 1 << (x % 64);
                 }
@@ -335,6 +507,34 @@ fn noise(uv: [f32; 2]) -> f32 {
     DISPLACE.get_pixel(noise_index(uv[0], DISPLACE.width()), noise_index(uv[1], DISPLACE.height()))[0] as f32 / 255.
 }
 
+fn geometry_key(zone: &Zone) -> [u32; 5] {
+    [
+        zone.center.x.to_bits(),
+        zone.center.y.to_bits(),
+        zone.half.x.to_bits(),
+        zone.half.y.to_bits(),
+        zone.angle.to_bits(),
+    ]
+}
+
+fn contributions(z: &Zone) -> [Option<(usize, f32)>; 4] {
+    let layer = if z.active { usize::from(z.invert) } else { 2 + usize::from(z.invert) };
+    let opacity = if z.invert { 0.1 } else { z.opacity };
+    [
+        Some((layer, opacity)),
+        (z.invert && !z.active).then_some((6, 0.1 * z.opacity)),
+        z.ready.then_some((4 + usize::from(z.invert), opacity)),
+        (z.ready && z.invert).then_some((7, 0.1 * z.opacity)),
+    ]
+}
+
+fn blend_step(opacity: f32) -> Option<u8> {
+    let step = unorm(opacity);
+    (0..=255_u8)
+        .all(|previous| unorm(previous as f32 / 255. + opacity) == previous.saturating_add(step))
+        .then_some(step)
+}
+
 fn raster_rows(width: usize, height: usize, aspect: f32, zone: &Zone, mut write: impl FnMut(usize, usize, usize)) {
     if zone.half.x <= 0. || zone.half.y <= 0. {
         return;
@@ -392,6 +592,68 @@ fn dilate(source: &[u64], dest: &mut [u64], width: usize, height: usize) {
 mod tests {
     use super::*;
     use crate::core::Vector;
+
+    #[test]
+    fn weighted_scanlines_match_ordered_r8_blending_with_fades_and_ready() {
+        let mut zones = Vec::new();
+        for i in 0..120 {
+            zones.push(Zone {
+                active: i % 4 == 0,
+                ready: i % 4 == 1,
+                opacity: [0., 0.1, 0.25, 0.5, 0.667, 1., 0.123456][i % 7],
+                ..zone((i % 11) as f32 * 0.09 - 0.45, (i % 5) as f32 * 0.1 - 0.2, 0.3, 0.11, i as f32 * 0.17, i % 3 == 0)
+            });
+        }
+        let (w, h) = (80, 48);
+        let mut reference: [Vec<u8>; 8] = std::array::from_fn(|_| vec![0; w * h]);
+        for z in &zones {
+            raster_rows(w, h, 16. / 9., z, |y, first, last| {
+                for (channel, opacity) in contributions(z).into_iter().flatten() {
+                    for p in &mut reference[channel][y * w + first..y * w + last] {
+                        *p = unorm(*p as f32 / 255. + opacity);
+                    }
+                }
+            });
+        }
+        let mut mask = Masks::default();
+        mask.render_displaced(w * 4, h * 4, 16. / 9., &zones, 1.);
+        for channel in 0..6 {
+            assert_eq!(mask.layers[channel], reference[channel], "camera {channel}");
+        }
+        assert_eq!(mask.raw_disabled_green, reference[6]);
+        assert_eq!(mask.ready_green, reference[7]);
+    }
+
+    #[test]
+    fn prepared_geometry_is_exact_and_invalidates_on_resolution_change() {
+        let area = super::super::BlockArea {
+            top_right: Vector::new(0.8, 0.7),
+            bottom_left: Vector::new(0.2, 0.3),
+            appear_time: 0.,
+            enable_time: 1.,
+            disable_time: 3.,
+            disappear_time: 4.,
+            is_subtract: true,
+            rotate_events: vec![],
+            move_events: vec![],
+            scale_events: vec![],
+        };
+        let mut prepared = Masks::default();
+        let z = Zone::from_area(&area, 2., 16. / 9.).unwrap();
+        prepared.prepare_geometry(960, 540, 16. / 9., &[area]);
+        assert!(!prepared.prepared_rows.is_empty());
+        assert!(prepared.prepared_rows.contains_key(&geometry_key(&z)));
+        let mut live = Masks::default();
+        for time in [1., 1.1, 2.] {
+            prepared.render_displaced(960, 540, 16. / 9., &[z.clone()], time);
+            live.render_displaced(960, 540, 16. / 9., &[z.clone()], time);
+            assert_eq!(prepared.rgba, live.rgba);
+            assert_eq!(prepared.aux_rgba, live.aux_rgba);
+        }
+        prepared.render_displaced(800, 600, 4. / 3., &[z], 3.);
+        assert!(prepared.prepared_rows.is_empty());
+        assert_eq!(prepared.prepared_bytes, 0);
+    }
 
     #[test]
     fn compose_uses_native_mediump_intermediate_rounding() {

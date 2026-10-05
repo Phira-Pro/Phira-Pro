@@ -591,6 +591,8 @@ pub fn request_export(suggested_name: String) {
                     deleter: Box::new(move || std::fs::remove_file(output_path)),
                 });
                 EXPORT_CONFIG.lock().unwrap().replace(config);
+            } else {
+                EXPORT_CONFIG.lock().unwrap().replace(Err(io::Error::new(io::ErrorKind::Interrupted, "Export cancelled")));
             }
         }
     }
@@ -600,6 +602,7 @@ pub fn take_export() -> Option<io::Result<ExportConfig>> {
     EXPORT_CONFIG.lock().unwrap().take()
 }
 pub fn resolve_export() {
+    finish_export();
     #[cfg(target_os = "ios")]
     {
         if let Some(path) = EXPORT_PICKER_PATH.lock().unwrap().clone() {
@@ -610,6 +613,18 @@ pub fn resolve_export() {
     }
     #[cfg(not(target_os = "ios"))]
     show_message(tl!("exported")).ok();
+}
+
+pub fn finish_export() {
+    #[cfg(target_os = "android")]
+    unsafe {
+        let env = miniquad::native::attach_jni_env();
+        let ctx = ndk_context::android_context().context();
+        let class = (**env).GetObjectClass.unwrap()(env, ctx);
+        let method = (**env).GetMethodID.unwrap()(env, class, c"finishExport".as_ptr() as _, c"()V".as_ptr() as _);
+        (**env).CallVoidMethod.unwrap()(env, ctx, method);
+        (**env).DeleteLocalRef.unwrap()(env, class);
+    }
 }
 
 #[cfg(target_os = "android")]
@@ -629,6 +644,14 @@ fn delete_uri(uri: Global<JObject<'static>>) {
 #[export_name = "Java_quad_1native_QuadNative_processExportFd"]
 extern "system" fn process_export_fd(mut env: EnvUnowned, _: jni::objects::JClass, uri: jni::objects::JObject, fd: jni::sys::jint) {
     use std::os::fd::FromRawFd;
+    if fd < 0 {
+        let kind = if fd == -1 { io::ErrorKind::Interrupted } else { io::ErrorKind::Other };
+        EXPORT_CONFIG
+            .lock()
+            .unwrap()
+            .replace(Err(io::Error::new(kind, "Export cancelled or destination unavailable")));
+        return;
+    }
     env.with_env(|env| -> jni::errors::Result<()> {
         let uri = env.new_global_ref(uri)?;
         let file = unsafe { File::from_raw_fd(fd as _) };
@@ -1463,7 +1486,7 @@ impl Page for LibraryPage {
                     let tw = ui.text(&text).size(0.5).measure().w;
                     let w = tw + 0.1;
                     // HUD 自定义：多选按钮（可单独拖动缩放）。
-                let sr = crate::hud::slot_or(ui, "library", "multi", crate::hud::Cap(true, true, true), Rect::new(r.x - w - 0.02, r.y, w, r.h));
+                    let sr = crate::hud::slot_or(ui, "library", "multi", crate::hud::Cap(true, true, true), Rect::new(r.x - w - 0.02, r.y, w, r.h));
                     self.multi_select_btn.render_shadow(ui, sr, t, |ui, path| {
                         ui.fill_path(&path, WHITE);
                         let ir = Rect::new(sr.x + 0.04, sr.center().y, 0., 0.).feather(0.025);
@@ -1591,13 +1614,7 @@ impl Page for LibraryPage {
                 // HUD 自定义：页码与翻页按钮（切到在线/热门分页后即可编辑）。
                 let cx = r.center().x;
                 let py = r.bottom() + 0.034;
-                let pager = crate::hud::slot_or(
-                    ui,
-                    "library",
-                    "pager",
-                    crate::hud::Cap(true, false, false),
-                    Rect::new(cx - 0.25, py, 0.5, 0.06),
-                );
+                let pager = crate::hud::slot_or(ui, "library", "pager", crate::hud::Cap(true, false, false), Rect::new(cx - 0.25, py, 0.5, 0.06));
                 ui.text(tl!("page", "current" => self.current_page + 1, "total" => total_page))
                     .pos(pager.center().x, pager.y)
                     .anchor(0.5, 0.)

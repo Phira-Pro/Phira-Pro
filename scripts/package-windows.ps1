@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$SkipBuild, [string]$Version = '0.8.2-pro.7')
+param([switch]$SkipBuild, [string]$Version = '0.8.2-pro.8')
 $ErrorActionPreference = 'Stop'
 $workspace = Split-Path -Parent $PSScriptRoot
 $deliveryRoot = Join-Path (Split-Path -Parent $workspace) 'dist\windows'
@@ -20,7 +20,7 @@ New-Item -ItemType Directory -Path $package -Force | Out-Null
 Copy-Item -LiteralPath $exe -Destination $package
 Copy-Item -LiteralPath (Join-Path $workspace 'assets') -Destination $package -Recurse
 Copy-Item -LiteralPath (Join-Path $workspace 'LICENSE') -Destination $package
-Copy-Item -LiteralPath (Join-Path $workspace 'docs\development\pro-7.md') -Destination (Join-Path $package '更新说明.md')
+Copy-Item -LiteralPath (Join-Path $workspace 'docs\development\pro-8.md') -Destination (Join-Path $package '更新说明.md')
 Get-ChildItem -LiteralPath (Join-Path $workspace 'target\release') -Filter '*.dll' -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $package
 }

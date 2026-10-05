@@ -1272,6 +1272,7 @@ struct ChartList {
     dhint_btn: DRectButton,
     opt_btn: DRectButton,
     block_simple_btn: DRectButton,
+    shader_pre_render_btn: DRectButton,
     use_keyboard_btn: DRectButton,
     speed_slider: Slider,
     size_slider: Slider,
@@ -1320,6 +1321,7 @@ impl ChartList {
             dhint_btn: DRectButton::new(),
             opt_btn: DRectButton::new(),
             block_simple_btn: DRectButton::new(),
+            shader_pre_render_btn: DRectButton::new(),
             use_keyboard_btn: DRectButton::new(),
             speed_slider: Slider::new(if cfg!(flash) { 1.0..2.0 } else { 0.5..2.0 }, 0.05),
             size_slider: Slider::new(0.8..1.2, 0.005),
@@ -1387,6 +1389,10 @@ impl ChartList {
         }
         if self.block_simple_btn.touch(touch, t) {
             config.block_area_simple ^= true;
+            return Ok(Some(true));
+        }
+        if self.shader_pre_render_btn.touch(touch, t) {
+            config.shader_pre_render ^= true;
             return Ok(Some(true));
         }
         // Phira Pro Flash（轻量版）：不提供键盘模式。
@@ -1608,6 +1614,10 @@ impl ChartList {
         item! {
             render_title(ui, tl!("item-block-simple"), Some(tl!("item-block-simple-sub")));
             render_switch(ui, rr, t, &mut self.block_simple_btn, config.block_area_simple);
+        }
+        item! {
+            render_title(ui, tl!("item-shader-pre-render"), Some(tl!("item-shader-pre-render-sub")));
+            render_switch(ui, rr, t, &mut self.shader_pre_render_btn, config.shader_pre_render);
         }
         // Phira Pro Flash（轻量版）：不提供键盘模式。
         if !cfg!(flash) {

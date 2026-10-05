@@ -156,6 +156,8 @@ pub struct Config {
     pub aggressive: bool,
     /// Flat block ranges; skips materials, hover and music filtering, not judgement.
     pub block_area_simple: bool,
+    /// Loading-time shader draws and exact static block geometry cache.
+    pub shader_pre_render: bool,
     pub ap_fc_indicator: bool,
     pub aspect_ratio: Option<f32>,
     pub audio_buffer_size: Option<u32>,
@@ -285,6 +287,7 @@ impl Default for Config {
             adjust_time: false,
             aggressive: true,
             block_area_simple: false,
+            shader_pre_render: false,
             ap_fc_indicator: true,
             aspect_ratio: None,
             audio_buffer_size: None,

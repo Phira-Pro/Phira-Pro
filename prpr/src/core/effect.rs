@@ -152,6 +152,30 @@ impl Effect {
         }
     }
 
+    /// Submit a real fragment draw during loading. Keep the current camera,
+    /// pass, timing and uniforms; custom effects never sample a live chart here.
+    pub(crate) fn prepare(&mut self, texture: Texture2D) {
+        let mut gl = unsafe { get_internal_gl() };
+        gl.flush();
+        for def in &self.defaults {
+            def.apply(&self.material);
+        }
+        for uniform in &mut self.uniforms {
+            uniform.set_time(self.time_range.start.max(0.));
+            uniform.apply(&self.material);
+        }
+        self.material.set_texture("screenTexture", texture);
+        self.material.set_uniform("time", self.time_range.start.max(0.) as f32);
+        self.material.set_uniform("screenSize", vec2(texture.width(), texture.height()));
+        self.material.set_uniform("UVScale", vec2(1., 1.));
+        // One tiny draw under the next loading-screen redraw, never a full
+        // resolution offscreen target or a delayed gameplay effect.
+        gl_use_material(self.material);
+        draw_rectangle(0., 0., 2. / screen_width().max(1.), 2. / screen_height().max(1.), WHITE);
+        gl_use_default_material();
+        gl.flush();
+    }
+
     pub fn render(&self, res: &mut Resource) {
         if !self.time_range.contains(&self.t) {
             return;

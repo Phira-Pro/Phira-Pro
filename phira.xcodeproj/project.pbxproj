@@ -230,7 +230,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				PRODUCT_BUNDLE_IDENTIFIER = org.flos.phira;
+				PRODUCT_BUNDLE_IDENTIFIER = org.flos.phirapro;
 				PRODUCT_NAME = Phira;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -326,7 +326,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				PRODUCT_BUNDLE_IDENTIFIER = org.flos.phira;
+				PRODUCT_BUNDLE_IDENTIFIER = org.flos.phirapro;
 				PRODUCT_NAME = Phira;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

@@ -1,15 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- 输入框（inputbox）用的是 AppCompat 的 AlertDialog 与 Material 的
-         TextInputLayout / TextInputEditText，所以主题必须继承 AppCompat/Material 系列，
-         不能再用框架的 Theme.Material（否则弹输入框时会崩）。 -->
-    <style name="Theme.PhiraPro" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="android:windowBackground">@android:color/black</item>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- inputbox 的 TextInputLayout / TextInputEditText 依赖 Material3 主题，并读取
+         colorPrimary 等颜色属性来排版；缺了就会错版，因此不能用 M2 主题或省略这些项。 -->
+    <style name="Theme.PhiraPro" parent="Theme.Material3.Light">
+        <item name="colorPrimary">@color/brand_primary</item>
+        <item name="colorPrimaryVariant">@color/brand_primary_dark</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorSecondary">@color/brand_secondary</item>
+        <item name="colorSecondaryVariant">@color/brand_secondary_dark</item>
+        <item name="colorOnSecondary">@android:color/black</item>
+        <item name="android:statusBarColor" tools:targetApi="l">?attr/colorPrimaryVariant</item>
     </style>
 
     <style name="Theme.PhiraPro.Player" parent="Theme.PhiraPro">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowContentOverlay">@null</item>
-        <item name="android:windowNoTitle">true</item>
     </style>
 </resources>

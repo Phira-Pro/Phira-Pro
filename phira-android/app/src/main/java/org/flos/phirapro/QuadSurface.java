@@ -1,6 +1,7 @@
 package org.flos.phirapro;
 
 import android.content.Context;
+import android.os.Build;
 import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.Surface;
@@ -50,12 +51,13 @@ public class QuadSurface extends SurfaceView
         final int pointerCount = event.getPointerCount();
         final long time = event.getEventTime();
 
-        // inputbox 依赖这次预处理，必须先于 surfaceOnTouch。
+        // inputbox 依赖这次预处理，必须先于 surfaceOnTouch；第三参数表示「外接设备」。
         InputDevice device = event.getDevice();
-        boolean isStylus = device != null
-                && (device.getSources() & InputDevice.SOURCE_STYLUS) == InputDevice.SOURCE_STYLUS;
+        boolean isExternal = device != null
+                && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                && device.isExternal();
         boolean isVirtual = device != null && device.isVirtual();
-        QuadNative.preprocessInput(event, event.getX(), event.getY(), isStylus, isVirtual);
+        QuadNative.preprocessInput(event, event.getX(), event.getY(), isExternal, isVirtual);
 
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_MOVE:

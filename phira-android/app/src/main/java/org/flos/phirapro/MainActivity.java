@@ -48,35 +48,10 @@ public class MainActivity extends AppCompatActivity {
         // 必须传物理 DPI，不能传 densityDpi：本机两者相差近 1.4 倍，用错会让缩放与触控命中偏位。
         QuadNative.setDpi((int) Math.min(dm.xdpi, dm.ydpi));
 
-        handleIntent(getIntent());
-
         // 必须在 UI 线程调用：miniquad 把消息通道建在调用线程的 thread-local 上，而所有回调都来自 UI 线程。
         QuadNative.initializeContext(this);
         QuadNative.initializeEnvironment(this);
         QuadNative.activityOnCreate(this);
-    }
-
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        setIntent(intent);
-        handleIntent(intent);
-    }
-
-    private void handleIntent(Intent intent) {
-        if (intent == null) return;
-        Uri data = intent.getData();
-        if (data == null) return;
-        String scheme = data.getScheme();
-        if ("http".equals(scheme) || "https".equals(scheme) || "phira".equals(scheme)) {
-            QuadNative.setDeepLink(data.toString());
-        } else {
-            String path = UriFiles.materialize(this, data);
-            if (path != null) {
-                QuadNative.setChosenFile(path);
-                QuadNative.markImport();
-            }
-        }
     }
 
     @Override

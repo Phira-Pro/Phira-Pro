@@ -26,19 +26,6 @@
             </intent-filter>
         </activity>
 
-        <!-- 深链（phira://...）：只把原始 URL 转交 Rust，由 parse_deeplink 统一解析 -->
-        <activity
-            android:name=".DeepLinkActivity"
-            android:exported="true"
-            android:theme="@style/Theme.PhiraPro">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="phira" />
-            </intent-filter>
-        </activity>
-
         <!-- 「打开方式 → 导入到 Phira Pro」 -->
         <activity
             android:name=".ImportActivity"

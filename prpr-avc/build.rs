@@ -82,6 +82,7 @@ fn validate_libs(path: &Path) -> io::Result<()> {
 
 fn download_and_extract(url: &str, output_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let agent = ureq::AgentBuilder::new()
+        .try_proxy_from_env(true)
         .timeout_connect(Duration::from_secs(15))
         .timeout_read(Duration::from_secs(120))
         .timeout_write(Duration::from_secs(120))

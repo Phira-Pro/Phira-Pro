@@ -1,3 +1,6 @@
+#[path = "../build_support/version.rs"]
+mod version;
+
 fn git_stdout(args: &[&str]) -> Option<String> {
     let output = std::process::Command::new("git").args(args).output().ok()?;
     if !output.status.success() {
@@ -12,6 +15,11 @@ fn git_stdout(args: &[&str]) -> Option<String> {
 }
 
 fn main() {
+    let root = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
+        .parent()
+        .unwrap()
+        .to_owned();
+    version::Version::read(&root).emit();
     dotenv_build::output(dotenv_build::Config::default()).unwrap();
 
     let git_dir = git_stdout(&["rev-parse", "--git-dir"]).unwrap_or_else(|| ".git".to_string());

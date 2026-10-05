@@ -11,32 +11,7 @@ video = ["phira/video"]
 [dependencies]
 phira = { workspace = true, default-features = false }
 
-[package.metadata.android]
-package_name = "org.flos.phira"
-label = "Phira Pro"
-build_targets = ["aarch64-linux-android", "armv7-linux-androideabi"]
-android_version = 34
-target_sdk_version = 34
-min_sdk_version = 26
-version_code = 3
-version_name = "0.8.2"
-assets = "../assets"
-fullscreen = true
-opengles_version_major = 3
-opengles_version_minor = 0
+[build-dependencies]
+serde_json = { workspace = true }
 
-[[package.metadata.android.permission]]
-name = "android.permission.INTERNET"
-
-[[package.metadata.android.permission]]
-name = "android.permission.ACCESS_NETWORK_STATE"
-
-[package.metadata.android.application_attributes]
-"android:hardwareAccelerated" = "true"
-"android:usesCleartextTraffic" = "false"
-"android:requestLegacyExternalStorage" = "true"
-
-[package.metadata.android.activity_attributes]
-"android:configChanges" = "orientation|keyboardHidden|screenSize|screenLayout|density|uiMode"
-"android:screenOrientation" = "sensorLandscape"
-"android:exported" = "true"
+# Android APKs are built by phira-android/Gradle, using version.json.

@@ -1,0 +1,64 @@
+name: Build Desktop Packages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    name: ${{ matrix.platform }} release
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            runner: windows-latest
+          - platform: linux
+            runner: ubuntu-24.04
+          - platform: macos
+            runner: macos-15
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Verify versions and build tooling
+        run: |
+          python scripts/version.py check
+          python -m unittest discover -s scripts/tests -v
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake pkg-config libasound2-dev libx11-dev libxi-dev libwayland-dev libgl1-mesa-dev libdbus-1-dev zlib1g-dev
+
+      - name: Set up Rust
+        run: rustup toolchain install
+
+      - name: Cache Rust and FFmpeg
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            prpr-avc/static-lib
+          key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'prpr-avc/ffmpeg-version') }}
+          restore-keys: desktop-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build and package
+        run: python scripts/build.py --platform ${{ matrix.platform }} --package --output dist/${{ matrix.platform }}
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: PhiraPro-${{ matrix.platform }}-${{ runner.arch }}
+          path: dist/${{ matrix.platform }}/*.zip
+          if-no-files-found: error

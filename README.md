@@ -11,7 +11,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows 压缩包或 Linux 压缩包或 Android arm64 APK。Windows 解压后运行 `phira-main.exe` (Linux为`phira-main`)；Android 安装 APK，更新时保留应用数据。
 
-本轮功能、验证范围及 Actions 使用方法见 [pro.8 更新说明](docs/development/pro-8.md)。
+本轮功能与验证范围见 [pro.9 更新说明](docs/development/pro-9.md)；版本维护、五个平台的构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
 
 ## 相对官方版新增的功能
 
@@ -66,13 +66,14 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 ## 从源码构建
 
-需要 Rust（版本锁定见 `rust-toolchain.toml`，nightly）：
+需要 Rust（版本锁定见 `rust-toolchain.toml`，nightly）和 Python 3.8+，以及对应平台的编译环境：
 
 ```bash
-cargo build --release -p phira-main
+python scripts/version.py check
+python scripts/build.py
 ```
 
-Windows 使用 `scripts/package-windows.ps1`，Android 使用 `scripts/package-android.ps1`（JDK 21、Android SDK、NDK 27.2.12479018、cargo-ndk）。产物分别放在仓库父目录的 `dist/windows` 和 `dist/android`。Android 签名配置不入库，详见更新说明；GitHub Actions 可分别手动运行 Android APK / iOS IPA 工作流。
+Windows、Linux、macOS 在各自系统上使用 `python scripts/build.py --package` 构建 ZIP，版本和平台名称自动派生；包内包含程序、资源与许可证。更新日志保留在 `docs`。Android 使用 `python scripts/build.py --platform android`，iOS 在 macOS 上使用 `python scripts/build.py --platform ios`。GitHub Actions 提供手动运行的 Desktop Packages / Android APK / iOS IPA 工作流，环境与签名配置见 [构建说明](docs/development/build.md)。
 
 ## 授权与致谢
 

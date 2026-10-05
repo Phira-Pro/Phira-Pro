@@ -110,6 +110,7 @@ objc2-ui-kit = { workspace = true }
 
 [build-dependencies]
 dotenv-build = "0.1"
+serde_json = { workspace = true }
 
 [dev-dependencies]
 fluent = { workspace = true }

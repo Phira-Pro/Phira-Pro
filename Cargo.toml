@@ -16,6 +16,7 @@ resolver = "2"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(closed)', 'cfg(flash)'] }
 
 [workspace.package]
+# Generated from version.json; update with python scripts/version.py sync.
 version = "0.8.2"
 edition = "2021"
 license = "GPL-3.0-only"

@@ -3426,6 +3426,7 @@ name = "phira-main"
 version = "0.8.2"
 dependencies = [
  "phira",
+ "serde_json",
 ]
 
 [[package]]

@@ -8,6 +8,19 @@ plugins {
 // 即可产出完整 APK，CI 无需任何 apktool / 解包工程。
 // ---------------------------------------------------------------------------
 def repoRoot = file("${rootProject.projectDir}/..")
+def versions = new groovy.json.JsonSlurper().parse(new File(repoRoot, 'version.json'))
+if (versions.keySet() != ['base_version', 'pro_revision', 'flash_revision', 'build_number'].toSet()
+        || !(versions.base_version instanceof String)
+        || !(versions.base_version ==~ /(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)/)) {
+    throw new GradleException('Invalid version.json schema or base_version')
+}
+['pro_revision', 'flash_revision', 'build_number'].each { key ->
+    if (!(versions[key] instanceof Integer || versions[key] instanceof Long)
+            || versions[key] < 1 || versions[key] > 2100000000) {
+        throw new GradleException("Invalid version.json field: ${key}")
+    }
+}
+def proVersion = "${versions.base_version}-pro.${versions.pro_revision}"
 def abi = 'arm64-v8a'
 def rustTarget = 'aarch64-linux-android'
 def rustJniLibs = "${project.layout.buildDirectory.get().asFile}/rustJniLibs"
@@ -24,6 +37,8 @@ tasks.register('cargoNdkBuild') {
     inputs.files(fileTree("${repoRoot}/phira/src"), fileTree("${repoRoot}/prpr/src"), fileTree("${repoRoot}/prpr-avc/src"))
     inputs.file("${repoRoot}/Cargo.lock")
     inputs.file("${repoRoot}/Cargo.toml")
+    inputs.file("${repoRoot}/version.json")
+    inputs.files(fileTree("${repoRoot}/build_support"), file("${repoRoot}/phira/build.rs"), file("${repoRoot}/prpr-avc/build.rs"))
     inputs.files(fileTree("${repoRoot}/assets"), fileTree("${repoRoot}/phira/locales"), fileTree("${repoRoot}/prpr/locales"))
     inputs.files(file("${repoRoot}/phira/Cargo.toml"), file("${repoRoot}/prpr/Cargo.toml"), file("${repoRoot}/prpr-avc/Cargo.toml"), file("${repoRoot}/rust-toolchain.toml"))
     inputs.property('rustflags', System.getenv('RUSTFLAGS') ?: '')
@@ -80,8 +95,8 @@ android {
         applicationId 'org.flos.phirapro'
         minSdk 22
         targetSdk 33
-        versionCode 44
-        versionName '0.8.2-pro.9'
+        versionCode(versions.build_number.intValue())
+        versionName proVersion
         ndk { abiFilters abi }
     }
 

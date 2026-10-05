@@ -1,6 +1,7 @@
 inner.rs
 
 /target
+__pycache__/
 /cache
 /data
 /.cargo

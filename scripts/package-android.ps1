@@ -1,7 +1,11 @@
 [CmdletBinding()]
-param([switch]$SkipBuild, [string]$Version = '0.8.2-pro.9')
+param([switch]$SkipBuild)
 $ErrorActionPreference = 'Stop'
 $workspace = Split-Path -Parent $PSScriptRoot
+$versions = Get-Content -Raw -LiteralPath (Join-Path $workspace 'version.json') | ConvertFrom-Json
+$Version = "$($versions.base_version)-pro.$($versions.pro_revision)"
+& python (Join-Path $PSScriptRoot 'version.py') check
+if ($LASTEXITCODE -ne 0) { throw 'Version definitions are inconsistent' }
 $androidProject = Join-Path $workspace 'phira-android'
 if (-not $SkipBuild) {
     Push-Location $androidProject

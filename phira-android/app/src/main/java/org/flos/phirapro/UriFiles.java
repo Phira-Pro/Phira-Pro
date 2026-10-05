@@ -10,12 +10,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.UUID;
 
-/**
- * 把外部 Uri 变成 Rust 侧可直接读取的本地路径。
- *
- * <p>SAF 给出的 {@code content://} 不能用普通文件 API 打开，这里统一落到缓存目录，
- * 与 iOS 壳「先复制到临时路径再交给 Rust」的做法一致。
- */
+/** 把外部 Uri 转成 Rust 可读的本地路径：SAF 的 content:// 先复制到缓存目录。 */
 final class UriFiles {
 
     private static final String TAG = "PhiraPro";

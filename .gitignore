@@ -42,7 +42,6 @@ inner.rs
 vendor/
 !vendor/
 vendor/*
-!vendor/jni/
 /docs/*
 !/docs/development/
 

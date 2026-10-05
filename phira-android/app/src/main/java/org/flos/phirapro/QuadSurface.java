@@ -1,7 +1,7 @@
 package org.flos.phirapro;
 
 import android.content.Context;
-import android.view.KeyEvent;
+import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.SurfaceHolder;
@@ -10,14 +10,9 @@ import android.view.View;
 
 import quad_native.QuadNative;
 
-/**
- * 承载 Rust 渲染输出的 SurfaceView，并把触摸 / 键盘事件转发给 libphira.so。
- *
- * <p>结构来自 miniquad 的公开 Android 模板；触摸回调为 5 参数版本
- * （多一个事件时间，供 Rust 侧计算输入时间戳）。
- */
+/** 承载 Rust 渲染输出的 SurfaceView，并把触摸事件转发给 libphira.so。 */
 public class QuadSurface extends SurfaceView
-        implements View.OnTouchListener, View.OnKeyListener, SurfaceHolder.Callback {
+        implements View.OnTouchListener, SurfaceHolder.Callback {
 
     // 与 libphira.so 约定的触摸阶段
     private static final int PHASE_MOVED = 0;
@@ -32,7 +27,6 @@ public class QuadSurface extends SurfaceView
         setFocusableInTouchMode(true);
         requestFocus();
         setOnTouchListener(this);
-        setOnKeyListener(this);
     }
 
     @Override
@@ -55,6 +49,13 @@ public class QuadSurface extends SurfaceView
     public boolean onTouch(View v, MotionEvent event) {
         final int pointerCount = event.getPointerCount();
         final long time = event.getEventTime();
+
+        // inputbox 依赖这次预处理，必须先于 surfaceOnTouch。
+        InputDevice device = event.getDevice();
+        boolean isStylus = device != null
+                && (device.getSources() & InputDevice.SOURCE_STYLUS) == InputDevice.SOURCE_STYLUS;
+        boolean isVirtual = device != null && device.isVirtual();
+        QuadNative.preprocessInput(event, event.getX(), event.getY(), isStylus, isVirtual);
 
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_MOVE:
@@ -85,31 +86,6 @@ public class QuadSurface extends SurfaceView
                 break;
             default:
                 break;
-        }
-        return true;
-    }
-
-    // getCharacters 已废弃，但非拉丁输入时只有它有有效数据。
-    @SuppressWarnings("deprecation")
-    @Override
-    public boolean onKey(View v, int keyCode, KeyEvent event) {
-        if (event.getAction() == KeyEvent.ACTION_DOWN && keyCode != 0) {
-            QuadNative.surfaceOnKeyDown(keyCode);
-        }
-        if (event.getAction() == KeyEvent.ACTION_UP && keyCode != 0) {
-            QuadNative.surfaceOnKeyUp(keyCode);
-        }
-        if (event.getAction() == KeyEvent.ACTION_UP || event.getAction() == KeyEvent.ACTION_MULTIPLE) {
-            int character = event.getUnicodeChar();
-            if (character == 0) {
-                String characters = event.getCharacters();
-                if (characters != null && characters.length() > 0) {
-                    character = characters.charAt(0);
-                }
-            }
-            if (character != 0) {
-                QuadNative.surfaceOnCharacter(character);
-            }
         }
         return true;
     }

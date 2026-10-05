@@ -22,7 +22,7 @@ import quad_native.QuadNative;
  *   <li>{@code initializeContext} —— 建立 ndk_context / rustls</li>
  *   <li>{@code initializeEnvironment} —— inputbox Android 后端（依赖上一步的 context）</li>
  *   <li>{@code setDataPath} / {@code setTempDir} / {@code setDpi}</li>
- *   <li>{@code activityOnCreate} —— 启动 Rust 事件循环（阻塞，放到独立线程）</li>
+ *   <li>{@code activityOnCreate} —— 在 UI 线程建立事件通道；miniquad 自行创建渲染线程</li>
  * </ol>
  *
  * <p>Rust 侧会回调本类的方法：{@code showExportDialog} / {@code chooseFile} /
@@ -49,23 +49,32 @@ public class MainActivity extends Activity {
         // initializeEnvironment 内部用 find_class 查 moe/mivik/inputbox/InputBox，
         // 必须跑在挂载了应用类加载器的线程上——即 onCreate（UI 线程）里调用；
         // 不能挪到后面启动游戏的那个工作线程。
+        Log.i(TAG, "Startup: initializeContext");
         QuadNative.initializeContext(this);
-        QuadNative.initializeEnvironment();
+        Log.i(TAG, "Startup: initializeEnvironment");
+        QuadNative.initializeEnvironment(this);
 
         // 3：目录与 DPI
+        Log.i(TAG, "Startup: setDataPath");
         QuadNative.setDataPath(getFilesDir().getAbsolutePath());
+        Log.i(TAG, "Startup: setTempDir");
         QuadNative.setTempDir(getCacheDir().getAbsolutePath());
+        Log.i(TAG, "Startup: setDpi");
         QuadNative.setDpi(getResources().getDisplayMetrics().densityDpi);
 
         // 处理启动 intent（深链 / 直接打开的谱面包）
         handleIntent(getIntent());
 
+        // miniquad stores its event sender in thread-local storage on the
+        // calling thread, then starts its own render thread and returns.
+        // Activity / Surface callbacks run on the UI thread, so initialize
+        // the sender here before any of those callbacks can fire.
+        Log.i(TAG, "Startup: activityOnCreate");
+        QuadNative.activityOnCreate(this);
+        Log.i(TAG, "Startup: createSurface");
+
         view = new QuadSurface(this);
         setContentView(view);
-
-        // 4：启动 Rust 事件循环（会阻塞，必须独立线程）
-        Thread worker = new Thread(() -> QuadNative.activityOnCreate(this), "phira-main");
-        worker.start();
     }
 
     @Override
@@ -97,6 +106,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        Log.i(TAG, "Lifecycle: onResume");
         QuadNative.prprActivityOnResume();
         QuadNative.activityOnResume();
     }

@@ -12,6 +12,9 @@ members = [
 exclude = ["vendor"]
 resolver = "2"
 
+[patch.crates-io]
+jni = { path = "vendor/jni" }
+
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(closed)', 'cfg(flash)'] }
 

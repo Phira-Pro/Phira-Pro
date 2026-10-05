@@ -33,7 +33,7 @@ public abstract class QuadNative {
     /** 释放 ndk_context。 */
     public static native void releaseContext();
 
-    /** 启动 Rust 事件循环（内部会调用 quad_main，阻塞，需在独立线程调用）。 */
+    /** 在 UI 线程建立事件通道；内部调用 quad_main，并由 miniquad 创建渲染线程。 */
     public static native void activityOnCreate(Object activity);
 
     public static native void activityOnResume();
@@ -63,7 +63,7 @@ public abstract class QuadNative {
     // ---------- Phira ----------
 
     /** 初始化 inputbox 的 Android 后端；需在 {@link #initializeContext} 之后调用。 */
-    public static native void initializeEnvironment();
+    public static native void initializeEnvironment(Context context);
 
     public static native void prprActivityOnResume();
 

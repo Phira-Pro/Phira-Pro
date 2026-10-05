@@ -28,5 +28,7 @@ $destination = Join-Path $deliveryRoot $name
 Copy-Item -LiteralPath $apk -Destination $destination
 $hash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
 [System.IO.File]::WriteAllText("$destination.sha256", "$hash  $name`n", [System.Text.UTF8Encoding]::new($false))
+. (Join-Path $PSScriptRoot 'package-cleanup.ps1')
+Clear-OldPackages -DeliveryRoot $deliveryRoot -Version $Version
 Write-Output $destination
 Write-Output "SHA256: $hash"

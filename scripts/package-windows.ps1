@@ -28,5 +28,7 @@ $zip = Join-Path $deliveryRoot "$name.zip"
 Compress-Archive -LiteralPath $package -DestinationPath $zip -CompressionLevel Optimal
 $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 [System.IO.File]::WriteAllText("$zip.sha256", "$hash  $name.zip`n", [System.Text.UTF8Encoding]::new($false))
+. (Join-Path $PSScriptRoot 'package-cleanup.ps1')
+Clear-OldPackages -DeliveryRoot $deliveryRoot -Version $Version
 Write-Output $zip
 Write-Output "SHA256: $hash"

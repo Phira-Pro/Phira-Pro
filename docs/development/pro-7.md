@@ -40,3 +40,15 @@ Android 工作流已由其他开发者加入并合并：Actions → Build Androi
 Android 本地：配置 JDK 21、ANDROID_HOME、ANDROID_NDK_HOME（NDK 27.2.12479018）及 cargo-ndk，在仓库运行 scripts/package-android.ps1。签名用 PHIRA_PRO_KEYSTORE_PATH 和上述三个密码/别名环境变量，或未入库的 phira-android/keystore.properties。产物放在仓库外 dist/android，版本为 0.8.2-pro.7（versionCode 42，arm64-v8a）。不提交密钥、密码或用户数据。补齐 Android HTTPS 验证的 JVM 组件，修复旧版 Android 全屏 API 调用。
 
 本轮同步了独立服务器的新成绩上传接口；理论分数仍仅供结算显示，上传使用普通分数，正解音仍禁止上传。
+
+## Android 启动修复与发布约定
+
+修复 Android 壳把 native 初始化放到额外线程的问题。miniquad 在调用线程保存事件通道，并自行创建渲染线程，因此 activityOnCreate 必须在主线程同步调用，且先于 Surface 和生命周期回调。
+
+另修复 JNI 0.22 在 Android ARM 转译环境将异常状态错误读取为 true 的问题：按 JNI 的无符号字节 ABI 读取布尔返回值，避免没有 Java 异常却进入异常处理并触发 Rust panic / abort。补丁放在 vendor/jni，仅影响 Android，保留上游许可证与修改说明。输入框使用受管理的 JNI 调用；HTTPS 验证器从 Java 主线程传入的真实 Context 初始化，不再将全局引用当作局部引用，也不忽略初始化结果。
+
+补齐 inputbox AAR 未声明的 Material / AppCompat 运行依赖及兼容主题，防止点击文字输入栏时因缺少 TextInputEditText 等组件闪退。版本号与签名沿用 pro.7，可覆盖安装保留数据。
+
+验证：Android 17 / API 37 的只读模拟器（x86_64，执行发布用 arm64 APK 的 ARM 转译）复现原包启动 SIGABRT；修复包通过重复冷启动、前后台恢复、输入框取消与确认回调、HTTPS 连接验证，未出现 native panic 或 Java 崩溃。核心 54 项回归及 Windows 静态检查通过；尚未在实体 Android 设备上验证。
+
+提交说明使用中文。Release 名称只用 pro.N；未经用户明确要求不修改版本号。构建成功后清理本地两个版本以前的安装包，只清理 dist 对应平台目录内匹配命名的文件，保留当前版本和上一版本，不删除目录或用户数据。Android 发布原始 APK；Release 不上传 SHA256 文件。

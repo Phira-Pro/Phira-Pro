@@ -55,7 +55,7 @@ use tracing::{error, info, warn};
 
 #[cfg(target_os = "android")]
 use jni::{
-    objects::{JClass, JString},
+    objects::{JClass, JObject, JString},
     sys::jint,
     EnvUnowned,
 };
@@ -284,31 +284,10 @@ mod dir {
     }
 }
 
-/// Android 上 `reqwest` 走的是 `rustls-platform-verifier` 0.7（依赖 jni 0.22），
-/// 而 vendored miniquad 初始化的是它自己依赖的 0.6（依赖 jni 0.21）。两份是互相
-/// 独立的 crate 实例，0.6 的初始化对 0.7 无效，于是 0.7 那一份从未被初始化，
-/// Android 上任何 https 请求一发出就在
-/// `rustls_platform_verifier::android::global()` 处 panic（任务静默失败，
-/// 界面表现为「点了没反应」，登录 / 上传 / 联机全部受影响）。
-/// 这里在拿到 Activity 上下文后，用 0.7 那一份自己的 `init_with_env` 补上初始化。
-#[cfg(target_os = "android")]
-fn init_platform_verifier() {
-    unsafe {
-        let raw_env = miniquad::native::attach_jni_env();
-        let raw_ctx = ndk_context::android_context().context() as jni::sys::jobject;
-        let mut env = jni::EnvUnowned::from_raw(raw_env as *mut jni::sys::JNIEnv);
-        let _ = env.with_env(|env: &mut jni::Env| -> jni::errors::Result<()> {
-            let context = jni::objects::JObject::from_raw(env, raw_ctx);
-            let _ = rustls_platform_verifier::android::init_with_env(env, context);
-            Ok(())
-        });
-    }
-}
-
 async fn the_main() -> Result<()> {
     log::register();
     #[cfg(target_os = "android")]
-    init_platform_verifier();
+    std::panic::set_hook(Box::new(|info| miniquad::error!("Rust panic: {}", info)));
     #[cfg(target_env = "ohos")]
     {
         *DATA_PATH.lock().unwrap() = Some("/data/storage/el2/base".to_owned());
@@ -599,10 +578,19 @@ fn on_pause_resume(pause: bool) {
 
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub extern "C" fn Java_quad_1native_QuadNative_initializeEnvironment(env: EnvUnowned, _class: JClass) {
-    unsafe {
-        inputbox::backend::Android::initialize_raw(env.as_raw()).unwrap();
-    }
+pub extern "C" fn Java_quad_1native_QuadNative_initializeEnvironment(mut env: EnvUnowned, _class: JClass, context: JObject) {
+    // Startup runs before the normal tracing subscriber is installed. Keep
+    // native failures visible in logcat instead of only writing to stderr.
+    std::panic::set_hook(Box::new(|info| miniquad::error!("Rust panic: {}", info)));
+    env.with_env(|env| -> jni::errors::Result<()> {
+        inputbox::backend::Android::initialize(env)?;
+        // reqwest's verifier (0.7 / JNI 0.22) is separate from miniquad's
+        // verifier (0.6 / JNI 0.21). Initialize it using the real Java caller
+        // frame, before spawning render/network threads. Do not reinterpret
+        // ndk_context's global reference as an owned local JNI reference.
+        rustls_platform_verifier::android::init_with_env(env, context)
+    })
+    .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
 }
 
 #[cfg(target_os = "android")]

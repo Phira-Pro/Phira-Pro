@@ -150,3 +150,26 @@ ldb-local-no-hit = Click did not hit any of the { $count } local rows
 
 mods-perfect-sound = Perfect-time sounds
 mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.
+
+## Leaderboard sources and server-specific ranks
+ldb-refresh = Refresh
+ldb-pro = Pro board
+ldb-mixed = Mixed board
+ldb-official-server = Official
+ldb-pro-server = Pro
+ldb-loading = Loading…
+ldb-no-record = No record
+ldb-unavailable = Unavailable
+ldb-sign-in = Sign in
+ldb-offline = Offline
+ldb-rank-unsupported = Not available
+ldb-my-ranks = My ranks · each server separately
+ldb-local-count = { $count } saved plays
+ldb-local-hint = Tap a play to view its details
+ldb-offline-hint = Online boards are unavailable in offline mode
+ldb-accuracy-hint = Accuracy sorts returned records; no accuracy ranks
+ldb-partial-hint = One server is unavailable; showing available records
+ldb-mixed-hint = Best result per player · no combined ranks
+ldb-pro-hint = Pro top 20 · ranks within Pro only
+ldb-sign-in-hint = Sign in to view the Pro board
+ldb-empty = No scores yet

@@ -136,3 +136,26 @@ flash-autoplay-unrated = Autoplay aktif: hasil ini tidak akan diunggah dan penga
 
 mods-perfect-sound = Perfect-time sounds
 mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.
+
+## Leaderboard sources and server-specific ranks
+ldb-refresh = Muat ulang
+ldb-pro = Papan Pro
+ldb-mixed = Papan gabungan
+ldb-official-server = Resmi
+ldb-pro-server = Pro
+ldb-loading = Memuat…
+ldb-no-record = Belum ada skor
+ldb-unavailable = Tidak tersedia
+ldb-sign-in = Masuk
+ldb-offline = Luring
+ldb-rank-unsupported = Belum tersedia
+ldb-my-ranks = Peringkat saya · tiap server
+ldb-local-count = { $count } permainan tersimpan
+ldb-local-hint = Ketuk permainan untuk melihat detail
+ldb-offline-hint = Papan daring tidak tersedia dalam mode luring
+ldb-accuracy-hint = Akurasi mengurutkan skor yang diterima; tanpa peringkat
+ldb-partial-hint = Satu server tidak tersedia; menampilkan skor yang tersedia
+ldb-mixed-hint = Skor terbaik tiap pemain · tanpa peringkat gabungan
+ldb-pro-hint = 20 teratas Pro · peringkat hanya di Pro
+ldb-sign-in-hint = Masuk untuk melihat papan Pro
+ldb-empty = Belum ada skor

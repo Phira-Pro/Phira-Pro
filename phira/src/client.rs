@@ -148,13 +148,17 @@ async fn send_pro(client: &reqwest::Client, method: &Method, path: &str, body: O
 
 /// 发送私服请求并处理鉴权：收到 401 时重新换取 Token 再重试一次。
 async fn pro_send(client: Arc<reqwest::Client>, method: Method, path: &str, body: Option<serde_json::Value>) -> Result<Response> {
+    check_response(pro_send_response(client, method, path, body).await?).await
+}
+
+async fn pro_send_response(client: Arc<reqwest::Client>, method: Method, path: &str, body: Option<serde_json::Value>) -> Result<Response> {
     ensure_pro_token().await?;
     let response = send_pro(&client, &method, path, body.as_ref()).await?;
     if response.status() != StatusCode::UNAUTHORIZED {
-        return check_response(response).await;
+        return Ok(response);
     }
     pro_exchange_token().await?;
-    check_response(send_pro(&client, &method, path, body.as_ref()).await?).await
+    send_pro(&client, &method, path, body.as_ref()).await
 }
 
 pub async fn pro_get(path: impl AsRef<str>) -> Result<Response> {
@@ -188,9 +192,18 @@ struct PlayerRank {
 /// 查询某玩家在某谱面的私服名次；`metric` 取 `"score"` 或 `"stdScore"`。
 ///
 /// 名次只统计私服（不含官服、不受 top20 限制）；该玩家在该谱面无成绩时后端返回 404。
-pub async fn pro_player_rank(chart: i32, player: i32, metric: &str) -> Result<i64> {
+pub async fn pro_player_rank(chart: i32, player: i32, metric: &str) -> Result<Option<u32>> {
     let path = format!("/api/v1/charts/{chart}/players/{player}/rank?metric={metric}");
-    Ok(pro_get(path).await?.json::<PlayerRank>().await?.rank)
+    let response = pro_send_response(Arc::clone(&PRO_CLIENT.load()), Method::GET, &path, None).await?;
+    if response.status() == StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    let rank = check_response(response).await?.json::<PlayerRank>().await?.rank;
+    let rank = u32::try_from(rank).context("invalid Pro rank")?;
+    if rank == 0 {
+        bail!("invalid Pro rank");
+    }
+    Ok(Some(rank))
 }
 
 /// 当前使用的 Phira 网页前端地址（谱面页 / 用户页 / 合集页 / 条款链接等）。

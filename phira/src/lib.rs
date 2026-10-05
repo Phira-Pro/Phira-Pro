@@ -504,13 +504,13 @@ async fn the_main() -> Result<()> {
 /// 界面显示的改版版本号。仅用于本地展示，绝不上报服务端：
 /// 与服务器交互的版本号一律仍取 `CARGO_PKG_VERSION`（见 `client.rs`、`home.rs`、`event.rs`）。
 #[cfg(not(flash))]
-pub const PRO_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-pro.8");
+pub const PRO_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-pro.9");
 /// Phira Pro Flash（轻量版）的展示用版本号。
 #[cfg(flash)]
 pub const PRO_VERSION: &str = "flash.1";
 /// 带 `v` 前缀的展示用版本号。
 #[cfg(not(flash))]
-pub const PRO_VERSION_TAG: &str = concat!("v", env!("CARGO_PKG_VERSION"), "-pro.8");
+pub const PRO_VERSION_TAG: &str = concat!("v", env!("CARGO_PKG_VERSION"), "-pro.9");
 #[cfg(flash)]
 pub const PRO_VERSION_TAG: &str = "vflash.1";
 
@@ -620,16 +620,26 @@ pub extern "C" fn Java_quad_1native_QuadNative_prprActivityOnDestroy(_env: EnvUn
 
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub extern "C" fn Java_quad_1native_QuadNative_setDataPath(_env: EnvUnowned, _class: JClass, path: JString) {
-    *DATA_PATH.lock().unwrap() = Some(path.to_string());
+pub extern "C" fn Java_quad_1native_QuadNative_setDataPath(mut env: EnvUnowned, _class: JClass, path: JString) {
+    // This callback runs before initializeEnvironment. Reading via the caller's
+    // environment initializes JNI 0.22; Display would otherwise return a placeholder.
+    env.with_env(|env| -> jni::errors::Result<()> {
+        *DATA_PATH.lock().unwrap() = Some(path.try_to_string(env)?);
+        Ok(())
+    })
+    .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
 }
 
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub extern "C" fn Java_quad_1native_QuadNative_setTempDir(_env: EnvUnowned, _class: JClass, path: JString) {
-    let path = path.to_string();
-    std::env::set_var("TMPDIR", path.clone());
-    *CACHE_DIR.lock().unwrap() = Some(path);
+pub extern "C" fn Java_quad_1native_QuadNative_setTempDir(mut env: EnvUnowned, _class: JClass, path: JString) {
+    env.with_env(|env| -> jni::errors::Result<()> {
+        let path = path.try_to_string(env)?;
+        std::env::set_var("TMPDIR", path.clone());
+        *CACHE_DIR.lock().unwrap() = Some(path);
+        Ok(())
+    })
+    .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
 }
 
 #[cfg(target_os = "android")]

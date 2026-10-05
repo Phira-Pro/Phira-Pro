@@ -126,3 +126,26 @@ flash-autoplay-unrated = Автомат тоглолт асаалттай: эн�
 
 mods-perfect-sound = Perfect-time sounds
 mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.
+
+## Leaderboard sources and server-specific ranks
+ldb-refresh = Шинэчлэх
+ldb-pro = Pro жагсаалт
+ldb-mixed = Нэгдсэн жагсаалт
+ldb-official-server = Албан ёсны
+ldb-pro-server = Pro
+ldb-loading = Ачаалж байна…
+ldb-no-record = Оноо алга
+ldb-unavailable = Боломжгүй
+ldb-sign-in = Нэвтрэх
+ldb-offline = Офлайн
+ldb-rank-unsupported = Дэмжээгүй
+ldb-my-ranks = Миний байр · сервер тус бүрээр
+ldb-local-count = { $count } тоглолт хадгалсан
+ldb-local-hint = Тоглолтыг дарж дэлгэрэнгүй үзнэ үү
+ldb-offline-hint = Офлайн горимд онлайн жагсаалт боломжгүй
+ldb-accuracy-hint = Нарийвчлалаар авсан оноог эрэмбэлнэ; байр харуулахгүй
+ldb-partial-hint = Нэг сервер боломжгүй; авсан оноог харуулж байна
+ldb-mixed-hint = Тоглогч бүрийн шилдэг оноо · нэгдсэн байргүй
+ldb-pro-hint = Pro эхний 20 · зөвхөн Pro дахь байр
+ldb-sign-in-hint = Pro жагсаалтыг үзэхийн тулд нэвтэрнэ үү
+ldb-empty = Оноо байхгүй

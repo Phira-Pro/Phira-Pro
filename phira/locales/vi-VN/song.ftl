@@ -149,3 +149,26 @@ flash-autoplay-unrated = Tự động chơi đã bật: lượt này sẽ không
 
 mods-perfect-sound = Perfect-time sounds
 mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.
+
+## Leaderboard sources and server-specific ranks
+ldb-refresh = Làm mới
+ldb-pro = Bảng Pro
+ldb-mixed = Danh sách kết hợp
+ldb-official-server = Chính thức
+ldb-pro-server = Pro
+ldb-loading = Đang tải…
+ldb-no-record = Chưa có điểm
+ldb-unavailable = Không khả dụng
+ldb-sign-in = Đăng nhập
+ldb-offline = Ngoại tuyến
+ldb-rank-unsupported = Chưa hỗ trợ
+ldb-my-ranks = Hạng của tôi · từng máy chủ
+ldb-local-count = Đã lưu { $count } lượt chơi
+ldb-local-hint = Chạm lượt chơi để xem chi tiết
+ldb-offline-hint = Không xem được bảng trực tuyến khi ngoại tuyến
+ldb-accuracy-hint = Độ chính xác chỉ sắp xếp điểm đã nhận; không xếp hạng
+ldb-partial-hint = Một máy chủ không khả dụng; hiển thị điểm đã nhận
+ldb-mixed-hint = Điểm tốt hơn của mỗi người chơi · không có hạng chung
+ldb-pro-hint = Top 20 Pro · hạng chỉ tính trong Pro
+ldb-sign-in-hint = Đăng nhập để xem bảng Pro
+ldb-empty = Chưa có điểm

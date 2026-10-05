@@ -227,6 +227,23 @@ mod tests {
     }
 
     #[test]
+    fn numeric_leaderboard_labels_keep_positive_ink_bounds() {
+        let font = FontArc::try_from_slice(include_bytes!("../../../../assets/phigros.ttf")).unwrap();
+        let mut brush: GlyphBrush<()> = GlyphBrushBuilder::using_font(font).build();
+        let mut cache = InkCache::default();
+        let (_, _, mut options) = setup();
+        options.primary_scale = 1.;
+        options.scale = 0.04 * 0.68 * 1920.;
+        options.max_width = Some(440.);
+        for text in ["1000000", "0987654", "100.00%", "#1", "#5603"] {
+            let (section, bounds) = layout_text(&mut brush, &mut cache, text, options);
+            let rendered: String = section.text.iter().map(|r| r.text).collect();
+            assert_eq!(rendered, text);
+            assert!(bounds.2 > 0. && bounds.3 > 0., "{text}: {bounds:?}");
+        }
+    }
+
+    #[test]
     fn mixed_font_truncation_is_utf8_safe_and_preserves_fallback() {
         let (mut brush, mut cache, mut options) = setup();
         for text in [

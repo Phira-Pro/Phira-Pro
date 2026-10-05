@@ -1,8 +1,4 @@
-//! Rank complete record feeds before selecting the visible top rows.
-//!
-//! 混合榜：官服（`/record/query/{chart}`）与 Phira Pro 私服
-//! （`/api/v1/charts/{chart}/leaderboard`）双向合并，按 player 去重后取较优，
-//! 再统一排名。自己的名次只取私服（`/players/{player}/rank`）。
+//! Keep server ranks separate from the unranked, deduplicated mixed feed.
 use super::LdbItem;
 use crate::client::{recv_raw, Client, Ptr, Record};
 use anyhow::{bail, Result};
@@ -15,7 +11,31 @@ use std::{
     time::{Duration, Instant},
 };
 
-type CacheKey = (i32, bool);
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum Origin {
+    Official,
+    Pro,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum BoardSource {
+    Pro,
+    Mixed,
+    Local,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RankState {
+    Loading,
+    Ranked(u32),
+    NoRecord,
+    Unavailable,
+    SignIn,
+    Offline,
+    Unsupported,
+}
+
+type CacheKey = (String, Origin, i32, bool, Option<i32>);
 static CACHE: Lazy<Mutex<HashMap<CacheKey, (Instant, Vec<Record>)>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Deserialize)]
@@ -125,20 +145,32 @@ fn compare(a: &Record, b: &Record, mode: u8) -> std::cmp::Ordering {
         .then(b.score.cmp(&a.score))
         .then(b.accuracy.total_cmp(&a.accuracy))
         .then(a.player.id.cmp(&b.player.id))
-        .then(a.id.cmp(&b.id))
 }
 
-fn ranked(mut records: Vec<Record>, mode: u8, me: Option<i32>) -> Vec<LdbItem> {
-    records.retain(|record| record.accuracy.is_finite() && (mode != 1 || record.std_score.is_some_and(|v| v.is_finite())));
-    records.sort_by(|a, b| a.player.id.cmp(&b.player.id).then_with(|| compare(a, b, mode)));
-    records.dedup_by_key(|record| record.player.id);
-    records.sort_by(|a, b| compare(a, b, mode));
+fn sorted(mut records: Vec<(Record, Origin)>, mode: u8) -> Vec<(Record, Origin)> {
+    records.retain(|(record, _)| record.accuracy.is_finite() && (mode != 1 || record.std_score.is_some_and(|v| v.is_finite())));
+    records.sort_by(|(a, ao), (b, bo)| {
+        a.player.id.cmp(&b.player.id).then_with(|| compare(a, b, mode)).then_with(|| {
+            // Prefer Pro for otherwise identical results, independent of feed arrival order.
+            (*ao != Origin::Pro).cmp(&(*bo != Origin::Pro))
+        })
+    });
+    records.dedup_by_key(|(record, _)| record.player.id);
+    records.sort_by(|(a, _), (b, _)| compare(a, b, mode));
+    records
+}
+
+fn ranked(records: Vec<Record>, mode: u8, me: Option<i32>, origin: Origin) -> Vec<LdbItem> {
+    rows(sorted(records.into_iter().map(|it| (it, origin)).collect(), mode), mode, me, true)
+}
+
+fn rows(records: Vec<(Record, Origin)>, mode: u8, me: Option<i32>, show_rank: bool) -> Vec<LdbItem> {
     let mut previous = None;
     let mut rank = 0;
     records
         .into_iter()
         .enumerate()
-        .filter_map(|(i, inner)| {
+        .filter_map(|(i, (inner, origin))| {
             let key = value(&inner, mode);
             if previous != Some(key) {
                 rank = i as u32 + 1;
@@ -146,53 +178,87 @@ fn ranked(mut records: Vec<Record>, mode: u8, me: Option<i32>) -> Vec<LdbItem> {
             }
             (i < 20 || Some(inner.player.id) == me).then(|| LdbItem {
                 inner,
-                rank,
+                rank: show_rank.then_some(rank),
+                origin,
                 btn: prpr::ui::RectButton::new(),
             })
         })
         .collect()
 }
 
-/// 玩家在私服榜的名次（自己的名次只看私服）。无成绩时返回 `None`。
-async fn my_pro_rank(chart: i32, player: i32, std: bool) -> Option<u32> {
-    let metric = if std { "stdScore" } else { "score" };
-    crate::client::pro_player_rank(chart, player, metric).await.ok().map(|it| it as u32)
+#[derive(Deserialize)]
+struct OfficialRankedRecord {
+    #[serde(flatten)]
+    inner: Record,
+    rank: u32,
 }
 
-pub(super) async fn load(chart: i32, mode: u8, me: Option<i32>) -> Result<Vec<LdbItem>> {
+fn official_rank(records: &[OfficialRankedRecord], player: i32) -> RankState {
+    records
+        .iter()
+        .find(|it| it.inner.player.id == player)
+        .map_or(RankState::NoRecord, |it| RankState::Ranked(it.rank))
+}
+
+/// Match the original client: list15 includes the current player's server rank.
+pub(super) async fn load_official_rank(chart: i32, mode: u8, player: i32) -> Result<RankState> {
+    let records: Vec<OfficialRankedRecord> = recv_raw(Client::get(format!("/record/list15/{chart}")).query(&[("std", mode == 1)]))
+        .await?
+        .json()
+        .await?;
+    Ok(official_rank(&records, player))
+}
+
+pub(super) fn select(official: &[Record], pro: &[Record], source: BoardSource, mode: u8, me: Option<i32>) -> Vec<LdbItem> {
+    match source {
+        BoardSource::Pro => {
+            let mut items = ranked(pro.to_vec(), mode, me, Origin::Pro);
+            if mode == 2 {
+                // The Pro API has no accuracy rank. Sorting returned records is not a rank.
+                for item in &mut items {
+                    item.rank = None;
+                }
+            }
+            items
+        }
+        BoardSource::Mixed => {
+            let records = official
+                .iter()
+                .cloned()
+                .map(|it| (it, Origin::Official))
+                .chain(pro.iter().cloned().map(|it| (it, Origin::Pro)))
+                .collect();
+            rows(sorted(records, mode), mode, me, false)
+        }
+        BoardSource::Local => Vec::new(),
+    }
+}
+
+pub(super) async fn load(chart: i32, mode: u8, origin: Origin, me: Option<i32>) -> Result<Vec<Record>> {
     let std = mode == 1;
-    let key = (chart, std);
+    let key = (crate::client::api_url(), origin, chart, std, me);
     let cached = CACHE
         .lock()
         .unwrap()
         .get(&key)
         .filter(|(time, _)| time.elapsed() < Duration::from_secs(60))
         .map(|(_, records)| records.clone());
-    let records = if let Some(records) = cached {
-        records
+    if let Some(records) = cached {
+        Ok(records)
     } else {
-        // 官服全量 + 私服（最多 20）合并；任一边失败都按正常的请求失败处理。
-        let mut records = complete_official(chart, std).await?;
-        records.extend(pro_board(chart, std).await?);
+        let records = match origin {
+            Origin::Official => complete_official(chart, std).await?,
+            Origin::Pro => pro_board(chart, std).await?,
+        };
         let mut cache = CACHE.lock().unwrap();
         cache.retain(|_, (time, _)| time.elapsed() < Duration::from_secs(60));
         cache.insert(key, (Instant::now(), records.clone()));
-        records
-    };
-    let mut items = ranked(records, mode, me);
-    // 自己的名次只用私服值（不试图推算跨服全局名次）。
-    if let Some(me) = me {
-        if let Some(rank) = my_pro_rank(chart, me, std).await {
-            if let Some(item) = items.iter_mut().find(|it| it.inner.player.id == me) {
-                item.rank = rank;
-            }
-        }
+        Ok(records)
     }
-    Ok(items)
 }
 
 pub(super) fn invalidate(chart: i32) {
-    CACHE.lock().unwrap().retain(|key, _| key.0 != chart);
+    CACHE.lock().unwrap().retain(|key, _| key.2 != chart);
 }
 
 #[cfg(test)]
@@ -207,12 +273,12 @@ mod tests {
     fn each_mode_uses_the_complete_feed_and_its_own_best_record() {
         let mut rows: Vec<_> = (1..=40).map(|i| record(i, 100 - i, i as f32 / 100., i as f32)).collect();
         rows.push(record(18, 1, 0.99, 99.));
-        let score = ranked(rows.clone(), 0, Some(18));
-        let std = ranked(rows.clone(), 1, Some(18));
-        let accuracy = ranked(rows, 2, Some(18));
-        assert_eq!(score.iter().find(|r| r.inner.player.id == 18).unwrap().rank, 18);
-        assert_eq!(std.iter().find(|r| r.inner.player.id == 18).unwrap().rank, 1);
-        assert_eq!(accuracy.iter().find(|r| r.inner.player.id == 18).unwrap().rank, 1);
+        let score = ranked(rows.clone(), 0, Some(18), Origin::Official);
+        let std = ranked(rows.clone(), 1, Some(18), Origin::Official);
+        let accuracy = ranked(rows, 2, Some(18), Origin::Official);
+        assert_eq!(score.iter().find(|r| r.inner.player.id == 18).unwrap().rank, Some(18));
+        assert_eq!(std.iter().find(|r| r.inner.player.id == 18).unwrap().rank, Some(1));
+        assert_eq!(accuracy.iter().find(|r| r.inner.player.id == 18).unwrap().rank, Some(1));
         assert!(std.iter().any(|r| r.inner.player.id == 40));
     }
 
@@ -220,11 +286,67 @@ mod tests {
     fn ties_skip_positions_and_outside_top_twenty_keeps_real_rank() {
         let mut rows: Vec<_> = (1..=40).map(|i| record(i, 100 - i, 0.99, i as f32)).collect();
         rows[1].score = rows[0].score;
-        let list = ranked(rows.clone(), 0, Some(30));
-        assert_eq!(list[0].rank, 1);
-        assert_eq!(list[1].rank, 1);
-        assert_eq!(list[2].rank, 3);
-        assert_eq!(list.last().unwrap().rank, 30);
-        assert!(ranked(rows, 2, Some(30)).iter().all(|r| r.rank == 1));
+        let list = ranked(rows.clone(), 0, Some(30), Origin::Official);
+        assert_eq!(list[0].rank, Some(1));
+        assert_eq!(list[1].rank, Some(1));
+        assert_eq!(list[2].rank, Some(3));
+        assert_eq!(list.last().unwrap().rank, Some(30));
+        assert!(ranked(rows, 2, Some(30), Origin::Official).iter().all(|r| r.rank == Some(1)));
+    }
+
+    #[test]
+    fn mixed_feed_keeps_the_better_source_without_ranks() {
+        let official = vec![record(1, 980_000, 0.98, 900_000.), record(2, 990_000, 0.99, 910_000.)];
+        let pro = vec![record(1, 970_000, 0.995, 950_000.), record(3, 995_000, 0.999, 980_000.)];
+        let mixed = select(&official, &pro, BoardSource::Mixed, 0, Some(1));
+        assert!(mixed.iter().all(|it| it.rank.is_none()));
+        assert_eq!(mixed.len(), 3);
+        assert_eq!(mixed[0].origin, Origin::Pro);
+        assert_eq!(mixed.iter().find(|it| it.inner.player.id == 1).unwrap().origin, Origin::Official);
+        let std = select(&official, &pro, BoardSource::Mixed, 1, Some(1));
+        assert_eq!(std.iter().find(|it| it.inner.player.id == 1).unwrap().origin, Origin::Pro);
+    }
+
+    #[test]
+    fn pro_board_never_includes_official_records_or_invents_accuracy_ranks() {
+        let official = vec![record(9, 1_000_000, 1., 1_000_000.)];
+        let pro = vec![record(1, 900_000, 0.99, 800_000.)];
+        let items = select(&official, &pro, BoardSource::Pro, 0, Some(9));
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].inner.player.id, 1);
+        assert_eq!(items[0].rank, Some(1));
+        assert!(select(&official, &pro, BoardSource::Pro, 2, None).iter().all(|it| it.rank.is_none()));
+    }
+
+    #[test]
+    fn official_personal_rank_keeps_the_server_rank_outside_the_top_list() {
+        let records = vec![
+            OfficialRankedRecord {
+                inner: record(1, 990_000, 0.99, 950_000.),
+                rank: 1,
+            },
+            OfficialRankedRecord {
+                inner: record(2, 980_000, 0.98, 940_000.),
+                rank: 2,
+            },
+            OfficialRankedRecord {
+                inner: record(9, 970_000, 0.97, 990_000.),
+                rank: 2415,
+            },
+        ];
+        assert_eq!(official_rank(&records, 9), RankState::Ranked(2415));
+        assert_eq!(official_rank(&records, 10), RankState::NoRecord);
+    }
+
+    #[test]
+    fn official_list15_response_reads_the_flattened_rank() {
+        let record: OfficialRankedRecord = serde_json::from_value(serde_json::json!({
+            "id": 77, "player": 9, "chart": 1, "rank": 2415, "score": 970000,
+            "accuracy": 0.97, "perfect": 1, "good": 0, "bad": 0, "miss": 0,
+            "speed": 1, "max_combo": 1, "full_combo": true, "best": true,
+            "mods": 0, "time": "2026-10-03T00:00:00Z", "std": 0.01, "std_score": 990000
+        }))
+        .unwrap();
+        assert_eq!(official_rank(&[record], 9), RankState::Ranked(2415));
     }
 }

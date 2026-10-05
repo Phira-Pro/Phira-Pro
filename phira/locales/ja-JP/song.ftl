@@ -85,3 +85,26 @@ flash-autoplay-unrated = 自動再生がオン：このプレイはアップロ�
 
 mods-perfect-sound = Perfect-time sounds
 mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.
+
+## Leaderboard sources and server-specific ranks
+ldb-refresh = 更新
+ldb-pro = Proランキング
+ldb-mixed = 混合リスト
+ldb-official-server = 公式
+ldb-pro-server = Pro
+ldb-loading = 読み込み中…
+ldb-no-record = 記録なし
+ldb-unavailable = 利用不可
+ldb-sign-in = ログイン
+ldb-offline = オフライン
+ldb-rank-unsupported = 未対応
+ldb-my-ranks = 自分の順位 · サーバー別
+ldb-local-count = 保存済みのプレイ：{ $count } 件
+ldb-local-hint = 記録をタップして詳細を表示
+ldb-offline-hint = オフラインではオンライン一覧を表示できません
+ldb-accuracy-hint = 精度は取得済みの記録で並べ替え、順位は表示しません
+ldb-partial-hint = 一部のサーバーが利用不可です。取得済みの記録を表示
+ldb-mixed-hint = 各プレイヤーの良い記録を表示 · 混合順位なし
+ldb-pro-hint = Pro上位20件 · 順位はPro内のみ
+ldb-sign-in-hint = ログインしてProランキングを表示
+ldb-empty = 記録がありません

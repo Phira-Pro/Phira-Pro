@@ -1,7 +1,60 @@
 //! Render font regression labels through the real glyph atlas, then check their
 //! visible pixel bounds. Set PHIRA_TEST_FONT to also test a local TTF/OTF.
 use macroquad::prelude::*;
+use prpr::core::{BOLD_FONT, PGR_FONT};
 use prpr::ui::{parse_font, TextPainter, Ui};
+
+fn verify_numeric_fade(painter: &mut TextPainter, metric: &str, detail: &str) {
+    for alpha in [0., 0.5, 1., 0.25, 0.] {
+        clear_background(BLACK);
+        let mut ui = Ui::new(painter, None);
+        set_camera(&ui.camera());
+        ui.scissor(Rect::new(-0.8, -0.4, 1.6, 0.8), |ui| {
+            ui.alpha(alpha, |ui| {
+                // Equal labels reuse GlyphBrush's ReDraw path, just as tied scores
+                // and identical accuracy details do in the fading leaderboard.
+                for y in [-0.3, -0.1, 0.1, 0.3] {
+                    ui.text(metric)
+                        .pos(0.7, y - 0.035)
+                        .anchor(1., 0.5)
+                        .no_baseline()
+                        .size(0.68)
+                        .max_width(0.45)
+                        .draw_using(&PGR_FONT);
+                    ui.text(detail)
+                        .pos(0.7, y + 0.035)
+                        .anchor(1., 0.5)
+                        .no_baseline()
+                        .size(0.32)
+                        .max_width(0.45)
+                        .draw_using(&BOLD_FONT);
+                }
+            });
+        });
+        unsafe { get_internal_gl() }.flush();
+        let mut pixels = vec![0u8; 1280 * 720 * 4];
+        unsafe {
+            use miniquad::gl::*;
+            glReadPixels(0, 0, 1280, 720, GL_RGBA, GL_UNSIGNED_BYTE, pixels.as_mut_ptr() as _);
+            assert_eq!(glGetError(), 0);
+        }
+        for y in [-0.3, -0.1, 0.1, 0.3] {
+            for offset in [-0.035, 0.035] {
+                let center = ((y + offset + 720. / 1280.) * 640.) as usize;
+                // glReadPixels returns rows starting at the bottom.
+                let max = (center - 12..=center + 12)
+                    .flat_map(|row| (800..1090).map(move |x| ((719 - row) * 1280 + x) * 4))
+                    .map(|i| pixels[i])
+                    .max()
+                    .unwrap();
+                let expected = alpha * 255.;
+                // Small numeric glyphs may have no pixel with 100% coverage.
+                assert!((max as f32 - expected).abs() <= 6., "numeric fade at {alpha}, row {y}, offset {offset}: max={max}");
+            }
+        }
+    }
+    println!("PASS repeated {metric} / {detail} through fade in and out");
+}
 
 fn conf() -> Conf {
     Conf {
@@ -18,6 +71,13 @@ async fn main() {
     let output = "target/font-regression";
     std::fs::create_dir_all(output).unwrap();
     let reference = parse_font(std::fs::read("assets/harmonyos.ttf").unwrap()).unwrap();
+    PGR_FONT.with(|p| *p.borrow_mut() = Some(TextPainter::new(parse_font(std::fs::read("assets/phigros.ttf").unwrap()).unwrap(), None)));
+    BOLD_FONT
+        .with(|p| *p.borrow_mut() = Some(TextPainter::new(parse_font(std::fs::read("assets/bold.ttf").unwrap()).unwrap(), Some(reference.clone()))));
+    let mut numeric_painter = TextPainter::new(reference.clone(), None);
+    for (metric, detail) in [("1000000", "100.00% · FC"), ("0987654", "5.54ms · 100.00%"), ("100.00%", "1000000")] {
+        verify_numeric_fade(&mut numeric_painter, metric, detail);
+    }
     let mut paths = vec![
         "assets/harmonyos.ttf".to_owned(),
         "assets/phigros.ttf".to_owned(),

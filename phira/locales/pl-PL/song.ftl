@@ -127,3 +127,26 @@ flash-autoplay-unrated = Autoodtwarzanie włączone: ten przebieg nie zostanie w
 
 mods-perfect-sound = Perfect-time sounds
 mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.
+
+## Leaderboard sources and server-specific ranks
+ldb-refresh = Odśwież
+ldb-pro = Ranking Pro
+ldb-mixed = Lista mieszana
+ldb-official-server = Oficjalny
+ldb-pro-server = Pro
+ldb-loading = Wczytywanie…
+ldb-no-record = Brak wyniku
+ldb-unavailable = Niedostępne
+ldb-sign-in = Zaloguj się
+ldb-offline = Offline
+ldb-rank-unsupported = Nieobsługiwane
+ldb-my-ranks = Moje miejsca · osobno dla serwerów
+ldb-local-count = Zapisane gry: { $count }
+ldb-local-hint = Dotknij gry, aby zobaczyć szczegóły
+ldb-offline-hint = Listy online są niedostępne w trybie offline
+ldb-accuracy-hint = Celność sortuje otrzymane wyniki; bez miejsc
+ldb-partial-hint = Jeden serwer jest niedostępny; wyświetlono dostępne wyniki
+ldb-mixed-hint = Najlepszy wynik gracza · bez wspólnych miejsc
+ldb-pro-hint = Pro top 20 · miejsca tylko w Pro
+ldb-sign-in-hint = Zaloguj się, aby zobaczyć ranking Pro
+ldb-empty = Brak wyników

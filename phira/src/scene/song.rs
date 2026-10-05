@@ -3,7 +3,7 @@ prpr_l10n::tl_file!("song");
 #[cfg(feature = "video")]
 use super::UnlockScene;
 use super::{
-    confirm_delete, confirm_dialog, fs_from_path, gen_custom_dir, import_chart_to, render_ldb, LdbDisplayItem, ProfileScene, RecordDetailScene,
+    confirm_delete, confirm_dialog, fs_from_path, gen_custom_dir, import_chart_to, render_release_to_refresh, ProfileScene, RecordDetailScene,
     ASSET_CHART_INFO,
 };
 use crate::{
@@ -48,7 +48,7 @@ use prpr::{
     },
     task::Task,
     time::TimeManager,
-    ui::{button_hit, render_chart_info, ChartInfoEdit, DRectButton, Dialog, LoadingParams, LongTouchState, RectButton, Scroll, Ui, UI_AUDIO},
+    ui::{button_hit, render_chart_info, ChartInfoEdit, DRectButton, Dialog, LongTouchState, RectButton, Scroll, Ui, UI_AUDIO},
 };
 use regex::Regex;
 use reqwest::Method;
@@ -275,7 +275,7 @@ impl SideContent {
     fn width(&self) -> f32 {
         match self {
             Self::Edit => 0.9,
-            Self::Leaderboard => 0.94,
+            Self::Leaderboard => 1.16,
             Self::Info => 0.75,
             Self::Mods => 0.8,
         }
@@ -287,17 +287,18 @@ struct StableR {
     status: i8,
 }
 
-#[derive(Deserialize)]
 struct LdbItem {
-    #[serde(flatten)]
     pub inner: Record,
-    pub rank: u32,
-    #[serde(skip, default)]
+    pub rank: Option<u32>,
+    pub origin: Origin,
     pub btn: RectButton,
 }
 
 #[path = "../leaderboard.rs"]
 mod leaderboard;
+use leaderboard::{BoardSource, Origin, RankState};
+#[path = "../leaderboard_view.rs"]
+mod leaderboard_view;
 
 pub struct SongScene {
     illu: Illustration,
@@ -348,18 +349,26 @@ pub struct SongScene {
     save_task: Option<Task<Result<LocalTuple>>>,
     upload_task: Option<Task<Result<BriefChartInfo>>>,
 
-    ldb: Option<(Option<u32>, Vec<LdbItem>)>,
-    ldb_task: Option<Task<Result<Vec<LdbItem>>>>,
+    ldb: Vec<LdbItem>,
+    ldb_official: Option<Vec<Record>>,
+    ldb_pro: Option<Vec<Record>>,
+    ldb_official_task: Option<Task<Result<Vec<Record>>>>,
+    ldb_pro_task: Option<Task<Result<Vec<Record>>>>,
+    ldb_official_rank_task: Option<Task<Result<RankState>>>,
+    ldb_rank_task: Option<Task<Result<Option<u32>>>>,
+    ldb_official_rank: RankState,
+    ldb_pro_rank: RankState,
+    ldb_official_failed: bool,
+    ldb_pro_failed: bool,
+    ldb_source: BoardSource,
+    ldb_controls: leaderboard_view::Controls,
+    ldb_account: Option<i32>,
     ldb_btn: RectButton,
     ldb_scroll: Scroll,
     ldb_fader: Fader,
-    /// 榜单模式：0=分数 1=无暇 2=准度 3=本地记录。
+    /// 排序指标：0=分数 1=无瑕度 2=准度；榜源独立切换。
     ldb_mode: u8,
-    ldb_btn_score: DRectButton,
-    ldb_btn_std: DRectButton,
-    ldb_btn_acc: DRectButton,
-    ldb_btn_local: DRectButton,
-    /// 本地记录榜单（模式 3 用）。
+    /// 本地记录榜单。
     ldb_local: Vec<(history::Record, RectButton)>,
     ldb_local_revision: u64,
     /// 上次同步黑名单时的版本号；黑名单增删后据此重新拉取榜单。
@@ -535,16 +544,24 @@ impl SongScene {
             save_task: None,
             upload_task: None,
 
-            ldb: None,
-            ldb_task: None,
+            ldb: Vec::new(),
+            ldb_official: None,
+            ldb_pro: None,
+            ldb_official_task: None,
+            ldb_pro_task: None,
+            ldb_official_rank_task: None,
+            ldb_rank_task: None,
+            ldb_official_rank: RankState::Loading,
+            ldb_pro_rank: RankState::Loading,
+            ldb_official_failed: false,
+            ldb_pro_failed: false,
+            ldb_source: if id.is_none() { BoardSource::Local } else { BoardSource::Pro },
+            ldb_controls: leaderboard_view::Controls::default(),
+            ldb_account: get_data().me.as_ref().map(|it| it.id),
             ldb_btn: RectButton::new(),
             ldb_scroll: Scroll::new(),
             ldb_fader: Fader::new().with_distance(0.12),
             ldb_mode: 0,
-            ldb_btn_score: DRectButton::new(),
-            ldb_btn_std: DRectButton::new(),
-            ldb_btn_acc: DRectButton::new(),
-            ldb_btn_local: DRectButton::new(),
             ldb_local: Vec::new(),
             ldb_local_revision: u64::MAX,
             ldb_bl_ver: crate::blacklist::version(),
@@ -741,18 +758,76 @@ impl SongScene {
     }
 
     fn load_ldb(&mut self) {
-        if get_data().config.offline_mode {
-            return;
-        }
-        let Some(id) = self.info.id else { return };
-        if self.ldb_mode == 3 {
-            // 本地记录不走网络。
-            return;
-        }
-        self.ldb = None;
-        let mode = self.ldb_mode;
         let me = get_data().me.as_ref().map(|it| it.id);
-        self.ldb_task = Some(Task::new(leaderboard::load(id, mode, me)));
+        self.ldb_account = me;
+        self.ldb_official_task = None;
+        self.ldb_pro_task = None;
+        self.ldb_official_rank_task = None;
+        self.ldb_rank_task = None;
+        self.ldb_official = None;
+        self.ldb_pro = None;
+        self.ldb_official_failed = false;
+        self.ldb_pro_failed = false;
+        self.ldb.clear();
+        let Some(id) = self.info.id else {
+            self.ldb_official_rank = RankState::NoRecord;
+            self.ldb_pro_rank = RankState::NoRecord;
+            return;
+        };
+        if get_data().config.offline_mode {
+            self.ldb_official_rank = RankState::Offline;
+            self.ldb_pro_rank = RankState::Offline;
+            return;
+        }
+        let mode = self.ldb_mode;
+        self.ldb_official_rank = match (me, mode) {
+            (None, _) => RankState::SignIn,
+            (_, 2) => RankState::Unsupported,
+            _ => RankState::Loading,
+        };
+        self.ldb_official_task = Some(Task::new(leaderboard::load(id, mode, Origin::Official, me)));
+        self.ldb_pro_rank = match (me, mode) {
+            (None, _) => RankState::SignIn,
+            (_, 2) => RankState::Unsupported,
+            _ => RankState::Loading,
+        };
+        if let Some(me) = me {
+            if mode != 2 {
+                self.ldb_official_rank_task = Some(Task::new(leaderboard::load_official_rank(id, mode, me)));
+            }
+            self.ldb_pro_task = Some(Task::new(leaderboard::load(id, mode, Origin::Pro, Some(me))));
+            if mode != 2 {
+                let metric = if mode == 1 { "stdScore" } else { "score" };
+                self.ldb_rank_task = Some(Task::new(crate::client::pro_player_rank(id, me, metric)));
+            }
+        }
+    }
+
+    fn rebuild_online_ldb(&mut self) {
+        self.ldb = leaderboard::select(
+            self.ldb_official.as_deref().unwrap_or_default(),
+            self.ldb_pro.as_deref().unwrap_or_default(),
+            self.ldb_source,
+            self.ldb_mode,
+            self.ldb_account,
+        );
+        self.ldb.retain(|it| !crate::blacklist::contains(it.inner.player.id));
+        for item in &self.ldb {
+            UserManager::request(item.inner.player.id);
+        }
+        self.ldb_bl_ver = crate::blacklist::version();
+    }
+
+    fn ldb_rank_text(state: RankState) -> String {
+        match state {
+            RankState::Ranked(rank) => format!("#{rank}"),
+            RankState::Loading => tl!("ldb-loading").into_owned(),
+            RankState::NoRecord => tl!("ldb-no-record").into_owned(),
+            RankState::Unavailable => tl!("ldb-unavailable").into_owned(),
+            RankState::SignIn => tl!("ldb-sign-in").into_owned(),
+            RankState::Offline => tl!("ldb-offline").into_owned(),
+            RankState::Unsupported => tl!("ldb-rank-unsupported").into_owned(),
+        }
     }
 
     /// 重建「本地记录」榜单（仅当前谱面的历史成绩，按分数降序、准度平局取高）。
@@ -1165,119 +1240,173 @@ impl SongScene {
     }
 
     fn side_ldb(&mut self, ui: &mut Ui, rt: f32) {
-        let pad = 0.03;
-        let width = self.side_content.width() - pad;
-        ui.dy(0.03);
-
-        // Reuse sorted records and buttons until a play/import changes history.
-        if self.ldb_mode == 3 && self.ldb_local_revision != history::revision() {
+        let width = self.side_content.width();
+        let height = ui.top * 2.;
+        let local = self.ldb_source == BoardSource::Local;
+        if local && self.ldb_local_revision != history::revision() {
             self.rebuild_local_ldb();
             self.ldb_local_revision = history::revision();
         }
-
-        // 模式切换按钮行：[本地记录] [分数] [无暇] [准度]
-        let bw = 0.15;
-        let bh = 0.075;
-        let gap = 0.008;
-        let total = bw * 4. + gap * 3.;
-        let mut bx = width - total;
-        let labels = [
-            (tl!("ldb-local"), 3u8, &mut self.ldb_btn_local),
-            (tl!("ldb-score"), 0u8, &mut self.ldb_btn_score),
-            (tl!("ldb-std"), 1u8, &mut self.ldb_btn_std),
-            (tl!("ldb-acc"), 2u8, &mut self.ldb_btn_acc),
-        ];
-        for (label, mode, btn) in labels {
-            let r = Rect::new(bx, 0.01, bw, bh);
-            let active = self.ldb_mode == mode;
-            // 沿用官方样式：选中项白底，未选中深底，不再用自定义黄色高亮。
-            btn.render_text(ui, r, rt, label.as_ref(), 0.42, active);
-            bx += bw + gap;
-        }
-
-        let title = if self.ldb_mode == 3 { tl!("ldb-local-title") } else { tl!("ldb") };
-        if self.ldb_mode == 3 && self.ldb_local.is_empty() {
-            // 本地榜为空：给出明确提示，避免误以为加载不出来。
-            ui.dy(0.01);
-            ui.text(title.as_ref()).size(0.9).draw_using(&BOLD_FONT);
-            ui.dy(0.28);
-            ui.text(tl!("ldb-local-empty"))
-                .pos(width / 2., 0.)
-                .anchor(0.5, 0.)
-                .size(0.085)
-                .color(semi_white(0.65))
-                .draw();
-            return;
-        }
-        let items: Vec<LdbDisplayItem> = if self.ldb_mode == 3 {
-            // 本地记录：本机成绩都是自己的，行内显示当前账号的头像与昵称。
-            let me_id = crate::get_data().me.as_ref().map(|it| it.id).unwrap_or(-1);
-            if me_id >= 0 {
-                UserManager::request(me_id);
-            }
-            // Format only rows near the viewport. The shared renderer still
-            // visits every row to preserve scroll height and clear hit boxes.
-            let off = self.ldb_scroll.y_scroller.offset;
-            let first = ((off - 0.3).max(0.) / 0.14) as usize;
-            let last = ((off + ui.top * 2. + 0.3) / 0.14).ceil().max(0.) as usize;
-            self.ldb_local
-                .iter_mut()
-                .enumerate()
-                .map(|(i, (rec, btn))| LdbDisplayItem {
-                    player_id: me_id,
-                    rank: i as u32 + 1,
-                    score: if (first..=last).contains(&i) {
-                        format!("{:07}", rec.score)
-                    } else {
-                        String::new()
-                    },
-                    alt: (first..=last).contains(&i).then(|| format!("{:.2}%", rec.accuracy * 100.)),
-                    btn,
-                })
-                .collect()
-        } else {
-            self.ldb
-                .as_mut()
-                .map(|it| {
-                    it.1.iter_mut()
-                        .map(|it| {
-                            let std = self.ldb_mode == 1;
-                            let acc = self.ldb_mode == 2;
-                            LdbDisplayItem {
-                                player_id: it.inner.player.id,
-                                rank: it.rank,
-                                score: if std {
-                                    format!("{:07}", it.inner.std_score.unwrap_or(0.) as i64)
-                                } else if acc {
-                                    format!("{:.2}%", it.inner.accuracy * 100.)
-                                } else {
-                                    format!("{:07}", it.inner.score)
-                                },
-                                alt: Some(if std {
-                                    format!("{:.2}ms", it.inner.std.unwrap_or(0.) * 1000.)
-                                } else if acc {
-                                    format!("{:07}", it.inner.score)
-                                } else {
-                                    format!("{:.2}%", it.inner.accuracy * 100.)
-                                }),
-                                btn: &mut it.btn,
-                            }
-                        })
-                        .collect()
-                })
-                .unwrap_or_default()
+        let source = match self.ldb_source {
+            BoardSource::Pro => 0,
+            BoardSource::Mixed => 1,
+            BoardSource::Local => 2,
         };
-        render_ldb(
-            ui,
-            title.as_ref(),
-            self.side_content.width(),
-            self.ldb_mode == 3,
-            rt,
-            &mut self.ldb_scroll,
-            &mut self.ldb_fader,
-            &self.icons.user,
-            Some(items.into_iter()),
-        );
+        let layout = leaderboard_view::header(ui, width, height, &self.info.name, source, self.ldb_mode, rt, &mut self.ldb_controls);
+        if local {
+            leaderboard_view::note(ui, width, layout.ranks_y, &tl!("ldb-local-count", "count" => self.ldb_local.len().to_string()));
+        } else {
+            leaderboard_view::rank_lines(
+                ui,
+                Rect::new(0.035, layout.ranks_y, width - 0.07, 0.135),
+                &tl!("ldb-my-ranks"),
+                &Self::ldb_rank_text(self.ldb_official_rank),
+                &Self::ldb_rank_text(self.ldb_pro_rank),
+            );
+        }
+        let pro_pending = self.ldb_pro_task.is_some();
+        let official_pending = self.ldb_official_task.is_some();
+        let pending = match self.ldb_source {
+            BoardSource::Pro => pro_pending,
+            BoardSource::Mixed => pro_pending || official_pending,
+            BoardSource::Local => false,
+        };
+        let note = if local {
+            tl!("ldb-local-hint")
+        } else if get_data().config.offline_mode {
+            tl!("ldb-offline-hint")
+        } else if self.ldb_mode == 2 {
+            tl!("ldb-accuracy-hint")
+        } else if self.ldb_source == BoardSource::Mixed && (self.ldb_pro_failed || self.ldb_official_failed) {
+            tl!("ldb-partial-hint")
+        } else if pending {
+            tl!("ldb-loading")
+        } else if self.ldb_source == BoardSource::Mixed {
+            tl!("ldb-mixed-hint")
+        } else {
+            tl!("ldb-pro-hint")
+        };
+        leaderboard_view::note(ui, width, layout.note_y, &note);
+        let list_height = (height - layout.list_y - 0.02).max(0.12);
+        let list_width = width - 0.06;
+        self.ldb_scroll.size((list_width, list_height));
+        let off = self.ldb_scroll.y_scroller.offset;
+        ui.scope(|ui| {
+            ui.dx(0.03);
+            ui.dy(layout.list_y);
+            let empty = if local { self.ldb_local.is_empty() } else { self.ldb.is_empty() };
+            if empty {
+                let message = if local {
+                    tl!("ldb-local-empty")
+                } else if pending {
+                    tl!("ldb-loading")
+                } else if get_data().config.offline_mode {
+                    tl!("ldb-offline-hint")
+                } else if self.ldb_source == BoardSource::Pro && self.ldb_account.is_none() {
+                    tl!("ldb-sign-in-hint")
+                } else if (self.ldb_source == BoardSource::Pro && self.ldb_pro_failed)
+                    || (self.ldb_source == BoardSource::Mixed && (self.ldb_official_failed || self.ldb_pro_failed))
+                {
+                    tl!("ldb-load-failed")
+                } else {
+                    tl!("ldb-empty")
+                };
+                // Keep a valid scroll hit area even for empty or failed boards, so pull-to-refresh works.
+                self.ldb_scroll.render(ui, |ui| {
+                    render_release_to_refresh(ui, list_width / 2., off);
+                    leaderboard_view::empty(ui, list_width, list_height, &message, pending, rt);
+                    (list_width, list_height)
+                });
+                return;
+            }
+            let me = self.ldb_account;
+            self.ldb_scroll.render(ui, |ui| {
+                render_release_to_refresh(ui, list_width / 2., off);
+                let row_height = layout.row_height;
+                let mut y = 0.;
+                self.ldb_fader.reset();
+                self.ldb_fader.for_sub(|fader| {
+                    if local {
+                        for (rec, btn) in &mut self.ldb_local {
+                            if y + row_height < off || y > off + list_height {
+                                *btn = RectButton::new();
+                            } else {
+                                let (name, color) = me
+                                    .and_then(UserManager::name_and_color)
+                                    .unwrap_or_else(|| (tl!("guest").into_owned(), WHITE));
+                                fader.render(ui, rt, |ui| {
+                                    leaderboard_view::row(
+                                        ui,
+                                        list_width,
+                                        row_height,
+                                        rt,
+                                        leaderboard_view::Row {
+                                            rank: None,
+                                            name,
+                                            name_color: color,
+                                            avatar: me
+                                                .map_or_else(|| Err(self.icons.user.clone()), |id| UserManager::opt_avatar(id, &self.icons.user)),
+                                            metric: format!("{:07}", rec.score),
+                                            detail: format!("{:.2}% · {}", rec.accuracy * 100., rec.time_text()),
+                                            source: tl!("ldb-local").into_owned(),
+                                            pro: false,
+                                            me: true,
+                                            btn,
+                                        },
+                                    )
+                                });
+                            }
+                            ui.dy(row_height);
+                            y += row_height;
+                        }
+                    } else {
+                        for item in &mut self.ldb {
+                            if y + row_height < off || y > off + list_height {
+                                item.btn = RectButton::new();
+                            } else {
+                                let rec = &item.inner;
+                                let (name, color) =
+                                    UserManager::name_and_color(rec.player.id).unwrap_or_else(|| (format!("ID {}", rec.player.id), WHITE));
+                                let metric = match self.ldb_mode {
+                                    1 => format!("{:07}", rec.std_score.unwrap_or(0.) as i64),
+                                    2 => format!("{:.2}%", rec.accuracy * 100.),
+                                    _ => format!("{:07}", rec.score),
+                                };
+                                let detail = match self.ldb_mode {
+                                    1 => format!("{:.2}ms · {:.2}%", rec.std.unwrap_or(0.) * 1000., rec.accuracy * 100.),
+                                    2 => format!("{:07}", rec.score),
+                                    _ => format!("{:.2}%{}", rec.accuracy * 100., if rec.full_combo { " · FC" } else { "" }),
+                                };
+                                let pro = item.origin == Origin::Pro;
+                                fader.render(ui, rt, |ui| {
+                                    leaderboard_view::row(
+                                        ui,
+                                        list_width,
+                                        row_height,
+                                        rt,
+                                        leaderboard_view::Row {
+                                            rank: item.rank,
+                                            name,
+                                            name_color: color,
+                                            avatar: UserManager::opt_avatar(rec.player.id, &self.icons.user),
+                                            metric,
+                                            detail,
+                                            source: if pro { tl!("ldb-pro-server") } else { tl!("ldb-official-server") }.into_owned(),
+                                            pro,
+                                            me: me == Some(rec.player.id),
+                                            btn: &mut item.btn,
+                                        },
+                                    )
+                                });
+                            }
+                            ui.dy(row_height);
+                            y += row_height;
+                        }
+                    }
+                });
+                (list_width, y)
+            });
+        });
     }
 
     fn side_info(&mut self, ui: &mut Ui, rt: f32) {
@@ -1407,7 +1536,12 @@ impl SongScene {
                 const SUB_MAX_WIDTH: f32 = 0.46;
                 let mut row_height = ITEM_HEIGHT;
                 if let Some(subtitle) = subtitle {
-                    let r1 = ui.text(Cow::clone(&title)).no_baseline().size(TITLE_SIZE).max_width(SUB_MAX_WIDTH).measure();
+                    let r1 = ui
+                        .text(Cow::clone(&title))
+                        .no_baseline()
+                        .size(TITLE_SIZE)
+                        .max_width(SUB_MAX_WIDTH)
+                        .measure();
                     let r2 = ui
                         .text(Cow::clone(&subtitle))
                         .size(SUBTITLE_SIZE)
@@ -1425,7 +1559,12 @@ impl SongScene {
                         .no_baseline()
                         .color(semi_white(0.6))
                         .draw();
-                    ui.text(title).pos(LEFT, (row_height - h) / 2.).no_baseline().size(TITLE_SIZE).max_width(SUB_MAX_WIDTH).draw();
+                    ui.text(title)
+                        .pos(LEFT, (row_height - h) / 2.)
+                        .no_baseline()
+                        .size(TITLE_SIZE)
+                        .max_width(SUB_MAX_WIDTH)
+                        .draw();
                 } else {
                     ui.text(title)
                         .pos(LEFT, ITEM_HEIGHT / 2.)
@@ -1820,71 +1959,71 @@ impl Scene for SongScene {
                         }
                     }
                     SideContent::Leaderboard => {
-                        // 模式切换：本地 / 分数 / 无暇 / 准度
-                        let switch = |this: &mut Self, mode: u8| {
-                            if this.ldb_mode == mode {
-                                return;
+                        if let Some(action) = self.ldb_controls.touch(touch, rt) {
+                            match action {
+                                leaderboard_view::Action::Source(index) => {
+                                    let source = match index {
+                                        0 => BoardSource::Pro,
+                                        1 => BoardSource::Mixed,
+                                        _ => BoardSource::Local,
+                                    };
+                                    if self.ldb_source != source {
+                                        self.ldb_source = source;
+                                        self.ldb_scroll.y_scroller.reset();
+                                        self.rebuild_online_ldb();
+                                        self.ldb_fader.sub(rt);
+                                    }
+                                }
+                                leaderboard_view::Action::Metric(mode) => {
+                                    if self.ldb_source != BoardSource::Local && self.ldb_mode != mode {
+                                        self.ldb_mode = mode;
+                                        self.ldb_scroll.y_scroller.reset();
+                                        self.load_ldb();
+                                    }
+                                }
+                                leaderboard_view::Action::Refresh => {
+                                    if self.ldb_source == BoardSource::Local {
+                                        self.ldb_local_revision = u64::MAX;
+                                    } else {
+                                        if let Some(id) = self.info.id {
+                                            leaderboard::invalidate(id);
+                                        }
+                                        self.load_ldb();
+                                    }
+                                    self.ldb_scroll.y_scroller.reset();
+                                }
                             }
-                            this.ldb_mode = mode;
-                            this.ldb_scroll.y_scroller.offset = 0.;
-                            if mode != 3 {
-                                this.ldb = None;
-                                this.load_ldb();
-                            }
-                        };
-                        if self.ldb_btn_local.touch(touch, rt) {
-                            switch(self, 3);
-                            return Ok(true);
-                        }
-                        if self.ldb_btn_score.touch(touch, rt) {
-                            switch(self, 0);
-                            return Ok(true);
-                        }
-                        if self.ldb_btn_std.touch(touch, rt) {
-                            switch(self, 1);
-                            return Ok(true);
-                        }
-                        if self.ldb_btn_acc.touch(touch, rt) {
-                            switch(self, 2);
                             return Ok(true);
                         }
                         if self.ldb_scroll.touch(touch, t) {
+                            for item in &mut self.ldb {
+                                item.btn.cancel();
+                            }
+                            for (_, btn) in &mut self.ldb_local {
+                                btn.cancel();
+                            }
                             return Ok(true);
                         }
-                        if self.ldb_mode == 3 {
-                            // 本地记录：点开任意一条 → 成绩详情页。
-                            // 松手（Ended）命中或按下（Started）瞬间命中都触发，规避输入相位差异；
-                            // 若点击落在本地榜区域却未命中任何行，弹提示以便定位。
-                            let mut matched = false;
+                        // A partially clipped row must not receive taps on the fixed header.
+                        if !self.ldb_scroll.contains(touch) {
+                            for item in &mut self.ldb {
+                                item.btn.cancel();
+                            }
+                            for (_, btn) in &mut self.ldb_local {
+                                btn.cancel();
+                            }
+                            return Ok(true);
+                        }
+                        if self.ldb_source == BoardSource::Local {
                             for (rec, btn) in &mut self.ldb_local {
                                 if btn.touch(touch) {
-                                    matched = true;
                                     button_hit();
                                     self.sf.goto(t, RecordDetailScene::new(rec.clone(), self.rank_icons.clone()));
-                                    break;
+                                    return Ok(true);
                                 }
                             }
-                            if !matched && matches!(touch.phase, TouchPhase::Started) {
-                                for (rec, btn) in &mut self.ldb_local {
-                                    if btn.touching() {
-                                        matched = true;
-                                        button_hit();
-                                        self.sf.goto(t, RecordDetailScene::new(rec.clone(), self.rank_icons.clone()));
-                                        break;
-                                    }
-                                }
-                            }
-                            if !matched && touch.phase == TouchPhase::Ended && touch.position.x > 0.06 {
-                                // 点在排行榜面板内但没有命中任何行：说明命中区没有生效，给出行数提示。
-                                show_message(tl!("ldb-local-no-hit", "count" => self.ldb_local.len().to_string()))
-                                    .duration(2.)
-                                    .ok();
-                            }
-                            if matched {
-                                return Ok(true);
-                            }
-                        } else if let Some((_, ldb)) = &mut self.ldb {
-                            for item in ldb {
+                        } else {
+                            for item in &mut self.ldb {
                                 if item.btn.touch(touch) {
                                     button_hit();
                                     self.sf
@@ -1986,7 +2125,7 @@ impl Scene for SongScene {
                 return Ok(true);
             }
         }
-        if self.info.id.is_some() && self.ldb_btn.touch(touch) {
+        if self.ldb_btn.touch(touch) {
             button_hit();
             self.side_content = SideContent::Leaderboard;
             self.side_enter_time = tm.real_time() as _;
@@ -2412,17 +2551,18 @@ impl Scene for SongScene {
                 self.edit_scroll.update(t);
             }
             SideContent::Leaderboard => {
-                if self.ldb_mode != 3 {
+                if self.ldb_source != BoardSource::Local {
                     // 黑名单若在别处（比如玩家主页）被改动过，就把榜单重新拉一遍，
                     // 否则会一直显示已经加载好的旧列表。
                     if crate::blacklist::version() != self.ldb_bl_ver {
                         self.ldb_bl_ver = crate::blacklist::version();
-                        if self.ldb.is_some() {
-                            self.load_ldb();
-                        }
+                        self.rebuild_online_ldb();
                     }
                     if self.ldb_scroll.y_scroller.pulled {
-                        self.ldb_scroll.y_scroller.offset = 0.;
+                        self.ldb_scroll.y_scroller.reset();
+                        if let Some(id) = self.info.id {
+                            leaderboard::invalidate(id);
+                        }
                         self.load_ldb();
                     }
                 }
@@ -2543,31 +2683,58 @@ impl Scene for SongScene {
                 }
             }));
         }
-        if let Some(task) = &mut self.ldb_task {
-            if let Some(res) = task.take() {
-                match res {
-                    Err(err) => {
-                        show_error(err.context(tl!("ldb-load-failed")));
-                    }
-                    Ok(mut items) => {
-                        // 黑名单：只把名单内的玩家从榜单里剔掉，保留服务器返回的真实名次。
-                        // 注意：接口返回的是「前 15 名 + 自己」，若按过滤后的下标重新编号，
-                        // 自己那条的真实名次（如 2415）会被压成列表下标（如 16）。
-                        items.retain(|it| !crate::blacklist::contains(it.inner.player.id));
-                        let rank = get_data()
-                            .me
-                            .as_ref()
-                            .and_then(|me| items.iter().find(|it| it.inner.player.id == me.id).map(|it| it.rank));
-                        for item in &items {
-                            UserManager::request(item.inner.player.id);
-                        }
-                        self.ldb = Some((rank, items));
-                        self.ldb_bl_ver = crate::blacklist::version();
-                        self.ldb_fader.sub(tm.real_time() as _);
-                    }
+        if self.ldb_account != get_data().me.as_ref().map(|it| it.id) {
+            self.load_ldb();
+        }
+        let mut board_changed = false;
+        if let Some(res) = self.ldb_official_task.as_mut().and_then(|task| task.take()) {
+            self.ldb_official_task = None;
+            match res {
+                Ok(records) => {
+                    self.ldb_official = Some(records);
                 }
-                self.ldb_task = None;
+                Err(err) => {
+                    warn!(?err, "official leaderboard unavailable");
+                    self.ldb_official_failed = true;
+                }
             }
+            board_changed = true;
+        }
+        if let Some(res) = self.ldb_pro_task.as_mut().and_then(|task| task.take()) {
+            self.ldb_pro_task = None;
+            match res {
+                Ok(records) => self.ldb_pro = Some(records),
+                Err(err) => {
+                    warn!(?err, "Pro leaderboard unavailable");
+                    self.ldb_pro_failed = true;
+                }
+            }
+            board_changed = true;
+        }
+        if let Some(res) = self.ldb_official_rank_task.as_mut().and_then(|task| task.take()) {
+            self.ldb_official_rank_task = None;
+            self.ldb_official_rank = match res {
+                Ok(rank) => rank,
+                Err(err) => {
+                    warn!(?err, "official player rank unavailable");
+                    RankState::Unavailable
+                }
+            };
+        }
+        if let Some(res) = self.ldb_rank_task.as_mut().and_then(|task| task.take()) {
+            self.ldb_rank_task = None;
+            self.ldb_pro_rank = match res {
+                Ok(Some(rank)) => RankState::Ranked(rank),
+                Ok(None) => RankState::NoRecord,
+                Err(err) => {
+                    warn!(?err, "Pro player rank unavailable");
+                    RankState::Unavailable
+                }
+            };
+        }
+        if board_changed {
+            self.rebuild_online_ldb();
+            self.ldb_fader.sub(tm.real_time() as _);
         }
         if let Some((id, text)) = take_input() {
             match id.as_str() {
@@ -2834,44 +3001,20 @@ impl Scene for SongScene {
                 .draw();
 
             if self.info.id.is_some() {
-                let h = 0.09;
-                let mut r = Rect::new(r.x, r.y - h, h, h);
-                ui.fill_rect(r, (*self.icons.ldb, r, ScaleType::Fit));
-                if self.ldb_mode == 3 {
-                    // 本地记录榜：底栏不显示在线排名，改显示本机记录条数。
-                    let n = self.ldb_local.len();
-                    ui.text(if n > 0 { format!("×{n}") } else { tl!("ldb-no-rank").into_owned() })
-                        .pos(r.right() + 0.01, r.center().y)
-                        .anchor(0., 0.5)
-                        .no_baseline()
-                        .size(0.6)
-                        .draw();
-                } else if let Some((rank, _)) = &self.ldb {
-                    ui.text(if let Some(rank) = rank {
-                        format!("#{rank}")
-                    } else {
-                        tl!("ldb-no-rank").into_owned()
-                    })
-                    .pos(r.right() + 0.01, r.center().y)
-                    .anchor(0., 0.5)
+                let entry = Rect::new(r.x, r.y - 0.135, 0.41, 0.115);
+                leaderboard_view::rank_lines(ui, entry, "", &Self::ldb_rank_text(self.ldb_official_rank), &Self::ldb_rank_text(self.ldb_pro_rank));
+                self.ldb_btn.set(ui, entry);
+            } else {
+                let entry = Rect::new(r.x, r.y - 0.09, 0.3, 0.075);
+                ui.fill_path(&entry.rounded(0.012), semi_white(0.07));
+                ui.text(tl!("ldb-local-title"))
+                    .pos(entry.center().x, entry.center().y)
+                    .anchor(0.5, 0.5)
                     .no_baseline()
-                    .size(0.7)
+                    .size(0.42)
+                    .max_width(entry.w - 0.04)
                     .draw();
-                } else {
-                    ui.loading(
-                        r.right() + 0.04,
-                        r.center().y,
-                        t,
-                        WHITE,
-                        LoadingParams {
-                            radius: 0.027,
-                            width: 0.007,
-                            ..Default::default()
-                        },
-                    );
-                }
-                r.w += 0.13;
-                self.ldb_btn.set(ui, r);
+                self.ldb_btn.set(ui, entry);
             }
 
             // play button
@@ -2958,14 +3101,17 @@ impl Scene for SongScene {
                 let p = edit_transit().map_or(1., |t| ((rt - self.side_enter_time.abs()) / t).min(1.));
                 let p = 1. - (1. - p).powi(3);
                 let p = if self.side_enter_time < 0. { 1. - p } else { p };
-                ui.fill_rect(ui.screen_rect(), semi_black(p * 0.6));
+                let leaderboard = matches!(self.side_content, SideContent::Leaderboard);
+                ui.fill_rect(ui.screen_rect(), semi_black(p * if leaderboard { 0.22 } else { 0.6 }));
                 let w = self.side_content.width();
                 let lf = f32::tween(&1.04, &(1. - w), p);
                 ui.scope(|ui| {
                     ui.dx(lf);
                     ui.dy(-ui.top);
-                    let r = Rect::new(-0.2, 0., 0.2 + w, ui.top * 2.);
-                    ui.fill_rect(r, (Color::default(), (r.x, r.y), Color::new(0., 0., 0., p * 0.7), (r.right(), r.y)));
+                    if !leaderboard {
+                        let r = Rect::new(-0.2, 0., 0.2 + w, ui.top * 2.);
+                        ui.fill_rect(r, (Color::default(), (r.x, r.y), Color::new(0., 0., 0., p * 0.7), (r.right(), r.y)));
+                    }
 
                     match self.side_content {
                         SideContent::Edit => self.side_chart_info(ui, rt),

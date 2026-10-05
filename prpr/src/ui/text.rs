@@ -327,8 +327,7 @@ impl TextPainter {
                 |vertex| {
                     let pos = &vertex.pixel_coords;
                     let uv = &vertex.tex_coords;
-                    let mut color: Color = vertex.extra.color.into();
-                    color.a *= alpha;
+                    let color: Color = vertex.extra.color.into();
                     [
                         MyVertex::new(pos.min.x, pos.min.y, uv.min.x, uv.min.y, color),
                         MyVertex::new(pos.max.x, pos.min.y, uv.max.x, uv.min.y, color),
@@ -350,18 +349,18 @@ impl TextPainter {
                 Ok(BrushAction::Draw(vertices)) => {
                     self.vertices_buffer.clear();
                     self.vertices_buffer.extend(vertices.into_iter().flatten());
-                    self.redraw(tr);
+                    self.redraw(tr, alpha);
                     break;
                 }
                 Ok(BrushAction::ReDraw) => {
-                    self.redraw(tr);
+                    self.redraw(tr, alpha);
                     break;
                 }
             }
         }
     }
 
-    fn redraw(&mut self, tr: Matrix) {
+    fn redraw(&mut self, tr: Matrix, alpha: f32) {
         let gl = unsafe { get_internal_gl() }.quad_gl;
         gl.texture(Some(self.cache_texture));
         // One geometry submission per text batch, rather than per glyph.
@@ -373,8 +372,11 @@ impl TextPainter {
                 let start = self.draw_vertices.len() as u16;
                 for vertex in quad {
                     let pos = tr.transform_point(&Point::new(vertex.pos.0, vertex.pos.1));
-                    self.draw_vertices
-                        .push(Vertex::new(pos.x, pos.y, 0., vertex.uv.0, vertex.uv.1, vertex.color));
+                    // ReDraw reuses glyph vertices across UI scopes and frames.
+                    // Apply the current fade here rather than baking it into the cache.
+                    let mut color = vertex.color;
+                    color.a *= alpha;
+                    self.draw_vertices.push(Vertex::new(pos.x, pos.y, 0., vertex.uv.0, vertex.uv.1, color));
                 }
                 self.draw_indices.extend([start, start + 2, start + 3, start, start + 1, start + 3]);
             }

@@ -150,3 +150,26 @@ flash-autoplay-unrated = Autoplay ist an: Dieser Durchlauf wird nicht hochgelade
 
 mods-perfect-sound = Perfect-time sounds
 mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.
+
+## Leaderboard sources and server-specific ranks
+ldb-refresh = Aktualisieren
+ldb-pro = Pro-Rangliste
+ldb-mixed = Gemischte Liste
+ldb-official-server = Offiziell
+ldb-pro-server = Pro
+ldb-loading = Lädt…
+ldb-no-record = Kein Ergebnis
+ldb-unavailable = Nicht verfügbar
+ldb-sign-in = Anmelden
+ldb-offline = Offline
+ldb-rank-unsupported = Nicht angeboten
+ldb-my-ranks = Meine Ränge · je Server
+ldb-local-count = { $count } gespeicherte Spiele
+ldb-local-hint = Spiel antippen, um Details zu sehen
+ldb-offline-hint = Online-Listen sind im Offline-Modus nicht verfügbar
+ldb-accuracy-hint = Genauigkeit sortiert geladene Ergebnisse; keine Ränge
+ldb-partial-hint = Ein Server ist nicht verfügbar; verfügbare Ergebnisse werden angezeigt
+ldb-mixed-hint = Bestes Ergebnis je Spieler · keine gemischten Ränge
+ldb-pro-hint = Pro Top 20 · Ränge nur innerhalb von Pro
+ldb-sign-in-hint = Anmelden, um die Pro-Liste zu sehen
+ldb-empty = Noch keine Ergebnisse

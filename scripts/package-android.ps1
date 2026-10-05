@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$SkipBuild, [string]$Version = '0.8.2-pro.8')
+param([switch]$SkipBuild, [string]$Version = '0.8.2-pro.9')
 $ErrorActionPreference = 'Stop'
 $workspace = Split-Path -Parent $PSScriptRoot
 $androidProject = Join-Path $workspace 'phira-android'

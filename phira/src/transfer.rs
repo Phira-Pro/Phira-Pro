@@ -13,6 +13,44 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+/// Write beside the destination, then atomically replace it after the data is flushed.
+/// `save_data` uses this so a failed write cannot truncate the previous configuration.
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    let parent = path.parent().context("missing destination directory")?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary.write_all(bytes)?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(path).map_err(|err| err.error)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod atomic_write_tests {
+    use super::*;
+
+    #[test]
+    fn replaces_existing_data_without_leaving_temporary_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data.json");
+        write_atomic(&path, b"old").unwrap();
+        write_atomic(&path, b"new configuration").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new configuration");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn failed_replace_preserves_the_destination_and_cleans_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let destination = dir.path().join("directory");
+        std::fs::create_dir(&destination).unwrap();
+        std::fs::write(destination.join("keep"), b"existing data").unwrap();
+        assert!(write_atomic(&destination, b"replacement").is_err());
+        assert_eq!(std::fs::read(destination.join("keep")).unwrap(), b"existing data");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+}
+
 fn data_dir() -> Result<PathBuf> {
     Ok(PathBuf::from(dir::root()?))
 }

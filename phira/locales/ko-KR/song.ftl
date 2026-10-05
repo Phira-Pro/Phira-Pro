@@ -143,3 +143,26 @@ flash-autoplay-unrated = 자동 재생 켜짐: 이번 플레이는 업로드되�
 
 mods-perfect-sound = Perfect-time sounds
 mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.
+
+## Leaderboard sources and server-specific ranks
+ldb-refresh = 새로고침
+ldb-pro = Pro 순위표
+ldb-mixed = 통합 목록
+ldb-official-server = 공식
+ldb-pro-server = Pro
+ldb-loading = 불러오는 중…
+ldb-no-record = 기록 없음
+ldb-unavailable = 이용 불가
+ldb-sign-in = 로그인
+ldb-offline = 오프라인
+ldb-rank-unsupported = 미지원
+ldb-my-ranks = 내 순위 · 서버별 집계
+ldb-local-count = 저장된 플레이 { $count }개
+ldb-local-hint = 기록을 눌러 상세 정보 보기
+ldb-offline-hint = 오프라인 모드에서는 온라인 목록을 볼 수 없습니다
+ldb-accuracy-hint = 정확도는 받은 기록만 정렬하며 순위는 표시하지 않습니다
+ldb-partial-hint = 일부 서버를 이용할 수 없어 받은 기록만 표시합니다
+ldb-mixed-hint = 플레이어별 더 좋은 기록 · 통합 순위 없음
+ldb-pro-hint = Pro 상위 20개 · Pro 내 순위만 표시
+ldb-sign-in-hint = 로그인하여 Pro 순위표 보기
+ldb-empty = 기록이 없습니다

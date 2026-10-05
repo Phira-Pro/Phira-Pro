@@ -143,3 +143,26 @@ flash-autoplay-unrated = Otomatik oynatma açık: bu deneme yüklenmeyecek ve ya
 
 mods-perfect-sound = Perfect-time sounds
 mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.
+
+## Leaderboard sources and server-specific ranks
+ldb-refresh = Yenile
+ldb-pro = Pro sıralaması
+ldb-mixed = Karma liste
+ldb-official-server = Resmî
+ldb-pro-server = Pro
+ldb-loading = Yükleniyor…
+ldb-no-record = Kayıt yok
+ldb-unavailable = Kullanılamıyor
+ldb-sign-in = Giriş yap
+ldb-offline = Çevrimdışı
+ldb-rank-unsupported = Desteklenmiyor
+ldb-my-ranks = Sıralamalarım · sunucu bazında
+ldb-local-count = { $count } kayıtlı oyun
+ldb-local-hint = Ayrıntılar için oyuna dokunun
+ldb-offline-hint = Çevrimdışı modda çevrimiçi listeler kullanılamaz
+ldb-accuracy-hint = Doğruluk alınan sonuçları sıralar; sıra gösterilmez
+ldb-partial-hint = Bir sunucu kullanılamıyor; mevcut sonuçlar gösteriliyor
+ldb-mixed-hint = Oyuncu başına daha iyi sonuç · karma sıra yok
+ldb-pro-hint = Pro ilk 20 · sıralama yalnızca Pro içinde
+ldb-sign-in-hint = Pro sıralamasını görmek için giriş yapın
+ldb-empty = Henüz kayıt yok

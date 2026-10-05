@@ -150,3 +150,26 @@ flash-autoplay-unrated = เปิดเล่นอัตโนมัติ: �
 
 mods-perfect-sound = Perfect-time sounds
 mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.
+
+## Leaderboard sources and server-specific ranks
+ldb-refresh = รีเฟรช
+ldb-pro = อันดับ Pro
+ldb-mixed = รายการรวม
+ldb-official-server = ทางการ
+ldb-pro-server = Pro
+ldb-loading = กำลังโหลด…
+ldb-no-record = ไม่มีคะแนน
+ldb-unavailable = ไม่พร้อมใช้งาน
+ldb-sign-in = เข้าสู่ระบบ
+ldb-offline = ออฟไลน์
+ldb-rank-unsupported = ยังไม่รองรับ
+ldb-my-ranks = อันดับของฉัน · แยกตามเซิร์ฟเวอร์
+ldb-local-count = บันทึกการเล่น { $count } ครั้ง
+ldb-local-hint = แตะรายการเพื่อดูรายละเอียด
+ldb-offline-hint = ดูรายการออนไลน์ไม่ได้ในโหมดออฟไลน์
+ldb-accuracy-hint = ความแม่นยำเรียงเฉพาะคะแนนที่ได้รับโดยไม่แสดงอันดับ
+ldb-partial-hint = บางเซิร์ฟเวอร์ไม่พร้อมใช้งาน แสดงคะแนนที่ได้รับ
+ldb-mixed-hint = คะแนนที่ดีกว่าของแต่ละผู้เล่น · ไม่มีอันดับรวม
+ldb-pro-hint = Pro 20 อันดับแรก · อันดับเฉพาะ Pro
+ldb-sign-in-hint = เข้าสู่ระบบเพื่อดูอันดับ Pro
+ldb-empty = ยังไม่มีคะแนน

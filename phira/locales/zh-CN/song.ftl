@@ -171,3 +171,26 @@ ldb-local-no-hit = 本地榜共 { $count } 条，本次点击未命中任何行
 
 mods-perfect-sound = 正解音
 mods-perfect-sound-sub = 在音符的 0ms 时机播放音效，用于熟悉节奏；开启后不可上传成绩。
+
+## Leaderboard sources and server-specific ranks
+ldb-refresh = 刷新
+ldb-pro = Pro榜
+ldb-mixed = 混合榜
+ldb-official-server = 官服
+ldb-pro-server = Pro服
+ldb-loading = 加载中…
+ldb-no-record = 暂无成绩
+ldb-unavailable = 暂不可用
+ldb-sign-in = 请登录
+ldb-offline = 离线
+ldb-rank-unsupported = 暂不提供
+ldb-my-ranks = 我的排名 · 两服独立统计
+ldb-local-count = 本机已保存 { $count } 次游玩
+ldb-local-hint = 点击记录查看成绩详情
+ldb-offline-hint = 离线模式下无法查看在线榜单
+ldb-accuracy-hint = 准度仅按已返回成绩排序，不显示准度名次
+ldb-partial-hint = 部分榜源暂不可用，已展示可用成绩
+ldb-mixed-hint = 每位玩家保留较优成绩 · 不显示混合名次
+ldb-pro-hint = Pro服前 20 · 名次仅统计 Pro服
+ldb-sign-in-hint = 登录后即可查看 Pro榜
+ldb-empty = 暂无成绩

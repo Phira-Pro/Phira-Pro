@@ -11,6 +11,7 @@ import android.view.Window;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
+import android.widget.Toast;
 
 import quad_native.QuadNative;
 
@@ -180,6 +181,7 @@ public class MainActivity extends Activity {
                 startActivityForResult(intent, REQ_CHOOSE_FILE);
             } catch (Exception e) {
                 Log.w(TAG, "chooseFile failed", e);
+                Toast.makeText(this, "无法打开文件选择器", Toast.LENGTH_LONG).show();
             }
         });
     }
@@ -226,6 +228,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        Log.i(TAG, "File result: request=" + requestCode + ", result=" + resultCode);
         if (resultCode != RESULT_OK || data == null) return;
         Uri uri = data.getData();
         if (uri == null) return;
@@ -238,6 +241,7 @@ public class MainActivity extends Activity {
                     QuadNative.setChosenFile(path);
                 } else {
                     QuadNative.setChosenFile("");
+                    Toast.makeText(this, "无法读取所选文件，请确认文件已下载到本机", Toast.LENGTH_LONG).show();
                 }
                 break;
             }

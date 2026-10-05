@@ -5,7 +5,7 @@ use crate::{
 };
 use glyph_brush::{
     ab_glyph::{Font, FontArc, ScaleFont},
-    BrushAction, BrushError, FontId, GlyphBrush, GlyphBrushBuilder, GlyphCruncher, HorizontalAlign, Layout, Section, SectionGlyph, Text,
+    BrushAction, BrushError, GlyphBrush, GlyphBrushBuilder, GlyphCruncher, HorizontalAlign, Section,
 };
 use macroquad::{
     miniquad::{Texture, TextureParams},
@@ -14,6 +14,23 @@ use macroquad::{
 use once_cell::sync::Lazy;
 use std::{borrow::Cow, cell::RefCell, thread::LocalKey};
 use tracing::debug;
+
+mod layout;
+use layout::{layout_text, InkCache, LayoutOptions};
+
+/// Reject invalid line metrics before glyph layout divides by font height.
+/// Parsing an SFNT alone does not guarantee that it can be rasterized safely.
+pub fn parse_font(bytes: Vec<u8>) -> anyhow::Result<FontArc> {
+    let font = FontArc::try_from_vec(bytes).map_err(|_| anyhow::anyhow!("无效或不支持的字体，请使用 TTF / OTF"))?;
+    let metrics = [
+        font.ascent_unscaled(),
+        font.descent_unscaled(),
+        font.line_gap_unscaled(),
+        font.height_unscaled(),
+    ];
+    anyhow::ensure!(metrics.iter().all(|n| n.is_finite()) && font.height_unscaled() > 0. && font.glyph_count() > 0, "字体度量无效，无法安全显示");
+    Ok(font)
+}
 
 #[must_use = "DrawText does nothing until you 'draw' it"]
 pub struct DrawText<'a, 's, 'ui> {
@@ -96,109 +113,35 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
         0.04 * self.size * w as f32 * f32::from_bits(super::FONT_DISPLAY_SCALE.load(std::sync::atomic::Ordering::Relaxed))
     }
 
-    fn bounds(&self, (x, y, w, h): (f32, f32, f32, f32)) -> Rect {
+    fn bounds(&self, (_, _, w, h): (f32, f32, f32, f32)) -> Rect {
         let vp = get_viewport();
         let s = 2. / vp.2 as f32;
-        let mut rect = Rect::new(self.pos.0 - x * s, self.pos.1 - y * s, w * s, h * s);
+        let mut rect = Rect::new(self.pos.0, self.pos.1, w * s, h * s);
         rect.x -= rect.w * self.anchor.0;
         rect.y -= rect.h * self.anchor.1;
         rect
     }
 
     fn measure_inner<'c>(&mut self, text: &'c str, painter: &mut Option<&mut TextPainter>) -> (Section<'c>, (f32, f32, f32, f32)) {
-        use glyph_brush::ab_glyph;
         let vp = get_viewport();
         let scale = self.get_scale(vp.2);
 
         let default_text_painter = &mut self.ui.text_painter;
         let painter = painter.as_deref_mut().unwrap_or(default_text_painter);
-        let scale = scale * painter.primary_scale;
-
-        let mut section = Section::new().with_layout(Layout::default().h_align(self.h_align));
-        if painter.brush.fonts().len() > 1 {
-            let mut last = 0;
-            let mut last_contain = false;
-            for (i, c) in text.char_indices() {
-                let contain = " \n\t".contains(c) || painter.brush.fonts()[0].glyph_id(c).0 != 0;
-                if last_contain != contain {
-                    if last != i {
-                        section = section.add_text(
-                            Text::new(&text[last..i])
-                                .with_scale(if last_contain { scale } else { scale / painter.primary_scale })
-                                .with_color(self.color)
-                                .with_font_id(FontId((!last_contain) as usize)),
-                        );
-                    }
-                    last = i;
-                    last_contain = contain;
-                }
-            }
-            if last != text.len() {
-                section = section.add_text(
-                    Text::new(&text[last..])
-                        .with_scale(if last_contain { scale } else { scale / painter.primary_scale })
-                        .with_color(self.color)
-                        .with_font_id(FontId((!last_contain) as usize)),
-                );
-            }
-        } else {
-            section = section.add_text(Text::new(text).with_scale(scale).with_color(self.color));
-        }
-
-        let s = 2. / vp.2 as f32;
-        if let Some(max_width) = self.max_width {
-            section = section.with_bounds((max_width / s, f32::INFINITY));
-        }
-        let font = painter.brush.fonts()[0].as_scaled(scale);
-        let line_height = if self.baseline { font.ascent() } else { font.height() };
-
-        if !self.multiline {
-            let bounds = section.bounds;
-            let bounds = ab_glyph::Rect {
-                min: ab_glyph::Point { x: 0., y: 0. },
-                max: ab_glyph::Point { x: bounds.0, y: bounds.1 },
-            };
-            section.bounds.0 = f32::INFINITY;
-            let Some(last) = painter.brush.glyphs(section.clone()).last().cloned() else {
-                return (section, (0., 0., 0., line_height));
-            };
-            let last_end = last.glyph.position.x + painter.brush.fonts()[last.font_id].as_scaled(last.glyph.scale).h_advance(last.glyph.id);
-            if last_end <= bounds.max.x {
-                return (section, (0., 0., last_end, line_height));
-            }
-            let glyphs: Vec<_> = painter.brush.glyphs(section.clone()).cloned().collect();
-            let end = |glyph: &SectionGlyph| {
-                glyph.glyph.position.x
-                    + painter.brush.fonts()[glyph.font_id]
-                        .as_scaled(glyph.glyph.scale)
-                        .h_advance(glyph.glyph.id)
-            };
-            let font = painter.brush.fonts()[0].as_scaled(scale);
-            let id = font.glyph_id('…');
-            let w = font.h_advance(id);
-            if w > bounds.max.x {
-                return (section, (0., 0., 0., line_height));
-            }
-            let index = glyphs.partition_point(|it| end(it) <= bounds.max.x - w);
-            let st = if index == 0 { 0. } else { end(&glyphs[index - 1]) };
-            let byte_index = if index == 0 { 0 } else { glyphs[index - 1].byte_index };
-            // Round to char boundary
-            let byte_index = text[..byte_index].char_indices().next_back().map_or(0, |(i, _)| i);
-            return (
-                section.with_text(vec![
-                    Text::new(&text[..byte_index]).with_scale(scale).with_color(self.color),
-                    Text::new("…").with_scale(scale).with_color(self.color),
-                ]),
-                (0., 0., st + w, line_height),
-            );
-        }
-        let bound = painter.brush.glyph_bounds(&section).unwrap_or_default();
-        let mut height = bound.height();
-        height += text.chars().take_while(|it| *it == '\n').count() as f32 * painter.line_gap(scale) * 3.;
-        if self.baseline {
-            height += painter.brush.fonts()[0].as_scaled(scale).descent();
-        }
-        (section, (bound.min.x, bound.min.y, bound.width(), height))
+        layout_text(
+            &mut painter.brush,
+            &mut painter.ink_cache,
+            text,
+            LayoutOptions {
+                scale,
+                primary_scale: painter.primary_scale,
+                max_width: self.max_width.map(|w| w * vp.2 as f32 / 2.),
+                baseline: self.baseline,
+                multiline: self.multiline,
+                h_align: self.h_align,
+                color: self.color.into(),
+            },
+        )
     }
 
     pub fn measure_with_font(&mut self, mut painter: Option<&mut TextPainter>) -> Rect {
@@ -233,7 +176,7 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
             self.ui.text_painter.brush.queue(section);
         }
         self.ui
-            .with((Matrix::new_scaling(1. / s) * self.scale).append_translation(&Vector::new(rect.x, rect.y)), |ui| {
+            .with((Matrix::new_scaling(1. / s) * self.scale).append_translation(&Vector::new(rect.x - bound.0 / s, rect.y - bound.1 / s)), |ui| {
                 /* ui.apply(|ui| {
                     let tr = Matrix::identity();
                     if let Some(painter) = painter {
@@ -287,6 +230,7 @@ impl MyVertex {
 
 pub struct TextPainter {
     primary_scale: f32,
+    ink_cache: InkCache,
     brush: GlyphBrush<[MyVertex; 4]>,
     cache_texture: Texture2D,
     data_buffer: Vec<u8>,
@@ -308,6 +252,7 @@ impl TextPainter {
         let cache_texture = Self::new_cache_texture(brush.texture_dimensions());
         Self {
             primary_scale: 1.,
+            ink_cache: InkCache::default(),
             brush,
             cache_texture,
             data_buffer: Vec::new(),

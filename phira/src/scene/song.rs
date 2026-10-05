@@ -1398,7 +1398,6 @@ impl SongScene {
             }
             dy!(ui.text(tl!("mods")).size(0.9).draw_using(&BOLD_FONT).h + 0.02);
             let rh = ITEM_HEIGHT * 3. / 5.;
-            let rr = Rect::new(width - 0.24, (ITEM_HEIGHT - rh) / 2., 0.2, rh);
             let mut index = 0;
             let mut item = |title: Cow<'_, str>, subtitle: Option<Cow<'_, str>>, flag: Mods| {
                 const TITLE_SIZE: f32 = 0.6;
@@ -1406,29 +1405,34 @@ impl SongScene {
                 const LEFT: f32 = 0.03;
                 const PAD: f32 = 0.01;
                 const SUB_MAX_WIDTH: f32 = 0.46;
+                let mut row_height = ITEM_HEIGHT;
                 if let Some(subtitle) = subtitle {
-                    let r1 = ui.text(Cow::clone(&title)).size(TITLE_SIZE).measure();
+                    let r1 = ui.text(Cow::clone(&title)).no_baseline().size(TITLE_SIZE).max_width(SUB_MAX_WIDTH).measure();
                     let r2 = ui
                         .text(Cow::clone(&subtitle))
                         .size(SUBTITLE_SIZE)
                         .max_width(SUB_MAX_WIDTH)
+                        .multiline()
                         .no_baseline()
                         .measure();
                     let h = r1.h + PAD + r2.h;
+                    row_height = row_height.max(h + 0.04);
                     ui.text(subtitle)
-                        .pos(LEFT, (ITEM_HEIGHT + h) / 2. - r2.h)
+                        .pos(LEFT, (row_height + h) / 2. - r2.h)
                         .size(SUBTITLE_SIZE)
                         .max_width(SUB_MAX_WIDTH)
                         .multiline()
+                        .no_baseline()
                         .color(semi_white(0.6))
                         .draw();
-                    ui.text(title).pos(LEFT, (ITEM_HEIGHT - h) / 2.).no_baseline().size(TITLE_SIZE).draw();
+                    ui.text(title).pos(LEFT, (row_height - h) / 2.).no_baseline().size(TITLE_SIZE).max_width(SUB_MAX_WIDTH).draw();
                 } else {
                     ui.text(title)
                         .pos(LEFT, ITEM_HEIGHT / 2.)
                         .anchor(0., 0.5)
                         .no_baseline()
                         .size(TITLE_SIZE)
+                        .max_width(SUB_MAX_WIDTH)
                         .draw();
                 }
                 if self.mod_btns.len() <= index {
@@ -1450,6 +1454,7 @@ impl SongScene {
                     }
                 }
                 let on = self.mods.contains(flag);
+                let rr = Rect::new(width - 0.24, (row_height - rh) / 2., 0.2, rh);
                 let oh = rr.h;
                 btn.build(ui, rt, rr, |ui, path| {
                     let ct = rr.center();
@@ -1463,7 +1468,7 @@ impl SongScene {
                         .color(if on { Color::new(0.3, 0.3, 0.3, 1.) } else { WHITE })
                         .draw();
                 });
-                dy!(ITEM_HEIGHT);
+                dy!(row_height);
                 index += 1;
             };
             item(tl!("mods-autoplay"), Some(tl!("mods-autoplay-sub")), Mods::AUTOPLAY);

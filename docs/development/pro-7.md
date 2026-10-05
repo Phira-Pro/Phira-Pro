@@ -52,3 +52,15 @@ Android 本地：配置 JDK 21、ANDROID_HOME、ANDROID_NDK_HOME（NDK 27.2.1247
 验证：Android 17 / API 37 的只读模拟器（x86_64，执行发布用 arm64 APK 的 ARM 转译）复现原包启动 SIGABRT；修复包通过重复冷启动、前后台恢复、输入框取消与确认回调、HTTPS 连接验证，未出现 native panic 或 Java 崩溃。核心 54 项回归及 Windows 静态检查通过；尚未在实体 Android 设备上验证。
 
 提交说明使用中文。Release 名称只用 pro.N；未经用户明确要求不修改版本号。构建成功后清理本地两个版本以前的安装包，只清理 dist 对应平台目录内匹配命名的文件，保留当前版本和上一版本，不删除目录或用户数据。Android 发布原始 APK；Release 不上传 SHA256 文件。
+
+## 自定义字体修复
+
+修复 Android singleInstance 导致文件选择器在新任务中打开、结果回调被系统取消的问题，主界面改为 singleTask。导入成功及恢复默认均提供提示，文件选择器无法打开或文件读取失败不再静默。恢复默认检查实际删除结果，不再忽略文件系统错误。
+
+修复混合中文与拉丁字形回退时，将字体段内 byte_index 用于整段字符串截断而触发 UTF-8 panic 的问题。截断保留各段字体、字号和省略号回退，按完整字素截断组合字符。共用文字布局按可见字形边界居中，缓存字体单位的字形边界，避免逐帧重复解析轮廓。标题裁剪动画、设置标签、Mod 说明的测量与绘制采用一致方式；Mod 长说明增加行高，首页与分页标签限制在控件宽度内。粗体标题始终使用内置中文回退。
+
+导入与启动共用字体校验，拒绝损坏字体、零行高、空文件及超过 32 MB 的文件。字体写入经临时文件同步后原子替换；失败保留旧字体。坏字体启动时回退内置字体，恢复默认可重复执行。
+
+验证：核心 60 项及应用 9 项回归通过，含各语言 Mod 标签、中文/拉丁混排、组合字符、空标签、换行、损坏字体及文件替换/恢复。用 Nu Mono Free Regular OTF 复现原截断 panic；6 款 TTF/OTF/TTC 字体、五档字号共 30 组真实 GPU 检查通过，检查字形高度、居中、长标签截断及标题裁剪。Android arm64 签名 APK 编译通过，在只读 API 37 模拟器中覆盖安装，验证字体选择成功回调、重启生效、恢复默认后重启生效。实体 Android 和 iOS 尚未验证；Windows 无 xcrun，iOS 交叉检查停在系统 SDK 依赖。
+
+重跑：cargo test -p prpr --lib；cargo test -p phira --lib；cargo check -p phira --lib。设置 PHIRA_TEST_FONT 为本地字体路径可启用用户字体及各语言 Mod 回归。cargo run -p prpr --example font_layout_check -- [额外字体路径] 执行 GPU 检查，截图只写入 target/font-regression，不提交第三方字体。

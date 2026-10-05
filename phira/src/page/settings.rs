@@ -394,10 +394,10 @@ fn render_title<'a>(ui: &mut Ui, title: impl Into<Cow<'a, str>>, subtitle: Optio
     const SUBTITLE_SIZE: f32 = 0.35;
     const LEFT: f32 = 0.06;
     const PAD: f32 = 0.01;
-    const SUB_MAX_WIDTH: f32 = 1.4;
+    const SUB_MAX_WIDTH: f32 = 1.2;
     if let Some(subtitle) = subtitle {
         let title = title.into();
-        let r1 = ui.text(Cow::clone(&title)).size(TITLE_SIZE).measure();
+        let r1 = ui.text(Cow::clone(&title)).no_baseline().size(TITLE_SIZE).max_width(SUB_MAX_WIDTH).measure();
         let r2 = ui
             .text(Cow::clone(&subtitle))
             .size(SUBTITLE_SIZE)
@@ -409,6 +409,7 @@ fn render_title<'a>(ui: &mut Ui, title: impl Into<Cow<'a, str>>, subtitle: Optio
             .text(subtitle)
             .pos(LEFT, (item_row_h() + h) / 2.)
             .anchor(0., 1.)
+            .no_baseline()
             .size(SUBTITLE_SIZE)
             .max_width(SUB_MAX_WIDTH)
             .color(semi_white(0.6))
@@ -419,6 +420,7 @@ fn render_title<'a>(ui: &mut Ui, title: impl Into<Cow<'a, str>>, subtitle: Optio
             .pos(LEFT, (item_row_h() - h) / 2.)
             .no_baseline()
             .size(TITLE_SIZE)
+            .max_width(SUB_MAX_WIDTH)
             .draw()
             .right();
         r1.max(r2)
@@ -762,10 +764,12 @@ impl GeneralList {
             return Ok(Some(true));
         }
         if self.font_reset_btn.touch(touch, t) {
-            if self.has_custom_font {
-                let _ = std::fs::remove_file(dir::custom_font_path()?);
-                self.has_custom_font = false;
-                show_message(tl!("font-reset-done")).ok();
+            match dir::reset_font() {
+                Ok(()) => {
+                    self.has_custom_font = false;
+                    show_message(tl!("font-reset-done")).ok();
+                }
+                Err(err) => show_error(err),
             }
             return Ok(Some(true));
         }

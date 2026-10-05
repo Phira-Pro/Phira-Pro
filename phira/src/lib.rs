@@ -12,6 +12,7 @@ mod charts_view;
 mod client;
 mod data;
 pub mod deeplink;
+mod font_store;
 mod history;
 mod hud;
 mod icons;
@@ -159,19 +160,11 @@ mod dir {
     }
 
     pub fn import_font(path: &std::path::Path) -> Result<()> {
-        use anyhow::Context;
-        let size = std::fs::metadata(path)?.len();
-        anyhow::ensure!(size > 0 && size <= 32 * 1024 * 1024, "字体文件为空或超过 32 MB");
-        let bytes = std::fs::read(path).context("读取字体失败")?;
-        prpr::ui::FontArc::try_from_vec(bytes.clone()).context("无效或不支持的字体，请使用 TTF / OTF")?;
-        let destination = custom_font_path()?;
-        let staging = format!("{destination}.tmp");
-        std::fs::write(&staging, bytes)?;
-        // Validate before replacing the working font, so a failed import cannot
-        // corrupt the next launch. Windows rename does not replace an existing file.
-        std::fs::copy(&staging, destination)?;
-        let _ = std::fs::remove_file(staging);
-        Ok(())
+        crate::font_store::import(path, std::path::Path::new(&custom_font_path()?))
+    }
+
+    pub fn reset_font() -> Result<()> {
+        crate::font_store::reset(std::path::Path::new(&custom_font_path()?))
     }
 
     pub fn charts() -> Result<String> {
@@ -350,16 +343,20 @@ async fn the_main() -> Result<()> {
     // 用自定义字体时把内置字体作为逐字回退，缺字不会变成方块。
     let custom_font = dir::custom_font_path()
         .ok()
-        .map(std::path::PathBuf::from)
-        .filter(|it| it.metadata().is_ok_and(|m| m.len() <= 32 * 1024 * 1024))
-        .and_then(|it| std::fs::read(it).ok());
-    let custom_font = custom_font.and_then(|bytes| match FontArc::try_from_vec(bytes) {
-        Ok(font) => Some(font),
-        Err(err) => {
-            warn!(?err, "invalid imported font; using builtin");
-            None
-        }
-    });
+        .and_then(|path| match font_store::load(std::path::Path::new(&path)) {
+            Ok(font) => Some(font),
+            Err(err)
+                if err
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                None
+            }
+            Err(err) => {
+                warn!(?err, "invalid imported font; using builtin");
+                None
+            }
+        });
     let has_custom_font = custom_font.is_some();
 
     let mut builtin_font = None;
@@ -387,7 +384,9 @@ async fn the_main() -> Result<()> {
     }
     prpr::ui::FONT_DISPLAY_SCALE.store(get_data().config.font_scale().to_bits(), std::sync::atomic::Ordering::Relaxed);
 
-    let mut main = Main::new(Box::new(MainScene::new(font).await?), TimeManager::default(), None).await?;
+    // Bold headings also need the builtin CJK fallback when the imported font
+    // contains Latin only. The custom font is already in the main painter.
+    let mut main = Main::new(Box::new(MainScene::new(reference).await?), TimeManager::default(), None).await?;
 
     let tm = TimeManager::default();
     let mut fps_time = -1;

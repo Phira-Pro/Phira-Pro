@@ -338,7 +338,7 @@ impl HomePage {
                         }
                     }
                     ui.fill_path(&path, (semi_black(0.7), (r.x, r.y), Color::default(), (r.x + 0.6, r.y)));
-                    ui.text(tl!("play")).pos(r.x + pad, r.y + pad).draw();
+                    ui.text(tl!("play")).pos(r.x + pad, r.y + pad).max_width((r.w - pad * 2.).max(0.)).draw();
                     let r = Rect::new(r.x + 0.02, r.bottom() - 0.18, 0.17, 0.17);
                     ui.fill_rect(r, (*self.icons.play, r, ScaleType::Fit, semi_white(0.6)));
                 });
@@ -352,7 +352,7 @@ impl HomePage {
                 btn.render_shadow(ui, r, t, |ui, path| {
                     ui.fill_path(&path, semi_black(0.4));
                     let ir = Rect::new(r.x + 0.02, r.bottom() - 0.08, 0.14, 0.14);
-                    ui.text(text).pos(r.x + 0.026, r.y + 0.026).size(0.7 * r.w / ow).draw();
+                    ui.text(text).pos(r.x + 0.026, r.y + 0.026).size(0.7 * r.w / ow).max_width((r.w - 0.052).max(0.)).draw();
                     ui.fill_rect(
                         {
                             let mut ir = ir;

@@ -23,7 +23,7 @@ mod shadow;
 pub use shadow::*;
 
 mod text;
-pub use text::{DrawText, TextPainter};
+pub use text::{parse_font, DrawText, TextPainter};
 
 pub use glyph_brush::ab_glyph::FontArc;
 

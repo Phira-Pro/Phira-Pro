@@ -126,6 +126,7 @@ impl<T> Tabs<T> {
                 .anchor(0.5, 0.5)
                 .no_baseline()
                 .size(0.5)
+                .max_width((r.w - 0.02).max(0.))
                 .color(c)
                 .draw();
             r.y += 0.125;

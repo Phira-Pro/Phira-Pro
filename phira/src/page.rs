@@ -355,10 +355,10 @@ impl Fader {
 
     pub fn render_title(&mut self, ui: &mut Ui, t: f32, s: &str) {
         let tp = ui.back_rect().center().y;
-        let h = ui.text("L").size(1.2).no_baseline().measure_using(&BOLD_FONT).h;
+        let h = ui.text(s).size(1.2).no_baseline().measure_using(&BOLD_FONT).h;
         ui.scissor(Rect::new(-1., tp - h / 2., 2., h), |ui| {
             let p = self.progress_scaled(t, 1.6);
-            let tp = tp + h * p - h / 2.;
+            let tp = tp + h * p;
             let mut x = -0.87;
             if s == HOME_LABEL {
                 x -= ui.back_rect().w;
@@ -367,7 +367,8 @@ impl Fader {
                 x += ui
                     .text(c.to_string())
                     .pos(x, tp)
-                    .anchor(0., 0.)
+                    .anchor(0., 0.5)
+                    .no_baseline()
                     .size(1.2)
                     .color(WHITE)
                     .draw_using(&BOLD_FONT)
@@ -376,7 +377,7 @@ impl Fader {
             }
             if s == HOME_LABEL {
                 ui.text(crate::PRO_VERSION_TAG)
-                    .pos(x + 0.01, tp + h - 0.027)
+                    .pos(x + 0.01, tp + h / 2. - 0.027)
                     .anchor(0., 1.)
                     .color(semi_white(0.4))
                     .size(0.5)
@@ -471,7 +472,7 @@ fn sha256(data: &[u8]) -> String {
 }
 fn load_font_with_cksum(data: Vec<u8>) -> Result<(FontArc, String)> {
     let cksum = sha256(&data);
-    Ok((FontArc::try_from_vec(data)?, cksum))
+    Ok((prpr::ui::parse_font(data)?, cksum))
 }
 
 fn set_bold_font((font, cksum): (FontArc, String)) {

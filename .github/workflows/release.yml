@@ -1,0 +1,109 @@
+name: Build Release Assets
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing published Release tag, e.g. v0.8.2-pro.9
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Serialize runs for one Release, including manual retries.
+concurrency:
+  group: release-assets-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Validate Release and pin source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.prepare.outputs.tag }}
+      sha: ${{ steps.prepare.outputs.sha }}
+      release-id: ${{ steps.prepare.outputs.release_id }}
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      RELEASE_EVENT_SHA: ${{ github.event_name == 'release' && github.sha || '' }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Validate release tooling
+        run: python -m unittest discover -s scripts/tests -v
+
+      - name: Check tag, versions and Release state
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/release.py prepare --tag "$RELEASE_TAG" --expected-sha "$RELEASE_EVENT_SHA"
+
+  desktop:
+    name: Desktop packages
+    needs: prepare
+    uses: ./.github/workflows/desktop.yml
+    with:
+      source-ref: ${{ needs.prepare.outputs.sha }}
+
+  android:
+    name: Android APK
+    needs: prepare
+    uses: ./.github/workflows/android.yml
+    with:
+      source-ref: ${{ needs.prepare.outputs.sha }}
+    secrets:
+      PHIRA_PRO_KEYSTORE_BASE64: ${{ secrets.PHIRA_PRO_KEYSTORE_BASE64 }}
+      PHIRA_PRO_KEYSTORE_PASSWORD: ${{ secrets.PHIRA_PRO_KEYSTORE_PASSWORD }}
+      PHIRA_PRO_KEY_ALIAS: ${{ secrets.PHIRA_PRO_KEY_ALIAS }}
+      PHIRA_PRO_KEY_PASSWORD: ${{ secrets.PHIRA_PRO_KEY_PASSWORD }}
+
+  ios:
+    name: iOS IPA
+    needs: prepare
+    uses: ./.github/workflows/ios.yml
+    with:
+      source-ref: ${{ needs.prepare.outputs.sha }}
+
+  upload:
+    name: Upload complete asset set
+    needs: [prepare, desktop, android, ios]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+      RELEASE_ID: ${{ needs.prepare.outputs.release-id }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: PhiraPro-*
+          path: release-assets
+          merge-multiple: false
+
+      - name: Verify packages, generate checksums and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python scripts/release.py upload --tag "$RELEASE_TAG"
+          --expected-sha "$RELEASE_SHA" --release-id "$RELEASE_ID"
+          --directory release-assets

@@ -1,8 +1,14 @@
 name: Build iOS IPA
 
-# 仅手动触发：Actions 页面点 "Run workflow" 才构建，日常不消耗 macOS runner 配额。
+# 可单独手动构建，也可由 Release 工作流调用；日常 push 不触发。
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      source-ref:
+        description: Commit to build; empty uses the triggering ref
+        type: string
+        default: ''
 
 jobs:
   ipa:
@@ -14,6 +20,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.source-ref || github.sha }}
 
       - uses: actions/setup-python@v7.0.0
         with:
@@ -83,12 +91,12 @@ jobs:
           rm -rf out
           mkdir -p out/Payload
           cp -R "$APP" out/Payload/
-          (cd out && zip -qry "PhiraPro-${VERSION}-unsigned.ipa" Payload)
+          (cd out && zip -qry "PhiraPro-v${VERSION}-ios-arm64-unsigned.ipa" Payload)
 
-          ls -lh "out/PhiraPro-${VERSION}-unsigned.ipa"
+          ls -lh "out/PhiraPro-v${VERSION}-ios-arm64-unsigned.ipa"
 
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: PhiraPro-unsigned-ipa
-          path: out/PhiraPro-*-unsigned.ipa
+          path: out/PhiraPro-v*-ios-arm64-unsigned.ipa
           if-no-files-found: error

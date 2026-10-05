@@ -1,8 +1,23 @@
 name: Build Android APK
 
-# 仅手动触发：Actions 页面点 "Run workflow" 才构建，避免日常消耗。
+# 可单独手动构建，也可由 Release 工作流调用；日常 push 不触发。
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      source-ref:
+        description: Commit to build; empty uses the triggering ref
+        type: string
+        default: ''
+    secrets:
+      PHIRA_PRO_KEYSTORE_BASE64:
+        required: true
+      PHIRA_PRO_KEYSTORE_PASSWORD:
+        required: true
+      PHIRA_PRO_KEY_ALIAS:
+        required: true
+      PHIRA_PRO_KEY_PASSWORD:
+        required: true
 
 jobs:
   apk:
@@ -14,6 +29,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.source-ref || github.sha }}
 
       - uses: actions/setup-python@v7.0.0
         with:
@@ -70,10 +87,13 @@ jobs:
       - name: Restore signing keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.PHIRA_PRO_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.PHIRA_PRO_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.PHIRA_PRO_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.PHIRA_PRO_KEY_PASSWORD }}
         run: |
           set -e
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "缺少 Secret: PHIRA_PRO_KEYSTORE_BASE64"; exit 1
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "缺少 Android 签名 Secret；需要配置四项 PHIRA_PRO_* 签名参数"; exit 1
           fi
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/keystore.jks"
           ls -l "$RUNNER_TEMP/keystore.jks"
@@ -98,9 +118,16 @@ jobs:
           SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
           "$SDK/build-tools/35.0.0/apksigner" verify --print-certs "$APK"
 
+      - name: Name release APK
+        run: |
+          set -euo pipefail
+          VERSION="$(python scripts/version.py show --field pro_version)"
+          mkdir -p dist/android
+          cp phira-android/app/build/outputs/apk/release/app-release.apk "dist/android/PhiraPro-v${VERSION}-android-arm64-v8a.apk"
+
       - name: Upload APK
         uses: actions/upload-artifact@v7.0.1
         with:
           name: PhiraPro-android-apk
-          path: phira-android/app/build/outputs/apk/release/*.apk
+          path: dist/android/*.apk
           if-no-files-found: error

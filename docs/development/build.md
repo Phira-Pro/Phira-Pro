@@ -79,12 +79,40 @@ Rust 工具链镜像不替代 Cargo 的 crate 和 Git 依赖下载。使用代�
 
 ## GitHub Actions
 
-三个工作流均通过 Actions → 选择工作流 → Run workflow 手动触发：
+三个平台工作流可以通过 Actions → 选择工作流 → Run workflow 单独手动触发，也供自动发版工作流复用：
 
 - **Build Desktop Packages**：Windows、Linux、macOS 三个独立 runner 并行构建 release ZIP。任一平台失败不会取消其他平台；每项上传自己的 ZIP Artifact。
 - **Build Android APK**：构建 arm64 APK、校验组织 Secret 注入的签名并上传 Artifact。
 - **Build iOS IPA**：在 macOS runner 上用 Xcode 构建并上传未签名 IPA，安装前需自行签名。
 
-各工作流先执行版本一致性检查；桌面工作流还运行版本同步和打包工具的回归测试。桌面目标为 Windows x64、Linux x86_64、macOS arm64；macOS 和 iOS 使用 `macos-15` runner，Actions 使用 Node 24 运行时。当前 FFmpeg 发布包只提供 macOS arm64 静态库；Intel Mac 需自行准备对应 FFmpeg 库，并通过 `PRPR_AVC_LIBS` 指向含目标子目录的库根目录。工作流不自动创建 GitHub Release。Android CI 所需的组织 Secrets 为 `PHIRA_PRO_KEYSTORE_BASE64`、`PHIRA_PRO_KEYSTORE_PASSWORD`、`PHIRA_PRO_KEY_ALIAS`、`PHIRA_PRO_KEY_PASSWORD`。
+各工作流先执行版本一致性检查；桌面工作流还运行版本同步和打包工具的回归测试。桌面目标为 Windows x64、Linux x86_64、macOS arm64；macOS 和 iOS 使用 `macos-15` runner，Actions 使用 Node 24 运行时。当前 FFmpeg 发布包只提供 macOS arm64 静态库；Intel Mac 需自行准备对应 FFmpeg 库，并通过 `PRPR_AVC_LIBS` 指向含目标子目录的库根目录。Android CI 所需的组织 Secrets 为 `PHIRA_PRO_KEYSTORE_BASE64`、`PHIRA_PRO_KEYSTORE_PASSWORD`、`PHIRA_PRO_KEY_ALIAS`、`PHIRA_PRO_KEY_PASSWORD`。
+
+### 发布 Release 自动构建
+
+**Build Release Assets**（`.github/workflows/release.yml`）监听 `release.published`，正式版和预发布版均触发；创建草稿或日常 push 不触发构建。工作流不代替维护者创建或发布 Release，也不修改 Release 正文。
+
+1. 修改 `version.json` 中的 Pro 版本并提升 `build_number`，执行 `python scripts/version.py sync` 和 `python scripts/version.py check`，提交版本文件与同步结果。
+2. 将包含发版工作流和版本更新的提交推送到 GitHub，再为该提交创建 Tag，例如 `v0.8.2-pro.9`。Tag 必须与该提交的 `pro_version` 一致；也接受不带 `v` 的 `0.8.2-pro.9`。
+3. 在 Releases 页面选择这个 Tag，填写更新说明并发布 Release；标记为预发布版也会构建。
+4. 工作流检查版本、Release 状态和 Tag 提交，随后并行调用桌面、Android 和 iOS 工作流。各平台固定构建同一个提交 SHA。全部成功后才开始向该 Release 上传完整附件集。
+
+以当前版本为例，附件为：
+
+| 平台 | 附件 |
+|---|---|
+| Windows x64 | `PhiraPro-v0.8.2-pro.9-win64.zip` |
+| Linux x86_64 | `PhiraPro-v0.8.2-pro.9-linux-x86_64.zip` |
+| macOS arm64 | `PhiraPro-v0.8.2-pro.9-macos-aarch64.zip` |
+| Android arm64-v8a | `PhiraPro-v0.8.2-pro.9-android-arm64-v8a.apk`，使用现有密钥签名 |
+| iOS arm64 | `PhiraPro-v0.8.2-pro.9-ios-arm64-unsigned.ipa`，安装前自行签名 |
+| 校验清单 | `SHA256SUMS`，包含上述五个文件的 SHA-256 |
+
+发布前需允许 GitHub 官方 Actions 和标准托管 runner，四项 Android 签名 Secrets 对本仓库可用。仓库默认 `GITHUB_TOKEN` 权限可以保持只读，只有最终上传 job 声明 `contents: write`，无需额外 PAT。仓库的 **Settings → General → Releases → Enable release immutability** 必须关闭；已发布的不可变 Release 会在构建前被拒绝，因为它无法追加附件。详见 [Release 触发规则](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release) 和 [不可变 Release 设置](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/establish-provenance-and-integrity/prevent-release-changes)。
+
+若某个平台失败，其余平台仍会完成并保留 Actions Artifact；该次运行不会进入上传 job。修复环境或下载失败后，优先使用 **Re-run failed jobs**，复用本次已成功平台的产物。若修复需要修改源码，提升版本和构建号后发布新的 Tag，避免移动已发布 Tag。
+
+上传不是 GitHub API 的原子操作：网络中断可能留下部分附件。重跑失败的上传 job 会跳过 SHA-256 和大小均一致的已有附件，只补齐缺失附件；已有同名附件内容不同或缺少可验证的摘要时会明确失败，不自动覆盖，其他维护者附件也会保留。检查冲突附件后可手动移除它再重跑。上传前还会检查 Tag 没有移动、Release 没有被删除后重建。
+
+**Build Release Assets → Run workflow** 也接受 `tag` 参数，用于为已有的已发布 Release 补建附件；手动入口需让工作流文件先进入默认分支。已经存在的旧 Tag 若缺少新构建脚本或版本定义，需要单独处理，手动入口不会为旧提交注入新源码。相关实现见 `scripts/release.py`。
 
 工具回归命令：`python -m unittest discover -s scripts/tests -v`。

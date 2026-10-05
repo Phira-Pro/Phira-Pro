@@ -73,7 +73,7 @@ python scripts/version.py check
 python scripts/build.py
 ```
 
-Windows、Linux、macOS 在各自系统上使用 `python scripts/build.py --package` 构建 ZIP，版本和平台名称自动派生；包内包含程序、资源与许可证。更新日志保留在 `docs`。Android 使用 `python scripts/build.py --platform android`，iOS 在 macOS 上使用 `python scripts/build.py --platform ios`。GitHub Actions 提供手动运行的 Desktop Packages / Android APK / iOS IPA 工作流，环境与签名配置见 [构建说明](docs/development/build.md)。
+Windows、Linux、macOS 在各自系统上使用 `python scripts/build.py --package` 构建 ZIP，版本和平台名称自动派生；包内包含程序、资源与许可证。更新日志保留在 `docs`。Android 使用 `python scripts/build.py --platform android`，iOS 在 macOS 上使用 `python scripts/build.py --platform ios`。GitHub Actions 提供手动运行的 Desktop Packages / Android APK / iOS IPA 工作流；发布与版本定义一致的 Release 后，Build Release Assets 自动构建五个平台并上传附件及 SHA-256 清单。iOS 产物未签名，安装前需自行签名。发版步骤、环境与签名配置见 [构建说明](docs/development/build.md)。
 
 ## 授权与致谢
 

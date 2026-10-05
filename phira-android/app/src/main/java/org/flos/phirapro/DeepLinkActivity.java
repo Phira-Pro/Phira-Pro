@@ -9,8 +9,10 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import quad_native.QuadNative;
 
-/** 由系统「打开方式 → 导入到 Phira Pro」拉起（谱面包）。 */
-public class ImportActivity extends AppCompatActivity {
+/**
+ * 处理深链入口：把原始 URL 原样交给 Rust 的 parse_deeplink 统一解析。
+ */
+public class DeepLinkActivity extends AppCompatActivity {
 
     private static final String TAG = "SAPP";
 
@@ -24,20 +26,11 @@ public class ImportActivity extends AppCompatActivity {
             return;
         }
         try {
-            sendFileToNative(data);
-            QuadNative.markImport();
+            QuadNative.setDeepLink(data.toString());
             startActivity(new Intent(this, MainActivity.class));
-            finish();
         } catch (Throwable e) {
-            Log.e(TAG, "Failed to import", e);
+            Log.e(TAG, "Failed to handle deep link", e);
         }
-    }
-
-    private void sendFileToNative(Uri uri) {
-        String path = UriFiles.materialize(this, uri);
-        if (path == null) {
-            throw new IllegalStateException("cannot read " + uri);
-        }
-        QuadNative.setChosenFile(path);
+        finish();
     }
 }

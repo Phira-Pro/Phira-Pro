@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 游戏是全屏 OpenGL 应用，用框架 Material 主题即可，无需 AppCompat / Material 库。 -->
-    <style name="Theme.PhiraPro" parent="@android:style/Theme.Material.NoActionBar">
+    <!-- 输入框（inputbox）用的是 AppCompat 的 AlertDialog 与 Material 的
+         TextInputLayout / TextInputEditText，所以主题必须继承 AppCompat/Material 系列，
+         不能再用框架的 Theme.Material（否则弹输入框时会崩）。 -->
+    <style name="Theme.PhiraPro" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
     </style>
 

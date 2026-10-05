@@ -123,4 +123,9 @@ dependencies {
     implementation 'androidx.startup:startup-runtime:1.1.1'
     implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.0.21'
     implementation 'moe.mivik:inputbox:0.1.4'
+
+    // inputbox 的实现依赖 androidx.appcompat 的 AlertDialog 与 Material 的
+    // TextInputLayout / TextInputEditText，这两者 AAR 自身不带，必须由宿主提供。
+    // material 会传递带入 appcompat、emoji2、profileinstaller 等。
+    implementation 'com.google.android.material:material:1.12.0'
 }

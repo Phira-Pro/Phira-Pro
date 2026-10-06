@@ -162,7 +162,7 @@ impl FileSystem for ZipFileSystem {
             .lock()
             .unwrap()
             .file_names()
-            .filter(|it| it.strip_prefix(&self.1).is_some_and(|it| !it.contains('/')))
+            .filter_map(|it| it.strip_prefix(&self.1).filter(|it| !it.is_empty() && !it.contains('/')))
             .map(str::to_owned)
             .collect())
     }
@@ -296,6 +296,12 @@ fn info_from_csv(text: &str) -> Result<ChartInfo> {
     info_from_kv(headers.iter().zip(&record).map(|(key, value)| (key.as_str(), value.to_owned())), true)
 }
 
+/// These JSON files contain block data, not playable charts.
+pub(crate) fn is_block_area_sidecar(path: &str) -> bool {
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path).to_ascii_lowercase();
+    name == "blockarealist.json" || name.ends_with(".blockarealist.json")
+}
+
 pub async fn fix_info(fs: &mut dyn FileSystem, info: &mut ChartInfo) -> Result<()> {
     fix_info_with(fs, info, false).await
 }
@@ -309,7 +315,7 @@ pub async fn fix_info_with(fs: &mut dyn FileSystem, info: &mut ChartInfo, infer_
     async fn get(fs: &mut dyn FileSystem, path: &mut String) -> Result<Option<String>> {
         Ok(if fs.exists(path).await? { Some(std::mem::take(path)) } else { None })
     }
-    let mut chart = get(fs, &mut info.chart).await?;
+    let mut chart = if is_block_area_sidecar(&info.chart) { None } else { get(fs, &mut info.chart).await? };
     let mut music = get(fs, &mut info.music).await?;
     let mut illustration = get(fs, &mut info.illustration).await?;
     fn put(desc: &str, status: &mut Option<String>, value: String) {
@@ -325,7 +331,7 @@ pub async fn fix_info_with(fs: &mut dyn FileSystem, info: &mut ChartInfo, infer_
     for file in fs.list_root().context("cannot list files")? {
         if let Some((_, ext)) = file.rsplit_once('.') {
             match ext.to_ascii_lowercase().as_str() {
-                "json" | "pec" => {
+                "json" | "pec" if !is_block_area_sidecar(&file) => {
                     put("charts", &mut chart, file);
                 }
                 _ => {}

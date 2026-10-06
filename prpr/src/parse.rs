@@ -10,8 +10,9 @@ pub use pec::{parse_pec, SendChart};
 mod pgr;
 pub use pgr::{parse_phigros, parse_phigros_loading};
 
+mod block_area;
 mod rpe;
-pub use rpe::{lint, parse_rpe, RPE_HEIGHT, RPE_WIDTH};
+pub use rpe::{lint, parse_rpe, parse_rpe_with_path, RPE_HEIGHT, RPE_WIDTH};
 
 #[derive(Debug, Default)]
 pub struct ParseWarnings {

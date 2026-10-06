@@ -16,7 +16,7 @@ use crate::{
     fs::FileSystem,
     info::{ChartFormat, ChartInfo},
     judge::{Judge, Judgement, RecentHit},
-    parse::{parse_extra, parse_pec, parse_rpe, SendChart},
+    parse::{parse_extra, parse_pec, parse_rpe_with_path, SendChart},
     task::Task,
     time::TimeManager,
     ui::{OffsetAnalysisPanel, OffsetPanelAction, OffsetPanelLabels, RectButton, TextPainter, Ui},
@@ -507,7 +507,9 @@ impl GameScene {
         let mut bytes = Self::load_chart_bytes(fs, info).await.context("Failed to load chart")?;
         let format = Self::infer_chart_format(info, &bytes);
         let mut chart = match format {
-            ChartFormat::Rpe => parse_rpe(&String::from_utf8_lossy(&bytes), fs, extra, info.use_rpe_170_speed.unwrap_or_default()).await,
+            ChartFormat::Rpe => {
+                parse_rpe_with_path(&String::from_utf8_lossy(&bytes), fs, extra, info.use_rpe_170_speed.unwrap_or_default(), Some(&info.chart)).await
+            }
             ChartFormat::Pgr => {
                 let (chart, owned) = crate::parse::parse_phigros_loading(std::mem::take(&mut bytes), extra).await?;
                 bytes = owned;

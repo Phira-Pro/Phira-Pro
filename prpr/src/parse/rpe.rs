@@ -303,7 +303,7 @@ struct RPEChart {
     bpm_list: Vec<RPEBpmItem>,
     judge_line_list: Vec<RPEJudgeLine>,
     #[serde(default, alias = "BlockAreaList")]
-    block_area_list: Vec<PgrBlockArea>,
+    block_area_list: Option<Vec<PgrBlockArea>>,
 }
 
 type BezierMap = HashMap<(u16, i16, i16), TweenRef>;
@@ -863,6 +863,17 @@ fn get_bezier_map(rpe: &RPEChart) -> BezierMap {
 }
 
 pub async fn parse_rpe(source: &str, fs: &mut dyn FileSystem, extra: ChartExtra, use_rpe_170_speed: bool) -> Result<Chart> {
+    parse_rpe_with_path(source, fs, extra, use_rpe_170_speed, None).await
+}
+
+/// The chart path disambiguates per-difficulty blockAreaList exports.
+pub async fn parse_rpe_with_path(
+    source: &str,
+    fs: &mut dyn FileSystem,
+    extra: ChartExtra,
+    use_rpe_170_speed: bool,
+    chart_path: Option<&str>,
+) -> Result<Chart> {
     let rpe: RPEChart = serde_json::from_str(source).with_context(|| ptl!("json-parse-failed"))?;
     let speed_mode = if rpe.meta.rpe_version >= 170 {
         SpeedEasingMode::Modern
@@ -870,6 +881,10 @@ pub async fn parse_rpe(source: &str, fs: &mut dyn FileSystem, extra: ChartExtra,
         SpeedEasingMode::Legacy
     };
     let bezier_map = get_bezier_map(&rpe);
+    let block_areas = match rpe.block_area_list {
+        Some(list) => parse_block_areas(list),
+        None => super::block_area::load_external(fs, chart_path).await?,
+    };
     let mut r = BpmList::new(rpe.bpm_list.into_iter().map(|it| (it.start_time.beats(), it.bpm)).collect());
     fn vec<T>(v: &Option<Vec<T>>) -> impl Iterator<Item = &T> {
         v.iter().flat_map(|it| it.iter())
@@ -938,7 +953,7 @@ pub async fn parse_rpe(source: &str, fs: &mut dyn FileSystem, extra: ChartExtra,
     let mut chart = Chart::new(rpe.meta.offset as f32 / 1000.0, lines, r, ChartSettings::default(), extra, hitsounds);
     // Embedded official blocks keep seconds, screen percentages and native
     // easing IDs. RPE BPM conversion applies only to the RPE line events.
-    chart.block_areas = parse_block_areas(rpe.block_area_list);
+    chart.block_areas = block_areas;
     Ok(chart)
 }
 
@@ -986,6 +1001,188 @@ mod block_area_tests {
         let mut fs = crate::fs::ExternalFileSystem(Arc::new(crate::dir::Dir::new(directory.path()).unwrap()));
         tokio::runtime::Builder::new_current_thread().build().unwrap()
             .block_on(parse_rpe(&source.to_string(), &mut fs, ChartExtra::default(), false))
+    }
+
+    fn sidecar_blocks() -> Value {
+        json!([{
+            "topRightPercentage": {"x": 1.2, "y": 1.1},
+            "bottomLeftPercentage": {"x": 1.0, "y": 0.1},
+            "appearTime": 46.4, "enableTime": 47.0, "disableTime": 70.4, "disappearTime": 71.0,
+            "isSubtract": true,
+            "rotateEvents": [
+                {"anchor": {"x": 1.1, "y": 0.6}, "time": 46.0, "easeType": 13, "rotation": -45},
+                {"anchor": {"x": 0.5, "y": 0.5}, "time": 64.0, "easeType": 5, "rotation": 90}
+            ],
+            "moveEvents": [{"endPosition": {"x": 1.1, "y": 0.5}, "time": 46.4, "easeTypeX": 12, "easeTypeY": 14}],
+            "scaleEvents": [{"anchor": {"x": 1.1, "y": 0.6}, "time": 46.0, "easeTypeX": 13, "easeTypeY": 2, "scale": {"x": 1.2, "y": 0.5}}]
+        }])
+    }
+
+    fn sidecar_bytes() -> Vec<u8> {
+        serde_json::to_vec(&json!({"blockAreaList": sidecar_blocks()})).unwrap()
+    }
+
+    fn drive_loading<T>(future: impl std::future::Future<Output = T>) -> T {
+        // CPU loading workers deliberately do not wake the GL executor. Poll
+        // as the loading screen does, rather than sleeping in block_on.
+        let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let _guard = runtime.enter();
+        let mut future = Box::pin(future);
+        loop {
+            let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+            if let std::task::Poll::Ready(value) = future.as_mut().poll(&mut cx) {
+                return value;
+            }
+            std::thread::yield_now();
+        }
+    }
+
+    fn read_chart_files(source: Value, path: &str, files: &[(&str, Vec<u8>)]) -> Result<Chart> {
+        let directory = tempfile::tempdir().unwrap();
+        for (name, bytes) in files.iter().cloned().chain(std::iter::once((path, source.to_string().into_bytes()))) {
+            let file = directory.path().join(name);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, bytes).unwrap();
+        }
+        let mut fs = crate::fs::ExternalFileSystem(Arc::new(crate::dir::Dir::new(directory.path()).unwrap()));
+        let info = crate::info::ChartInfo {
+            chart: path.to_owned(),
+            ..Default::default()
+        };
+        drive_loading(crate::scene::GameScene::load_chart(&mut fs, &info)).map(|(chart, _, _)| chart)
+    }
+
+    #[test]
+    fn external_official_lists_use_the_same_geometry_and_seconds_as_embedded_lists() {
+        let mut embedded = chart_json(120.);
+        embedded["blockAreaList"] = sidecar_blocks();
+        let expected = read_chart(embedded).unwrap();
+        for name in [
+            "blockAreaList.json",
+            "BlockAreaList.json",
+            "BLOCKAREALIST.JSON",
+            "1759600000010.blockAreaList.json",
+        ] {
+            for bpm in [60., 240.] {
+                let chart = read_chart_files(chart_json(bpm), "1759600000010.json", &[(name, sidecar_bytes())]).unwrap();
+                assert_eq!(chart.offset, 0.32);
+                assert_eq!(chart.lines[0].notes[0].time, 4. * 60. / bpm);
+                assert_eq!(chart.block_areas.len(), 1);
+                let area = &chart.block_areas[0];
+                assert_eq!(area.appear_time, 46.4);
+                assert_eq!(area.rotate_events[0].time, 46.0);
+                assert_eq!(area.rotate_events[0].ease, 13);
+                assert!(area.is_subtract);
+                for time in [46.4, 47., 55., 64., 70.4, 71.] {
+                    assert_eq!(area.phase(time), expected.block_areas[0].phase(time));
+                    assert_eq!(area.matrix(time, 16. / 9.), expected.block_areas[0].matrix(time, 16. / 9.));
+                    assert!(Zone::from_area(area, time, 16. / 9.) == Zone::from_area(&expected.block_areas[0], time, 16. / 9.));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn embedded_lists_including_empty_lists_take_precedence_without_duplicates() {
+        for key in ["blockAreaList", "BlockAreaList"] {
+            let mut source = chart_json(120.);
+            source[key] = sidecar_blocks();
+            let chart = read_chart_files(source.clone(), "chart.json", &[("blockAreaList.json", sidecar_bytes())]).unwrap();
+            assert_eq!(chart.block_areas.len(), 1);
+            source[key] = json!([]);
+            // An explicitly empty embedded list disables a stale sidecar.
+            let chart = read_chart_files(source, "chart.json", &[("blockAreaList.json", b"invalid JSON".to_vec())]).unwrap();
+            assert!(chart.block_areas.is_empty());
+        }
+    }
+
+    #[test]
+    fn external_file_selection_is_specific_and_ambiguous_exports_are_reported() {
+        let empty = br#"{"blockAreaList":[]}"#.to_vec();
+        let chart = read_chart_files(
+            chart_json(120.),
+            "AT.json",
+            &[
+                ("AT.blockAreaList.json", sidecar_bytes()),
+                ("IN.blockAreaList.json", empty.clone()),
+                ("blockAreaList.json", empty.clone()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(chart.block_areas.len(), 1);
+        let chart = read_chart_files(chart_json(120.), "renamed.json", &[("1759600000010.blockAreaList.json", sidecar_bytes())]).unwrap();
+        assert_eq!(chart.block_areas.len(), 1);
+        let result =
+            read_chart_files(chart_json(120.), "chart.json", &[("AT.blockAreaList.json", sidecar_bytes()), ("IN.blockAreaList.json", empty)]);
+        assert!(result.err().unwrap().to_string().contains("Multiple blockAreaList"));
+        let chart = read_chart_files(
+            chart_json(120.),
+            "charts/AT.json",
+            &[
+                ("blockAreaList.json", br#"{"blockAreaList":[]}"#.to_vec()),
+                ("charts/AT.blockAreaList.json", sidecar_bytes()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(chart.block_areas.len(), 1);
+    }
+
+    #[test]
+    fn external_lists_accept_bom_and_alias_but_report_malformed_files_with_their_name() {
+        let mut bytes = b"\xef\xbb\xbf".to_vec();
+        bytes.extend(serde_json::to_vec(&json!({"BlockAreaList": sidecar_blocks()})).unwrap());
+        assert_eq!(
+            read_chart_files(chart_json(120.), "chart.json", &[("blockAreaList.json", bytes)])
+                .unwrap()
+                .block_areas
+                .len(),
+            1
+        );
+        for bytes in [
+            b"not JSON".to_vec(),
+            br#"{}"#.to_vec(),
+            br#"{"blockAreaList":[{"topRightPercentage":"invalid"}]}"#.to_vec(),
+        ] {
+            let err = read_chart_files(chart_json(120.), "chart.json", &[("chart.blockAreaList.json", bytes)])
+                .err()
+                .unwrap();
+            assert!(format!("{err:#}").contains("chart.blockAreaList.json"));
+        }
+    }
+
+    #[test]
+    fn zip_import_does_not_choose_sidecar_as_chart_and_preserves_package_root() {
+        use crate::fs::{FileSystem, ZipFileSystem};
+        use std::io::Write;
+        for prefix in ["", "package/"] {
+            let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            let options = zip::write::SimpleFileOptions::default();
+            if !prefix.is_empty() {
+                zip.add_directory(prefix, options).unwrap();
+            }
+            // Put sidecars first to reproduce the old import-selection bug.
+            zip.start_file(format!("{prefix}blockAreaList.json"), options).unwrap();
+            zip.write_all(&sidecar_bytes()).unwrap();
+            zip.start_file(format!("{prefix}AT.json"), options).unwrap();
+            zip.write_all(chart_json(120.).to_string().as_bytes()).unwrap();
+            let mut fs = ZipFileSystem::new(zip.finish().unwrap().into_inner()).unwrap();
+            let mut files = fs.list_root().unwrap();
+            files.sort();
+            assert_eq!(files, vec!["AT.json", "blockAreaList.json"]);
+            drive_loading(async {
+                let mut info = crate::info::ChartInfo {
+                    chart: "blockAreaList.json".to_owned(),
+                    ..Default::default()
+                };
+                crate::fs::fix_info(&mut fs, &mut info).await.unwrap();
+                assert_eq!(info.chart, "AT.json");
+                let inferred = crate::fs::load_info(&mut fs).await.unwrap();
+                assert_eq!(inferred.chart, "AT.json");
+                let (chart, _, _) = crate::scene::GameScene::load_chart(&mut fs, &info).await.unwrap();
+                assert_eq!(chart.block_areas.len(), 1);
+                assert_eq!(chart.block_areas[0].enable_time, 47.);
+            });
+        }
     }
 
     #[test]

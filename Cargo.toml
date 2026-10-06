@@ -37,8 +37,10 @@ inputbox = "0.1.5"
 lru = "0.16.3"
 lyon = "1.0.19"
 
-macroquad = { git = "https://github.com/Phira-Pro/prpr-macroquad", default-features = false }
-miniquad = { git = "https://github.com/Phira-Pro/prpr-miniquad", branch = "master" }
+# 默认编译固定 Git commit，避免旧版本因分支更新发生 API/构建兼容性变化。
+# macroquad/miniquad 使用配套提交；升级须同时更新 rev 和 Cargo.lock 并检查 Android/桌面编译。
+macroquad = { git = "https://github.com/Phira-Pro/prpr-macroquad", rev = "139ac954c5654f4d83fc2bdeaf5a0c011fa9dee1", default-features = false }
+miniquad = { git = "https://github.com/Phira-Pro/prpr-miniquad", rev = "1796f445440edf6b66d4d3a8491f9ac1c53ba52a" }
 nalgebra = "0.34.1"
 
 objc2 = "0.6.4"
@@ -57,7 +59,8 @@ rand = "0.8.5"
 regex = "1.12.3"
 reqwest = { version = "0.13.2", default-features = false }
 rfd = "0.17.2"
-sasa = { git = "https://github.com/Phira-Pro/sasa", branch = "f64", default-features = false }
+# 固定已验证的 f64 音频 API，历史版本也不跟随分支漂移。
+sasa = { git = "https://github.com/Phira-Pro/sasa", rev = "5049b671cff93be1cf2f7a3f693e7ae1f0c179f7", default-features = false }
 serde = "1.0.228"
 serde_json = "1.0.149"
 serde_yaml = "0.9.34"

@@ -2230,7 +2230,7 @@ dependencies = [
 [[package]]
 name = "macroquad"
 version = "0.3.25"
-source = "git+https://github.com/Phira-Pro/prpr-macroquad#450d7d8dac44127a5261acb7a714168780a78bbe"
+source = "git+https://github.com/Phira-Pro/prpr-macroquad?rev=139ac954c5654f4d83fc2bdeaf5a0c011fa9dee1#139ac954c5654f4d83fc2bdeaf5a0c011fa9dee1"
 dependencies = [
  "bumpalo",
  "fontdue",
@@ -2244,7 +2244,7 @@ dependencies = [
 [[package]]
 name = "macroquad_macro"
 version = "0.1.7"
-source = "git+https://github.com/Phira-Pro/prpr-macroquad#450d7d8dac44127a5261acb7a714168780a78bbe"
+source = "git+https://github.com/Phira-Pro/prpr-macroquad?rev=139ac954c5654f4d83fc2bdeaf5a0c011fa9dee1#139ac954c5654f4d83fc2bdeaf5a0c011fa9dee1"
 
 [[package]]
 name = "malloc_buf"
@@ -2322,7 +2322,7 @@ checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 [[package]]
 name = "miniquad"
 version = "0.3.15"
-source = "git+https://github.com/Phira-Pro/prpr-miniquad?branch=master#3cab2acdc70ea3b6fa1dfa1e0bd143bd587c7a3c"
+source = "git+https://github.com/Phira-Pro/prpr-miniquad?rev=1796f445440edf6b66d4d3a8491f9ac1c53ba52a#1796f445440edf6b66d4d3a8491f9ac1c53ba52a"
 dependencies = [
  "hms-opengtx-binding",
  "jni 0.21.1",
@@ -4340,7 +4340,7 @@ dependencies = [
 [[package]]
 name = "sasa"
 version = "0.1.0"
-source = "git+https://github.com/Phira-Pro/sasa?branch=f64#5049b671cff93be1cf2f7a3f693e7ae1f0c179f7"
+source = "git+https://github.com/Phira-Pro/sasa?rev=5049b671cff93be1cf2f7a3f693e7ae1f0c179f7#5049b671cff93be1cf2f7a3f693e7ae1f0c179f7"
 dependencies = [
  "anyhow",
  "cpal",

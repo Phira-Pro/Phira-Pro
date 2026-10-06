@@ -18,7 +18,7 @@ class ReleaseTests(unittest.TestCase):
         self.values = {"pro_version": "0.8.2-pro.9"}
         self.tag = "v0.8.2-pro.9"
         self.sha = "a" * 40
-        self.info = {"id": 17, "tag_name": self.tag, "draft": False,
+        self.info = {"id": 17, "tag_name": self.tag, "name": "pro.9", "draft": False,
                      "published_at": "2026-10-05T00:00:00Z", "immutable": False, "assets": []}
 
     def packages(self):
@@ -51,6 +51,20 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "missing"):
                 release.remote_commit(self.tag)
 
+    def test_manual_missing_dot_resolves_to_the_existing_tag_before_checkout(self):
+        for tag in ("v0.8.2-pro10", "v0.8.2-pro.10"):
+            with patch.object(release, "remote_commit", return_value=self.sha) as remote:
+                self.assertEqual(release.resolve_tag(tag), ("v0.8.2-pro.10", self.sha))
+                remote.assert_called_once_with("v0.8.2-pro.10")
+        for tag in ("main", "v0.8.2-pro10\nsha=injected", "v0.8.2-pro.010", "v0.8.2-pro.0"):
+            with patch.object(release, "remote_commit") as remote:
+                with self.assertRaisesRegex(ValueError, "Invalid"):
+                    release.resolve_tag(tag)
+                remote.assert_not_called()
+        with patch.object(release, "remote_commit", return_value=self.sha):
+            with self.assertRaisesRegex(ValueError, "event commit"):
+                release.resolve_tag("v0.8.2-pro.10", "b" * 40)
+
     def test_changed_tag_or_checkout_stops_the_release(self):
         with patch.object(release, "command_output", return_value=self.sha):
             with self.assertRaisesRegex(ValueError, "Checked-out"):
@@ -65,20 +79,27 @@ class ReleaseTests(unittest.TestCase):
         with patch.object(release, "command_output", return_value=json.dumps(self.info)):
             self.assertEqual(release.release_info("Phira-Pro/Phira-Pro", self.tag, 17), self.info)
         for change, message in (({"id": 18}, "replaced"), ({"draft": True}, "Publish"),
-                                ({"published_at": None}, "Publish"), ({"immutable": True}, "immutable")):
+                                ({"published_at": None}, "Publish"), ({"immutable": True}, "immutable"),
+                                ({"name": "pro9"}, "Release name")):
             with self.subTest(change=change):
                 info = dict(self.info, **change)
                 with patch.object(release, "command_output", return_value=json.dumps(info)):
                     with self.assertRaisesRegex(ValueError, message):
                         release.release_info("Phira-Pro/Phira-Pro", self.tag, 17)
 
-    def test_complete_packages_produce_checksums_for_every_platform(self):
+    def test_missing_release_explains_validation_mode_before_building_packages(self):
+        import subprocess
+        error = subprocess.CalledProcessError(1, ["gh", "api"], output='{"message":"Not Found"}')
+        with patch.object(release, "command_output", side_effect=error):
+            with self.assertRaisesRegex(ValueError, "publish.*validate-only"):
+                release.release_info("Phira-Pro/Phira-Pro", self.tag)
+
+    def test_complete_packages_upload_only_the_five_platform_packages(self):
         packages = self.packages()
         assets = release.collect_assets(self.directory, self.values)
-        self.assertEqual(len(assets), 6)
-        self.assertEqual(assets[-1].name, "SHA256SUMS")
-        self.assertEqual(assets[-1].read_text(), "".join(
-            f"{release.sha256(path)}  {path.name}\n" for path in sorted(packages)))
+        self.assertEqual(assets, sorted(packages))
+        self.assertEqual(len(assets), 5)
+        self.assertFalse((self.directory / "SHA256SUMS").exists())
         self.assertEqual(release.collect_assets(self.directory, self.values), assets)
 
     def test_missing_wrong_version_and_duplicate_packages_are_rejected(self):

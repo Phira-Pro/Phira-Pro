@@ -9,6 +9,10 @@ on:
         description: Existing published Release tag, e.g. v0.8.2-pro.10
         required: true
         type: string
+      validate-only:
+        description: Check tag and source versions only; no Release or packages are published
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -24,8 +28,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
-      tag: ${{ steps.prepare.outputs.tag }}
-      sha: ${{ steps.prepare.outputs.sha }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      sha: ${{ steps.resolve.outputs.sha }}
       release-id: ${{ steps.prepare.outputs.release_id }}
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
@@ -33,7 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          ref: refs/tags/${{ env.RELEASE_TAG }}
+          ref: ${{ github.sha }}
 
       - uses: actions/setup-python@v7.0.0
         with:
@@ -42,15 +46,40 @@ jobs:
       - name: Validate release tooling
         run: python -m unittest discover -s scripts/tests -v
 
+      - name: Resolve remote tag before source checkout
+        id: resolve
+        run: python scripts/release.py resolve --tag "$RELEASE_TAG" --expected-sha "$RELEASE_EVENT_SHA"
+
+      - name: Checkout pinned release source
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ steps.resolve.outputs.sha }}
+
+      - name: Validate source tag and versions
+        env:
+          RELEASE_TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          python scripts/version.py check
+          python - <<'PY'
+          import os, sys
+          sys.path.insert(0, 'scripts')
+          import release, version
+          release.check_tag(os.environ['RELEASE_TAG'], version.check_version())
+          PY
+
       - name: Check tag, versions and Release state
         id: prepare
+        if: ${{ inputs.validate-only != true }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python scripts/release.py prepare --tag "$RELEASE_TAG" --expected-sha "$RELEASE_EVENT_SHA"
+          RELEASE_TAG: ${{ steps.resolve.outputs.tag }}
+          RELEASE_SHA: ${{ steps.resolve.outputs.sha }}
+        run: python scripts/release.py prepare --tag "$RELEASE_TAG" --expected-sha "$RELEASE_SHA"
 
   desktop:
     name: Desktop packages
     needs: prepare
+    if: ${{ inputs.validate-only != true }}
     uses: ./.github/workflows/desktop.yml
     with:
       source-ref: ${{ needs.prepare.outputs.sha }}
@@ -58,6 +87,7 @@ jobs:
   android:
     name: Android APK
     needs: prepare
+    if: ${{ inputs.validate-only != true }}
     uses: ./.github/workflows/android.yml
     with:
       source-ref: ${{ needs.prepare.outputs.sha }}
@@ -70,6 +100,7 @@ jobs:
   ios:
     name: iOS IPA
     needs: prepare
+    if: ${{ inputs.validate-only != true }}
     uses: ./.github/workflows/ios.yml
     with:
       source-ref: ${{ needs.prepare.outputs.sha }}
@@ -77,6 +108,7 @@ jobs:
   upload:
     name: Upload complete asset set
     needs: [prepare, desktop, android, ios]
+    if: ${{ inputs.validate-only != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -100,7 +132,7 @@ jobs:
           path: release-assets
           merge-multiple: false
 
-      - name: Verify packages, generate checksums and upload
+      - name: Verify packages and upload
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-

@@ -31,14 +31,39 @@ def remote_commit(tag):
     return sha
 
 
+def resolve_tag(tag, expected_sha=""):
+    # Keep the established tag spelling. A manually entered pro10 resolves to
+    # pro.10; never create a second tag with a different naming convention.
+    match = re.fullmatch(r"(v?(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))-pro\.?([1-9][0-9]*)", tag)
+    if not match:
+        raise ValueError("Invalid Release tag; expected v0.8.2-pro.10")
+    canonical = f"{match[1]}-pro.{match[2]}"
+    sha = remote_commit(canonical)
+    if expected_sha and sha != expected_sha:
+        raise ValueError("Release event commit differs from the remote tag")
+    return canonical, sha
+
+
 def release_info(repository, tag, release_id=None):
-    info = json.loads(command_output("gh", "api", f"repos/{repository}/releases/tags/{tag}"))
+    try:
+        info = json.loads(command_output("gh", "api", f"repos/{repository}/releases/tags/{tag}"))
+    except subprocess.CalledProcessError as error:
+        try:
+            missing = json.loads(error.output).get("message") == "Not Found"
+        except (TypeError, ValueError, AttributeError):
+            missing = False
+        if missing:
+            raise ValueError(f"Release {tag!r} does not exist; publish its Release first, or select validate-only to check the source") from error
+        raise
     if info["tag_name"] != tag or (release_id is not None and info["id"] != release_id):
         raise ValueError("Release was replaced while building; refusing to upload")
     if info["draft"] or not info.get("published_at"):
         raise ValueError("Publish the Release before starting its asset build")
     if info.get("immutable"):
         raise ValueError("Release is immutable; published immutable releases cannot accept assets")
+    revision = tag.rsplit("-pro.", 1)[-1]
+    if info.get("name") != f"pro.{revision}":
+        raise ValueError(f"Release name must be pro.{revision}")
     return info
 
 
@@ -76,9 +101,9 @@ def collect_assets(directory, values):
         with zipfile.ZipFile(path) as archive:
             if not archive.namelist() or archive.testzip() is not None:
                 raise ValueError("Package integrity check failed: " + path.name)
-    manifest = directory / "SHA256SUMS"
-    manifest.write_text("".join(f"{sha256(path)}  {path.name}\n" for path in assets), encoding="utf-8")
-    return assets + [manifest]
+    # Digests remain an internal retry/integrity check. Release attachments
+    # contain only the five packages, as requested by the project owner.
+    return assets
 
 
 def pending_uploads(assets, existing):
@@ -105,7 +130,7 @@ def summary(content):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("prepare", "upload"):
+    for name in ("resolve", "prepare", "upload"):
         command = commands.add_parser(name)
         command.add_argument("--tag", required=True)
         command.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY"))
@@ -117,6 +142,13 @@ def main():
     try:
         if not args.repository or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repository):
             raise ValueError("Set GITHUB_REPOSITORY or supply --repository OWNER/REPO")
+        if args.command == "resolve":
+            tag, sha = resolve_tag(args.tag, args.expected_sha)
+            if os.environ.get("GITHUB_OUTPUT"):
+                with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+                    output.write(f"tag={tag}\nsha={sha}\n")
+            summary(f"Resolved tag: {tag}\n\nCommit: `{sha}`")
+            return
         values = check_version()
         check_tag(args.tag, values)
         sha = check_source(args.tag, args.expected_sha)

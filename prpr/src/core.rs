@@ -38,8 +38,8 @@ pub(crate) use block_shader::reset_block_effects;
 pub use block_shader::{draw_disabled_zones, draw_zones, draw_zones_with_touches, Zone};
 
 mod block_timeline;
-pub(crate) mod rpe_block;
 mod chart;
+pub(crate) mod rpe_block;
 pub use chart::{Chart, ChartExtra, ChartSettings, HitSoundMap};
 
 mod effect;

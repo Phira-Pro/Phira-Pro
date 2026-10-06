@@ -14,6 +14,26 @@ pub(crate) fn marker_kind(path: &str) -> Option<bool> {
     }
 }
 
+/// Only marker lines and their ancestors need animation evaluation before
+/// touch filtering. Unrelated lines keep their normal judge/update schedule.
+pub(crate) fn input_lines(parents: &[Option<usize>], markers: impl Iterator<Item = usize>) -> Vec<usize> {
+    let mut visited = vec![false; parents.len()];
+    let mut result = Vec::new();
+    for marker in markers {
+        let mut current = Some(marker);
+        while let Some(id) = current {
+            let Some(seen) = visited.get_mut(id) else { break };
+            if *seen {
+                break;
+            }
+            *seen = true;
+            result.push(id);
+            current = parents[id];
+        }
+    }
+    result
+}
+
 fn phase(alpha: f32) -> BlockPhase {
     if !alpha.is_finite() || alpha <= 0. {
         BlockPhase::Hidden
@@ -165,6 +185,21 @@ mod tests {
         assert_eq!(marker_kind("folder/ISSUBTRACT0.PNG"), Some(false));
         assert_eq!(marker_kind("folder\\isSubtract1.png"), Some(true));
         assert_eq!(marker_kind("isSubtract1.png.backup"), None);
+    }
+
+    #[test]
+    fn input_only_evaluates_markers_and_shared_ancestors() {
+        let mut parents = vec![None; 10_000];
+        parents[9000] = Some(9001);
+        parents[9001] = Some(9002);
+        parents[9003] = Some(9001);
+        assert_eq!(input_lines(&parents, [9000, 9003].into_iter()), vec![9000, 9001, 9002, 9003]);
+        assert!(input_lines(&parents, std::iter::empty()).is_empty());
+    }
+
+    #[test]
+    fn invalid_or_cyclic_parent_dependencies_do_not_loop_during_loading() {
+        assert_eq!(input_lines(&[Some(1), Some(0), Some(99)], [0, 2].into_iter()), vec![0, 1, 2]);
     }
 
     #[test]

@@ -1937,8 +1937,7 @@ dependencies = [
 [[package]]
 name = "jni"
 version = "0.22.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5efd9a482cf3a427f00d6b35f14332adc7902ce91efb778580e180ff90fa3498"
+source = "git+https://github.com/Phira-Pro/prpr-jni?rev=2dd17c0e6edee01e6a8214e2dcebe35b9cf42687#2dd17c0e6edee01e6a8214e2dcebe35b9cf42687"
 dependencies = [
  "cfg-if",
  "combine",
@@ -1954,8 +1953,7 @@ dependencies = [
 [[package]]
 name = "jni-macros"
 version = "0.22.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a00109accc170f0bdb141fed3e393c565b6f5e072365c3bd58f5b062591560a3"
+source = "git+https://github.com/Phira-Pro/prpr-jni?rev=2dd17c0e6edee01e6a8214e2dcebe35b9cf42687#2dd17c0e6edee01e6a8214e2dcebe35b9cf42687"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2230,7 +2228,7 @@ dependencies = [
 [[package]]
 name = "macroquad"
 version = "0.3.25"
-source = "git+https://github.com/Phira-Pro/prpr-macroquad?rev=139ac954c5654f4d83fc2bdeaf5a0c011fa9dee1#139ac954c5654f4d83fc2bdeaf5a0c011fa9dee1"
+source = "git+https://github.com/Phira-Pro/prpr-macroquad?rev=cf57e6da23cbd388f92ed5e29718bab9265f0679#cf57e6da23cbd388f92ed5e29718bab9265f0679"
 dependencies = [
  "bumpalo",
  "fontdue",
@@ -2244,7 +2242,7 @@ dependencies = [
 [[package]]
 name = "macroquad_macro"
 version = "0.1.7"
-source = "git+https://github.com/Phira-Pro/prpr-macroquad?rev=139ac954c5654f4d83fc2bdeaf5a0c011fa9dee1#139ac954c5654f4d83fc2bdeaf5a0c011fa9dee1"
+source = "git+https://github.com/Phira-Pro/prpr-macroquad?rev=cf57e6da23cbd388f92ed5e29718bab9265f0679#cf57e6da23cbd388f92ed5e29718bab9265f0679"
 
 [[package]]
 name = "malloc_buf"

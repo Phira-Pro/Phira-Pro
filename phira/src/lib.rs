@@ -25,6 +25,7 @@ mod rate;
 mod replay;
 mod resource;
 mod scene;
+mod startup;
 mod tabs;
 mod tags;
 mod threed;
@@ -338,9 +339,12 @@ mod dir {
 }
 
 async fn the_main() -> Result<()> {
-    log::register();
+    // Miniquad installs its Android panic hook while starting the render
+    // thread, after the JNI bootstrap. Wrap that hook once rendering begins.
     #[cfg(target_os = "android")]
-    std::panic::set_hook(Box::new(|info| miniquad::error!("Rust panic: {}", info)));
+    startup::install();
+    log::register();
+    startup::stage("assets and platform initialization");
     #[cfg(target_env = "ohos")]
     {
         *DATA_PATH.lock().unwrap() = Some("/data/storage/el2/base".to_owned());
@@ -369,6 +373,7 @@ async fn the_main() -> Result<()> {
         *CACHE_DIR.lock().unwrap() = Some("Caches".to_owned());
     }
 
+    startup::stage("saved data");
     let dir = dir::root()?;
     let mut data: Data = std::fs::read_to_string(format!("{dir}/data.json"))
         .map_err(anyhow::Error::new)
@@ -376,6 +381,7 @@ async fn the_main() -> Result<()> {
         .unwrap_or_default();
     data.init().await?;
     set_data(data);
+    startup::stage("network clients");
     sync_data();
     save_data()?;
     if let Err(err) = dir::appearance() {
@@ -397,6 +403,7 @@ async fn the_main() -> Result<()> {
         .display_mut()
         .set_pause_resume_listener(on_pause_resume);
 
+    startup::stage("fonts");
     let pgr_font = FontArc::try_from_vec(load_file("phigros.ttf").await?)?;
     PGR_FONT.with(move |it| *it.borrow_mut() = Some(TextPainter::new(pgr_font, None)));
 
@@ -448,7 +455,9 @@ async fn the_main() -> Result<()> {
 
     // Bold headings also need the builtin CJK fallback when the imported font
     // contains Latin only. The custom font is already in the main painter.
+    startup::stage("audio and main scene");
     let mut main = Main::new(Box::new(MainScene::new(reference).await?), TimeManager::default(), None).await?;
+    startup::stage("running");
 
     let tm = TimeManager::default();
     let mut fps_time = -1;
@@ -623,9 +632,11 @@ fn custom_window_icon() -> Option<miniquad::conf::Icon> {
 
 #[no_mangle]
 pub extern "C" fn quad_main() {
+    #[cfg(not(target_os = "android"))]
+    startup::install();
     macroquad::Window::from_config(build_global_window_conf(), async {
         if let Err(err) = the_main().await {
-            error!(?err, "global error");
+            startup::show_failure(err).await;
         }
     });
     cleanup_audio();
@@ -644,7 +655,7 @@ fn on_pause_resume(pause: bool) {
 pub extern "C" fn Java_quad_1native_QuadNative_initializeEnvironment(mut env: EnvUnowned, _class: JClass, context: JObject) {
     // Startup runs before the normal tracing subscriber is installed. Keep
     // native failures visible in logcat instead of only writing to stderr.
-    std::panic::set_hook(Box::new(|info| miniquad::error!("Rust panic: {}", info)));
+    std::panic::set_hook(Box::new(|info| startup::report(&info.to_string())));
     env.with_env(|env| -> jni::errors::Result<()> {
         inputbox::backend::Android::initialize(env)?;
         // reqwest's verifier (0.7 / JNI 0.22) is separate from miniquad's

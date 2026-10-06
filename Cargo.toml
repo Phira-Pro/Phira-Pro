@@ -12,6 +12,12 @@ members = [
 exclude = ["vendor"]
 resolver = "2"
 
+[patch.crates-io]
+# JNI 的 Android 布尔返回值需要按 unsigned char 读取，防止虚假的
+# ExceptionCheck 导致输入框和 HTTPS 验证器在启动时 panic。
+# 补丁由独立仓库维护，主仓库不保存外部库源码。
+jni = { git = "https://github.com/Phira-Pro/prpr-jni", rev = "2dd17c0e6edee01e6a8214e2dcebe35b9cf42687" }
+
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(closed)', 'cfg(flash)'] }
 
@@ -39,7 +45,7 @@ lyon = "1.0.19"
 
 # 默认编译固定 Git commit，避免旧版本因分支更新发生 API/构建兼容性变化。
 # macroquad/miniquad 使用配套提交；升级须同时更新 rev 和 Cargo.lock 并检查 Android/桌面编译。
-macroquad = { git = "https://github.com/Phira-Pro/prpr-macroquad", rev = "139ac954c5654f4d83fc2bdeaf5a0c011fa9dee1", default-features = false }
+macroquad = { git = "https://github.com/Phira-Pro/prpr-macroquad", rev = "cf57e6da23cbd388f92ed5e29718bab9265f0679", default-features = false }
 miniquad = { git = "https://github.com/Phira-Pro/prpr-miniquad", rev = "1796f445440edf6b66d4d3a8491f9ac1c53ba52a" }
 nalgebra = "0.34.1"
 

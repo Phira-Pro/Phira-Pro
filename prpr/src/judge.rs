@@ -993,7 +993,8 @@ impl Judge {
         // Phigros 9th-chapter block areas: a touch that lands inside an active
         // zone (`enableTime <= t < disableTime`) is removed from the touch list,
         // so the notes underneath it are never hit and end up as misses.
-        if !chart.block_areas.is_empty() {
+        if chart.has_block_areas() {
+            chart.update_block_input(res, t);
             let aspect = res.aspect_ratio;
             let mut blocked = Vec::new();
             // Infection is a finger lifetime, not a field lifetime. Quiet

@@ -564,7 +564,7 @@ impl GameScene {
         }
 
         let (mut chart, chart_bytes, chart_format) = Self::load_chart(fs.deref_mut(), &info).await?;
-        if !chart.block_areas.is_empty() && !config.block_area_simple {
+        if chart.has_block_areas() && !config.block_area_simple {
             crate::core::prepare_block_effects();
         }
         if config.mods.contains(Mods::NO_SHADER) {

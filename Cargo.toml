@@ -45,7 +45,7 @@ lyon = "1.0.19"
 
 # 默认编译固定 Git commit，避免旧版本因分支更新发生 API/构建兼容性变化。
 # macroquad/miniquad 使用配套提交；升级须同时更新 rev 和 Cargo.lock 并检查 Android/桌面编译。
-macroquad = { git = "https://github.com/Phira-Pro/prpr-macroquad", rev = "cf57e6da23cbd388f92ed5e29718bab9265f0679", default-features = false }
+macroquad = { git = "https://github.com/Phira-Pro/prpr-macroquad", rev = "8d617ff60dd0c6c1d237e5c26ecde16e2ed0c72e", default-features = false }
 miniquad = { git = "https://github.com/Phira-Pro/prpr-miniquad", rev = "1796f445440edf6b66d4d3a8491f9ac1c53ba52a" }
 nalgebra = "0.34.1"
 

@@ -28,6 +28,8 @@ pub const LIMIT_GOOD: f64 = 0.16;
 pub const LIMIT_BAD: f64 = 0.22;
 pub const UP_TOLERANCE: f64 = 0.05;
 pub const DIST_FACTOR: f64 = 0.2;
+/// Horizontal hit tolerance shared by input matching and note diagnostics.
+pub const X_DIFF_MAX: f64 = 0.21 / (16. / 9.) * 2.;
 /// 结算判定分布图的桶数。
 pub const HIST_BUCKETS: usize = 21;
 /// 结算判定分布图的半宽（毫秒）：横轴覆盖 -HIST_MAX_MS .. +HIST_MAX_MS。
@@ -516,6 +518,33 @@ mod tests {
         assert_eq!(result.score, 1_000_000);
     }
 
+    #[test]
+    fn gameplay_and_result_theoretical_scores_share_the_bonus() {
+        let mut judge = JudgeInner::new(10);
+        for _ in 0..9 {
+            judge.commit(Judgement::PerfectPlus, 0.);
+        }
+        judge.commit(Judgement::Good, 0.12);
+        for no_combo in [false, true] {
+            let raw = judge.score(no_combo);
+            let result = judge.result(no_combo);
+            assert_eq!(super::score_for_display(raw, judge.counts()[4], true), result.displayed_score(true));
+            assert_eq!(result.displayed_score(true), raw + 9);
+            assert_eq!(result.displayed_score(false), raw);
+            assert_eq!(judge.score(no_combo), raw);
+        }
+    }
+
+    #[test]
+    fn full_combo_rating_precedes_score_tiers() {
+        for score in [690000, 819999, 879999, 919999, 959000, 999999] {
+            assert_eq!(super::icon_index(score, true), 6);
+        }
+        assert_eq!(super::icon_index(1000000, true), 7);
+        assert_eq!(super::icon_index(959000, false), 4);
+        assert_eq!(super::icon_index(960000, false), 5);
+    }
+
     /// 时间偏移 → 判定等级的分档，早/晚对称，超过 bad 窗即 Miss。尾判走同一口径。
     #[test]
     fn offset_tiering() {
@@ -796,6 +825,10 @@ impl Judge {
         self.inner.score(no_combo_score)
     }
 
+    pub fn displayed_score(&self, no_combo_score: bool, theoretical: bool) -> u32 {
+        score_for_display(self.score(no_combo_score), self.inner.counts[Judgement::PerfectPlus as usize], theoretical)
+    }
+
     pub(crate) fn on_new_frame() {
         let mut handler = Handler {
             status: TouchStatus::default(),
@@ -856,7 +889,6 @@ impl Judge {
             self.auto_play_update(res, chart);
             return;
         }
-        const X_DIFF_MAX: f64 = 0.21 / (16. / 9.) * 2.;
         let spd = res.config.speed as f64;
         // 晚按补偿（秒）：晚按一侧额外放宽；默认 0 = 与早按完全对称。
         let late_leniency = res.config.late_leniency();
@@ -1686,20 +1718,23 @@ pub struct PlayResult {
 
 impl PlayResult {
     pub fn displayed_score(&self, theoretical: bool) -> u32 {
-        self.score
-            .saturating_add(if theoretical { self.counts[Judgement::PerfectPlus as usize] } else { 0 })
+        score_for_display(self.score, self.counts[Judgement::PerfectPlus as usize], theoretical)
     }
+}
+
+fn score_for_display(score: u32, perfect_plus: u32, theoretical: bool) -> u32 {
+    score.saturating_add(if theoretical { perfect_plus } else { 0 })
 }
 
 pub fn icon_index(score: u32, full_combo: bool) -> usize {
     match (score, full_combo) {
+        (1000000, _) => 7,
+        (_, true) => 6,
         (x, _) if x < 700000 => 0,
         (x, _) if x < 820000 => 1,
         (x, _) if x < 880000 => 2,
         (x, _) if x < 920000 => 3,
         (x, _) if x < 960000 => 4,
-        (1000000, _) => 7,
-        (_, false) => 5,
-        (_, true) => 6,
+        _ => 5,
     }
 }

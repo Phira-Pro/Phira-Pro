@@ -11,7 +11,7 @@ use super::{
 use crate::{
     bin::BinaryReader,
     config::{Config, Mods},
-    core::{copy_fbo, BadNote, Chart, ChartExtra, Effect, JudgeLineKind, NoteKind, Point, Resource, UIElement, Vector, PGR_FONT},
+    core::{copy_fbo, BadNote, Chart, ChartExtra, Effect, JudgeLineKind, Matrix, NoteKind, Point, Resource, UIElement, Vector, PGR_FONT},
     ext::{parse_time, screen_aspect, semi_white, spawn_task, RectExt, SafeTexture, ScaleType},
     fs::FileSystem,
     info::{ChartFormat, ChartInfo},
@@ -208,13 +208,12 @@ const DEATH_FADE: f64 = 0.5;
 /// 谱面调试叠加层：判定线的编号 / 线高 / z-index / 类型，以及音符的时间 / 高度 / 类型
 /// 与横向判定范围。移植自上游改版 Phirc Mod++。
 fn debug_overlay(res: &Resource, chart: &Chart, ui: &mut Ui) {
-    /// 与判定用的横向容差同源（见 `prpr::judge`）。
-    const X_DIFF_MAX: f64 = 0.21 / (16. / 9.) * 2.;
     let lines = &chart.lines;
     if res.config.chart_debug_line {
         for (id, line) in lines.iter().enumerate() {
             let tr = line.now_transform(res, lines);
-            let pos = tr.transform_point(&Point::new(0., 0.));
+            let pos = debug_screen_transform(res.config.flip_x()) * tr;
+            let pos = pos.transform_point(&Point::new(0., 0.));
             let h = line.height.now();
             // f32 的 ULP：越大说明这个线高在浮点上越不可靠（速度快到丢精度）。
             let ulp = if h == 0. { 0. } else { f32::from_bits(h.to_bits() + 1) - h };
@@ -242,40 +241,118 @@ fn debug_overlay(res: &Resource, chart: &Chart, ui: &mut Ui) {
         }
     }
     if res.config.chart_debug_note {
-        let x_diff = X_DIFF_MAX as f32;
+        let x_diff = crate::judge::X_DIFF_MAX as f32;
+        let limits = res.windows;
+        let tiers = [
+            (limits.bad, Color::new(0.55, 0.55, 0.55, 1.)),
+            (limits.good, Color::new(0.45, 0.72, 1., 1.)),
+            (limits.perfect, res.res_pack.info.fx_perfect()),
+            (limits.perfect_plus, Color::new(1., 0.62, 0.12, 1.)),
+        ];
         for (id, line) in lines.iter().enumerate() {
-            let tr = line.now_transform(res, lines);
+            let tr = debug_screen_transform(res.config.flip_x()) * line.now_transform(res, lines);
+            let line_height = line.height.now() as f64;
+            let incline = line.incline.now_opt().unwrap_or_default().to_radians().sin();
+            let mut ctrl = line.ctrl_obj.borrow().clone();
+            // Sample the real scrolling track: speed events and time scaling
+            // must affect the displayed timing bands, including late leniency.
+            let spans = debug_height_spans(&line.height, res.time, tiers.map(|it| it.0), res.config.speed as f64, res.config.late_leniency());
             for note in &line.notes {
-                if (note.time - res.time).abs() > 0.35 {
+                if note.fake || matches!(note.judge, crate::judge::JudgeStatus::Judged) || note.object.now_alpha() == 0. {
                     continue;
                 }
-                let mat = tr * note.object.now(res);
+                let (note_tr, speed) = note.debug_transform(res, &mut ctrl, line_height, incline);
+                let side = Matrix::identity().append_nonuniform_scaling(&Vector::new(1., if note.above { 1. } else { -1. }));
+                let mat = tr * side * note_tr;
                 let pos = mat.transform_point(&Point::new(0., 0.));
-                // 横向判定半宽：与判定逻辑同源（见 `prpr::judge`）。
+                if !pos.coords.iter().all(|v| v.is_finite()) || pos.x.abs() > 1.3 || pos.y.abs() > 1.3 / res.aspect_ratio {
+                    continue;
+                }
                 let half = x_diff * note.judge_area;
-                let a = mat.transform_point(&Point::new(-half, 0.));
-                let b = mat.transform_point(&Point::new(half, 0.));
-                // 判定区域画成一整块填充的矩形（不是只描边），按音符类型上色：
-                // tap / hold 淡蓝、flick 淡红、drag 淡黄。
-                let (tint, kind) = match &note.kind {
-                    NoteKind::Click => (Color::new(0.55, 0.78, 1.0, 1.), "click"),
-                    NoteKind::Hold { .. } => (Color::new(0.55, 0.78, 1.0, 1.), "hold"),
-                    NoteKind::Flick => (Color::new(1.0, 0.55, 0.55, 1.), "flick"),
-                    NoteKind::Drag => (Color::new(1.0, 0.9, 0.5, 1.), "drag"),
-                };
-                let half_h = 0.05;
-                let rect = Rect::new(a.x, pos.y - half_h, b.x - a.x, half_h * 2.);
-                let path = rect.rounded(0.006);
-                ui.fill_path(&path, Color { a: 0.28, ..tint });
-                ui.stroke_path(&path, 0.0015, Color { a: 0.85, ..tint });
-                ui.text(format!("[{id}] t:{:.2} h:{:.0} {kind}", note.time, note.height))
-                    .pos(pos.x, rect.y - 0.004)
-                    .anchor(0.5, 1.)
-                    .size(0.04)
-                    .color(WHITE)
-                    .draw_using(&PGR_FONT);
+                let sy = note_tr.transform_vector(&Vector::new(0., 1.)).norm();
+                if !half.is_finite() || half <= 0. || !sy.is_finite() || sy <= f32::EPSILON {
+                    continue;
+                }
+                ui.with(mat, |ui| {
+                    // Outer-to-inner tints and outlines show four timing bands.
+                    // Rectangles stay local so rotations cannot produce a
+                    // negative width or an axis-aligned, stationary box.
+                    for ((_, tint), (early, late)) in tiers.iter().zip(spans) {
+                        let factor = speed / res.aspect_ratio as f64 / sy as f64;
+                        let a = (early * factor) as f32;
+                        let b = (late * factor) as f32;
+                        if !a.is_finite() || !b.is_finite() {
+                            continue;
+                        }
+                        let rect = Rect::new(-half, a.min(b), half * 2., (b - a).abs().max(0.001));
+                        ui.fill_rect(rect, Color { a: 0.38, ..*tint });
+                        ui.stroke_path(&rect.rounded(0.), 0.0015, Color { a: 0.9, ..*tint });
+                    }
+                });
+                ui.text(format!(
+                    "[{id}] {:.2}s P+/{:.0} P/{:.0} G/{:.0} B/{:.0}ms",
+                    note.time,
+                    limits.perfect_plus * 1000.,
+                    limits.perfect * 1000.,
+                    limits.good * 1000.,
+                    limits.bad * 1000.
+                ))
+                .pos(pos.x, pos.y - 0.012)
+                .anchor(0.5, 1.)
+                .size(0.04)
+                .color(WHITE)
+                .draw_using(&PGR_FONT);
             }
         }
+    }
+}
+
+fn debug_screen_transform(flip_x: bool) -> Matrix {
+    Matrix::identity().append_nonuniform_scaling(&Vector::new(if flip_x { -1. } else { 1. }, -1.))
+}
+
+fn debug_height_spans(height: &crate::core::AnimFloat, time: f64, windows: [f64; 4], speed: f64, late: f64) -> [(f64, f64); 4] {
+    let mut sample = height.clone();
+    sample.set_time(time);
+    let center = sample.now() as f64;
+    windows.map(|window| {
+        sample.set_time(time - window * speed);
+        let early = sample.now() as f64 - center;
+        sample.set_time(time + (window + late) * speed);
+        (early, sample.now() as f64 - center)
+    })
+}
+
+#[cfg(test)]
+mod debug_overlay_tests {
+    use super::*;
+    use crate::core::{AnimFloat, Keyframe};
+
+    #[test]
+    fn timing_bands_follow_speed_events_and_do_not_mutate_chart() {
+        let mut height = AnimFloat::new(vec![Keyframe::new(0., 0., 2), Keyframe::new(1., 2., 2), Keyframe::new(2., 8., 2)]);
+        height.set_time(1.);
+        let spans = debug_height_spans(&height, 1., [0.22, 0.16, 0.08, 0.016], 1.5, 0.03);
+        assert!((spans[0].0 + 0.66).abs() < 1e-6);
+        assert!((spans[0].1 - 2.25).abs() < 1e-6);
+        assert!(spans[0].0 < spans[1].0 && spans[1].0 < spans[2].0 && spans[2].0 < spans[3].0);
+        assert!(spans[0].1 > spans[1].1 && spans[1].1 > spans[2].1 && spans[2].1 > spans[3].1);
+        assert_eq!(height.time, 1.);
+        assert_eq!(height.now(), 2.);
+    }
+
+    #[test]
+    fn note_debug_uses_chart_flip_below_side_and_rotation() {
+        let rotated = nalgebra::Rotation2::new(std::f32::consts::FRAC_PI_2).to_homogeneous();
+        let below = Matrix::identity().append_nonuniform_scaling(&Vector::new(1., -1.));
+        let moving = Matrix::new_translation(&Vector::new(0.2, 0.4));
+        let p = Point::origin();
+        let above = (debug_screen_transform(false) * rotated * moving).transform_point(&p);
+        let under = (debug_screen_transform(false) * rotated * below * moving).transform_point(&p);
+        let mirrored = (debug_screen_transform(true) * rotated * moving).transform_point(&p);
+        assert!((above.x + 0.4).abs() < 1e-6 && (above.y + 0.2).abs() < 1e-6);
+        assert!((under.x - 0.4).abs() < 1e-6 && (under.y + 0.2).abs() < 1e-6);
+        assert!((mirrored.x - 0.4).abs() < 1e-6);
     }
 }
 
@@ -416,6 +493,8 @@ pub struct GameScene {
     offset_analysis: OffsetAnalysisPanel,
 
     first_in: bool,
+    entered: bool,
+    rendered_first_frame: bool,
     exercise_range: Range<f64>,
     exercise_press: Option<(i8, u64)>,
     exercise_btns: (RectButton, RectButton),
@@ -569,7 +648,9 @@ impl GameScene {
             _ => {}
         }
 
+        tracing::info!("game loading: parse chart begins");
         let (mut chart, chart_bytes, chart_format) = Self::load_chart(fs.deref_mut(), &info).await?;
+        tracing::info!("game loading: chart parsed; preparing shaders and resources");
         if chart.has_block_areas() && !config.block_area_simple {
             crate::core::prepare_block_effects();
         }
@@ -608,6 +689,7 @@ impl GameScene {
         )
         .await
         .context("Failed to load resources")?;
+        tracing::info!("game loading: resources ready, samples={}, shader_pre_render={}", res.config.sample_count, res.config.shader_pre_render);
 
         let eligible = Self::implicit_msaa_eligible(&chart, &res);
         res.chart_render_policy = crate::core::render_lifetime::Policy::continuous(eligible, res.config.sample_count);
@@ -645,6 +727,7 @@ impl GameScene {
         judge.set_hp_scale(res.config.hp_scale);
 
         let music = Self::new_music(&mut res)?;
+        tracing::info!("game loading: audio ready");
         crate::core::reset_block_effects();
         Ok(Self {
             should_exit: false,
@@ -668,6 +751,8 @@ impl GameScene {
             offset_analysis: OffsetAnalysisPanel::new(),
 
             first_in: false,
+            entered: false,
+            rendered_first_frame: false,
             exercise_range,
             exercise_press: None,
             exercise_btns: (RectButton::new(), RectButton::new()),
@@ -775,7 +860,11 @@ impl GameScene {
             let h = 0.07;
             let score_top = top + eps * 2.2 - (1. - p) * 0.4;
             let score_right = 1. - margin;
-            let score = format!("{:07}", self.judge.score(res.config.has_mod(Mods::NO_COMBO_SCORE)));
+            let score = format!(
+                "{:07}",
+                self.judge
+                    .displayed_score(res.config.has_mod(Mods::NO_COMBO_SCORE), res.config.theoretical_score)
+            );
             let scale_point = legacy_aui.then(|| {
                 let ct = ui.text(&score).size(0.8).measure_using(&PGR_FONT).center();
                 (score_right - ct.x, score_top + ct.y)
@@ -1255,17 +1344,24 @@ impl GameScene {
 
 impl Scene for GameScene {
     fn enter(&mut self, tm: &mut TimeManager, target: Option<RenderTarget>) -> Result<()> {
+        tracing::info!("game entry begins");
         #[cfg(target_arch = "wasm32")]
         on_game_start();
         #[cfg(target_env = "ohos")]
         miniquad::native::set_interceptor_state(true);
-        self.music = Self::new_music(&mut self.res)?;
+        // Loading already created the first renderer; recreate on re-entry.
+        if self.entered {
+            self.music = Self::new_music(&mut self.res)?;
+        }
         self.res.camera.render_target = target;
         tm.speed = self.res.config.speed as _;
         tm.adjust_time = self.res.config.adjust_time;
         reset!(self, self.res, tm);
         set_camera(&self.res.camera);
         self.first_in = true;
+        self.entered = true;
+        self.rendered_first_frame = false;
+        tracing::info!("game entry complete");
         Ok(())
     }
 
@@ -1638,6 +1734,9 @@ impl Scene for GameScene {
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
+        if !self.rendered_first_frame {
+            tracing::info!("game first frame begins");
+        }
         if self.res.config.show_avg_fps {
             let current_time = tm.real_time();
             if matches!(self.state, State::Playing) && !tm.paused() {
@@ -1779,6 +1878,10 @@ impl Scene for GameScene {
             }
         }
 
+        if !self.rendered_first_frame {
+            self.rendered_first_frame = true;
+            tracing::info!("game first frame complete");
+        }
         Ok(())
     }
 

@@ -34,6 +34,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE);
         super.onCreate(savedInstanceState);
+        Log.i(TAG, "Activity onCreate: native initialization begins");
 
         view = new QuadSurface(this);
         setContentView(view);
@@ -52,17 +53,20 @@ public class MainActivity extends AppCompatActivity {
         QuadNative.initializeContext(this);
         QuadNative.initializeEnvironment(this);
         QuadNative.activityOnCreate(this);
+        Log.i(TAG, "Activity onCreate: native initialization returned");
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        Log.i(TAG, "Activity onResume");
         QuadNative.activityOnResume();
         QuadNative.prprActivityOnResume();
     }
 
     @Override
     protected void onPause() {
+        Log.i(TAG, "Activity onPause");
         super.onPause();
         QuadNative.activityOnPause();
         QuadNative.prprActivityOnPause();
@@ -70,6 +74,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        Log.i(TAG, "Activity onDestroy");
         super.onDestroy();
         QuadNative.releaseContext();
         QuadNative.activityOnDestroy();
@@ -124,6 +129,11 @@ public class MainActivity extends AppCompatActivity {
                 Log.w(TAG, "chooseFile failed", e);
             }
         });
+    }
+
+    /** Called by the existing cache-clear setting through JNI. */
+    public void clearDiagnosticLogs() {
+        CrashLogRecorder.clear();
     }
 
     public void choosePhoto() {

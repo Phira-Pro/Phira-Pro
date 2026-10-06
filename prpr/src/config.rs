@@ -141,7 +141,7 @@ impl Mods {
 pub struct Config {
     /// UI font scale selector: 80/90/100/110/120 percent.
     pub font_size: usize,
-    /// Result-only score adds one per Perfect+; stored/uploaded score is unchanged.
+    /// Gameplay/result display adds one per Perfect+; stored/uploaded score is unchanged.
     pub theoretical_score: bool,
     pub uniform_loudness: bool,
     pub loudness: f32,

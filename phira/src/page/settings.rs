@@ -825,6 +825,8 @@ impl GeneralList {
 
         if self.cache_btn.touch(touch, t) {
             fs::remove_dir_all(dir::cache()?)?;
+            #[cfg(target_os = "android")]
+            prpr::ext::clear_android_diagnostic_logs()?;
             self.update_cache_size()?;
             show_message(tl!("item-cache-cleared")).ok();
             return Ok(Some(false));
@@ -1125,6 +1127,10 @@ impl GeneralList {
             };
             render_title(ui, tl!("item-clear-cache"), Some(cache_size));
             self.cache_btn.render_text(ui, rr, t, tl!("item-clear-cache-btn"), 0.5, true);
+        }
+        #[cfg(target_os = "android")]
+        item! {
+            render_title(ui, tl!("item-android-logs"), Some(tl!("item-android-logs-sub")));
         }
         ui.dy(0.04);
         h += 0.04;

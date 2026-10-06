@@ -9,6 +9,25 @@ const HOLD_PARTICLE_INTERVAL: f64 = 0.15;
 pub const FADEOUT_TIME: f64 = 0.16;
 const BAD_TIME: f64 = 0.5;
 
+fn note_head_base(height: f64, line_height: f64, speed: f64, aspect: f32, holding: bool) -> f32 {
+    if holding {
+        0.
+    } else {
+        ((height - line_height) / aspect as f64 * speed) as f32
+    }
+}
+
+#[cfg(test)]
+mod debug_geometry_tests {
+    #[test]
+    fn head_tracks_scroll_and_stays_on_line_after_hold_start() {
+        assert_eq!(super::note_head_base(4., 2., 3., 2., false), 3.);
+        assert_eq!(super::note_head_base(4., 3., 3., 2., false), 1.5);
+        assert_eq!(super::note_head_base(4., 2., -3., 2., false), -3.);
+        assert_eq!(super::note_head_base(4., 5., 3., 2., true), 0.);
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum NoteKind {
     Click,
@@ -171,6 +190,20 @@ impl Note {
         ctrl_obj.set_height((self.height - line_height + self.object.translation.1.now() as f64 / self.speed) * RPE_HEIGHT as f64 / 2.);
     }
 
+    fn visual_speed(&self, res: &Resource, ctrl_obj: &CtrlObject) -> f64 {
+        self.speed * res.config.flow_speed as f64 * ctrl_obj.y.now_opt().unwrap_or(1.) as f64
+    }
+
+    /// Debug overlays share scrolling, controls, incline and hold-head anchoring
+    /// with rendering; Object::now alone leaves the overlay on the judge line.
+    pub fn debug_transform(&self, res: &Resource, ctrl_obj: &mut CtrlObject, line_height: f64, incline_sin: f32) -> (Matrix, f64) {
+        self.init_ctrl_obj(ctrl_obj, line_height);
+        let speed = self.visual_speed(res, ctrl_obj);
+        let base =
+            note_head_base(self.height, line_height, speed, res.aspect_ratio, matches!(self.kind, NoteKind::Hold { .. }) && res.time >= self.time);
+        (self.now_transform(res, ctrl_obj, base, incline_sin), speed)
+    }
+
     pub fn now_transform(&self, res: &Resource, ctrl_obj: &CtrlObject, base: f32, incline_sin: f32) -> Matrix {
         let incline_val = 1. - incline_sin * (base * res.aspect_ratio + self.object.translation.1.now()) * RPE_HEIGHT / 2. / 360.;
         let mut tr = self.object.now_translation(res);
@@ -222,7 +255,7 @@ impl Note {
         // Phira Pro 谱面流速：只等比缩放音符的**视觉**流速。`line_height` 与 `height` 都乘在
         // 同一个 `spd` 上，所以两者差值 `base` 也跟着等比放大，音符看起来更快/更慢地接近判定线；
         // 判定时间、音乐与音调完全不受影响。
-        let spd = self.speed * res.config.flow_speed as f64 * ctrl_obj.y.now_opt().unwrap_or(1.) as f64;
+        let spd = self.visual_speed(res, ctrl_obj);
 
         let line_height = config.line_height / res.aspect_ratio as f64 * spd;
         let height = self.height / res.aspect_ratio as f64 * spd;

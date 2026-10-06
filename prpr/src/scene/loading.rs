@@ -132,6 +132,12 @@ impl LoadingScene {
 }
 
 impl Scene for LoadingScene {
+    fn on_enter_error(&mut self, _tm: &mut TimeManager, error: anyhow::Error) -> Result<()> {
+        warn!("game entry failed after loading: {error:#}");
+        self.next_scene = Some(NextScene::PopWithResult(Box::new(error)));
+        Ok(())
+    }
+
     fn enter(&mut self, tm: &mut TimeManager, target: Option<RenderTarget>) -> Result<()> {
         self.target = target;
         tm.reset();

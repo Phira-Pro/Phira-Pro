@@ -985,7 +985,8 @@ impl<'a> Ui<'a> {
                 r = r.min(l0 + w0);
                 b = b.min(t0 + h0);
             }
-            Some((l, t, r - l, b - t))
+            // Disjoint nested clips are empty, not negative GL dimensions.
+            Some((l, t, (r - l).max(0), (b - t).max(0)))
         };
 
         gl.scissor(self.scissor);

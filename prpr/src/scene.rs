@@ -468,6 +468,11 @@ pub trait Scene {
     fn on_result(&mut self, _tm: &mut TimeManager, _result: Box<dyn Any>) -> Result<()> {
         Ok(())
     }
+    /// Called on the outgoing scene if its replacement failed to enter.
+    /// A loading scene must retain a route back to the chart details.
+    fn on_enter_error(&mut self, _tm: &mut TimeManager, error: Error) -> Result<()> {
+        Err(error)
+    }
     fn touch(&mut self, _tm: &mut TimeManager, _touch: &Touch) -> Result<bool> {
         Ok(false)
     }
@@ -535,10 +540,7 @@ impl Main {
         self.update_with_mutate(|_| {})
     }
 
-    pub fn update_with_mutate(&mut self, f: impl Fn(&mut Touch)) -> Result<()> {
-        if self.paused {
-            return Ok(());
-        }
+    fn transition(&mut self) -> Result<()> {
         match self.scenes.last_mut().unwrap().next_scene(&mut self.tm) {
             NextScene::None => {}
             NextScene::Pop => {
@@ -571,15 +573,26 @@ impl Main {
                 self.should_exit = true;
             }
             NextScene::Overlay(mut scene) => {
-                self.times.push(self.tm.now());
+                let previous_time = self.tm.now();
                 scene.enter(&mut self.tm, self.target_chooser.choose())?;
+                self.times.push(previous_time);
                 self.scenes.push(scene);
             }
             NextScene::Replace(mut scene) => {
-                scene.enter(&mut self.tm, self.target_chooser.choose())?;
+                if let Err(error) = scene.enter(&mut self.tm, self.target_chooser.choose()) {
+                    return self.scenes.last_mut().unwrap().on_enter_error(&mut self.tm, error);
+                }
                 *self.scenes.last_mut().unwrap() = scene;
             }
         }
+        Ok(())
+    }
+
+    pub fn update_with_mutate(&mut self, f: impl Fn(&mut Touch)) -> Result<()> {
+        if self.paused {
+            return Ok(());
+        }
+        self.transition()?;
         Judge::on_new_frame();
         let mut touches = Judge::get_touches();
         touches.iter_mut().for_each(f);
@@ -718,3 +731,98 @@ fn draw_background(tex: Texture2D) {
 }
 
 pub type LocalSceneTask = LocalTask<Result<NextScene>>;
+
+#[cfg(test)]
+mod transition_tests {
+    use super::*;
+    use std::rc::Rc;
+
+    struct TestScene {
+        next: NextScene,
+        fail_enter: bool,
+        recover_loading: bool,
+        reported: Rc<RefCell<Option<String>>>,
+    }
+
+    impl Scene for TestScene {
+        fn enter(&mut self, _tm: &mut TimeManager, _target: Option<RenderTarget>) -> Result<()> {
+            anyhow::ensure!(!self.fail_enter, "audio initialization failed");
+            Ok(())
+        }
+        fn on_enter_error(&mut self, _tm: &mut TimeManager, error: Error) -> Result<()> {
+            if self.recover_loading {
+                self.next = NextScene::PopWithResult(Box::new(error));
+                Ok(())
+            } else {
+                Err(error)
+            }
+        }
+        fn on_result(&mut self, _tm: &mut TimeManager, result: Box<dyn Any>) -> Result<()> {
+            *self.reported.borrow_mut() = Some(result.downcast::<Error>().unwrap().to_string());
+            Ok(())
+        }
+        fn next_scene(&mut self, _tm: &mut TimeManager) -> NextScene {
+            std::mem::take(&mut self.next)
+        }
+        fn update(&mut self, _tm: &mut TimeManager) -> Result<()> {
+            Ok(())
+        }
+        fn render(&mut self, _tm: &mut TimeManager, _ui: &mut Ui) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    fn scene(reported: &Rc<RefCell<Option<String>>>) -> TestScene {
+        TestScene {
+            next: NextScene::None,
+            fail_enter: false,
+            recover_loading: false,
+            reported: reported.clone(),
+        }
+    }
+
+    fn main(scenes: Vec<Box<dyn Scene>>, times: Vec<f64>) -> Main {
+        Main {
+            scenes,
+            times,
+            target_chooser: Box::new(None::<RenderTarget>),
+            tm: TimeManager::default(),
+            paused: false,
+            last_update_time: 0.,
+            should_exit: false,
+            top_level: false,
+            touches: None,
+            viewport: None,
+        }
+    }
+
+    #[test]
+    fn failed_game_entry_can_return_loading_error_to_details() {
+        let reported = Rc::new(RefCell::new(None));
+        let mut game = scene(&reported);
+        game.fail_enter = true;
+        let mut loading = scene(&reported);
+        loading.recover_loading = true;
+        loading.next = NextScene::Replace(Box::new(game));
+        let mut app = main(vec![Box::new(scene(&reported)), Box::new(loading)], vec![2.]);
+        app.transition().unwrap();
+        assert_eq!(app.scenes.len(), 2);
+        app.transition().unwrap();
+        assert_eq!(app.scenes.len(), 1);
+        assert!(app.times.is_empty());
+        assert_eq!(reported.borrow().as_deref(), Some("audio initialization failed"));
+    }
+
+    #[test]
+    fn failed_overlay_does_not_leave_a_phantom_time_frame() {
+        let reported = Rc::new(RefCell::new(None));
+        let mut overlay = scene(&reported);
+        overlay.fail_enter = true;
+        let mut parent = scene(&reported);
+        parent.next = NextScene::Overlay(Box::new(overlay));
+        let mut app = main(vec![Box::new(parent)], vec![]);
+        assert!(app.transition().is_err());
+        assert_eq!(app.scenes.len(), 1);
+        assert!(app.times.is_empty());
+    }
+}

@@ -94,6 +94,11 @@ static PENDING_TEXTURE_DELETIONS: Lazy<Mutex<Vec<Texture2D>>> = Lazy::new(|| Mut
 /// called periodically from the main (rendering) thread.
 pub fn flush_pending_texture_deletions() {
     let textures = std::mem::take(&mut *PENDING_TEXTURE_DELETIONS.lock().unwrap());
+    if !textures.is_empty() {
+        // Draw calls retain raw texture handles until macroquad submits them.
+        // Submit before deleting: being on the GL thread alone is insufficient.
+        unsafe { get_internal_gl() }.flush();
+    }
     for texture in textures {
         texture.delete();
     }
@@ -103,6 +108,27 @@ pub fn flush_pending_texture_deletions() {
 /// immediately. See [`flush_pending_texture_deletions`].
 pub fn queue_texture_deletion(texture: Texture2D) {
     PENDING_TEXTURE_DELETIONS.lock().unwrap().push(texture);
+}
+
+#[cfg(target_os = "android")]
+pub fn clear_android_diagnostic_logs() -> Result<()> {
+    unsafe {
+        let env = miniquad::native::attach_jni_env();
+        let context = ndk_context::android_context().context();
+        let class = (**env).GetObjectClass.unwrap()(env, context);
+        let method = (**env).GetMethodID.unwrap()(env, class, c"clearDiagnosticLogs".as_ptr(), c"()V".as_ptr());
+        let missing = method.is_null();
+        if !missing {
+            (**env).CallVoidMethod.unwrap()(env, context, method);
+        }
+        let failed = (**env).ExceptionCheck.unwrap()(env) != 0;
+        if failed {
+            (**env).ExceptionClear.unwrap()(env);
+        }
+        (**env).DeleteLocalRef.unwrap()(env, class);
+        anyhow::ensure!(!missing && !failed, "Android diagnostic log cleanup unavailable");
+        Ok(())
+    }
 }
 
 struct SafeTextureInner(Texture2D);

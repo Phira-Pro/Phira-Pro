@@ -78,7 +78,10 @@ impl Chart {
             .enumerate()
             .filter_map(|(id, line)| match &line.kind {
                 JudgeLineKind::Texture(_, path)
-                    if matches!(path.rsplit(['/', '\\']).next().unwrap_or("").to_ascii_lowercase().as_str(), "issubtract0.png" | "issubtract1.png") =>
+                    if matches!(
+                        path.rsplit(['/', '\\']).next().unwrap_or("").to_ascii_lowercase().as_str(),
+                        "issubtract0.png" | "issubtract1.png"
+                    ) =>
                 {
                     Some(id)
                 }
@@ -210,7 +213,11 @@ impl Chart {
             if res.config.sample_count > 1 {
                 unsafe { get_internal_gl() }.flush();
                 if let Some(target) = &res.chart_target {
-                    target.blit();
+                    target.resolve_final();
+                }
+
+                unsafe {
+                    get_internal_gl().quad_gl.retain_render_pass_on_flush(None);
                 }
             }
             if !res.no_effect {

@@ -24,6 +24,9 @@ mod simple;
 #[path = "block_touch.rs"]
 mod touch;
 
+#[path = "block_support.rs"]
+mod support;
+
 /// A resolved rectangle (axis-aligned in its own space).
 #[derive(Clone, PartialEq)]
 pub struct Zone {
@@ -139,6 +142,7 @@ const COLORS: &[(&str, [f32; 4])] = &[
 
 #[derive(Default)]
 struct FrameTextures {
+    support: support::Cache,
     uploaded_masks: Option<u64>,
     uploaded_aux: Option<u64>,
     masks: mask::Masks,
@@ -146,12 +150,50 @@ struct FrameTextures {
     aux: Option<Texture2D>,
     scene: Option<Texture2D>,
     scene_pass: Option<miniquad::RenderPass>,
+    scene_blit_rejected_for: Option<(u32, u32)>,
+
     touch: touch::TouchMask,
     clock: Option<f32>,
 }
 
 thread_local! {
     static FRAME: RefCell<FrameTextures> = RefCell::new(FrameTextures::default());
+}
+
+fn support_scissor(uv: [f32; 4], aspect: f32, viewport: (i32, i32, i32, i32), target_height: f32) -> Option<(i32, i32, i32, i32)> {
+    let gl = unsafe { get_internal_gl() };
+    let projection = gl.quad_gl.get_projection_matrix();
+    let model = gl.quad_gl.get_model_matrix();
+    let points = [(uv[0], uv[1]), (uv[2], uv[1]), (uv[2], uv[3]), (uv[0], uv[3])]
+        .map(|(u, v)| projection * (model * vec4(u * 2. - 1., (v * 2. - 1.) / aspect, 0., 1.)));
+    // Only affine, finite projections: perspective/clipped W falls back.
+    if points.iter().any(|p| !p.is_finite() || p.w <= 1e-6 || p.w != points[0].w) {
+        return None;
+    }
+    let mut lo = Vec2::splat(f32::INFINITY);
+    let mut hi = Vec2::splat(f32::NEG_INFINITY);
+    for p in points {
+        let screen = vec2(
+            viewport.0 as f32 + (p.x / p.w * 0.5 + 0.5) * viewport.2 as f32,
+            target_height - (viewport.1 as f32 + (p.y / p.w * 0.5 + 0.5) * viewport.3 as f32),
+        );
+        lo = lo.min(screen);
+        hi = hi.max(screen);
+    }
+    // Keep full-pixel rounding guard; intersect the existing logical scissor.
+    let old = gl
+        .quad_gl
+        .get_scissor()
+        .unwrap_or((viewport.0, target_height as i32 - viewport.1 - viewport.3, viewport.2, viewport.3));
+    let x0 = (lo.x.floor() as i32).saturating_sub(2).max(old.0);
+    let y0 = (lo.y.floor() as i32).saturating_sub(2).max(old.1);
+    let x1 = (hi.x.ceil() as i32).saturating_add(2).min(old.0.saturating_add(old.2));
+    let y1 = (hi.y.ceil() as i32).saturating_add(2).min(old.1.saturating_add(old.3));
+    Some((x0, y0, x1.saturating_sub(x0).max(0), y1.saturating_sub(y0).max(0)))
+}
+
+fn shader_time() -> f32 {
+    get_time() as f32
 }
 
 fn load_block_material(disabled: bool, hover: bool) -> Result<Material, miniquad::ShaderError> {
@@ -281,14 +323,17 @@ pub(crate) fn clear_prepared_block_geometry() {
 
 /// Draw the visible zones for the current frame.
 pub fn draw_zones(res: &mut Resource, aspect: f32, zones: &[Zone]) {
-    draw_layer_at(res, aspect, zones, get_time() as f32, false, &[]);
+    draw_layer_at(res, aspect, zones, shader_time(), false, &[]);
 }
 
 pub fn draw_disabled_zones(res: &mut Resource, aspect: f32, zones: &[Zone]) {
     // Unity's _Time is constant for all passes in a frame. Chart invokes this
     // before notes even when the disabled layer happens to be empty.
-    let time = get_time() as f32;
-    FRAME.with(|frame| frame.borrow_mut().clock = Some(time));
+    let time = shader_time();
+    FRAME.with(|frame| {
+        let mut frame = frame.borrow_mut();
+        frame.clock = Some(time);
+    });
     draw_layer_at(res, aspect, zones, time, true, &[]);
 }
 
@@ -309,7 +354,7 @@ pub fn draw_zones_with_touches(res: &mut Resource, aspect: f32, zones: &[Zone], 
     // Judgement collects touches from a HashMap. Keep SDF accumulation order
     // stable when another finger is added or removed.
     touches.sort_by_key(|(id, _)| *id);
-    let time = FRAME.with(|frame| frame.borrow().clock).unwrap_or_else(|| get_time() as f32);
+    let time = FRAME.with(|frame| frame.borrow().clock).unwrap_or_else(shader_time);
     draw_layer_at(res, aspect, zones, time, false, &touches);
 }
 
@@ -318,6 +363,7 @@ pub(crate) fn reset_block_effects() {
         let mut frame = frame.borrow_mut();
         frame.touch.reset();
         frame.clock = None;
+        frame.scene_blit_rejected_for = None;
     });
 }
 
@@ -356,10 +402,15 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         gl.quad_context.screen_size()
     };
     let viewport = gl.quad_gl.get_viewport().unwrap_or((0, 0, width as i32, height as i32));
+
+    let target_height = height;
+
     FRAME.with(|frame| {
         let mut frame = frame.borrow_mut();
         let (width, height) = (viewport.2.max(1) as usize, viewport.3.max(1) as usize);
+
         frame.masks.render_displaced(width, height, aspect, zones, time);
+
         if !disabled {
             frame.touch.update_fingers(touches, time);
         }
@@ -374,7 +425,20 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
                 return;
             }
         }
+
+        let clips = if !hover {
+            let FrameTextures { masks, support, .. } = &mut *frame;
+            support.update(&masks.rgba, &masks.aux_rgba, masks.width, masks.height, masks.revision, masks.aux_revision);
+            let bounds = if disabled { support.disabled } else { support.active };
+            bounds
+                .and_then(|b| support_scissor(b.uv(masks.width, masks.height), aspect, viewport, target_height))
+                .map(|clip| vec![clip])
+        } else {
+            None
+        };
+
         gl.flush();
+
         let m = m[if disabled {
             0
         } else if hover {
@@ -407,6 +471,7 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
             }
         }
         let effect_dim = (frame.masks.width as u32, frame.masks.height as u32);
+
         let resized = frame
             .effect
             .is_none_or(|texture| (texture.width() as u32, texture.height() as u32) != effect_dim);
@@ -443,39 +508,59 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         }
         frame.uploaded_masks = Some(frame.masks.revision);
         frame.uploaded_aux = Some(frame.masks.aux_revision);
-        // Native SceneColor is 1/6 resolution. GLES3 can make the exact linear
-        // downsample in the GPU's blitter, saving ~35/36 snapshot storage and
-        // writes. GLES2 retains the old full-resolution sampling path.
-        let can_blit = unsafe { get_internal_gl() }.quad_context.features().instancing
-            && (pass.is_some() || {
-                // A multisampled system backbuffer cannot be resized in a blit.
-                // Game windows use one sample; keep probe/foreign-camera support.
-                let mut samples = 0;
-                unsafe {
-                    miniquad::gl::glGetIntegerv(0x80A9, &mut samples);
-                }
-                samples <= 1
-            });
-        let dim = if can_blit {
+
+        // Snapshot legality is independent of vertex instancing. Never inspect
+        // or rebind the disabled layer's unresolved multisample source here.
+
+        let can_blit = !disabled && snapshot_source_blit(res, pass) && frame.scene_blit_rejected_for != Some((width as u32, height as u32));
+
+        let small_snapshot = can_blit;
+        let copy_format = if small_snapshot {
+            miniquad::TextureFormat::RGBA8
+        } else {
+            pass.map(|pass| pass.texture(unsafe { get_internal_gl() }.quad_context).format)
+                .unwrap_or(miniquad::TextureFormat::RGBA8)
+        };
+        let mut dim = if small_snapshot {
             ((width / 6).max(1) as u32, (height / 6).max(1) as u32)
         } else {
             (width as u32, height as u32)
         };
-        if !disabled && frame.scene.is_none_or(|texture| (texture.width() as u32, texture.height() as u32) != dim) {
-            let texture = miniquad::Texture::new(
-                unsafe { get_internal_gl() }.quad_context,
-                miniquad::TextureAccess::Static,
-                None,
-                miniquad::TextureParams {
-                    width: dim.0,
-                    height: dim.1,
-                    // Native SceneColor uses a linear /6 camera blit, followed
-                    // by point-sampled texel centers in snapshotSample.
-                    filter: miniquad::FilterMode::Linear,
-                    ..Default::default()
-                },
-            );
-            let next_pass = can_blit.then(|| miniquad::RenderPass::new(unsafe { get_internal_gl() }.quad_context, texture, None));
+        if !disabled
+            && frame.scene.is_none_or(|texture| {
+                (texture.width() as u32, texture.height() as u32) != dim || texture.raw_miniquad_texture_handle().format != copy_format
+            })
+        {
+            let allocate = |dim: (u32, u32), format| {
+                miniquad::Texture::new(
+                    unsafe { get_internal_gl() }.quad_context,
+                    miniquad::TextureAccess::Static,
+                    None,
+                    miniquad::TextureParams {
+                        width: dim.0,
+                        height: dim.1,
+                        format,
+                        // Native SceneColor uses a linear /6 camera blit, followed
+                        // by point-sampled texel centers in snapshotSample.
+                        filter: miniquad::FilterMode::Linear,
+                        ..Default::default()
+                    },
+                )
+            };
+            let mut texture = allocate(dim, copy_format);
+            let mut next_pass = small_snapshot.then(|| miniquad::RenderPass::new(unsafe { get_internal_gl() }.quad_context, texture, None));
+
+            if can_blit && next_pass.is_some_and(|pass| !normalized_single_sample_fbo(pass, Some(8))) {
+                // A failed optional destination must not disable the block effect.
+                // Keep the existing full-size CopyTexSubImage compatibility path.
+                next_pass.take().unwrap().delete(unsafe { get_internal_gl() }.quad_context);
+                frame.scene_blit_rejected_for = Some((width as u32, height as u32));
+                dim = (width as u32, height as u32);
+                let format = pass
+                    .map(|pass| pass.texture(unsafe { get_internal_gl() }.quad_context).format)
+                    .unwrap_or(miniquad::TextureFormat::RGBA8);
+                texture = allocate(dim, format);
+            }
             let old = frame.scene.replace(Texture2D::from_miniquad_texture(texture));
             if let Some(pass) = std::mem::replace(&mut frame.scene_pass, next_pass) {
                 // RenderPass::delete also owns/deletes its color texture.
@@ -488,6 +573,7 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         if !disabled {
             copy_scene(res, pass, viewport, scene, frame.scene_pass);
         }
+
         m.set_texture("uDisplaceTex", *DISPLACE_TEX);
         m.set_texture("uSparkTex", *SPARK_TEX);
         m.set_texture("uMasks", frame.effect.unwrap());
@@ -504,12 +590,87 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         }
         m.set_uniform("_TouchPosShine", (0.63 + 0.37 * ((time * 43.).sin() * 0.5 + 0.5)) * 2.);
         gl_use_material(m);
+
+        let old_clip = unsafe { get_internal_gl() }.quad_gl.get_scissor();
         // Keep one quad: subdividing it changes vertex interpolation at point
         // sample boundaries, moving a few spark/noise texels between frames.
         // Specialize the expensive hover path instead of changing native UVs.
-        draw_rectangle(-1., -1. / aspect, 2., 2. / aspect, WHITE);
+
+        if let Some(clips) = &clips {
+            for clip in clips {
+                unsafe { get_internal_gl() }.quad_gl.scissor(Some(*clip));
+                draw_rectangle(-1., -1. / aspect, 2., 2. / aspect, WHITE);
+            }
+        } else {
+            draw_rectangle(-1., -1. / aspect, 2., 2. / aspect, WHITE);
+        }
+
+        if clips.is_some() {
+            unsafe { get_internal_gl() }.quad_gl.scissor(old_clip);
+        }
         gl_use_default_material();
     });
+}
+
+fn snapshot_source_blit(res: &mut Resource, pass: Option<miniquad::RenderPass>) -> bool {
+    if !unsafe { get_internal_gl() }.quad_context.supports_framebuffer_blit() {
+        return false;
+    }
+    // A system/foreign backbuffer has no owned attachment contract. Its original
+    // copy path is retained instead of inferring format from a GPU/API name.
+    let Some(pass) = pass else {
+        return false;
+    };
+    let pass = res
+        .chart_target
+        .as_ref()
+        .filter(|target| target.input().render_pass == pass)
+        .map_or(pass, |target| target.output().render_pass);
+    if let Some((_, allowed)) = res.snapshot_blit_sources.iter().find(|(source, _)| *source == pass) {
+        return *allowed;
+    }
+    let allowed = normalized_single_sample_fbo(pass, None);
+    res.snapshot_blit_sources.push((pass, allowed));
+    allowed
+}
+
+fn normalized_single_sample_fbo(pass: miniquad::RenderPass, alpha_bits: Option<i32>) -> bool {
+    unsafe {
+        use miniquad::gl::*;
+        // The capability gate verified every entry used here. These queries run
+        // once per owned attachment, outside steady-state submission.
+        assert_eq!(glGetError(), GL_NO_ERROR, "GL error before snapshot attachment probe");
+        let mut read = 0;
+        let mut draw = 0;
+        glGetIntegerv(0x8CAA, &mut read);
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &mut draw);
+        let source = pass.gl_internal_id(get_internal_gl().quad_context);
+        if source != draw as u32 {
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, source);
+        }
+        let mut samples = 0;
+        glGetIntegerv(0x80A9, &mut samples);
+        let mut color = [0; 6];
+        for (value, name) in color.iter_mut().zip([0x8212, 0x8213, 0x8214, 0x8215, 0x8211, 0x8210]) {
+            glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, name, value);
+        }
+        let complete = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+        let error = glGetError();
+        if source != draw as u32 {
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, draw as u32);
+        }
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, read as u32);
+        let allowed = complete
+            && samples <= 1
+            && color[..3] == [8, 8, 8]
+            && alpha_bits.map_or(color[3] == 0 || color[3] == 8, |bits| color[3] == bits)
+            && color[4..] == [0x8C17, 0x2601]
+            && error == GL_NO_ERROR;
+        if !allowed {
+            tracing::warn!("Using compatible scene snapshot: samples={samples}, color={color:?}, complete={complete}, error={error:#x}");
+        }
+        allowed
+    }
 }
 
 fn copy_scene(

@@ -7,8 +7,8 @@ use tracing::warn;
 use super::{process_lines, L10N_LOCAL};
 use crate::{
     core::{
-        Anim, AnimFloat, AnimVector, BlockArea, BlockMoveEvent, BlockRotateEvent, BlockScaleEvent, BpmList, Chart, ChartExtra, ChartSettings, JudgeLine,
-        JudgeLineCache, JudgeLineKind, Keyframe, Note, NoteKind, Object, Vector, HEIGHT_RATIO,
+        Anim, AnimFloat, AnimVector, BlockArea, BlockMoveEvent, BlockRotateEvent, BlockScaleEvent, BpmList, Chart, ChartExtra, ChartSettings,
+        JudgeLine, JudgeLineCache, JudgeLineKind, Keyframe, Note, NoteKind, Object, Vector, HEIGHT_RATIO,
     },
     ext::NotNanExt,
     judge::{HitSound, JudgeStatus},
@@ -382,6 +382,22 @@ fn parse_judge_line(pgr: PgrJudgeLine, max_time: f64, format_version: u32) -> Re
 
 pub fn parse_phigros(source: &str, extra: ChartExtra) -> Result<Chart> {
     let pgr: PgrChart = serde_json::from_str(source).with_context(|| ptl!("json-parse-failed"))?;
+    convert_phigros(pgr, extra)
+}
+
+/// Only the owned serde model crosses threads. Chart and its render resources
+/// are constructed on the original thread after decoding completes.
+pub async fn parse_phigros_loading(bytes: Vec<u8>, extra: ChartExtra) -> Result<(Chart, Vec<u8>)> {
+    let (pgr, bytes) = crate::loading_work::run(move || {
+        let pgr: PgrChart = serde_json::from_str(&String::from_utf8_lossy(&bytes))?;
+        Ok((pgr, bytes))
+    })
+    .await
+    .with_context(|| ptl!("json-parse-failed"))?;
+    Ok((convert_phigros(pgr, extra)?, bytes))
+}
+
+fn convert_phigros(pgr: PgrChart, extra: ChartExtra) -> Result<Chart> {
     let format_version = pgr.format_version;
     let max_time = *pgr
         .judge_line_list

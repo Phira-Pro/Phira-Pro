@@ -16,7 +16,7 @@ use crate::{
     fs::FileSystem,
     info::{ChartFormat, ChartInfo},
     judge::{Judge, Judgement, RecentHit},
-    parse::{parse_extra, parse_pec, parse_phigros, parse_rpe, SendChart},
+    parse::{parse_extra, parse_pec, parse_rpe, SendChart},
     task::Task,
     time::TimeManager,
     ui::{OffsetAnalysisPanel, OffsetPanelAction, OffsetPanelLabels, RectButton, TextPainter, Ui},
@@ -508,7 +508,11 @@ impl GameScene {
         let format = Self::infer_chart_format(info, &bytes);
         let mut chart = match format {
             ChartFormat::Rpe => parse_rpe(&String::from_utf8_lossy(&bytes), fs, extra, info.use_rpe_170_speed.unwrap_or_default()).await,
-            ChartFormat::Pgr => parse_phigros(&String::from_utf8_lossy(&bytes), extra),
+            ChartFormat::Pgr => {
+                let (chart, owned) = crate::parse::parse_phigros_loading(std::mem::take(&mut bytes), extra).await?;
+                bytes = owned;
+                Ok(chart)
+            }
             ChartFormat::Pec => {
                 // 巨型 PEC 谱（可达数百 MB、物量百万级）逐行解析要 2~3 秒。放到后台线程解析，
                 // 主线程只等待结果，加载界面在解析期间保持流畅，不再整帧冻结。
@@ -602,6 +606,9 @@ impl GameScene {
         )
         .await
         .context("Failed to load resources")?;
+
+        let eligible = Self::implicit_msaa_eligible(&chart, &res);
+        res.chart_render_policy = crate::core::render_lifetime::Policy::continuous(eligible, res.config.sample_count);
 
         crate::core::clear_prepared_block_geometry();
         if res.config.shader_pre_render {
@@ -1225,6 +1232,23 @@ impl GameScene {
             None
         }
     }
+
+    fn implicit_msaa_eligible(chart: &Chart, res: &Resource) -> bool {
+        // Disabled blocks read only masks/noise; their scene snapshot is in the
+        // active overlay after final resolve. Glyph/Paint/video may observe or
+        // switch the target mid-chart; debug labels also upload glyphs. Paired
+        // outputs follow the final resolve and swap as verified input/output
+        // pairs, with an explicit-MSAA fallback if either allocation fails.
+        #[cfg(feature = "video")]
+        if !chart.extra.videos.is_empty() {
+            return false;
+        }
+        !res.config.chart_debug
+            && chart
+                .lines
+                .iter()
+                .all(|line| matches!(line.kind, JudgeLineKind::Normal | JudgeLineKind::Texture(..) | JudgeLineKind::TextureGif(..)))
+    }
 }
 
 impl Scene for GameScene {
@@ -1629,12 +1653,27 @@ impl Scene for GameScene {
         }
 
         let msaa = res.config.sample_count > 1;
+        if msaa {
+            if let Some(target) = &mut res.chart_target {
+                target.prepare_chart();
+            }
+        }
 
         let chart_onto = res
             .chart_target
             .as_ref()
             .map(|it| if msaa { it.input() } else { it.output() })
             .or(res.camera.render_target);
+
+        unsafe {
+            self.gl
+                .quad_gl
+                .retain_render_pass_on_flush(if msaa && res.chart_target.as_ref().is_some_and(|target| target.retains_pass()) {
+                    res.chart_target.as_ref().map(|target| target.input().render_pass)
+                } else {
+                    None
+                });
+        }
         push_camera_state();
         set_camera(&Camera2D {
             zoom: vec2(1., -asp),
@@ -1667,6 +1706,10 @@ impl Scene for GameScene {
                 .or_else(|| res.camera.render_pass()),
         );
 
+        unsafe {
+            self.gl.quad_gl.retain_render_pass_on_flush(None);
+        }
+
         self.bad_notes.retain(|dummy| dummy.render(res));
         let t = tm.real_time();
         let dt = (t - std::mem::replace(&mut self.last_update_time, t)) as f32;
@@ -1678,6 +1721,7 @@ impl Scene for GameScene {
         self.overlay_ui(ui, tm)?;
         // Official ActiveBlock runs at CameraEvent.AfterForwardAlpha, after
         // notes and HUD. It captures the complete underlay before compositing.
+
         self.chart.render_block_overlay(&mut self.res);
 
         if self.mode == GameMode::TweakOffset {
@@ -1707,6 +1751,10 @@ impl Scene for GameScene {
             // render the texture onto screen
             if let Some(target) = &self.res.chart_target {
                 self.gl.flush();
+
+                unsafe {
+                    self.gl.quad_gl.retain_render_pass_on_flush(None);
+                }
                 push_camera_state();
                 self.gl.quad_gl.viewport(None);
                 set_camera(&Camera2D {
@@ -1728,6 +1776,7 @@ impl Scene for GameScene {
                 pop_camera_state();
             }
         }
+
         Ok(())
     }
 

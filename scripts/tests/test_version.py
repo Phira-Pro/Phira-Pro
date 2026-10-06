@@ -26,6 +26,7 @@ class VersionTests(unittest.TestCase):
         self.assertEqual(version.check_version(self.root)["pro_version"], "0.8.2-pro.9")
         self.assertEqual((self.root / "Cargo.toml").read_text(), '[workspace.package]\nversion = "0.8.2"\nedition = "2021"\n\n[workspace.dependencies]\nserde = "1"\n')
         self.assertIn("CURRENT_PROJECT_VERSION = 44", (self.root / "xcode/Version.xcconfig").read_text())
+        self.assertIn("MARKETING_VERSION = 0.8.9", (self.root / "xcode/Version.xcconfig").read_text())
 
     def test_revision_change_is_detected_without_changing_compatibility_version(self):
         version.sync_version(self.root)
@@ -37,6 +38,9 @@ class VersionTests(unittest.TestCase):
         values = version.check_version(self.root)
         self.assertEqual(values["base_version"], "0.8.2")
         self.assertEqual(values["pro_version"], "0.8.2-pro.10")
+        self.assertEqual(values["ios_version"], "0.8.10")
+        self.assertIn("MARKETING_VERSION = 0.8.10", (self.root / "xcode/Version.xcconfig").read_text())
+        self.assertIn("PHIRA_PRO_VERSION = 0.8.2-pro.10", (self.root / "xcode/Version.xcconfig").read_text())
         self.assertEqual(values["flash_version"], "flash.1")
 
     def test_invalid_versions_fail_instead_of_producing_misnamed_packages(self):

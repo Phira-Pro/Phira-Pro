@@ -5,6 +5,7 @@ use std::{env, fs, path::Path};
 pub struct Version {
     pub base: String,
     pub pro: String,
+    pub ios: String,
     pub flash: String,
     pub build: u32,
 }
@@ -44,6 +45,7 @@ impl Version {
         Self {
             base: base.into(),
             pro: format!("{base}-pro.{}", number("pro_revision")),
+            ios: format!("{}.{}.{}", parts[0], parts[1], number("pro_revision")),
             flash: format!("flash.{}", number("flash_revision")),
             build: number("build_number"),
         }
@@ -66,7 +68,7 @@ impl Version {
         println!("cargo:rerun-if-changed={}", path.display());
         let expected = format!(
             "// Generated from version.json by scripts/version.py sync. Do not edit.\nMARKETING_VERSION = {}\nCURRENT_PROJECT_VERSION = {}\nPHIRA_PRO_VERSION = {}\n",
-            self.base, self.build, self.pro
+            self.ios, self.build, self.pro
         );
         let actual = fs::read_to_string(path).expect("missing xcode/Version.xcconfig; run python scripts/version.py sync");
         assert_eq!(actual.replace("\r\n", "\n"), expected, "Xcode version is stale; run python scripts/version.py sync");

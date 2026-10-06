@@ -19,13 +19,17 @@ def load_version(root=ROOT):
         number = values[key]
         if type(number) is not int or not 1 <= number <= 2_100_000_000:
             raise ValueError(f"{key} must be a positive integer <= 2100000000")
-    return dict(values, pro_version=f"{base}-pro.{values['pro_revision']}", flash_version=f"flash.{values['flash_revision']}")
+    # iOS requires exactly three numeric components. Include the Pro revision
+    # instead of keeping the system-visible version fixed at the upstream base.
+    major, minor, _ = base.split(".")
+    return dict(values, pro_version=f"{base}-pro.{values['pro_revision']}",
+                ios_version=f"{major}.{minor}.{values['pro_revision']}", flash_version=f"flash.{values['flash_revision']}")
 
 
 def xcconfig(values):
     return (
         "// Generated from version.json by scripts/version.py sync. Do not edit.\n"
-        f"MARKETING_VERSION = {values['base_version']}\n"
+        f"MARKETING_VERSION = {values['ios_version']}\n"
         f"CURRENT_PROJECT_VERSION = {values['build_number']}\n"
         f"PHIRA_PRO_VERSION = {values['pro_version']}\n"
     )
@@ -60,7 +64,7 @@ def sync_version(root=ROOT):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["show", "check", "sync"])
-    parser.add_argument("--field", choices=sorted(KEYS | {"pro_version", "flash_version"}))
+    parser.add_argument("--field", choices=sorted(KEYS | {"pro_version", "ios_version", "flash_version"}))
     args = parser.parse_args()
     try:
         if args.command == "sync":

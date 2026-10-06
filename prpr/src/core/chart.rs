@@ -14,6 +14,8 @@ struct BlockFrame {
     timeline: super::block_timeline::BlockTimeline,
     key: Option<(f64, f32, usize)>,
     zones: Vec<Zone>,
+    marker_key: Option<(f64, f32)>,
+    marker_areas: Vec<BlockArea>,
 }
 
 #[derive(Default)]
@@ -54,7 +56,8 @@ pub struct Chart {
     /// Chart-space positions of touches blocked by the zones this frame.
     pub blocked_touches: Vec<(u64, Vector)>,
     block_frame: RefCell<BlockFrame>,
-    rpe_block_markers: Vec<usize>,
+    rpe_block_markers: Vec<super::rpe_block::Marker>,
+    rpe_input_lines: Vec<usize>,
     line_transforms: Vec<Matrix>,
     line_rotations: Vec<f32>,
 }
@@ -73,21 +76,22 @@ impl Chart {
             })
             .collect::<Vec<_>>();
         order.sort_by_key(|it| (lines[*it].z_index, *it));
-        let rpe_block_markers = lines
+        let rpe_block_markers: Vec<_> = lines
             .iter()
             .enumerate()
             .filter_map(|(id, line)| match &line.kind {
-                JudgeLineKind::Texture(_, path)
-                    if matches!(
-                        path.rsplit(['/', '\\']).next().unwrap_or("").to_ascii_lowercase().as_str(),
-                        "issubtract0.png" | "issubtract1.png"
-                    ) =>
-                {
-                    Some(id)
+                JudgeLineKind::Texture(_, path) => {
+                    super::rpe_block::marker_kind(path).map(|invert| super::rpe_block::Marker::new(id, invert, &line.object.alpha))
                 }
                 _ => None,
             })
             .collect();
+        let rpe_input_lines = if rpe_block_markers.is_empty() {
+            Vec::new()
+        } else {
+            let parents: Vec<_> = lines.iter().map(|line| line.parent).collect();
+            super::rpe_block::input_lines(&parents, rpe_block_markers.iter().map(|marker| marker.line))
+        };
         Self {
             offset,
             lines,
@@ -103,6 +107,7 @@ impl Chart {
             blocked_touches: Vec::new(),
             block_frame: RefCell::default(),
             rpe_block_markers,
+            rpe_input_lines,
             line_transforms: Vec::new(),
             line_rotations: Vec::new(),
         }
@@ -146,6 +151,9 @@ impl Chart {
 
     pub fn reset(&mut self) {
         self.blocked_touches.clear();
+        let cache = self.block_frame.get_mut();
+        cache.key = None;
+        cache.marker_key = None;
         super::reset_block_effects();
         self.lines
             .iter_mut()
@@ -167,6 +175,11 @@ impl Chart {
         for line in &mut self.lines {
             line.object.set_time(res.time);
         }
+        if !self.rpe_block_markers.is_empty() {
+            let cache = self.block_frame.get_mut();
+            cache.key = None;
+            cache.marker_key = None;
+        }
         self.line_transforms.clear();
         self.line_rotations.clear();
         self.line_transforms
@@ -183,6 +196,43 @@ impl Chart {
             if let Err(err) = video.update(res.time) {
                 tracing::warn!("video error: {err:?}");
             }
+        }
+    }
+
+    pub(crate) fn has_block_areas(&self) -> bool {
+        !self.block_areas.is_empty() || !self.rpe_block_markers.is_empty()
+    }
+
+    /// RPE input depends on parents even when they occur later in line order.
+    /// Move the judge's existing time evaluation here; it must not run twice.
+    pub(crate) fn prepare_rpe_input_time(&mut self, time: f64) -> bool {
+        if self.rpe_block_markers.is_empty() {
+            return false;
+        }
+        for line in &mut self.lines {
+            line.object.set_time(time);
+        }
+        true
+    }
+
+    /// Input is evaluated before Chart::update. Resolve animated marker lines
+    /// (including their parents) at the input time, rather than the last frame.
+    pub(crate) fn update_block_input(&mut self, res: &Resource, time: f64) {
+        if self.rpe_block_markers.is_empty() {
+            return;
+        }
+        for &id in &self.rpe_input_lines {
+            self.lines[id].object.set_time(time);
+        }
+        let cache = self.block_frame.get_mut();
+        cache.key = None;
+        cache.marker_key = None;
+        self.line_transforms.resize(self.lines.len(), Matrix::identity());
+        self.line_rotations.resize(self.lines.len(), 0.);
+        for marker in &self.rpe_block_markers {
+            let id = marker.line;
+            self.line_transforms[id] = self.lines[id].now_transform(res, &self.lines);
+            self.line_rotations[id] = self.lines[id].fetch_rot(&self.lines);
         }
     }
 
@@ -247,7 +297,13 @@ impl Chart {
         let key = (res.time, res.aspect_ratio, self.block_areas.len());
         let mut cache = self.block_frame.borrow_mut();
         if cache.key != Some(key) {
-            let BlockFrame { timeline, zones, .. } = &mut *cache;
+            self.update_marker_areas(&mut cache, res.time, res.aspect_ratio);
+            let BlockFrame {
+                timeline,
+                zones,
+                marker_areas,
+                ..
+            } = &mut *cache;
             zones.clear();
             zones.extend(
                 timeline
@@ -255,7 +311,6 @@ impl Chart {
                     .iter()
                     .filter_map(|&id| Zone::from_area(&self.block_areas[id], res.time, res.aspect_ratio)),
             );
-            let marker_areas = self.rpe_marker_areas(res.aspect_ratio);
             zones.extend(marker_areas.iter().filter_map(|area| Zone::from_area(area, res.time, res.aspect_ratio)));
             cache.key = Some(key);
         }
@@ -264,10 +319,10 @@ impl Chart {
     }
 
     pub(crate) fn touch_blocked(&self, p: Vector, time: f64, aspect: f32) -> bool {
-        let marker_areas = self.rpe_marker_areas(aspect);
         let mut cache = self.block_frame.borrow_mut();
-        let areas = cache
-            .timeline
+        self.update_marker_areas(&mut cache, time, aspect);
+        let BlockFrame { timeline, marker_areas, .. } = &mut *cache;
+        let areas = timeline
             .at(&self.block_areas, time)
             .iter()
             .map(|&id| &self.block_areas[id])
@@ -275,64 +330,133 @@ impl Chart {
         super::block::block_touch_blocked_iter(areas, p, time, aspect)
     }
 
-    /// RPE charts commonly encode block areas as opaque texture lines named
+    fn update_marker_areas(&self, cache: &mut BlockFrame, time: f64, aspect: f32) {
+        if self.rpe_block_markers.is_empty() || cache.marker_key == Some((time, aspect)) {
+            return;
+        }
+        // All fingers in this input frame share the same evaluated marker pose.
+        // Invalidate when that pose is updated, even if chart time is unchanged.
+        cache.marker_areas.clear();
+        cache.marker_areas.extend(self.rpe_marker_areas(time, aspect));
+        cache.marker_key = Some((time, aspect));
+    }
+
+    /// RPE charts encode block areas as editor texture lines named
     /// `isSubtract0.png` (normal) / `isSubtract1.png` (subtract). Resolve those
     /// animated lines into the same rectangle model used by official block areas.
-    fn rpe_marker_areas(&self, aspect: f32) -> Vec<BlockArea> {
-        self.rpe_block_markers
-            .iter()
-            .filter_map(|&id| {
-                let line = self.lines.get(id)?;
-                let (texture, path) = match &line.kind {
-                    JudgeLineKind::Texture(texture, path) => (texture, path),
-                    _ => return None,
-                };
-                let is_subtract = match path.rsplit(['/', '\\']).next()?.to_ascii_lowercase().as_str() {
-                    "issubtract0.png" => false,
-                    "issubtract1.png" => true,
-                    _ => return None,
-                };
-                let alpha = line.object.alpha.now_opt().unwrap_or(1.).max(0.);
-                let scale = line.object.scale.now_with_def(1., 1.);
-                if scale.x.abs() < 1e-6 || scale.y.abs() < 1e-6 || texture.width() <= 0. || texture.height() <= 0. {
-                    return None;
-                }
-                let center = self
-                    .line_transforms
-                    .get(id)
-                    .map(|matrix| matrix.transform_point(&Point::new(0., 0.)))
-                    .unwrap_or_else(|| {
-                        let mut pos = line.object.translation.now();
-                        pos.y /= aspect;
-                        Point::new(pos.x, pos.y)
-                    });
-                let rotation = self.line_rotations.get(id).copied().unwrap_or_else(|| line.object.rotation.now());
-                let half_x = texture.width() * scale.x.abs() * 0.5;
-                let half_y = texture.height() * scale.y.abs() * 0.5;
-                let to_pct_x = |x: f32| (x + 1.) * 0.5;
-                let to_pct_y = |y: f32| (y * aspect + 1.) * 0.5;
-                let c = Vector::new(center.x, center.y);
-                let top_right = Vector::new(to_pct_x(c.x + half_x), to_pct_y(c.y + half_y));
-                let bottom_left = Vector::new(to_pct_x(c.x - half_x), to_pct_y(c.y - half_y));
-                let anchor = Vector::new(to_pct_x(c.x), to_pct_y(c.y));
-                Some(BlockArea {
-                    top_right,
-                    bottom_left,
-                    appear_time: if alpha > 0. { 0. } else { f64::INFINITY },
-                    enable_time: if alpha > 0. { 0. } else { f64::INFINITY },
-                    disable_time: f64::INFINITY,
-                    disappear_time: f64::INFINITY,
-                    is_subtract,
-                    rotate_events: vec![BlockRotateEvent {
-                        anchor,
-                        time: 0.,
-                        ease: 0,
-                        rotation,
-                    }],
-                    move_events: Vec::new(),
-                    scale_events: Vec::new(),
-                })
+    fn rpe_marker_areas(&self, time: f64, aspect: f32) -> impl Iterator<Item = BlockArea> + '_ {
+        self.rpe_block_markers.iter().filter_map(move |marker| {
+            let id = marker.line;
+            let [appear_time, enable_time, disable_time, disappear_time] = marker.timings(time)?;
+            let line = self.lines.get(id)?;
+            let texture = match &line.kind {
+                JudgeLineKind::Texture(texture, _) => texture,
+                _ => return None,
+            };
+            let scale = line.object.scale.now_with_def(1., 1.);
+            if scale.x.abs() < 1e-6 || scale.y.abs() < 1e-6 || texture.width() <= 0. || texture.height() <= 0. {
+                return None;
+            }
+            let center = self
+                .line_transforms
+                .get(id)
+                .map(|matrix| matrix.transform_point(&Point::new(0., 0.)))
+                .unwrap_or_else(|| {
+                    let mut pos = line.object.translation.now();
+                    pos.y /= aspect;
+                    Point::new(pos.x, pos.y)
+                });
+            let rotation = self.line_rotations.get(id).copied().unwrap_or_else(|| line.object.rotation.now());
+            let half_x = texture.width() * scale.x.abs() * 0.5;
+            let half_y = texture.height() * scale.y.abs() * 0.5;
+            let to_pct_x = |x: f32| (x + 1.) * 0.5;
+            let to_pct_y = |y: f32| (y * aspect + 1.) * 0.5;
+            let c = Vector::new(center.x, center.y);
+            let top_right = Vector::new(to_pct_x(c.x + half_x), to_pct_y(c.y + half_y));
+            let bottom_left = Vector::new(to_pct_x(c.x - half_x), to_pct_y(c.y - half_y));
+            let anchor = Vector::new(to_pct_x(c.x), to_pct_y(c.y));
+            Some(BlockArea {
+                top_right,
+                bottom_left,
+                appear_time,
+                enable_time,
+                disable_time,
+                disappear_time,
+                is_subtract: marker.invert,
+                rotate_events: vec![BlockRotateEvent {
+                    anchor,
+                    time: 0.,
+                    ease: 0,
+                    rotation,
+                }],
+                move_events: Vec::new(),
+                scale_events: Vec::new(),
             })
-            .collect()
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::{AnimFloat, CtrlObject, JudgeLineCache, Keyframe};
+
+    fn line(parent: Option<usize>, rotation: AnimFloat) -> JudgeLine {
+        let mut notes = Vec::new();
+        let cache = JudgeLineCache::new(&mut notes);
+        JudgeLine {
+            object: Object {
+                rotation,
+                ..Default::default()
+            },
+            ctrl_obj: RefCell::new(CtrlObject::default()),
+            kind: JudgeLineKind::Normal,
+            height: AnimFloat::default(),
+            incline: AnimFloat::default(),
+            notes,
+            color: Default::default(),
+            parent,
+            rot_with_parent: true,
+            z_index: 0,
+            show_below: false,
+            attach_ui: None,
+            cache,
+        }
+    }
+
+    fn chart() -> Chart {
+        Chart::new(
+            0.,
+            vec![
+                line(Some(1), AnimFloat::fixed(10.)),
+                line(None, AnimFloat::new(vec![Keyframe::new(0., 0., 2), Keyframe::new(2., 90., 2)])),
+                line(None, AnimFloat::default()),
+            ],
+            BpmList::new(vec![(0., 120.)]),
+            ChartSettings::default(),
+            ChartExtra::default(),
+            HashMap::new(),
+        )
+    }
+
+    #[test]
+    fn rpe_input_also_updates_later_parents_of_non_marker_lines_and_seeks_backwards() {
+        let mut chart = chart();
+        // Marker metadata alone is sufficient to test the input schedule, with
+        // no GL context or editor guide texture involved.
+        chart
+            .rpe_block_markers
+            .push(super::super::rpe_block::Marker::new(2, false, &AnimFloat::fixed(1.)));
+        assert!(chart.prepare_rpe_input_time(1.));
+        assert_eq!(chart.lines[0].fetch_rot(&chart.lines), 55.);
+        assert!(chart.prepare_rpe_input_time(0.));
+        assert_eq!(chart.lines[0].fetch_rot(&chart.lines), 10.);
+    }
+
+    #[test]
+    fn ordinary_charts_keep_the_existing_input_evaluation_path() {
+        let mut chart = chart();
+        assert!(!chart.prepare_rpe_input_time(1.));
+        assert_eq!(chart.lines[1].object.rotation.time, 0.);
     }
 }

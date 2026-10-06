@@ -316,13 +316,9 @@ impl JudgeLine {
                     }
                     JudgeLineKind::Texture(texture, path) => {
                         // These RPE texture names are area markers consumed by the
-                        // block-area compositor; drawing their solid source PNGs
+                        // block-area compositor; drawing their source PNGs
                         // would reveal the encoding texture over the rendered zone.
-                        let marker = matches!(
-                            path.rsplit(['/', '\\']).next().unwrap_or("").to_ascii_lowercase().as_str(),
-                            "issubtract0.png" | "issubtract1.png"
-                        );
-                        if marker {
+                        if super::rpe_block::marker_kind(path).is_some() {
                             return;
                         }
                         let mut color = color.unwrap_or(WHITE);

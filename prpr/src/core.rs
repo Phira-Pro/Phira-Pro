@@ -39,6 +39,7 @@ pub use block_shader::{draw_disabled_zones, draw_zones, draw_zones_with_touches,
 
 mod block_timeline;
 mod chart;
+pub(crate) mod rpe_block;
 pub use chart::{Chart, ChartExtra, ChartSettings, HitSoundMap};
 
 mod effect;

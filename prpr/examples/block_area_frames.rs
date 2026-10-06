@@ -64,7 +64,7 @@ async fn main() {
         .filter(|value| value.is_finite() && (0.0..=1.0).contains(value));
     std::fs::create_dir_all(&folder).unwrap();
     next_frame().await;
-    for (name, path, times) in [
+    let mut charts: Vec<_> = [
         ("desultory", "data/charts/custom/f681f94e-57d3-4d7c-bfd6-fb8cc3f1dd13", vec![1., 4., 65., 65.64356, 67., 67.72277, 70., 71.8]),
         (
             "hate",
@@ -74,14 +74,26 @@ async fn main() {
                 79., 79.2, 79.4, 79.46667, 79.9, 80.2, 81.9, 82.2, 134.96667, 136.9, 137., 138.8, 139.8, 141.8, 142.6,
             ],
         ),
-    ] {
+    ]
+    .into_iter()
+    .map(|(name, path, times)| (name.to_owned(), path.to_owned(), times))
+    .collect();
+    if let Ok(path) = std::env::var("BLOCK_CAPTURE_CHART") {
+        let times = std::env::var("BLOCK_CAPTURE_TIMES")
+            .unwrap_or_else(|_| "0,1,6,7,10,15,25,50,90,115".into())
+            .split(',')
+            .map(|value| value.trim().parse::<f64>().expect("capture time in seconds"))
+            .collect();
+        charts = vec![("custom".to_owned(), path, times)];
+    }
+    for (name, path, times) in charts {
         let reference = std::env::var("BLOCK_REFERENCE_DIR").unwrap_or_else(|_| "target/block-area-reference".into());
         let metadata: Option<serde_json::Value> = std::fs::read(format!("{reference}/{name}/metadata.json"))
             .ok().map(|bytes| serde_json::from_slice(&bytes).unwrap());
         if metadata.is_none() { println!("{name}: no video alignment metadata; using requested chart seconds"); }
         let mut manifest = Vec::new();
         let mut scene = finish(async {
-            let mut fs = fs_from_file(Path::new(path)).unwrap();
+            let mut fs = fs_from_file(Path::new(&path)).unwrap();
             let mut info = load_info(fs.as_mut()).await.unwrap();
             // Phigros exposes remaining background brightness, while Phira's
             // chart metadata stores the black overlay's opacity.
@@ -94,7 +106,10 @@ async fn main() {
             config.particle = false;
             config.volume_sfx = 0.;
             config.volume_music = 0.;
-            config.sample_count = 4;
+            config.sample_count = std::env::var("BLOCK_CAPTURE_SAMPLES")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(4);
             config.shader_pre_render = std::env::var_os("BLOCK_CAPTURE_PRE_RENDER").is_some();
             GameScene::new(GameMode::View, info, config, fs, None, background, illustration, None, None, None)
                 .await

@@ -275,6 +275,66 @@ mod dir {
         }
         Ok(removed)
     }
+
+    /// 自定义背景音乐（`data/appearance/bgm.*`）的候选扩展名。
+    /// sasa 走 symphonia 解码，这几个格式都在支持范围内。
+    pub const AUDIO_EXTS: [&str; 6] = ["mp3", "ogg", "wav", "flac", "m4a", "aac"];
+
+    /// 在 `data/appearance` 下按候选扩展名探测自定义外观**音频**文件。
+    pub fn find_appearance_audio(stem: &str) -> Option<std::path::PathBuf> {
+        let root = appearance_root()?;
+        AUDIO_EXTS
+            .into_iter()
+            .map(|ext| root.join(format!("{stem}.{ext}")))
+            .find(|it| it.is_file())
+    }
+
+    /// 载入 `data/appearance/{stem}.*` 的音频字节；不存在或读不动时返回 `None`。
+    pub fn load_appearance_audio(stem: &str) -> Option<Vec<u8>> {
+        let path = find_appearance_audio(stem)?;
+        match std::fs::read(&path) {
+            Ok(bytes) => Some(bytes),
+            Err(err) => {
+                tracing::warn!(?err, ?path, "failed to read appearance audio");
+                None
+            }
+        }
+    }
+
+    /// 把任意音频导入为 `data/appearance/{stem}.{ext}`。写之前先解码验证一次，
+    /// 避免选中非音频文件后把原来的背景音乐弄丢；成功后再清掉同名的其它扩展名。
+    pub fn import_appearance_audio(stem: &str, src: &std::path::Path) -> Result<()> {
+        let data = std::fs::read(src)?;
+        // 解码验证（sasa/symphonia 会按内容嗅探格式，不依赖扩展名）。
+        sasa::AudioClip::new(data.clone())?;
+        let ext = src
+            .extension()
+            .and_then(|it| it.to_str())
+            .map(|it| it.to_ascii_lowercase())
+            .filter(|it| AUDIO_EXTS.contains(&it.as_str()))
+            .unwrap_or_else(|| "mp3".to_owned());
+        let root = std::path::PathBuf::from(appearance()?);
+        for old in AUDIO_EXTS {
+            let _ = std::fs::remove_file(root.join(format!("{stem}.{old}")));
+        }
+        std::fs::write(root.join(format!("{stem}.{ext}")), data)?;
+        Ok(())
+    }
+
+    /// 删除 `data/appearance/{stem}.*` 的所有音频候选文件（用于「恢复默认背景音乐」）。
+    /// 返回是否删除过至少一个文件。
+    pub fn clear_appearance_audio(stem: &str) -> Result<bool> {
+        let root = std::path::PathBuf::from(appearance()?);
+        let mut removed = false;
+        for ext in AUDIO_EXTS {
+            let path = root.join(format!("{stem}.{ext}"));
+            if path.is_file() {
+                std::fs::remove_file(&path)?;
+                removed = true;
+            }
+        }
+        Ok(removed)
+    }
 }
 
 async fn the_main() -> Result<()> {

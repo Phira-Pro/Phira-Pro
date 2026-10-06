@@ -228,6 +228,11 @@ item-app-icon-imported = Ícone importado - reinicie para aplicar
 item-app-icon-reset-done = Ícone padrão restaurado - reinicie para aplicar
 item-app-bg-imported = Plano de fundo importado
 item-app-bg-reset-done = Plano de fundo padrão restaurado
+item-app-bgm = Música de fundo
+item-app-bgm-sub = Trocar a música de fundo da tela principal
+item-app-bgm-reset = Restaurar música de fundo
+item-app-bgm-imported = Música de fundo importada
+item-app-bgm-reset-done = Música de fundo padrão restaurada
 item-appearance-reset-done = Ilustração padrão restaurada
 
 migrate-label = Importar minhas músicas jogadas

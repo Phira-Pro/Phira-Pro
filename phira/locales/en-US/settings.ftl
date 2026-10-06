@@ -250,6 +250,11 @@ item-app-icon-imported = Icon imported - restart to apply
 item-app-icon-reset-done = Default icon restored - restart to apply
 item-app-bg-imported = Background imported
 item-app-bg-reset-done = Default background restored
+item-app-bgm = Background music
+item-app-bgm-sub = Change the main screen background music
+item-app-bgm-reset = Reset background music
+item-app-bgm-imported = Background music imported
+item-app-bgm-reset-done = Default background music restored
 item-appearance-reset-done = Default character restored
 
 migrate-label = Import My Played Charts

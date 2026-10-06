@@ -220,6 +220,11 @@ item-app-icon-imported = Zaimportowano ikonę - uruchom ponownie
 item-app-icon-reset-done = Przywrócono domyślną ikonę - uruchom ponownie
 item-app-bg-imported = Zaimportowano tło
 item-app-bg-reset-done = Przywrócono domyślne tło
+item-app-bgm = Muzyka w tle
+item-app-bgm-sub = Zmień muzykę w tle ekranu głównego
+item-app-bgm-reset = Przywróć muzykę w tle
+item-app-bgm-imported = Zaimportowano muzykę w tle
+item-app-bgm-reset-done = Przywrócono domyślną muzykę w tle
 item-appearance-reset-done = Przywrócono domyślną ilustrację
 
 migrate-label = Importuj moje grane mapy

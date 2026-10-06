@@ -194,6 +194,11 @@ item-app-icon-imported = Дүрс импортлогдлоо - дахин эхл
 item-app-icon-reset-done = Анхны дүрс сэргээгдлээ - дахин эхлүүлнэ үү
 item-app-bg-imported = Арын дэвсгэр импортлогдлоо
 item-app-bg-reset-done = Анхны арын дэвсгэр сэргээгдлээ
+item-app-bgm = Арын хөгжим
+item-app-bgm-sub = Үндсэн дэлгэцийн арын хөгжмийг солих
+item-app-bgm-reset = Арын хөгжмийг сэргээх
+item-app-bgm-imported = Арын хөгжим импортлогдлоо
+item-app-bgm-reset-done = Анхдагч арын хөгжим сэргээгдлээ
 item-appearance-reset-done = Анхны дүрслэл сэргээгдлээ
 
 migrate-label = Миний тоглосон дүрслэлүүдийг импортлох

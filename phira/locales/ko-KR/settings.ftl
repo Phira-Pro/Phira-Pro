@@ -236,6 +236,11 @@ item-app-icon-imported = 아이콘을 가져왔습니다 - 재시작 후 적용
 item-app-icon-reset-done = 기본 아이콘으로 복원했습니다 - 재시작 후 적용
 item-app-bg-imported = 배경을 가져왔습니다
 item-app-bg-reset-done = 기본 배경으로 복원했습니다
+item-app-bgm = 배경 음악
+item-app-bgm-sub = 메인 화면 배경 음악 변경
+item-app-bgm-reset = 배경 음악 초기화
+item-app-bgm-imported = 배경 음악을 불러왔습니다
+item-app-bgm-reset-done = 기본 배경 음악으로 되돌렸습니다
 item-appearance-reset-done = 기본 일러스트로 복원했습니다
 
 migrate-label = 내가 플레이한 채보 가져오기

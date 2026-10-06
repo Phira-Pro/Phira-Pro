@@ -241,6 +241,11 @@ item-app-icon-imported = 圖示已匯入，重新啟動後生效
 item-app-icon-reset-done = 已恢復預設圖示，重新啟動後生效
 item-app-bg-imported = 背景已匯入
 item-app-bg-reset-done = 已恢復預設背景
+item-app-bgm = 自訂背景音樂
+item-app-bgm-sub = 更改主介面背景音樂
+item-app-bgm-reset = 恢復預設背景音樂
+item-app-bgm-imported = 背景音樂已匯入
+item-app-bgm-reset-done = 已恢復預設背景音樂
 item-appearance-reset-done = 已恢復預設立繪
 
 migrate-label = 從官服匯入我的成績譜面

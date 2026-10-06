@@ -225,6 +225,11 @@ item-app-icon-imported = アイコンを読み込みました - 再起動後に�
 item-app-icon-reset-done = 既定のアイコンに戻しました - 再起動後に反映
 item-app-bg-imported = 背景を読み込みました
 item-app-bg-reset-done = 既定の背景に戻しました
+item-app-bgm = 背景音楽
+item-app-bgm-sub = メイン画面の背景音楽を変更
+item-app-bgm-reset = 背景音楽を初期化
+item-app-bgm-imported = 背景音楽を読み込みました
+item-app-bgm-reset-done = 既定の背景音楽に戻しました
 item-appearance-reset-done = 既定の立ち絵に戻しました
 
 migrate-label = 自分のプレイ済み譜面をインポート

@@ -241,6 +241,11 @@ item-app-icon-imported = Đã nhập biểu tượng - khởi động lại đ�
 item-app-icon-reset-done = Đã khôi phục biểu tượng mặc định - khởi động lại để áp dụng
 item-app-bg-imported = Đã nhập hình nền
 item-app-bg-reset-done = Đã khôi phục hình nền mặc định
+item-app-bgm = Nhạc nền
+item-app-bgm-sub = Đổi nhạc nền màn hình chính
+item-app-bgm-reset = Khôi phục nhạc nền
+item-app-bgm-imported = Đã nhập nhạc nền
+item-app-bgm-reset-done = Đã khôi phục nhạc nền mặc định
 item-appearance-reset-done = Đã khôi phục hình minh họa mặc định
 
 migrate-label = Nhập các phổ tôi đã chơi

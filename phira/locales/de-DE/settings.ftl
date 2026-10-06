@@ -240,6 +240,11 @@ item-app-icon-imported = Symbol importiert – nach Neustart wirksam
 item-app-icon-reset-done = Standardsymbol wiederhergestellt – nach Neustart wirksam
 item-app-bg-imported = Hintergrund importiert
 item-app-bg-reset-done = Standardhintergrund wiederhergestellt
+item-app-bgm = Hintergrundmusik
+item-app-bgm-sub = Hintergrundmusik des Hauptbildschirms ändern
+item-app-bgm-reset = Hintergrundmusik zurücksetzen
+item-app-bgm-imported = Hintergrundmusik importiert
+item-app-bgm-reset-done = Standard-Hintergrundmusik wiederhergestellt
 item-appearance-reset-done = Standardfigur wiederhergestellt
 
 migrate-label = Meine gespielten Charts importieren

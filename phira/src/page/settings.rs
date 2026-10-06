@@ -506,6 +506,16 @@ fn pick_image(title: &str) -> Option<std::path::PathBuf> {
         .pick_file()
 }
 
+
+/// 桌面端选音频（背景音乐）。
+#[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
+fn pick_audio(title: &str) -> Option<std::path::PathBuf> {
+    rfd::FileDialog::new()
+        .set_title(title)
+        .add_filter("audio", &["mp3", "ogg", "wav", "flac", "m4a", "aac"])
+        .pick_file()
+}
+
 struct GeneralList {
     icon_lang: SafeTexture,
 
@@ -520,6 +530,9 @@ struct GeneralList {
     /// 自定义主界面背景（导入 / 恢复默认）。
     app_bg_btn: DRectButton,
     app_bg_reset_btn: DRectButton,
+    /// 自定义主界面背景音乐（导入 / 恢复默认）。
+    app_bgm_btn: DRectButton,
+    app_bgm_reset_btn: DRectButton,
     /// 自定义立绘（导入 / 恢复默认）。
     appearance_import_btn: DRectButton,
     appearance_reset_btn: DRectButton,
@@ -585,6 +598,8 @@ impl GeneralList {
             app_icon_reset_btn: DRectButton::new(),
             app_bg_btn: DRectButton::new(),
             app_bg_reset_btn: DRectButton::new(),
+            app_bgm_btn: DRectButton::new(),
+            app_bgm_reset_btn: DRectButton::new(),
             appearance_import_btn: DRectButton::new(),
             appearance_reset_btn: DRectButton::new(),
             font_btn: DRectButton::new(),
@@ -712,6 +727,31 @@ impl GeneralList {
                 Ok(_) => {
                     crate::scene::BACKGROUND_UPDATED.store(true, Ordering::Relaxed);
                     show_message(tl!("item-app-bg-reset-done")).ok();
+                }
+                Err(err) => show_error(err),
+            }
+            return Ok(Some(true));
+        }
+        // Phira Pro：自定义背景音乐。
+        if self.app_bgm_btn.touch(touch, t) {
+            #[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
+            if let Some(path) = pick_audio(&tl!("item-app-bgm")) {
+                match dir::import_appearance_audio("bgm", &path) {
+                    Ok(()) => {
+                        crate::scene::BGM_UPDATED.store(true, Ordering::Relaxed);
+                        show_message(tl!("item-app-bgm-imported")).ok();
+                    }
+                    Err(err) => show_error(err),
+                }
+            }
+            request_mobile_file("bgm_import");
+            return Ok(Some(true));
+        }
+        if self.app_bgm_reset_btn.touch(touch, t) {
+            match dir::clear_appearance_audio("bgm") {
+                Ok(_) => {
+                    crate::scene::BGM_UPDATED.store(true, Ordering::Relaxed);
+                    show_message(tl!("item-app-bgm-reset-done")).ok();
                 }
                 Err(err) => show_error(err),
             }
@@ -892,6 +932,13 @@ impl GeneralList {
                     }
                     Err(err) => show_error(err),
                 },
+                "bgm_import" => match dir::import_appearance_audio("bgm", std::path::Path::new(&file)) {
+                    Ok(()) => {
+                        crate::scene::BGM_UPDATED.store(true, Ordering::Relaxed);
+                        show_message(tl!("item-app-bgm-imported")).ok();
+                    }
+                    Err(err) => show_error(err),
+                },
                 "appearance_import" => match dir::import_appearance("character", std::path::Path::new(&file)) {
                     Ok(()) => {
                         crate::scene::APPEARANCE_UPDATED.store(true, Ordering::Relaxed);
@@ -989,6 +1036,14 @@ impl GeneralList {
         item! {
             render_title(ui, tl!("item-app-bg-reset"), None);
             self.app_bg_reset_btn.render_text(ui, rr, t, tl!("font-reset-btn"), 0.5, false);
+        }
+        item! {
+            render_title(ui, tl!("item-app-bgm"), Some(tl!("item-app-bgm-sub")));
+            self.app_bgm_btn.render_text(ui, rr, t, tl!("item-appearance-import-btn"), 0.5, true);
+        }
+        item! {
+            render_title(ui, tl!("item-app-bgm-reset"), None);
+            self.app_bgm_reset_btn.render_text(ui, rr, t, tl!("font-reset-btn"), 0.5, false);
         }
         item! {
             render_title(ui, tl!("item-appearance-import"), Some(tl!("item-appearance-import-sub")));

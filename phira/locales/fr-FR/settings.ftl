@@ -241,6 +241,11 @@ item-app-icon-imported = Icône importée - redémarrez pour appliquer
 item-app-icon-reset-done = Icône par défaut restaurée - redémarrez pour appliquer
 item-app-bg-imported = Arrière-plan importé
 item-app-bg-reset-done = Arrière-plan par défaut restauré
+item-app-bgm = Musique de fond
+item-app-bgm-sub = Changer la musique de fond de l'écran principal
+item-app-bgm-reset = Réinitialiser la musique de fond
+item-app-bgm-imported = Musique de fond importée
+item-app-bgm-reset-done = Musique de fond par défaut restaurée
 item-appearance-reset-done = Illustration par défaut restaurée
 
 migrate-label = Importer mes partitions jouées

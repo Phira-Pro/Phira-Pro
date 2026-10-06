@@ -223,6 +223,11 @@ item-app-icon-imported = Ikon diimpor - mulai ulang untuk menerapkan
 item-app-icon-reset-done = Ikon bawaan dipulihkan - mulai ulang untuk menerapkan
 item-app-bg-imported = Latar belakang diimpor
 item-app-bg-reset-done = Latar belakang bawaan dipulihkan
+item-app-bgm = Musik latar
+item-app-bgm-sub = Ganti musik latar layar utama
+item-app-bgm-reset = Kembalikan musik latar
+item-app-bgm-imported = Musik latar diimpor
+item-app-bgm-reset-done = Musik latar bawaan dipulihkan
 item-appearance-reset-done = Ilustrasi bawaan dipulihkan
 
 migrate-label = Impor Lagu yang Pernah Dimainkan

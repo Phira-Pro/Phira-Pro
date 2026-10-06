@@ -241,6 +241,11 @@ item-app-icon-imported = Значок импортирован - перезап�
 item-app-icon-reset-done = Значок по умолчанию восстановлен - перезапустите
 item-app-bg-imported = Фон импортирован
 item-app-bg-reset-done = Фон по умолчанию восстановлен
+item-app-bgm = Фоновая музыка
+item-app-bgm-sub = Сменить фоновую музыку главного экрана
+item-app-bgm-reset = Сбросить фоновую музыку
+item-app-bgm-imported = Фоновая музыка импортирована
+item-app-bgm-reset-done = Восстановлена музыка по умолчанию
 item-appearance-reset-done = Иллюстрация по умолчанию восстановлена
 
 migrate-label = Импортировать мои игранные карты

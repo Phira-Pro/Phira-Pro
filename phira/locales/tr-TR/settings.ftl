@@ -228,6 +228,11 @@ item-app-icon-imported = Simge içe aktarıldı - uygulamak için yeniden başla
 item-app-icon-reset-done = Varsayılan simge geri yüklendi - yeniden başlatın
 item-app-bg-imported = Arka plan içe aktarıldı
 item-app-bg-reset-done = Varsayılan arka plan geri yüklendi
+item-app-bgm = Arka plan müziği
+item-app-bgm-sub = Ana ekran arka plan müziğini değiştir
+item-app-bgm-reset = Arka plan müziğini sıfırla
+item-app-bgm-imported = Arka plan müziği içe aktarıldı
+item-app-bgm-reset-done = Varsayılan arka plan müziği geri yüklendi
 item-appearance-reset-done = Varsayılan illüstrasyon geri yüklendi
 
 migrate-label = Oynadığım Haritaları İçe Aktar

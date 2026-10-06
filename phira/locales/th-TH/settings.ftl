@@ -241,6 +241,11 @@ item-app-icon-imported = นำเข้าไอคอนแล้ว - รี�
 item-app-icon-reset-done = คืนค่าไอคอนเริ่มต้นแล้ว - รีสตาร์ทเพื่อใช้งาน
 item-app-bg-imported = นำเข้าพื้นหลังแล้ว
 item-app-bg-reset-done = คืนค่าพื้นหลังเริ่มต้นแล้ว
+item-app-bgm = เพลงพื้นหลัง
+item-app-bgm-sub = เปลี่ยนเพลงพื้นหลังของหน้าหลัก
+item-app-bgm-reset = คืนค่าเพลงพื้นหลัง
+item-app-bgm-imported = นำเข้าเพลงพื้นหลังแล้ว
+item-app-bgm-reset-done = คืนค่าเพลงพื้นหลังเริ่มต้นแล้ว
 item-appearance-reset-done = คืนค่าภาพตัวละครเริ่มต้นแล้ว
 
 migrate-label = นำเข้าเพลงที่ฉันเล่นแล้ว

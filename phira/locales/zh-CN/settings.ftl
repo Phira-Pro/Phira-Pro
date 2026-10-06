@@ -249,6 +249,11 @@ item-app-icon-imported = 图标已导入，重启后生效
 item-app-icon-reset-done = 已恢复默认图标，重启后生效
 item-app-bg-imported = 背景已导入
 item-app-bg-reset-done = 已恢复默认背景
+item-app-bgm = 自定义背景音乐
+item-app-bgm-sub = 更改主界面背景音乐
+item-app-bgm-reset = 恢复默认背景音乐
+item-app-bgm-imported = 背景音乐已导入
+item-app-bgm-reset-done = 已恢复默认背景音乐
 item-appearance-reset-done = 已恢复默认立绘
 
 migrate-label = 从官服导入我的成绩谱面

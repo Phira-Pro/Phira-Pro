@@ -10,7 +10,7 @@ pub(crate) mod event;
 pub use event::EventScene;
 
 mod main;
-pub use main::{MainScene, APPEARANCE_UPDATED, BACKGROUND_UPDATED, BGM_VOLUME_UPDATED};
+pub use main::{MainScene, APPEARANCE_UPDATED, BACKGROUND_UPDATED, BGM_UPDATED, BGM_VOLUME_UPDATED};
 
 mod song;
 pub use song::{compress_folder, SongScene};

@@ -58,6 +58,9 @@ fn blurred_texture(image: &image::DynamicImage) -> SafeTexture {
 
 pub static BGM_VOLUME_UPDATED: AtomicBool = AtomicBool::new(false);
 
+/// Phira Pro：自定义背景音乐被导入 / 恢复默认后置位；主场景在 `update` 里消费并换曲。
+pub static BGM_UPDATED: AtomicBool = AtomicBool::new(false);
+
 /// 外观资源（例如立绘）被导入或替换后置位；主页在 `update` 里消费它并重新加载。
 pub static APPEARANCE_UPDATED: AtomicBool = AtomicBool::new(false);
 
@@ -167,6 +170,8 @@ pub struct MainScene {
 
     bgm: Option<Music>,
     bgm_normalization: f32,
+    /// 内置背景音乐的字节（「恢复默认背景音乐」时回退用；open 构建没有）。
+    bgm_default: Option<Vec<u8>>,
 
     background: SafeTexture,
     /// Phira Pro：内置背景图（含磨砂版），供「恢复默认背景」使用。
@@ -207,35 +212,52 @@ enum ImportChart {
     Failed(String),
 }
 
+
+/// 用音频字节创建一首可循环播放的背景音乐。返回 (music, 响度归一化系数)。
+fn build_bgm(bytes: &[u8], loop_mix_time: f64) -> Result<(Music, f32)> {
+    let clip = AudioClip::new(bytes.to_vec())?;
+    let gain = prpr::audio::music_normalization_gain(&clip);
+    let config = &get_data().config;
+    let amplifier = config.music_volume(config.volume_bgm) * if config.uniform_loudness { gain } else { 1. };
+    let music = UI_AUDIO.with(|it| {
+        it.borrow_mut().create_music(
+            clip,
+            sasa::MusicParams {
+                amplifier,
+                loop_mix_time,
+                command_buffer_size: 64,
+                ..Default::default()
+            },
+        )
+    })?;
+    Ok((music, gain))
+}
+
 impl MainScene {
     // shall be call exactly once
     pub async fn new(fallback: FontArc) -> Result<Self> {
         Self::init().await?;
         crate::hud::selftest();
 
+        // 内置背景音乐：只有 closed 构建自带 `res/bgm`（「恢复默认背景音乐」时用它）。
         #[cfg(closed)]
-        let (bgm, bgm_normalization) = {
-            let bgm_clip = AudioClip::new(crate::load_res("res/bgm").await)?;
-            let gain = prpr::audio::music_normalization_gain(&bgm_clip);
-            let config = &get_data().config;
-            let amplifier = config.music_volume(config.volume_bgm) * if config.uniform_loudness { gain } else { 1. };
-            (
-                Some(UI_AUDIO.with(|it| {
-                    it.borrow_mut().create_music(
-                        bgm_clip,
-                        sasa::MusicParams {
-                            amplifier,
-                            loop_mix_time: 5.46,
-                            command_buffer_size: 64,
-                            ..Default::default()
-                        },
-                    )
-                })?),
-                gain,
-            )
-        };
+        let bgm_default: Option<Vec<u8>> = Some(crate::load_res("res/bgm").await);
         #[cfg(not(closed))]
-        let (bgm, bgm_normalization) = (None, 1.);
+        let bgm_default: Option<Vec<u8>> = None;
+        // Phira Pro：自定义背景音乐（`data/appearance/bgm.*`）优先。
+        // 自定义的那首按原样接循环（loop_mix_time = 0），内置 `res/bgm` 保留原本的 5.46 秒交叉循环。
+        let custom_bgm = dir::load_appearance_audio("bgm");
+        let loop_mix_time = if custom_bgm.is_some() { 0. } else { 5.46 };
+        let (bgm, bgm_normalization) = match custom_bgm.or_else(|| bgm_default.clone()) {
+            Some(bytes) => match build_bgm(&bytes, loop_mix_time) {
+                Ok((music, gain)) => (Some(music), gain),
+                Err(err) => {
+                    tracing::warn!(?err, "failed to load background music");
+                    (None, 1.)
+                }
+            },
+            None => (None, 1.),
+        };
 
         let mut sf = Self::new_inner(bgm, fallback).await?;
         sf.bgm_normalization = bgm_normalization;
@@ -289,6 +311,7 @@ impl MainScene {
 
             bgm,
             bgm_normalization: 1.,
+            bgm_default: None,
 
             background: TEX_BACKGROUND.with(|it| it.borrow().clone().unwrap()),
             bg_default: TEX_BACKGROUND_DEFAULT.with(|it| it.borrow().clone().unwrap()),
@@ -501,6 +524,27 @@ impl Scene for MainScene {
             self.background = bg;
             TEX_BACKGROUND.with(|it| *it.borrow_mut() = Some(self.background.clone()));
             TEX_BACKGROUND_BLUR.with(|it| *it.borrow_mut() = Some(blur));
+        }
+        // Phira Pro：自定义背景音乐被导入 / 恢复默认 → 就地换一首（自定义优先，没有就回内置）。
+        if BGM_UPDATED.swap(false, Ordering::Relaxed) {
+            self.bgm = None;
+            self.bgm_normalization = 1.;
+            let custom_bgm = dir::load_appearance_audio("bgm");
+            let loop_mix_time = if custom_bgm.is_some() { 0. } else { 5.46 };
+            if let Some(bytes) = custom_bgm.or_else(|| self.bgm_default.clone()) {
+                match build_bgm(&bytes, loop_mix_time) {
+                    Ok((music, gain)) => {
+                        self.bgm = Some(music);
+                        self.bgm_normalization = gain;
+                        if self.pages.last().map(|it| it.can_play_bgm()).unwrap_or(false) {
+                            if let Some(bgm) = &mut self.bgm {
+                                let _ = bgm.fade_in(0.5);
+                            }
+                        }
+                    }
+                    Err(err) => tracing::warn!(?err, "failed to load background music"),
+                }
+            }
         }
         if let Some(bgm) = &mut self.bgm {
             if BGM_VOLUME_UPDATED.fetch_and(false, Ordering::Relaxed) {

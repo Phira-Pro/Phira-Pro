@@ -209,7 +209,7 @@ impl ResourcePack {
     pub async fn load(fs: &mut dyn FileSystem) -> Result<Self> {
         macro_rules! load_tex {
             ($path:literal) => {
-                SafeTexture::from(image::load_from_memory(&fs.load_file($path).await.with_context(|| format!("Missing {}", $path))?)?)
+                SafeTexture::from(crate::loading_cpu::image(fs.load_file($path).await.with_context(|| format!("Missing {}", $path))?).await?)
                     .with_filter(GL_LINEAR)
             };
         }
@@ -252,38 +252,25 @@ impl ResourcePack {
             get_body(&mut note_style);
             get_body(&mut note_style_mh);
         }
-        let hit_fx = image::load_from_memory(&fs.load_file("hit_fx.png").await.context("Missing hit_fx.png")?)?.into();
+        let hit_fx = crate::loading_cpu::image(fs.load_file("hit_fx.png").await.context("Missing hit_fx.png")?)
+            .await?
+            .into();
 
         macro_rules! load_clip {
-            ($path:literal) => {
-                if let Some(sfx) = fs
-                    .load_file(format!("{}.ogg", $path).as_str())
-                    .await
-                    .ok()
-                    .map(|it| AudioClip::new(it))
-                    .transpose()?
-                {
-                    sfx
-                } else if let Some(sfx) = fs
-                    .load_file(format!("{}.wav", $path).as_str())
-                    .await
-                    .ok()
-                    .map(|it| AudioClip::new(it))
-                    .transpose()?
-                {
-                    sfx
-                } else if let Some(sfx) = fs
-                    .load_file(format!("{}.mp3", $path).as_str())
-                    .await
-                    .ok()
-                    .map(|it| AudioClip::new(it))
-                    .transpose()?
-                {
-                    sfx
+            ($path:literal) => {{
+                // Missing-file fallback order remains ogg, wav, mp3, asset.
+                // A present but invalid clip still returns its decode error.
+                let bytes = if let Ok(bytes) = fs.load_file(concat!($path, ".ogg")).await {
+                    bytes
+                } else if let Ok(bytes) = fs.load_file(concat!($path, ".wav")).await {
+                    bytes
+                } else if let Ok(bytes) = fs.load_file(concat!($path, ".mp3")).await {
+                    bytes
                 } else {
-                    AudioClip::new(load_file(format!("{}.ogg", $path).as_str()).await?)?
-                }
-            };
+                    load_file(concat!($path, ".ogg")).await?
+                };
+                crate::loading_cpu::audio(bytes).await?
+            }};
         }
 
         Ok(Self {
@@ -389,9 +376,8 @@ impl NoteBuffer {
     }
 
     pub fn draw_all(&mut self) {
-        let mut gl = unsafe { get_internal_gl() };
-        gl.flush();
-        let gl = gl.quad_gl;
+        // Continue the current target; geometry recording snapshots draw state.
+        let gl = unsafe { get_internal_gl() }.quad_gl;
         gl.draw_mode(DrawMode::Triangles);
         for ((_, tex_id), meshes) in std::mem::take(&mut self.0).into_iter() {
             gl.texture(Some(Texture2D::from_miniquad_texture(unsafe { Texture::from_raw_id(tex_id, miniquad::TextureFormat::RGBA8) })));
@@ -445,6 +431,9 @@ pub struct Resource {
     pub extra_sfxs: SfxMap,
 
     pub chart_target: Option<MSRenderTarget>,
+    pub(crate) chart_render_policy: super::render_lifetime::Policy,
+    pub(crate) snapshot_blit_sources: Vec<(miniquad::RenderPass, bool)>,
+
     pub no_effect: bool,
 
     pub note_buffer: RefCell<NoteBuffer>,
@@ -512,7 +501,7 @@ impl Resource {
         };
 
         let mut audio = create_audio_manger(&config)?;
-        let music = AudioClip::new(fs.load_file(&info.music).await?)?;
+        let music = crate::loading_cpu::audio(fs.load_file(&info.music).await?).await?;
         let hide_covers = super::hide_cover::load(&config);
         let track_length = music.length();
         let buffer_size = Some(BUFFER_SIZE);
@@ -570,6 +559,9 @@ impl Resource {
             extra_sfxs: SfxMap::new(),
 
             chart_target: None,
+            chart_render_policy: super::render_lifetime::Policy::LEGACY,
+            snapshot_blit_sources: Vec::new(),
+
             no_effect,
 
             note_buffer: RefCell::new(NoteBuffer::default()),
@@ -600,7 +592,8 @@ impl Resource {
         }
         self.last_vp = vp;
         if !self.no_effect || self.config.sample_count != 1 {
-            self.chart_target = Some(MSRenderTarget::new((vp.2 as u32, vp.3 as u32), self.config.sample_count));
+            self.snapshot_blit_sources.clear();
+            self.chart_target = Some(MSRenderTarget::with_policy((vp.2 as u32, vp.3 as u32), self.config.sample_count, self.chart_render_policy));
         }
         fn viewport(aspect_ratio: f32, (x, y, w, h): (i32, i32, i32, i32)) -> (i32, i32, i32, i32) {
             let w = w as f32;

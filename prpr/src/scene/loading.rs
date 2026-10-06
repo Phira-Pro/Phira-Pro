@@ -1,4 +1,9 @@
-use super::{draw_background, ending::RecordUpdateState, game::{GameMode, UploadScore}, GameScene, NextScene, Scene};
+use super::{
+    draw_background,
+    ending::RecordUpdateState,
+    game::{GameMode, UploadScore},
+    GameScene, NextScene, Scene,
+};
 use crate::{
     config::Config,
     core::{Resource, BOLD_FONT},
@@ -12,7 +17,7 @@ use crate::{
     ui::{clip_rounded_rect, rounded_rect_shadow, LoadingParams, ShadowConfig, Ui, PREFER_REDUCED_MOTION},
 };
 use ::rand::{seq::SliceRandom, thread_rng};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use macroquad::prelude::*;
 use regex::Regex;
 use std::sync::{atomic::Ordering, Arc};
@@ -64,29 +69,17 @@ pub struct LoadingScene {
 
 impl LoadingScene {
     pub async fn load(fs: &mut dyn FileSystem, path: &str) -> Result<(SafeTexture, SafeTexture, Color)> {
-        let image = image::load_from_memory(&fs.load_file(path).await?).context("Failed to decode image")?;
-        let (w, h) = (image.width(), image.height());
-        let size = w as usize * h as usize;
-
-        let mut blurred_rgb = image.to_rgb8();
-        let color = color_thief::get_palette(&blurred_rgb, color_thief::ColorFormat::Rgb, 10, 2)?[0];
-        let mut vec = unsafe { Vec::from_raw_parts(std::mem::transmute::<*mut u8, *mut [u8; 3]>(blurred_rgb.as_mut_ptr()), size, size) };
-        fastblur::gaussian_blur(&mut vec, w as _, h as _, 50.);
-        std::mem::forget(vec);
-        let mut blurred = Vec::with_capacity(size * 4);
-        for input in blurred_rgb.chunks_exact(3) {
-            blurred.extend_from_slice(input);
-            blurred.push(255);
-        }
+        let image = crate::loading_cpu::illustration(fs.load_file(path).await?).await?;
+        let (w, h) = (image.width, image.height);
         Ok((
-            Texture2D::from_rgba8(w as _, h as _, &image.into_rgba8()).into(),
+            Texture2D::from_rgba8(w as _, h as _, &image.rgba).into(),
             Texture2D::from_image(&Image {
                 width: w as _,
                 height: h as _,
-                bytes: blurred,
+                bytes: image.blurred,
             })
             .into(),
-            Color::from_rgba(color.r, color.g, color.b, 255),
+            Color::from_rgba(image.color[0], image.color[1], image.color[2], 255),
         ))
     }
 

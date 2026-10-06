@@ -6,6 +6,9 @@ pub mod dir;
 pub mod ext;
 pub mod fs;
 pub mod info;
+pub mod loading_cpu;
+pub mod loading_work;
+
 #[cfg(target_os = "ios")]
 pub mod frame_pacing;
 

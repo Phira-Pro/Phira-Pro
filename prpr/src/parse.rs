@@ -8,7 +8,7 @@ mod pec;
 pub use pec::{parse_pec, SendChart};
 
 mod pgr;
-pub use pgr::parse_phigros;
+pub use pgr::{parse_phigros, parse_phigros_loading};
 
 mod rpe;
 pub use rpe::{lint, parse_rpe, RPE_HEIGHT, RPE_WIDTH};

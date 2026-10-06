@@ -70,7 +70,7 @@ struct PgrChart {
     format_version: u32,
     offset: f32,
     judge_line_list: Vec<PgrJudgeLine>,
-    #[serde(default)]
+    #[serde(default, alias = "BlockAreaList")]
     block_area_list: Vec<PgrBlockArea>,
 }
 
@@ -117,7 +117,7 @@ struct PgrScaleEvent {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PgrBlockArea {
+pub(super) struct PgrBlockArea {
     top_right_percentage: PgrVector2,
     bottom_left_percentage: PgrVector2,
     #[serde(default)]
@@ -142,7 +142,7 @@ fn v2(p: PgrVector2) -> Vector {
     Vector::new(p.x, p.y)
 }
 
-fn parse_block_areas(list: Vec<PgrBlockArea>) -> Vec<BlockArea> {
+pub(super) fn parse_block_areas(list: Vec<PgrBlockArea>) -> Vec<BlockArea> {
     list.into_iter()
         .map(|b| BlockArea {
             top_right: v2(b.top_right_percentage),

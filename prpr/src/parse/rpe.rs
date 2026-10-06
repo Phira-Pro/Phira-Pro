@@ -6,7 +6,10 @@ use serde::{Deserialize, Deserializer};
 use std::{any::Any, cell::RefCell, collections::HashMap, future::IntoFuture, io::Cursor, sync::Arc, str::FromStr, time::Duration};
 use tracing::debug;
 
-use super::{process_lines, L10N_LOCAL, RPE_TWEEN_MAP};
+use super::{
+    pgr::{parse_block_areas, PgrBlockArea},
+    process_lines, L10N_LOCAL, RPE_TWEEN_MAP,
+};
 use crate::{
     core::{
         Anim, AnimFloat, AnimVector, BezierTween, BpmList, Chart, ChartExtra, ChartSettings, ClampedTween, CtrlObject, GeneralIntTween, GifFrames,
@@ -299,6 +302,8 @@ struct RPEChart {
     #[serde(rename = "BPMList")]
     bpm_list: Vec<RPEBpmItem>,
     judge_line_list: Vec<RPEJudgeLine>,
+    #[serde(default, alias = "BlockAreaList")]
+    block_area_list: Vec<PgrBlockArea>,
 }
 
 type BezierMap = HashMap<(u16, i16, i16), TweenRef>;
@@ -930,7 +935,11 @@ pub async fn parse_rpe(source: &str, fs: &mut dyn FileSystem, extra: ChartExtra,
         }
     }
     process_lines(&mut lines);
-    Ok(Chart::new(rpe.meta.offset as f32 / 1000.0, lines, r, ChartSettings::default(), extra, hitsounds))
+    let mut chart = Chart::new(rpe.meta.offset as f32 / 1000.0, lines, r, ChartSettings::default(), extra, hitsounds);
+    // Embedded official blocks keep seconds, screen percentages and native
+    // easing IDs. RPE BPM conversion applies only to the RPE line events.
+    chart.block_areas = parse_block_areas(rpe.block_area_list);
+    Ok(chart)
 }
 
 pub async fn lint(source: &str) -> Result<ParseWarnings> {
@@ -948,4 +957,93 @@ pub async fn lint(source: &str) -> Result<ParseWarnings> {
         has_new_speed_events,
         has_attach_ui,
     })
+}
+
+#[cfg(test)]
+mod block_area_tests {
+    use super::*;
+    use crate::core::{BlockPhase, Zone};
+    use serde_json::{json, Value};
+
+    fn chart_json(bpm: f64) -> Value {
+        json!({
+            "META": {"offset": 320, "RPEVersion": 150},
+            "BPMList": [{"bpm": bpm, "startTime": [0, 0, 1]}],
+            "judgeLineList": [{
+                "Name": "ordinary line", "Texture": "line.png", "isCover": 1,
+                "eventLayers": [],
+                "notes": [{
+                    "type": 1, "above": 1, "startTime": [4, 0, 1], "endTime": [4, 0, 1],
+                    "positionX": 0, "yOffset": 0, "alpha": 255, "size": 1,
+                    "speed": 1, "isFake": 0, "visibleTime": 9999
+                }]
+            }]
+        })
+    }
+
+    fn read_chart(source: Value) -> Result<Chart> {
+        let directory = tempfile::tempdir().unwrap();
+        let mut fs = crate::fs::ExternalFileSystem(Arc::new(crate::dir::Dir::new(directory.path()).unwrap()));
+        tokio::runtime::Builder::new_current_thread().build().unwrap()
+            .block_on(parse_rpe(&source.to_string(), &mut fs, ChartExtra::default(), false))
+    }
+
+    #[test]
+    fn embedded_official_blocks_keep_seconds_geometry_and_native_easing() {
+        let blocks = json!([{
+            "topRightPercentage": {"x": 0.8, "y": 0.7},
+            "bottomLeftPercentage": {"x": 0.2, "y": 0.3},
+            "appearTime": 1.25, "enableTime": 2.25,
+            "disableTime": 4.5, "disappearTime": 5.5, "isSubtract": true,
+            "rotateEvents": [
+                {"anchor": {"x": 0.25, "y": 0.75}, "time": 1.5, "easeType": 13, "rotation": -45},
+                {"anchor": {"x": 0.5, "y": 0.5}, "time": 3.25, "easeType": 14, "rotation": 90}
+            ],
+            "moveEvents": [{"endPosition": {"x": 0.7, "y": 0.4}, "time": 2.5, "easeTypeX": 12, "easeTypeY": 14}],
+            "scaleEvents": [{"anchor": {"x": 0.3, "y": 0.6}, "time": 1.75, "easeTypeX": 13, "easeTypeY": 2, "scale": {"x": 1.2, "y": 0.5}}]
+        }]);
+        let official = super::super::parse_phigros(&json!({
+            "formatVersion": 3, "offset": 0.32, "judgeLineList": [], "blockAreaList": blocks
+        }).to_string(), ChartExtra::default()).unwrap();
+        for name in ["blockAreaList", "BlockAreaList"] {
+            for bpm in [60., 240.] {
+                let mut source = chart_json(bpm);
+                source[name] = blocks.clone();
+                let chart = read_chart(source).unwrap();
+                assert_eq!(chart.offset, 0.32);
+                assert_eq!(chart.lines.len(), 1);
+                assert!((chart.lines[0].notes[0].time - 4. * 60. / bpm).abs() < 1e-6);
+                assert_eq!(chart.block_areas.len(), 1);
+                let area = &chart.block_areas[0];
+                assert_eq!(area.appear_time, 1.25);
+                assert_eq!(area.enable_time, 2.25);
+                assert_eq!(area.rotate_events[0].time, 1.5);
+                assert_eq!(area.rotate_events[0].ease, 13);
+                assert_eq!(area.move_events[0].time, 2.5);
+                assert_eq!(area.scale_events[0].ease_x, 13);
+                assert!(area.is_subtract);
+                assert_eq!(area.phase(1.), BlockPhase::Hidden);
+                assert_eq!(area.phase(2.), BlockPhase::Disabled);
+                assert_eq!(area.phase(2.25), BlockPhase::Active);
+                assert_eq!(area.phase(4.5), BlockPhase::Disabled);
+                assert_eq!(area.phase(5.5), BlockPhase::Hidden);
+                for time in [1.25, 1.75, 2., 2.25, 3.25, 4.5, 5.5] {
+                    assert_eq!(area.matrix(time, 16. / 9.), official.block_areas[0].matrix(time, 16. / 9.));
+                    assert!(Zone::from_area(area, time, 16. / 9.) == Zone::from_area(&official.block_areas[0], time, 16. / 9.));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn missing_and_empty_lists_preserve_rpe_and_malformed_blocks_are_reported() {
+        let mut source = chart_json(120.);
+        assert!(read_chart(source.clone()).unwrap().block_areas.is_empty());
+        source["blockAreaList"] = json!([]);
+        let chart = read_chart(source.clone()).unwrap();
+        assert!(chart.block_areas.is_empty());
+        assert_eq!(chart.lines[0].notes[0].time, 2.);
+        source["blockAreaList"] = json!([{"topRightPercentage": "invalid"}]);
+        assert!(read_chart(source).is_err());
+    }
 }

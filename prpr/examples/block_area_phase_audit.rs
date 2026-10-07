@@ -2,7 +2,7 @@
 //! production clocks or tuning material colors. This is an estimate, not an
 //! observation of the recorder's Unity _Time or a pixel-exact validation.
 use macroquad::prelude::*;
-use prpr::core::Zone;
+use prpr::core::{BlockArea, Zone};
 
 #[path = "../src/core/block_mask.rs"]
 mod mask;

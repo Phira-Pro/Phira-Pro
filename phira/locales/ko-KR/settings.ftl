@@ -129,9 +129,9 @@ about-content =
 
   그리고 많은 자원봉사 채보 리뷰어들에게 감사드립니다. 전체 목록은 https://phira.moe/staff 를 참조하세요.
 item-drag-protect = 황색 노트 보호
-item-drag-protect-sub = 탭이 겹친 황색 노트에 먹히지 않습니다
+item-drag-protect-sub = 탭 / 홀드가 early 쪽이고 황색 노트가 현재 시간에 10ms 이상 가까우면, 황색 노트당 한 번 탭을 가로챕니다
 item-flick-protect = 적색 노트 보호
-item-flick-protect-sub = 탭이 겹친 적색 노트에 먹히지 않습니다
+item-flick-protect-sub = 탭 / 홀드가 early 쪽이고 적색 노트가 현재 시간에 10ms 이상 가까우면 반복해서 탭을 가로챕니다. 탭으로 적색 노트가 판정되지는 않습니다
 item-combo-text = 콤보 문구
 item-combo-text-sub = 콤보 수 아래에 표시할 문구 (최대 16자)
 combo-text-default = 기본

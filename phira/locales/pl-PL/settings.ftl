@@ -113,9 +113,9 @@ about-content =
 
   I wielu innych dobrowolnych recenzentów chartów. Pełną listę można znaleźć na https://phira.moe/staff
 item-drag-protect = Ochrona żółtych
-item-drag-protect-sub = Dotknięcie nie jest już zabierane przez nachodzącą żółtą nutę
+item-drag-protect-sub = Gdy Tap / Hold jest po wczesnej stronie, żółta nuta bliższa bieżącej chwili o co najmniej 10ms przechwytuje dotknięcie, raz na nutę
 item-flick-protect = Ochrona czerwonych
-item-flick-protect-sub = Dotknięcie nie jest już zabierane przez nachodzącą czerwoną nutę
+item-flick-protect-sub = Gdy Tap / Hold jest po wczesnej stronie, czerwona nuta bliższa o co najmniej 10ms może wielokrotnie przechwytywać dotknięcia; dotknięcie nie zalicza tej nuty
 item-combo-text = Tekst combo
 item-combo-text-sub = Tekst pod licznikiem combo (maks. 16 znaków)
 combo-text-default = Domyślny

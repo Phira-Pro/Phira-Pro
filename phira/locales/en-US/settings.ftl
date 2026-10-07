@@ -157,9 +157,9 @@ about-content =
   And many more voluntary chart reviewers. For a full list please refer to https://phira.moe/staff .
 
 item-drag-protect = Drag Protection
-item-drag-protect-sub = Clicks are assigned to the closest note in time: if the tap is meant for a drag note, overlapping tap / hold notes are left unjudged.
+item-drag-protect-sub = While a tap / hold is early, a drag at least 10ms closer to the current time intercepts one tap per drag note.
 item-flick-protect = Flick Protection
-item-flick-protect-sub = Clicks are assigned to the closest note in time: if the tap is meant for a flick note, overlapping tap / hold notes are left unjudged.
+item-flick-protect-sub = While a tap / hold is early, a flick at least 10ms closer can intercept repeated taps; tapping does not judge the flick.
 item-combo-text = Combo Label
 item-combo-text-sub = The text shown under the combo counter in game (up to 16 characters)
 combo-text-default = Default

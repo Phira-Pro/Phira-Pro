@@ -3,7 +3,7 @@
 //! threshold. Overlapping rectangles therefore do not darken the flat fill.
 use super::Zone;
 use macroquad::prelude::*;
-use std::cell::RefCell;
+use std::{cell::RefCell, collections::BTreeSet};
 
 #[derive(Clone, Copy)]
 struct Boundary {
@@ -14,6 +14,7 @@ struct Boundary {
     delta: f64,
     invert: bool,
     opacity: f64,
+    zone: usize,
 }
 
 impl Boundary {
@@ -26,7 +27,7 @@ impl Boundary {
 struct FlatRanges {
     zones: Vec<Zone>,
     aspect: f32,
-    layers: [Vec<([Vec2; 4], f32)>; 2],
+    layers: [Vec<([Vec2; 4], f32, [f32; 3])>; 2],
 }
 
 thread_local! {
@@ -43,22 +44,22 @@ pub(super) fn draw(aspect: f32, zones: &[Zone], disabled: bool) {
             cached.layers = [tessellate(aspect, zones, false), tessellate(aspect, zones, true)];
         }
         gl_use_default_material();
-        for &(p, opacity) in &cached.layers[usize::from(disabled)] {
-            let fill = Color::new(1., 0., 0., opacity * if disabled { 0.12 } else { 0.4 });
+        for &(p, opacity, rgb) in &cached.layers[usize::from(disabled)] {
+            let fill = Color::new(rgb[0], rgb[1], rgb[2], opacity * if disabled { 0.12 } else { 0.4 });
             draw_triangle(p[0], p[1], p[2], fill);
             draw_triangle(p[0], p[2], p[3], fill);
         }
     });
 }
 
-fn tessellate(aspect: f32, zones: &[Zone], disabled: bool) -> Vec<([Vec2; 4], f32)> {
+fn tessellate(aspect: f32, zones: &[Zone], disabled: bool) -> Vec<([Vec2; 4], f32, [f32; 3])> {
     if !aspect.is_finite() || aspect <= 0. {
         return Vec::new();
     }
     let half_height = 1. / aspect as f64;
     let mut cuts = vec![-half_height, half_height];
     let mut edges = Vec::new();
-    for z in zones.iter().filter(|z| z.active != disabled && z.opacity > 0.) {
+    for (id, z) in zones.iter().enumerate().filter(|(_, z)| z.active != disabled && z.opacity > 0.) {
         let (s, c) = (z.angle as f64).sin_cos();
         let corners = [(-1., -1.), (1., -1.), (1., 1.), (-1., 1.)].map(|(x, y)| {
             let (x, y) = (x * z.half.x as f64, y * z.half.y as f64);
@@ -85,6 +86,7 @@ fn tessellate(aspect: f32, zones: &[Zone], disabled: bool) -> Vec<([Vec2; 4], f3
                 delta: if b.1 > a.1 { -1. } else { 1. },
                 invert: z.invert,
                 opacity: z.opacity as f64,
+                zone: id,
             };
             cuts.extend([bottom, top]);
             // Clipping must also split where a slanted side crosses the viewport.
@@ -116,6 +118,8 @@ fn tessellate(aspect: f32, zones: &[Zone], disabled: bool) -> Vec<([Vec2; 4], f3
     cuts.dedup();
     let mut result = Vec::new();
     let mut crossings = Vec::new();
+    let colored = zones.iter().any(|z| z.color != super::DEFAULT_BLOCK_COLOR);
+    let mut owners: [BTreeSet<usize>; 2] = Default::default();
     for band in cuts.windows(2) {
         let (lo, hi) = (band[0], band[1]);
         let mid = (lo + hi) * 0.5;
@@ -126,8 +130,17 @@ fn tessellate(aspect: f32, zones: &[Zone], disabled: bool) -> Vec<([Vec2; 4], f3
         crossings.extend(edges.iter().copied().filter(|e| e.bottom < mid && mid < e.top));
         crossings.sort_unstable_by(|a, b| a.x(mid).total_cmp(&b.x(mid)));
         let (mut normal, mut subtract, mut subtract_opacity) = (0_f64, 0_f64, 0_f64);
+        owners.iter_mut().for_each(BTreeSet::clear);
         for pair in crossings.windows(2) {
             let (left, right) = (pair[0], pair[1]);
+            if colored {
+                let owners = &mut owners[usize::from(left.invert)];
+                if left.delta > 0. {
+                    owners.insert(left.zone);
+                } else {
+                    owners.remove(&left.zone);
+                }
+            }
             if left.invert {
                 subtract += left.delta;
                 subtract_opacity += left.delta * left.opacity;
@@ -159,7 +172,12 @@ fn tessellate(aspect: f32, zones: &[Zone], disabled: bool) -> Vec<([Vec2; 4], f3
                 vec2(right.x(hi).clamp(-1., 1.) as f32, hi as f32),
                 vec2(left.x(hi).clamp(-1., 1.) as f32, hi as f32),
             ];
-            result.push((p, opacity));
+            let kind = usize::from(normal < inverse);
+            let owner = owners[kind].last().or_else(|| owners[1 - kind].last());
+            let rgb = owner.map_or(super::DEFAULT_BLOCK_COLOR, |&id| zones[id].color);
+            // Preserve the established flat red for the default palette.
+            let rgb = if rgb == super::DEFAULT_BLOCK_COLOR { [1., 0., 0.] } else { rgb };
+            result.push((p, opacity, rgb));
         }
     }
     result
@@ -172,6 +190,7 @@ mod tests {
 
     fn zone(x: f32, y: f32, hx: f32, hy: f32, angle: f32, invert: bool) -> Zone {
         Zone {
+            color: super::super::DEFAULT_BLOCK_COLOR,
             center: Vector::new(x, y),
             half: Vector::new(hx, hy),
             angle,
@@ -209,7 +228,7 @@ mod tests {
                 }
                 let hits: Vec<_> = ranges
                     .iter()
-                    .filter(|(q, _)| {
+                    .filter(|(q, _, _)| {
                         if p.y < q[0].y || p.y >= q[2].y {
                             return false;
                         }
@@ -220,7 +239,7 @@ mod tests {
                     })
                     .collect();
                 assert_eq!(hits.len(), usize::from(normal ^ (subtract == 1)), "({x},{y})");
-                assert!(hits.iter().all(|(_, a)| (*a - 1.).abs() < 1e-5));
+                assert!(hits.iter().all(|(_, a, _)| (*a - 1.).abs() < 1e-5));
             }
         }
     }
@@ -235,5 +254,19 @@ mod tests {
         assert!((ranges[0].1 - 0.3).abs() < 1e-6);
         let s = zone(0., 0., 1., 1., 0., true);
         assert!(tessellate(1., &[s.clone(), s.clone(), s], false).is_empty());
+    }
+
+    #[test]
+    fn colored_flat_ranges_keep_separate_colors_and_union_overlaps() {
+        let mut green = zone(-0.25, 0., 0.5, 0.25, 0., false);
+        green.color = [0., 1., 0.];
+        let mut blue = zone(0.25, 0., 0.5, 0.25, 0., false);
+        blue.color = [0., 0., 1.];
+        let ranges = tessellate(1., &[green, blue], false);
+        assert_eq!(ranges.len(), 3);
+        assert_eq!(ranges[0].2, [0., 1., 0.]);
+        assert_eq!(ranges[1].2, [0., 0., 1.]);
+        assert_eq!(ranges[2].2, [0., 0., 1.]);
+        assert!(ranges.iter().all(|(_, opacity, _)| *opacity == 1.));
     }
 }

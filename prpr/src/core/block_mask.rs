@@ -119,6 +119,20 @@ pub(super) struct Masks {
 }
 
 impl Masks {
+    /// Choose the side contributing visible color after native subtraction.
+    /// Equal coverage is a hole, not a color seed for its edge or glow.
+    pub(super) fn color_source(&self, layer: usize, pixel: usize) -> Option<bool> {
+        let normal = self.layers[layer * 2][pixel];
+        let subtract = self.layers[layer * 2 + 1][pixel];
+        let inverse = if layer == 0 {
+            if (23..=30).contains(&subtract) { 255 } else { 0 }
+        } else {
+            let (r, g) = subtract_disabled(subtract, self.raw_disabled_green[pixel]);
+            unorm(r * g)
+        };
+        (normal != inverse).then_some(normal < inverse)
+    }
+
     /// Pre-rasterize exact keyframe poses, never quantizing animated geometry
     /// or chart time. Holds/static intervals reuse these poses; intermediates
     /// fall back to live rasterization. Hard 16 MiB budget, retained on retry.
@@ -165,10 +179,11 @@ impl Masks {
         // edge/glow rings. Native geometry and displacement math stay intact.
         let (bw, bh) = ((width / 8).max(1) * 2, (height / 8).max(1) * 2);
         let (ew, eh) = (bw, bh);
-        if self.last_dim == (ew, eh, aspect) && self.last_zones == zones && (self.last_time == Some(time) || self.uniform_compose.is_some()) {
+        let same_zones = self.last_zones.len() == zones.len() && self.last_zones.iter().zip(zones).all(|(a, b)| a.same_mask(b));
+        if self.last_dim == (ew, eh, aspect) && same_zones && (self.last_time == Some(time) || self.uniform_compose.is_some()) {
             return;
         }
-        if self.last_dim != (ew, eh, aspect) || self.last_zones != zones {
+        if self.last_dim != (ew, eh, aspect) || !same_zones {
             self.last_dim = (ew, eh, aspect);
             self.last_zones.clear();
             self.last_zones.extend_from_slice(zones);
@@ -644,7 +659,7 @@ fn blend_step(opacity: f32) -> Option<u8> {
         .then_some(step)
 }
 
-fn raster_rows(width: usize, height: usize, aspect: f32, zone: &Zone, mut write: impl FnMut(usize, usize, usize)) {
+pub(super) fn raster_rows(width: usize, height: usize, aspect: f32, zone: &Zone, mut write: impl FnMut(usize, usize, usize)) {
     if zone.half.x <= 0. || zone.half.y <= 0. {
         return;
     }
@@ -701,6 +716,20 @@ fn dilate(source: &[u64], dest: &mut [u64], width: usize, height: usize) {
 mod tests {
     use super::*;
     use crate::core::Vector;
+
+    #[test]
+    fn color_changes_reuse_identical_coverage_and_subtraction_masks() {
+        let mut zones = [zone(-0.1, 0., 0.5, 0.3, 0.2, false), zone(0.1, 0., 0.2, 0.1, 0.7, true)];
+        let mut mask = Masks::default();
+        mask.render_displaced(128, 96, 4. / 3., &zones, 1.);
+        let (before, aux, revision) = (mask.rgba.clone(), mask.aux_rgba.clone(), mask.revision);
+        zones[0].color = [0., 1., 0.];
+        zones[1].color = [1.; 3];
+        mask.render_displaced(128, 96, 4. / 3., &zones, 1.);
+        assert_eq!(mask.rgba, before);
+        assert_eq!(mask.aux_rgba, aux);
+        assert_eq!(mask.revision, revision);
+    }
 
     #[test]
     fn byte_quantization_preserves_rounding_at_every_half_boundary() {
@@ -891,6 +920,7 @@ mod tests {
 
     fn zone(x: f32, y: f32, half_x: f32, half_y: f32, angle: f32, invert: bool) -> Zone {
         Zone {
+            color: super::super::DEFAULT_BLOCK_COLOR,
             center: Vector::new(x, y),
             half: Vector::new(half_x, half_y),
             angle,

@@ -134,9 +134,9 @@ about-content =
 
   Et beaucoup d'autres réviseurs de charts bénévoles. Pour une liste complète, veuillez consulter https://phira.moe/staff
 item-drag-protect = Protection des Drag
-item-drag-protect-sub = Un appui n'est plus mangé par une note Drag qui se chevauche
+item-drag-protect-sub = Si Tap / Hold est encore en avance, un Drag plus proche d'au moins 10ms du temps actuel intercepte un appui, une seule fois par Drag
 item-flick-protect = Protection des Flick
-item-flick-protect-sub = Un appui n'est plus mangé par une note Flick qui se chevauche
+item-flick-protect-sub = Si Tap / Hold est encore en avance, un Flick plus proche d'au moins 10ms peut intercepter plusieurs appuis ; un appui ne valide pas le Flick
 item-combo-text = Texte de combo
 item-combo-text-sub = Texte affiché sous le compteur de combo (16 caractères max)
 combo-text-default = Par défaut

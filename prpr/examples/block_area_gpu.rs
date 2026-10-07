@@ -67,6 +67,29 @@ async fn main() {
     assert_ne!(pixels.bytes, later.bytes, "displacement/sparks must animate");
     native_reference(&active, &later, 9., &[]);
 
+    // Production shader, including per-area color textures and coverage parity.
+    let mut green_zone = active[0].clone();
+    green_zone.color = [84. / 255., 1., 84. / 255.];
+    let green = render(&mut res, aspect, &[green_zone.clone()], "active-green", 1., false);
+    let green_pixel = pixel(&green, 580, 270);
+    assert!(green_pixel[1] > green_pixel[0] + 10, "green event must recolor active fill");
+    assert_eq!(pixel(&green, 50, 50), [25, 25, 25, 255], "tint must not leak outside coverage");
+    green_zone.active = false;
+    let green_preview = render(&mut res, aspect, &[green_zone], "disabled-green", 1., false);
+    assert!(pixel(&green_preview, 580, 270)[1] > pixel(&green_preview, 580, 270)[0], "preview must retain event color");
+    let mut pair = [zone(-0.5, 0., 0.3, 0.25, false, true), zone(0.5, 0., 0.3, 0.25, false, true)];
+    pair[0].color = [84. / 255., 1., 84. / 255.];
+    pair[1].color = [84. / 255., 84. / 255., 1.];
+    let separate = render(&mut res, aspect, &pair, "separate-green-blue", 1., false);
+    assert!(pixel(&separate, 240, 270)[1] > pixel(&separate, 240, 270)[2]);
+    assert!(pixel(&separate, 720, 270)[2] > pixel(&separate, 720, 270)[1]);
+    assert_eq!(pixel(&separate, 480, 270), [25, 25, 25, 255]);
+    assert_eq!(
+        render(&mut res, aspect, &active, "default-after-colored", 1., false).bytes,
+        pixels.bytes,
+        "returning to native red must not reuse a stale color texture"
+    );
+
     // A gray underlay cannot detect channel/tint or HSV mistakes. Exercise the
     // Complete scene sampling with colored tiles and the native /6 Point grid.
     for time in [1., 9.] {
@@ -89,6 +112,21 @@ async fn main() {
     assert_eq!(pixel(&inverted, 264, 164), [25, 25, 25, 255], "normal zones must open holes in an inverted layer");
     assert!(pixel(&inverted, 480, 270)[0] > pixel(&inverted, 480, 270)[1] + 10);
     native_reference(&holes, &inverted, 1., &[]);
+    // MilK combo 102: a white inverted field is cut by native-red normal
+    // rectangles. Those rectangles are holes, so their RGB cannot tint rims.
+    let mut white_holes = holes.clone();
+    white_holes[0].color = [1.; 3];
+    for disabled in [false, true] {
+        for z in &mut white_holes {
+            z.active = !disabled;
+        }
+        for time in [1., 9., 32.] {
+            let name = format!("white-inverted-holes-{}-{time}", if disabled { "disabled" } else { "active" });
+            let image = render(&mut res, aspect, &white_holes, &name, time, false);
+            let tinted = image.bytes.chunks_exact(4).filter(|p| p[..3].iter().max().unwrap() - p[..3].iter().min().unwrap() > 1).count();
+            assert_eq!(tinted, 0, "{name}: white inner and outer rims must stay neutral over gray, including displaced pixels");
+        }
+    }
     render(&mut res, aspect, &[zone(0., 0., 0.5, 0.25, false, false)], "disabled", 1., false);
 
     let mut ready_zone = zone(0., 0., 0.5, 0.25, false, false);
@@ -217,6 +255,7 @@ async fn main() {
                 }
                 let tr = b.transform(t, aspect);
                 Some(block_shader::Zone {
+                    color: block_shader::DEFAULT_BLOCK_COLOR,
                     center: tr.center,
                     half: tr.size.map(|v| v.abs() * 0.5),
                     angle: tr.rotation.to_radians(),
@@ -241,6 +280,7 @@ async fn main() {
 
 fn zone(x: f32, y: f32, hx: f32, hy: f32, invert: bool, active: bool) -> block_shader::Zone {
     block_shader::Zone {
+        color: block_shader::DEFAULT_BLOCK_COLOR,
         center: Vector::new(x, y),
         half: Vector::new(hx, hy),
         angle: 0.,

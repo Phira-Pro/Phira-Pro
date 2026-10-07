@@ -130,6 +130,7 @@ fn compare(a: impl Iterator<Item = u8>, b: impl Iterator<Item = u8>, label: &str
 }
 fn zone(x: f32, y: f32, inv: bool, active: bool) -> Zone {
     Zone {
+        color: [1., 84. / 255., 84. / 255.],
         center: Vector::new(x, y),
         half: Vector::new(0.29, 0.15),
         angle: 0.37,

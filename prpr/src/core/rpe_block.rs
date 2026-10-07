@@ -1,8 +1,13 @@
 //! Adapter for texture-line block markers. The PNGs are editor guides, not
-//! runtime materials; their alpha tracks select the native block lifecycle.
+//! runtime materials. Recorder speed codes select the block lifecycle; alpha
+//! tracks remain a compatibility fallback for earlier charts.
 
-use super::{AnimFloat, BlockPhase, BlockTransform, Vector};
+use super::{Anim, AnimFloat, BlockPhase, BlockTransform, Vector};
+use macroquad::prelude::Color;
 use nalgebra::Rotation2;
+use std::cell::RefCell;
+
+pub(crate) const DEFAULT_COLOR: [f32; 3] = super::block_shader::DEFAULT_BLOCK_COLOR;
 
 pub(crate) fn marker_kind(path: &str) -> Option<bool> {
     let name = path.rsplit(['/', '\\']).next()?;
@@ -58,6 +63,7 @@ pub(crate) struct Marker {
     pub line: usize,
     pub invert: bool,
     pub anchor: Vector,
+    pub color: RefCell<Anim<Color>>,
     spans: Vec<Span>,
 }
 
@@ -151,8 +157,68 @@ impl Marker {
             line,
             invert,
             anchor: Vector::new(0.5, 0.5),
+            color: RefCell::default(),
             spans,
         }
+    }
+
+    pub fn color_at(&self, time: f64) -> [f32; 3] {
+        let mut color = self.color.borrow_mut();
+        color.set_time(time);
+        color.now_opt().map_or(DEFAULT_COLOR, |c| [c.r, c.g, c.b].map(|v| v.clamp(0., 1.)))
+    }
+
+    /// Recorder reads only speed-event starts: 1=appear, 2=enable,
+    /// 3=disable, 4=disappear. A backwards step starts a new lifecycle.
+    /// Charts without these codes retain the earlier alpha adapter.
+    pub fn set_lifecycle(&mut self, events: &[(f64, f32)]) {
+        let mut events: Vec<_> = events
+            .iter()
+            .copied()
+            .filter(|(time, code)| time.is_finite() && [1., 2., 3., 4.].contains(code))
+            .collect();
+        if events.is_empty() {
+            return;
+        }
+        events.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut spans = Vec::new();
+        let mut timings = [f64::INFINITY; 4];
+        let mut previous = 0;
+        let mut first = 0;
+        let finish = |spans: &mut Vec<Span>, timings: &mut [f64; 4], end: f64, first: usize| {
+            timings[3] = end;
+            for span in &mut spans[first..] {
+                span.end = span.end.min(end);
+                span.timings = *timings;
+            }
+            *timings = [f64::INFINITY; 4];
+        };
+        for (time, code) in events {
+            let code = code as usize;
+            if code <= previous && timings[0].is_finite() {
+                finish(&mut spans, &mut timings, time, first);
+                first = spans.len();
+            }
+            if let Some(last) = spans.last_mut() {
+                last.end = last.end.min(time);
+            }
+            if code == 4 {
+                finish(&mut spans, &mut timings, time, first);
+                first = spans.len();
+            } else {
+                timings[0] = timings[0].min(time);
+                timings[code - 1] = time;
+                spans.push(Span {
+                    start: time,
+                    end: f64::INFINITY,
+                    phase: if code == 2 { BlockPhase::Active } else { BlockPhase::Disabled },
+                    timings: [0.; 4],
+                });
+            }
+            previous = code;
+        }
+        finish(&mut spans, &mut timings, f64::INFINITY, first);
+        self.spans = spans;
     }
 
     /// RPE move events position the image's anchor, not its centre. Preserve
@@ -172,7 +238,7 @@ impl Marker {
     pub fn timings(&self, time: f64) -> Option<[f64; 4]> {
         let index = self.spans.partition_point(|span| span.start <= time).checked_sub(1)?;
         let current = &self.spans[index];
-        if current.phase == BlockPhase::Hidden {
+        if current.phase == BlockPhase::Hidden || time >= current.end {
             return None;
         }
         Some(current.timings)
@@ -183,6 +249,37 @@ impl Marker {
 mod tests {
     use super::*;
     use crate::core::{BlockArea, Keyframe, Vector, Zone};
+
+    #[test]
+    fn speed_codes_override_editor_alpha_and_restart_lifecycles() {
+        let mut marker = Marker::new(0, false, &AnimFloat::fixed(0.));
+        marker.set_lifecycle(&[(0., 10.), (2., 1.), (4., 2.), (6., 3.), (8., 2.), (9., 4.), (10., 2.), (11., 4.)]);
+        assert!(marker.timings(1.).is_none());
+        let preview = area(&marker, 3.).unwrap();
+        assert_eq!([preview.appear_time, preview.enable_time, preview.disable_time, preview.disappear_time], [2., 4., 6., 8.]);
+        assert!(area(&marker, 4.).unwrap().is_active(4.));
+        assert!(!area(&marker, 6.).unwrap().is_active(6.));
+        assert!(area(&marker, 8.).unwrap().is_active(8.));
+        assert!(area(&marker, 9.).is_none());
+        assert!(area(&marker, 10.).unwrap().is_active(10.));
+        assert!(area(&marker, 11.).is_none());
+        assert_eq!(marker.timings(3.), Some([2., 4., 6., 8.]));
+    }
+
+    #[test]
+    fn missing_lifecycle_keeps_alpha_compatibility_and_colors_seek_independently() {
+        let mut marker = Marker::new(0, true, &AnimFloat::fixed(1.));
+        marker.set_lifecycle(&[(0., 10.)]);
+        assert!(area(&marker, 1.).unwrap().is_active(1.));
+        assert_eq!(marker.color_at(1.), DEFAULT_COLOR);
+        *marker.color.borrow_mut() = Anim::new(vec![
+            Keyframe::new(0., Color::new(1., 0., 0., 1.), 2),
+            Keyframe::new(2., Color::new(0., 0., 1., 1.), 0),
+        ]);
+        assert_eq!(marker.color_at(2.), [0., 0., 1.]);
+        assert_eq!(marker.color_at(1.), [0.5, 0., 0.5]);
+        assert!(area(&marker, 1.).unwrap().is_subtract);
+    }
 
     fn area(marker: &Marker, time: f64) -> Option<BlockArea> {
         let [appear_time, enable_time, disable_time, disappear_time] = marker.timings(time)?;

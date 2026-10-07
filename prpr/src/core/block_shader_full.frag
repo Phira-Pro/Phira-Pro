@@ -14,6 +14,10 @@ varying highp vec2 noiseUV;
 varying highp vec4 screenPos;
 varying highp float clipHalfWidth;
 uniform int uLayer;
+uniform int uColored;
+uniform mediump sampler2D uActiveColors;
+uniform mediump sampler2D uDisabledColors;
+vec3 blockPalette(vec3 nativeColor, vec3 rgb);
 uniform mediump sampler2D uDisplaceTex;
 uniform mediump sampler2D uSparkTex;
 uniform mediump sampler2D uMasks;
@@ -126,6 +130,7 @@ mediump float u_xlat16_51;
 float u_xlat52;
 mediump float u_xlat16_56;
 vec4 disabledColor(mediump float mask) {
+    vec3 rgb = uColored == 0 ? vec3(1.0, 84.0 / 255.0, 84.0 / 255.0) : texture2D(uDisabledColors, fieldUV).rgb;
     vec4 result;
 mediump float u_xlat16_0;
 mediump vec3 u_xlat16_1;
@@ -160,9 +165,9 @@ mediump float u_xlat16_13;
     u_xlat4.xy = u_xlat16_1.xy * vec2(u_xlat16_3) + u_xlat2.xy;
     u_xlat4.xy = u_xlat4.xy * vec2(uDisabledSparkIntensity) + sparkUV.xy;
     u_xlat16_4 = texture2D(uSparkTex, u_xlat4.xy).x;
-    u_xlat4.xyz = vec3(u_xlat16_4) * uDisabledSparkTint.xyz;
+    u_xlat4.xyz = vec3(u_xlat16_4) * blockPalette(uDisabledSparkTint.xyz, rgb);
     u_xlat4.xyz = vec3(u_xlat16_13) * u_xlat4.xyz;
-    u_xlat16_1.xyz = uDisabledFillColor.xyz * vec3(uDisabledFillOpacity);
+    u_xlat16_1.xyz = blockPalette(uDisabledFillColor.xyz, rgb) * vec3(uDisabledFillOpacity);
     u_xlat16_1.xyz = u_xlat4.xyz * vec3(uDisabledSparkOpacity) + u_xlat16_1.xyz;
     result.xyz = vec3(u_xlat16_0) * u_xlat16_1.xyz;
     result.w = 1.0;
@@ -170,6 +175,7 @@ mediump float u_xlat16_13;
 
 }
 vec4 fullActive() {
+    vec3 rgb = uColored == 0 ? vec3(1.0, 84.0 / 255.0, 84.0 / 255.0) : texture2D(uActiveColors, fieldUV).rgb;
     vec4 result;
 
     u_xlat0.x = fieldUV.x + -0.5;
@@ -237,7 +243,7 @@ vec4 fullActive() {
         u_xlat16.xy = u_xlat1.xy * vec2(vec2(_DisplaceStrength, _DisplaceStrength)) + u_xlat16.xy;
         u_xlat33.xy = u_xlat1.xy * vec2(vec2(_SparkDisplaceIntensity, _SparkDisplaceIntensity)) + sparkUV.xy;
         u_xlat16_33 = texture2D(uSparkTex, u_xlat33.xy).x;
-        u_xlat4.xyz = vec3(u_xlat16_33) * _SparkTint.xyz;
+        u_xlat4.xyz = vec3(u_xlat16_33) * blockPalette(_SparkTint.xyz, rgb);
         u_xlat6.xyz = snapshotSample(u_xlat16.xy).xyz;
         u_xlatb16 = 0<_TouchPosCount;
         if(u_xlatb16){
@@ -328,11 +334,11 @@ vec4 fullActive() {
         u_xlat1.xyz = (-u_xlat16_9.xyz) * u_xlat1.xyz + u_xlat16_3.xyw;
         u_xlat1.xyz = u_xlat6.xyz * u_xlat1.xyz + u_xlat16_10.xyz;
         u_xlat1.xyz = clamp(u_xlat1.xyz, 0.0, 1.0);
-        u_xlat16_3.xyz = (-vec3(u_xlat16_35)) * vec3(vec3(_DisplaceBlendIntensity, _DisplaceBlendIntensity, _DisplaceBlendIntensity)) + _FillColor.xyz;
+        u_xlat16_3.xyz = (-vec3(u_xlat16_35)) * vec3(vec3(_DisplaceBlendIntensity, _DisplaceBlendIntensity, _DisplaceBlendIntensity)) + blockPalette(_FillColor.xyz, rgb);
         u_xlat16_5.xyz = u_xlat1.xyz + (-u_xlat16_3.xyz);
         u_xlat16_3.xyz = vec3(_FillStrength) * u_xlat16_5.xyz + u_xlat16_3.xyz;
-        u_xlat16_5.xyz = vec3(u_xlat16_50) * _GlowColor.xyz;
-        u_xlat16_5.xyz = _EdgeColor.xyz * u_xlat16_2.xxx + u_xlat16_5.xyz;
+        u_xlat16_5.xyz = vec3(u_xlat16_50) * blockPalette(_GlowColor.xyz, rgb);
+        u_xlat16_5.xyz = blockPalette(_EdgeColor.xyz, rgb) * u_xlat16_2.xxx + u_xlat16_5.xyz;
         u_xlat16_3.xyz = u_xlat16_3.xyz * vec3(u_xlat16_0) + u_xlat16_5.xyz;
         u_xlat16_50 = u_xlat16.x * _TouchPosShine + 1.0;
         u_xlat16_3.xyz = vec3(u_xlat16_50) * u_xlat16_3.xyz;
@@ -498,7 +504,7 @@ vec4 fullActive() {
         u_xlat32.x = u_xlat16.x * -2.0 + 3.0;
         u_xlat16.x = u_xlat16.x * u_xlat16.x;
         u_xlat16.x = u_xlat16.x * u_xlat32.x;
-        u_xlat16_8.xyz = u_xlat16.xxx * _NoiseTint.xyz + u_xlat16.xxx;
+        u_xlat16_8.xyz = u_xlat16.xxx * blockPalette(_NoiseTint.xyz, rgb) + u_xlat16.xxx;
         u_xlat16_8.xyz = clamp(u_xlat16_8.xyz, 0.0, 1.0);
         u_xlat16_9.xyz = vec3(u_xlat48) * u_xlat16_8.xyz;
         u_xlat16_51 = u_xlat16_0;
@@ -506,12 +512,12 @@ vec4 fullActive() {
         u_xlat16_56 = u_xlat16_51 * -2.0 + 3.0;
         u_xlat16_51 = u_xlat16_51 * u_xlat16_51;
         u_xlat16_51 = u_xlat16_51 * u_xlat16_56;
-        u_xlat16_10.xyz = vec3(u_xlat16_51) * _TouchGlowColor.xyz;
+        u_xlat16_10.xyz = vec3(u_xlat16_51) * blockPalette(_TouchGlowColor.xyz, rgb);
         u_xlat16_13.xyz = u_xlat16_9.xyz * u_xlat16_10.xyz;
         u_xlat16_14.xyz = u_xlat16_13.xyz + u_xlat16_13.xyz;
         u_xlat16_8.xyz = (-u_xlat16_8.xyz) * vec3(u_xlat48) + vec3(1.0, 1.0, 1.0);
         u_xlat16_8.xyz = u_xlat16_8.xyz + u_xlat16_8.xyz;
-        u_xlat16_15.xyz = (-vec3(u_xlat16_51)) * _TouchGlowColor.xyz + vec3(1.0, 1.0, 1.0);
+        u_xlat16_15.xyz = (-vec3(u_xlat16_51)) * blockPalette(_TouchGlowColor.xyz, rgb) + vec3(1.0, 1.0, 1.0);
         u_xlat16_8.xyz = (-u_xlat16_8.xyz) * u_xlat16_15.xyz + vec3(1.0, 1.0, 1.0);
         u_xlatb0.xyz = greaterThanEqual(u_xlat16_9.xyzx, vec4(0.5, 0.5, 0.5, 0.0)).xyz;
         u_xlat0.x = u_xlatb0.x ? float(1.0) : 0.0;
@@ -531,6 +537,20 @@ vec4 fullActive() {
     result.xyz = u_xlat16_8.xyz + u_xlat16_2.xyz;
     return result;
 
+}
+
+// Transfer native red material saturation/value to the requested edge RGB.
+// Default red takes the original arithmetic path exactly; white and black are
+// valid colors. The scene snapshot itself is never multiplied by this tint.
+vec3 blockPalette(vec3 nativeColor, vec3 rgb) {
+    if (uColored == 0 || all(lessThan(abs(rgb - vec3(1.0, 84.0 / 255.0, 84.0 / 255.0)), vec3(0.001)))) return nativeColor;
+    float high = max(rgb.r, max(rgb.g, rgb.b));
+    float low = min(rgb.r, min(rgb.g, rgb.b));
+    float delta = high - low;
+    if (delta < 0.00001) return vec3(nativeColor.r * high);
+    vec3 hue = (rgb - low) / delta;
+    float saturation = (1.0 - nativeColor.g / max(nativeColor.r, 0.00001)) * (delta / max(high, 0.00001)) / (1.0 - 84.0 / 255.0);
+    return nativeColor.r * high * mix(vec3(1.0), hue, clamp(saturation, 0.0, 1.0));
 }
 
 vec2 basePixelUV(vec2 uv) {

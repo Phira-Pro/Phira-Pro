@@ -128,6 +128,7 @@ async fn main() {
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(4);
             config.shader_pre_render = std::env::var_os("BLOCK_CAPTURE_PRE_RENDER").is_some();
+            config.block_area_simple = std::env::var_os("BLOCK_CAPTURE_SIMPLE").is_some();
             GameScene::new(GameMode::View, info, config, fs, None, background, illustration, None, None, None)
                 .await
                 .unwrap()
@@ -148,7 +149,11 @@ async fn main() {
             #[cfg(target_os = "windows")]
             let mut pacer = prpr::desktop_pacing::Pacer::new();
             let start = times[0];
-            let frames = std::env::var("BLOCK_BENCH_FRAMES").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(480).clamp(60, 10_000);
+            let frames = std::env::var("BLOCK_BENCH_FRAMES")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(480)
+                .clamp(60, 10_000);
             let autoplay = std::env::var_os("BLOCK_BENCH_AUTOPLAY").is_some();
             let mut bad_notes = Vec::new();
             if autoplay {

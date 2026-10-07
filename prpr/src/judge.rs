@@ -209,6 +209,98 @@ fn judge_distance(offset: f64, late_leniency: f64) -> f64 {
     }
 }
 
+const CLICK_PROTECTION_GAP: f64 = 0.01;
+
+#[derive(Clone, Copy, Debug)]
+struct MatchCandidate {
+    target: (usize, u32),
+    dt: f64,
+    key: f64,
+    offset: f64,
+    head: bool,
+    protected: bool,
+}
+
+/// Keep existing distance-weighted matching, with a separate timing-only
+/// interception for early tap/hold heads scanned before or after the protector.
+struct TouchMatcher {
+    click: bool,
+    drag_protect: bool,
+    flick_protect: bool,
+    ceiling: f64,
+    closest: Option<MatchCandidate>,
+    protection: Option<MatchCandidate>,
+}
+
+impl TouchMatcher {
+    fn new(click: bool, drag_protect: bool, flick_protect: bool, bad: f64) -> Self {
+        Self {
+            click,
+            drag_protect,
+            flick_protect,
+            ceiling: bad + (X_DIFF_MAX / NOTE_WIDTH_RATIO_BASE - 1.).max(0.) * DIST_FACTOR,
+            closest: None,
+            protection: None,
+        }
+    }
+
+    fn time_limit(&self, bad: f64) -> f64 {
+        self.closest.map_or(self.ceiling, |c| c.key).max(bad)
+    }
+
+    /// Called only after the note passes its spatial and judgement-window gates.
+    fn consider(&mut self, target: (usize, u32), kind: &NoteKind, status: &JudgeStatus, offset: f64, dt: f64, dist: f64, good: f64) {
+        let protected =
+            self.click && ((self.drag_protect && matches!(kind, NoteKind::Drag)) || (self.flick_protect && matches!(kind, NoteKind::Flick)));
+        if protected && !matches!(status, JudgeStatus::NotJudged) {
+            return;
+        }
+        let dt = if !protected && matches!(kind, NoteKind::Drag | NoteKind::Flick) {
+            dt + good
+        } else {
+            dt
+        };
+        let candidate = MatchCandidate {
+            target,
+            dt,
+            key: dt + (dist / NOTE_WIDTH_RATIO_BASE - 1.).max(0.) * DIST_FACTOR,
+            offset,
+            head: matches!(kind, NoteKind::Click | NoteKind::Hold { .. }),
+            protected,
+        };
+        if protected {
+            if self.protection.is_none_or(|c| offset.abs() < c.offset.abs()) {
+                self.protection = Some(candidate);
+            }
+        } else if candidate.key < self.closest.map_or(self.ceiling, |c| c.key) {
+            self.closest = Some(candidate);
+        }
+    }
+
+    fn finish(self) -> Option<MatchCandidate> {
+        if let Some(protection) = self.protection {
+            let intercepts = self.closest.is_none_or(|head| {
+                head.head && head.offset < 0.
+                    // Only absorb round-off from subtracting chart timestamps;
+                    // late leniency and horizontal ranking do not alter 10ms.
+                    && head.offset.abs() - protection.offset.abs() + 1e-12 >= CLICK_PROTECTION_GAP
+            });
+            if intercepts {
+                return Some(protection);
+            }
+        }
+        self.closest
+    }
+}
+
+fn consume_click_protection(kind: &NoteKind, status: &mut JudgeStatus) {
+    if matches!(kind, NoteKind::Drag) {
+        // PreJudge arms its normal on-time judgement and skips later clicks.
+        // A mere tap never arms Flick: it can intercept again until flicked.
+        *status = JudgeStatus::PreJudge;
+    }
+}
+
 fn finger_blocked(infected: &mut HashSet<u64>, id: u64, phase: TouchPhase, inside: bool) -> bool {
     if matches!(phase, TouchPhase::Started | TouchPhase::Ended | TouchPhase::Cancelled) {
         infected.remove(&id);
@@ -456,6 +548,133 @@ pub fn timing_mean_square(offsets: &[f64], misses: u32, notes: u32) -> f64 {
 mod tests {
     use super::{judgement_of_offset, JudgeInner, Judgement, MAX_RECENT_HITS};
     use crate::config::JudgeWindows;
+
+    fn match_pair(
+        kind: &crate::core::NoteKind,
+        status: &super::JudgeStatus,
+        head_offset: f64,
+        special_offset: f64,
+        enabled: bool,
+        reverse: bool,
+    ) -> super::MatchCandidate {
+        use super::{JudgeStatus, TouchMatcher};
+        use crate::core::NoteKind;
+        let mut matcher = TouchMatcher::new(true, enabled, enabled, super::LIMIT_BAD);
+        for special in if reverse { [true, false] } else { [false, true] } {
+            let (target, kind, status, off) = if special {
+                ((1, 0), kind, status, special_offset)
+            } else {
+                ((0, 0), &NoteKind::Click, &JudgeStatus::NotJudged, head_offset)
+            };
+            matcher.consider(target, kind, status, off, super::judge_distance(off, 0.), 0., super::LIMIT_GOOD);
+        }
+        matcher.finish().unwrap()
+    }
+
+    #[test]
+    fn click_protection_requires_early_head_and_at_least_ten_ms_closer() {
+        use super::JudgeStatus::NotJudged;
+        use crate::core::NoteKind::{Drag, Flick};
+        for kind in [Drag, Flick] {
+            for reverse in [false, true] {
+                for (head, special, intercept) in [
+                    (-0.100, -0.091, false), // 9ms closer
+                    (-0.100, -0.090, true),  // inclusive 10ms
+                    (-0.100, -0.089, true),
+                    (-0.100, 0.090, true), // late special can still be closer
+                    (-0.100, 0.091, false),
+                    (-0.100, -0.100, false),
+                    (-0.100, -0.110, false),
+                    (-0.020, -0.01000001, false), // actually below threshold
+                    (0.100, 0., false),           // late blue cannot be intercepted
+                    (0., 0., false),              // exactly on-time blue
+                ] {
+                    let selected = match_pair(&kind, &NotJudged, head, special, true, reverse);
+                    assert_eq!(selected.protected, intercept, "{kind:?}: head={head}, special={special}, reverse={reverse}");
+                    assert_eq!(selected.target.0, usize::from(intercept));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn yellow_consumes_one_click_but_red_can_intercept_repeated_clicks() {
+        use super::{consume_click_protection, JudgeStatus};
+        use crate::core::NoteKind::{Drag, Flick};
+        for kind in [Drag, Flick] {
+            let mut status = JudgeStatus::NotJudged;
+            for click in 0..3 {
+                let selected = match_pair(&kind, &status, -0.100, 0., true, click % 2 == 0);
+                let intercept = matches!(kind, Flick) || click == 0;
+                assert_eq!(selected.protected, intercept, "{kind:?} click {click}");
+                if selected.protected {
+                    consume_click_protection(&kind, &mut status);
+                }
+            }
+            assert!(match kind {
+                Drag => matches!(status, JudgeStatus::PreJudge),
+                Flick => matches!(status, JudgeStatus::NotJudged),
+                _ => unreachable!(),
+            });
+            assert!(
+                !match_pair(&kind, &JudgeStatus::PreJudge, -0.100, 0., true, false).protected,
+                "a genuinely armed flick must also leave click matching"
+            );
+        }
+    }
+
+    #[test]
+    fn protection_uses_raw_timing_not_late_leniency_or_horizontal_rank() {
+        use super::{judge_distance, JudgeStatus, TouchMatcher};
+        use crate::core::NoteKind;
+        for (head, special, expected) in [(-0.100, 0.099, false), (-0.100, 0.090, true), (0.001, 0., false)] {
+            let mut matcher = TouchMatcher::new(true, true, true, super::LIMIT_BAD);
+            matcher.consider(
+                (0, 0),
+                &NoteKind::Click,
+                &JudgeStatus::NotJudged,
+                head,
+                judge_distance(head, 0.070),
+                super::X_DIFF_MAX,
+                super::LIMIT_GOOD,
+            );
+            matcher.consider((1, 0), &NoteKind::Flick, &JudgeStatus::NotJudged, special, judge_distance(special, 0.070), 0., super::LIMIT_GOOD);
+            assert_eq!(matcher.finish().unwrap().protected, expected);
+        }
+    }
+
+    #[test]
+    fn independent_protection_switches_and_flick_gestures_preserve_legacy_ranking() {
+        use super::{JudgeStatus, TouchMatcher};
+        use crate::core::NoteKind;
+        for kind in [NoteKind::Drag, NoteKind::Flick] {
+            assert!(!match_pair(&kind, &JudgeStatus::NotJudged, -0.100, 0., false, false).protected);
+            let drag = matches!(kind, NoteKind::Drag);
+            for click in [true, false] {
+                for enabled in [false, true] {
+                    let mut matcher =
+                        TouchMatcher::new(click, if drag { enabled } else { true }, if drag { true } else { enabled }, super::LIMIT_BAD);
+                    matcher.consider((0, 0), &kind, &JudgeStatus::NotJudged, 0., 0., 0., super::LIMIT_GOOD);
+                    assert_eq!(matcher.finish().unwrap().protected, click && enabled);
+                }
+            }
+        }
+        let mut matcher = TouchMatcher::new(true, true, true, super::LIMIT_BAD);
+        matcher.consider(
+            (0, 0),
+            &NoteKind::Hold {
+                end_time: 2.,
+                end_height: 1.,
+            },
+            &JudgeStatus::NotJudged,
+            -0.100,
+            0.100,
+            0.,
+            super::LIMIT_GOOD,
+        );
+        matcher.consider((1, 0), &NoteKind::Drag, &JudgeStatus::NotJudged, 0., 0., 0., super::LIMIT_GOOD);
+        assert!(matcher.finish().unwrap().protected, "hold heads use the same click interception rule");
+    }
 
     #[test]
     fn finger_infection_survives_field_disappearance_until_release() {
@@ -892,7 +1111,7 @@ impl Judge {
         let spd = res.config.speed as f64;
         // 晚按补偿（秒）：晚按一侧额外放宽；默认 0 = 与早按完全对称。
         let late_leniency = res.config.late_leniency();
-        // 黄键 / 红键保护：蓝键不会被叠在附近的黄 / 红键抢走判定。
+        // 黄 / 红键保护：仅拦截 early 蓝键，且保护音符须至少近 10ms。
         let drag_protect = res.config.drag_protect;
         let flick_protect = res.config.flick_protect;
 
@@ -1092,7 +1311,7 @@ impl Judge {
                 continue;
             }
             let t = time_of(touch);
-            let mut closest = (None, X_DIFF_MAX, limits.bad, limits.bad + (X_DIFF_MAX / NOTE_WIDTH_RATIO_BASE - 1.).max(0.) * DIST_FACTOR);
+            let mut matcher = TouchMatcher::new(click, drag_protect, flick_protect, limits.bad);
             for (line_id, ((line, pos), (idx, st))) in chart.lines.iter_mut().zip(pos.iter()).zip(self.notes.iter_mut()).enumerate() {
                 let Some(pos) = pos[id] else {
                     continue;
@@ -1105,11 +1324,8 @@ impl Judge {
                     if !click && matches!(note.kind, NoteKind::Click | NoteKind::Hold { .. }) {
                         continue;
                     }
-                    // 开启红 / 黄保护时，它们不参与普通点击的候选竞争；有效的蓝键仍可正常命中。
-                    let protected =
-                        click && ((drag_protect && matches!(note.kind, NoteKind::Drag)) || (flick_protect && matches!(note.kind, NoteKind::Flick)));
                     let dt = (note.time - t) / spd;
-                    if dt >= closest.3.max(limits.bad) {
+                    if dt >= matcher.time_limit(limits.bad) {
                         break;
                     }
                     // 晚按（dt < 0）时按配置放宽；默认 0 → 和早按完全对称。
@@ -1132,23 +1348,18 @@ impl Judge {
                     if dt > gate {
                         continue;
                     }
-                    if protected {
-                        // 保护只屏蔽红 / 黄音符本身，不应吞掉同范围内可判定的蓝键。
-                        continue;
-                    }
-                    let dt = if matches!(note.kind, NoteKind::Flick | NoteKind::Drag) {
-                        dt + limits.good
-                    } else {
-                        dt
-                    };
-                    let key = dt + (dist / NOTE_WIDTH_RATIO_BASE - 1.).max(0.) * DIST_FACTOR;
-                    if key < closest.3 {
-                        closest = (Some((line_id, *id)), dist, dt, key);
-                    }
+                    matcher.consider((line_id, *id), &note.kind, &note.judge, (t - note.time) / spd, dt, dist, limits.good);
                 }
             }
-            if let (Some((line_id, id)), _, dt, _) = closest {
+            if let Some(candidate) = matcher.finish() {
+                let (line_id, id) = candidate.target;
+                let dt = candidate.dt;
                 let line = &mut chart.lines[line_id];
+                if candidate.protected {
+                    let note = &mut line.notes[id as usize];
+                    consume_click_protection(&note.kind, &mut note.judge);
+                    continue;
+                }
                 if matches!(line.notes[id as usize].kind, NoteKind::Drag) {
                     continue;
                 }

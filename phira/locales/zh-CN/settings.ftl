@@ -156,9 +156,9 @@ about-content =
   以及许多志愿谱面审核员！完整列表参见 https://phira.moe/staff
 
 item-drag-protect = 黄键保护
-item-drag-protect-sub = 点击按时刻就近归属：这一下若是冲黄键（Drag）去的，重合的蓝键 / hold 不会被误判
+item-drag-protect-sub = 蓝键 / hold 仍在 early 侧，且黄键至少近 10ms 时，黄键拦截这次点击；每个黄键仅一次
 item-flick-protect = 红键保护
-item-flick-protect-sub = 点击按时刻就近归属：这一下若是冲红键（Flick）去的，重合的蓝键 / hold 不会被误判
+item-flick-protect-sub = 蓝键 / hold 仍在 early 侧，且红键至少近 10ms 时，红键拦截点击；可多次拦截，点击不判定红键
 item-combo-text = 连击文字
 item-combo-text-sub = 游戏里连击数下面那行显示的文字（最长 16 个字符）
 combo-text-default = 默认

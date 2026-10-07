@@ -116,9 +116,9 @@ about-content =
 
   Dan banyak lagi peninjau chart sukarela. Untuk daftar lengkap, silakan merujuk ke https://phira.moe/staff
 item-drag-protect = Proteksi Drag
-item-drag-protect-sub = Ketukan tidak lagi dimakan oleh not Drag yang bertumpuk
+item-drag-protect-sub = Saat Tap / Hold masih early, Drag yang minimal 10ms lebih dekat ke waktu saat ini mencegat satu ketukan per not Drag
 item-flick-protect = Proteksi Flick
-item-flick-protect-sub = Ketukan tidak lagi dimakan oleh not Flick yang bertumpuk
+item-flick-protect-sub = Saat Tap / Hold masih early, Flick yang minimal 10ms lebih dekat dapat mencegat ketukan berulang; ketukan tidak menilai Flick
 item-combo-text = Teks kombo
 item-combo-text-sub = Teks di bawah penghitung kombo (maks 16 karakter)
 combo-text-default = Bawaan

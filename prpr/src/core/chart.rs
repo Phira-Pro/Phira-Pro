@@ -16,6 +16,7 @@ struct BlockFrame {
     zones: Vec<Zone>,
     marker_key: Option<(f64, f32)>,
     marker_areas: Vec<BlockArea>,
+    marker_colors: Vec<[f32; 3]>,
 }
 
 #[derive(Default)]
@@ -80,9 +81,11 @@ impl Chart {
             .iter()
             .enumerate()
             .filter_map(|(id, line)| match &line.kind {
-                JudgeLineKind::Texture(_, path) => {
-                    super::rpe_block::marker_kind(path).map(|invert| super::rpe_block::Marker::new(id, invert, &line.object.alpha))
-                }
+                JudgeLineKind::Texture(_, path) => super::rpe_block::marker_kind(path).map(|invert| {
+                    let mut marker = super::rpe_block::Marker::new(id, invert, &line.object.alpha);
+                    marker.color = RefCell::new(line.color.clone());
+                    marker
+                }),
                 _ => None,
             })
             .collect();
@@ -211,6 +214,14 @@ impl Chart {
         }
     }
 
+    pub(crate) fn set_rpe_block_lifecycles(&mut self, events: &[Vec<(f64, f32)>]) {
+        for marker in &mut self.rpe_block_markers {
+            marker.set_lifecycle(&events[marker.line]);
+        }
+        self.rpe_block_markers
+            .sort_by_key(|marker| (self.lines[marker.line].z_index, marker.line));
+    }
+
     /// RPE input depends on parents even when they occur later in line order.
     /// Move the judge's existing time evaluation here; it must not run twice.
     pub(crate) fn prepare_rpe_input_time(&mut self, time: f64) -> bool {
@@ -310,6 +321,7 @@ impl Chart {
                 timeline,
                 zones,
                 marker_areas,
+                marker_colors,
                 ..
             } = &mut *cache;
             zones.clear();
@@ -319,7 +331,11 @@ impl Chart {
                     .iter()
                     .filter_map(|&id| Zone::from_area(&self.block_areas[id], res.time, res.aspect_ratio)),
             );
-            zones.extend(marker_areas.iter().filter_map(|area| Zone::from_area(area, res.time, res.aspect_ratio)));
+            zones.extend(marker_areas.iter().zip(marker_colors.iter()).filter_map(|(area, &color)| {
+                let mut zone = Zone::from_area(area, res.time, res.aspect_ratio)?;
+                zone.color = color;
+                Some(zone)
+            }));
             cache.key = Some(key);
         }
         drop(cache);
@@ -345,14 +361,18 @@ impl Chart {
         // All fingers in this input frame share the same evaluated marker pose.
         // Invalidate when that pose is updated, even if chart time is unchanged.
         cache.marker_areas.clear();
-        cache.marker_areas.extend(self.rpe_marker_areas(time, aspect));
+        cache.marker_colors.clear();
+        for (area, color) in self.rpe_marker_areas(time, aspect) {
+            cache.marker_areas.push(area);
+            cache.marker_colors.push(color);
+        }
         cache.marker_key = Some((time, aspect));
     }
 
     /// RPE charts encode block areas as editor texture lines named
     /// `isSubtract0.png` (normal) / `isSubtract1.png` (subtract). Resolve those
     /// animated lines into the same rectangle model used by official block areas.
-    fn rpe_marker_areas(&self, time: f64, aspect: f32) -> impl Iterator<Item = BlockArea> + '_ {
+    fn rpe_marker_areas(&self, time: f64, aspect: f32) -> impl Iterator<Item = (BlockArea, [f32; 3])> + '_ {
         self.rpe_block_markers.iter().filter_map(move |marker| {
             let id = marker.line;
             let [appear_time, enable_time, disable_time, disappear_time] = marker.timings(time)?;
@@ -384,23 +404,26 @@ impl Chart {
             let top_right = Vector::new(to_pct_x(c.x + half_x), to_pct_y(c.y + half_y));
             let bottom_left = Vector::new(to_pct_x(c.x - half_x), to_pct_y(c.y - half_y));
             let anchor = Vector::new(to_pct_x(c.x), to_pct_y(c.y));
-            Some(BlockArea {
-                top_right,
-                bottom_left,
-                appear_time,
-                enable_time,
-                disable_time,
-                disappear_time,
-                is_subtract: marker.invert,
-                rotate_events: vec![BlockRotateEvent {
-                    anchor,
-                    time: 0.,
-                    ease: 0,
-                    rotation,
-                }],
-                move_events: Vec::new(),
-                scale_events: Vec::new(),
-            })
+            Some((
+                BlockArea {
+                    top_right,
+                    bottom_left,
+                    appear_time,
+                    enable_time,
+                    disable_time,
+                    disappear_time,
+                    is_subtract: marker.invert,
+                    rotate_events: vec![BlockRotateEvent {
+                        anchor,
+                        time: 0.,
+                        ease: 0,
+                        rotation,
+                    }],
+                    move_events: Vec::new(),
+                    scale_events: Vec::new(),
+                },
+                marker.color_at(time),
+            ))
         })
     }
 }

@@ -121,9 +121,9 @@ about-content =
 
   Ve daha birçok gönüllü chart incelemecisi. Tam liste için https://phira.moe/staff adresine bakın
 item-drag-protect = Sarı koruması
-item-drag-protect-sub = Dokunma artık üst üste binen sarı nota tarafından yenmiyor
+item-drag-protect-sub = Tap / Hold erken taraftayken mevcut zamana en az 10ms daha yakın sarı nota, nota başına bir dokunuşu yakalar
 item-flick-protect = Kırmızı koruması
-item-flick-protect-sub = Dokunma artık üst üste binen kırmızı nota tarafından yenmiyor
+item-flick-protect-sub = Tap / Hold erken taraftayken en az 10ms daha yakın kırmızı nota tekrarlanan dokunuşları yakalayabilir; dokunmak kırmızı notayı değerlendirmez
 item-combo-text = Combo metni
 item-combo-text-sub = Combo sayacının altında gösterilen metin (en fazla 16 karakter)
 combo-text-default = Varsayılan

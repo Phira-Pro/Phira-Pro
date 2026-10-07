@@ -87,9 +87,9 @@ about-content =
 
 item-fullscreen = Fullscreen Mode
 item-drag-protect = Шар ноотын хамгаалалт
-item-drag-protect-sub = Дарсныг давхцсан шар ноот идэхгүй болно
+item-drag-protect-sub = Tap / Hold эрт талдаа байхад одоогийн цагт дор хаяж 10ms ойр шар ноот даралтыг нэг ноотод нэг удаа авна
 item-flick-protect = Улаан ноотын хамгаалалт
-item-flick-protect-sub = Дарсныг давхцсан улаан ноот идэхгүй болно
+item-flick-protect-sub = Tap / Hold эрт талдаа байхад дор хаяж 10ms ойр улаан ноот даралтыг олон удаа авч болно; даралт улаан ноотыг оноонд тооцохгүй
 item-combo-text = Комбо бичвэр
 item-combo-text-sub = Комбо тооны доор харуулах бичвэр (дээд тал нь 16 тэмдэгт)
 combo-text-default = Анхдагч

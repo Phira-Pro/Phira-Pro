@@ -3,7 +3,7 @@ use image::{codecs::gif, AnimationDecoder, DynamicImage, ImageError};
 use macroquad::prelude::{Color, WHITE};
 use sasa::AudioClip;
 use serde::{Deserialize, Deserializer};
-use std::{any::Any, cell::RefCell, collections::HashMap, future::IntoFuture, io::Cursor, sync::Arc, str::FromStr, time::Duration};
+use std::{any::Any, cell::RefCell, collections::HashMap, future::IntoFuture, io::Cursor, str::FromStr, sync::Arc, time::Duration};
 use tracing::debug;
 
 use super::{
@@ -339,6 +339,15 @@ fn parse_events<T: Tweenable, V: Clone + Into<T>>(
         kfs.push(Keyframe::new(r.time(&e.end_time), e.end.clone().into(), 0));
     }
     Ok(Anim::new(kfs))
+}
+
+fn parse_line_color(r: &mut BpmList, texture: &str, events: Option<&[RPEEvent<RGBColor>]>, bezier_map: &BezierMap) -> Result<Anim<Color>> {
+    let default = if crate::core::rpe_block::marker_kind(texture).is_some() {
+        Color::from_rgba(255, 84, 84, 255)
+    } else {
+        WHITE
+    };
+    parse_events(r, events.unwrap_or_default(), Some(default), bezier_map)
 }
 
 fn parse_speed_events(r: &mut BpmList, rpe: &[RPEEventLayer], bezier_map: &BezierMap, max_time: f64, mode: SpeedEasingMode) -> Result<AnimFloat> {
@@ -815,11 +824,8 @@ async fn parse_judge_line(
             line_texture_map.insert(rpe.texture.clone(), texture.clone());
             JudgeLineKind::Texture(texture, rpe.texture.clone())
         },
-        color: if let Some(events) = rpe.extended.as_ref().and_then(|e| e.color_events.as_ref()) {
-            parse_events(r, events, Some(WHITE), bezier_map).with_context(|| ptl!("color-events-parse-failed"))?
-        } else {
-            Anim::default()
-        },
+        color: parse_line_color(r, &rpe.texture, rpe.extended.as_ref().and_then(|e| e.color_events.as_deref()), bezier_map)
+            .with_context(|| ptl!("color-events-parse-failed"))?,
         parent: {
             let parent = rpe.parent.unwrap_or(-1);
             if parent == -1 {
@@ -931,10 +937,19 @@ pub async fn parse_rpe_with_path(
     // don't want to add a whole crate for a mere join_all...
     let mut lines = Vec::new();
     let mut block_anchors = Vec::new();
+    let mut block_lifecycles = Vec::new();
     let mut line_texture_map = HashMap::new();
     for (id, rpe) in rpe.judge_line_list.into_iter().enumerate() {
         anyhow::ensure!(rpe.anchor.iter().all(|v| v.is_finite()), "Non-finite RPE anchor on line {id}");
         block_anchors.push(rpe.anchor);
+        block_lifecycles.push(
+            rpe.event_layers
+                .iter()
+                .flatten()
+                .flat_map(|layer| layer.speed_events.iter().flatten())
+                .map(|event| (r.time(&event.start_time), event.start))
+                .collect(),
+        );
         let name = rpe.name.clone();
         lines.push(
             parse_judge_line(&mut r, rpe, max_time, speed_mode, fs, use_rpe_170_speed, &bezier_map, &mut hitsounds, &mut line_texture_map)
@@ -962,6 +977,7 @@ pub async fn parse_rpe_with_path(
     process_lines(&mut lines);
     let mut chart = Chart::new(rpe.meta.offset as f32 / 1000.0, lines, r, ChartSettings::default(), extra, hitsounds);
     chart.set_rpe_block_anchors(&block_anchors);
+    chart.set_rpe_block_lifecycles(&block_lifecycles);
     // Embedded official blocks keep seconds, screen percentages and native
     // easing IDs. RPE BPM conversion applies only to the RPE line events.
     chart.block_areas = block_areas;
@@ -1007,10 +1023,35 @@ mod block_area_tests {
         })
     }
 
+    #[test]
+    fn recorder_colors_use_bpm_easing_and_default_red_before_first_event() {
+        let events: Vec<RPEEvent<RGBColor>> = serde_json::from_value(json!([
+            {"startTime": [4, 0, 1], "endTime": [6, 0, 1], "start": [84, 255, 84], "end": [84, 84, 255], "easingType": 1}
+        ]))
+        .unwrap();
+        let mut bpm = BpmList::new(vec![(0., 150.), (4., 120.)]);
+        let mut marker = crate::core::rpe_block::Marker::new(0, false, &AnimFloat::fixed(1.));
+        marker.color = RefCell::new(parse_line_color(&mut bpm, "folder/isSubtract0.png", Some(&events), &HashMap::new()).unwrap());
+        assert_eq!(marker.color_at(1.), crate::core::rpe_block::DEFAULT_COLOR);
+        let middle = marker.color_at(2.1);
+        assert!((middle[0] - 84. / 255.).abs() < 1e-6);
+        assert!((middle[1] - 339. / 510.).abs() < 1e-6);
+        assert!((middle[2] - middle[1]).abs() < 1e-6);
+        assert_eq!(marker.color_at(1.6), [84. / 255., 1., 84. / 255.]);
+        let mut ordinary = parse_line_color(&mut bpm, "line.png", Some(&events), &HashMap::new()).unwrap();
+        ordinary.set_time(1.);
+        assert_eq!(ordinary.now(), WHITE);
+        assert!(parse_line_color(&mut bpm, "isSubtract1.png", Some(&[]), &HashMap::new())
+            .unwrap()
+            .is_default());
+    }
+
     fn read_chart(source: Value) -> Result<Chart> {
         let directory = tempfile::tempdir().unwrap();
         let mut fs = crate::fs::ExternalFileSystem(Arc::new(crate::dir::Dir::new(directory.path()).unwrap()));
-        tokio::runtime::Builder::new_current_thread().build().unwrap()
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
             .block_on(parse_rpe(&source.to_string(), &mut fs, ChartExtra::default(), false))
     }
 
@@ -1210,9 +1251,14 @@ mod block_area_tests {
             "moveEvents": [{"endPosition": {"x": 0.7, "y": 0.4}, "time": 2.5, "easeTypeX": 12, "easeTypeY": 14}],
             "scaleEvents": [{"anchor": {"x": 0.3, "y": 0.6}, "time": 1.75, "easeTypeX": 13, "easeTypeY": 2, "scale": {"x": 1.2, "y": 0.5}}]
         }]);
-        let official = super::super::parse_phigros(&json!({
-            "formatVersion": 3, "offset": 0.32, "judgeLineList": [], "blockAreaList": blocks
-        }).to_string(), ChartExtra::default()).unwrap();
+        let official = super::super::parse_phigros(
+            &json!({
+                "formatVersion": 3, "offset": 0.32, "judgeLineList": [], "blockAreaList": blocks
+            })
+            .to_string(),
+            ChartExtra::default(),
+        )
+        .unwrap();
         for name in ["blockAreaList", "BlockAreaList"] {
             for bpm in [60., 240.] {
                 let mut source = chart_json(bpm);

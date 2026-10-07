@@ -37,15 +37,21 @@ fn profile_mark(start: &mut Option<std::time::Instant>) -> f64 {
 mod mask;
 #[path = "block_simple.rs"]
 mod simple;
+#[path = "block_color.rs"]
+mod tint;
 #[path = "block_touch.rs"]
 mod touch;
 
 #[path = "block_support.rs"]
 mod support;
 
+pub const DEFAULT_BLOCK_COLOR: [f32; 3] = [1., 84. / 255., 84. / 255.];
+
 /// A resolved rectangle (axis-aligned in its own space).
 #[derive(Clone, PartialEq)]
 pub struct Zone {
+    /// RPE colorEvents RGB; official areas retain the native red palette.
+    pub color: [f32; 3],
     pub center: Vector,
     pub half: Vector,
     pub angle: f32,
@@ -71,6 +77,7 @@ impl Zone {
         let active = phase == BlockPhase::Active;
         let fades_in = !area.is_active(area.appear_time);
         Some(Self {
+            color: DEFAULT_BLOCK_COLOR,
             center: tr.center,
             half,
             angle: tr.rotation.to_radians(),
@@ -83,6 +90,19 @@ impl Zone {
                 1.
             },
         })
+    }
+}
+
+impl Zone {
+    /// Compare coverage state independently of animated RGB.
+    pub fn same_mask(&self, other: &Self) -> bool {
+        self.center == other.center
+            && self.half == other.half
+            && self.angle == other.angle
+            && self.invert == other.invert
+            && self.active == other.active
+            && self.ready == other.ready
+            && self.opacity == other.opacity
     }
 }
 
@@ -158,6 +178,9 @@ const COLORS: &[(&str, [f32; 4])] = &[
 
 #[derive(Default)]
 struct FrameTextures {
+    colors: tint::Colors,
+    color_textures: [Option<Texture2D>; 2],
+    uploaded_colors: Option<u64>,
     support: support::Cache,
     uploaded_masks: Option<u64>,
     uploaded_aux: Option<u64>,
@@ -212,7 +235,7 @@ fn shader_time() -> f32 {
     get_time() as f32
 }
 
-fn load_block_material(disabled: bool, hover: bool) -> Result<Material, miniquad::ShaderError> {
+fn load_block_material(disabled: bool, hover: bool, colored: bool) -> Result<Material, miniquad::ShaderError> {
     let mut uniforms = vec![
         ("uView".to_owned(), UniformType::Float3),
         ("uUnityTime".to_owned(), UniformType::Float4),
@@ -222,6 +245,7 @@ fn load_block_material(disabled: bool, hover: bool) -> Result<Material, miniquad
         ("uDisabledSparkTint".to_owned(), UniformType::Float3),
         ("_TouchPosCount".to_owned(), UniformType::Int1),
         ("uLayer".to_owned(), UniformType::Int1),
+        ("uColored".to_owned(), UniformType::Int1),
     ];
     uniforms.extend(FLOATS.iter().map(|(name, _)| (name.to_string(), UniformType::Float1)));
     uniforms.extend(COLORS.iter().map(|(name, _)| (name.to_string(), UniformType::Float4)));
@@ -249,11 +273,30 @@ fn load_block_material(disabled: bool, hover: bool) -> Result<Material, miniquad
             "uScene".to_owned(),
             "uAuxMasks".to_owned(),
             "uNoiseTex".to_owned(),
+            "uActiveColors".to_owned(),
+            "uDisabledColors".to_owned(),
         ],
     };
     // Specialize uniform-only branches. On mobile GPUs the native hover SDF
     // otherwise consumes registers/instructions even with zero fingers.
     let mut fragment = FRAGMENT.replace("uniform int uLayer;", if disabled { "const int uLayer = 0;" } else { "const int uLayer = 3;" });
+    fragment = fragment.replace("uniform int uColored;", if colored { "const int uColored = 1;" } else { "const int uColored = 0;" });
+    if !colored {
+        // Keep native red arithmetic verbatim and avoid color sampling/branches
+        // on charts which do not need the extended palette.
+        for name in [
+            "uDisabledSparkTint",
+            "uDisabledFillColor",
+            "_SparkTint",
+            "_FillColor",
+            "_GlowColor",
+            "_EdgeColor",
+            "_NoiseTint",
+            "_TouchGlowColor",
+        ] {
+            fragment = fragment.replace(&format!("blockPalette({name}.xyz, rgb)"), &format!("{name}.xyz"));
+        }
+    }
     if !hover {
         fragment = fragment.replace("uniform \tint _TouchPosCount;", "const int _TouchPosCount = 0;");
         // Match the generated multi-line definition. Replacing the old one-line
@@ -280,12 +323,15 @@ fn load_block_material(disabled: bool, hover: bool) -> Result<Material, miniquad
     })
 }
 
-static MATERIAL: Lazy<Option<[Material; 3]>> = Lazy::new(|| {
+static MATERIAL: Lazy<Option<[Material; 6]>> = Lazy::new(|| {
     (|| {
         Ok([
-            load_block_material(true, false)?,
-            load_block_material(false, false)?,
-            load_block_material(false, true)?,
+            load_block_material(true, false, false)?,
+            load_block_material(false, false, false)?,
+            load_block_material(false, true, false)?,
+            load_block_material(true, false, true)?,
+            load_block_material(false, false, true)?,
+            load_block_material(false, true, true)?,
         ])
     })()
     .map_err(|e: miniquad::ShaderError| {
@@ -314,7 +360,7 @@ pub(crate) fn prepare_block_effects() {
             material.set_texture("uDisplaceTex", *DISPLACE_TEX);
             material.set_texture("uSparkTex", *SPARK_TEX);
             material.set_texture("uNoiseTex", *NOISE_TEX);
-            for sampler in ["uMasks", "uAuxMasks", "uScene"] {
+            for sampler in ["uMasks", "uAuxMasks", "uScene", "uActiveColors", "uDisabledColors"] {
                 material.set_texture(sampler, empty);
             }
             material.set_uniform("uView", vec3(1., 1., 1.));
@@ -429,6 +475,29 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         let mut profile_start = (*PROFILE_BLOCKS).then(std::time::Instant::now);
 
         frame.masks.render_displaced(width, height, aspect, zones, time);
+        let colored = {
+            let FrameTextures { masks, colors, .. } = &mut *frame;
+            colors.update(masks, aspect, zones)
+        };
+        if colored && frame.uploaded_colors != Some(frame.colors.revision) {
+            for layer in 0..2 {
+                let bytes = &frame.colors.rgba[layer];
+                let size = (frame.colors.width as u16, frame.colors.height as u16);
+                if frame.color_textures[layer].is_none_or(|t| (t.width() as u16, t.height() as u16) != size) {
+                    let texture = Texture2D::from_rgba8(size.0, size.1, bytes);
+                    texture.set_filter(FilterMode::Nearest);
+                    if let Some(old) = frame.color_textures[layer].replace(texture) {
+                        old.delete();
+                    }
+                } else {
+                    frame.color_textures[layer]
+                        .unwrap()
+                        .raw_miniquad_texture_handle()
+                        .update(unsafe { get_internal_gl() }.quad_context, bytes);
+                }
+            }
+            frame.uploaded_colors = Some(frame.colors.revision);
+        }
 
         if !disabled {
             frame.touch.update_fingers(touches, time);
@@ -460,13 +529,14 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         gl.flush();
         let flush_ms = profile_mark(&mut profile_start);
 
-        let m = m[if disabled {
-            0
-        } else if hover {
-            2
-        } else {
-            1
-        }];
+        let m = m[3 * usize::from(colored)
+            + if disabled {
+                0
+            } else if hover {
+                2
+            } else {
+                1
+            }];
         if hover {
             let bw = frame.masks.width / 2;
             let bh = frame.masks.height / 2;
@@ -612,6 +682,9 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
             m.set_uniform(&format!("_TouchPos[{i}]"), *uv * vec2(width as f32 / height as f32, 1.));
         }
         m.set_uniform("_TouchPosShine", (0.63 + 0.37 * ((time * 43.).sin() * 0.5 + 0.5)) * 2.);
+        m.set_uniform("uColored", i32::from(colored));
+        m.set_texture("uActiveColors", if colored { frame.color_textures[0].unwrap() } else { *EMPTY_TEX });
+        m.set_texture("uDisabledColors", if colored { frame.color_textures[1].unwrap() } else { *EMPTY_TEX });
         gl_use_material(m);
 
         let old_clip = unsafe { get_internal_gl() }.quad_gl.get_scissor();

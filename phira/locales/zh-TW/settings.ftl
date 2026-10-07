@@ -134,9 +134,9 @@ about-content =
 
     以及許多志願譜面審核員！完整列表參見 https://phira.moe/staff
 item-drag-protect = 黃鍵保護
-item-drag-protect-sub = 點擊（藍鍵）不會被疊在附近的黃鍵吃掉
+item-drag-protect-sub = 藍鍵 / hold 仍在 early 側，且黃鍵至少近 10ms 時，黃鍵攔截這次點擊；每個黃鍵僅一次
 item-flick-protect = 紅鍵保護
-item-flick-protect-sub = 點擊（藍鍵）不會被疊在附近的紅鍵吃掉
+item-flick-protect-sub = 藍鍵 / hold 仍在 early 側，且紅鍵至少近 10ms 時，紅鍵攔截點擊；可多次攔截，點擊不判定紅鍵
 item-combo-text = 連擊文字
 item-combo-text-sub = 連擊數下方顯示的文字（最長 16 個字元）
 combo-text-default = 預設

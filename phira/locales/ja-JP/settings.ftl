@@ -118,9 +118,9 @@ about-content =
 
   その他多くのボランティア譜面レビュアーの皆様に感謝します。完全なリストは https://phira.moe/staff をご覧ください。
 item-drag-protect = 黄ノーツ保護
-item-drag-protect-sub = タップが重なった黄ノーツに取られなくなります
+item-drag-protect-sub = 青ノーツ / Hold が early 側で、黄ノーツが現在時刻に 10ms 以上近い場合、黄ノーツごとに一度だけタップを受け取ります
 item-flick-protect = 赤ノーツ保護
-item-flick-protect-sub = タップが重なった赤ノーツに取られなくなります
+item-flick-protect-sub = 青ノーツ / Hold が early 側で、赤ノーツが現在時刻に 10ms 以上近い場合、繰り返しタップを受け取ります。タップでは赤ノーツを判定しません
 item-combo-text = コンボ文字
 item-combo-text-sub = コンボ数の下に表示する文字（最大 16 文字）
 combo-text-default = 既定

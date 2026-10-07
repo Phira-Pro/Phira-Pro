@@ -186,9 +186,9 @@ pub struct Config {
     /// 晚按补偿（毫秒）：晚按（偏差为负）时额外放宽的量，默认 0 = 早/晚完全对称。
     /// 上游把 70ms 写死在代码里且只作用在晚按一侧（等于「晚按白送 70ms」），这里改为可配置。
     pub late_leniency_ms: f32,
-    /// 黄键保护：点击（蓝键）不会被叠在附近的 Drag（黄键）抢走判定。
+    /// 黄键保护：Drag 至少近 10ms 时拦截 early 蓝键/hold 点击，且仅一次。
     pub drag_protect: bool,
-    /// 红键保护：点击（蓝键）不会被叠在附近的 Flick（红键）抢走判定。
+    /// 红键保护：Flick 至少近 10ms 时拦截 early 蓝键/hold 点击，可多次。
     pub flick_protect: bool,
     /// 连击数下方显示的文字；留空则回退到「COMBO / AUTOPLAY」。
     pub combo_text: String,

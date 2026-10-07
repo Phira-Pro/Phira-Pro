@@ -3593,6 +3593,7 @@ dependencies = [
  "prpr-avc",
  "prpr-l10n",
  "rand 0.8.8",
+ "rayon",
  "regex",
  "rfd",
  "sasa",
@@ -3614,6 +3615,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "winapi",
  "zip",
 ]
 

@@ -10,6 +10,12 @@ pub const THUMBNAIL_HEIGHT: u32 = 200;
 
 pub struct Images;
 impl Images {
+    /// Run in an image-loading task before handing pixels to the GL thread.
+    /// RGB/16-bit conversion can otherwise block an entire transition frame.
+    pub fn gpu_ready(image: DynamicImage) -> DynamicImage {
+        DynamicImage::ImageRgba8(image.into_rgba8())
+    }
+
     pub fn into_texture(tex: (DynamicImage, Option<DynamicImage>)) -> (SafeTexture, SafeTexture) {
         match tex {
             (thumb, Some(full)) => (thumb.into(), full.into()),

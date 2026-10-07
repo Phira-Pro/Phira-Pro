@@ -203,6 +203,14 @@ impl Chart {
         !self.block_areas.is_empty() || !self.rpe_block_markers.is_empty()
     }
 
+    pub(crate) fn set_rpe_block_anchors(&mut self, anchors: &[[f32; 2]]) {
+        for marker in &mut self.rpe_block_markers {
+            if let Some(&[x, y]) = anchors.get(marker.line) {
+                marker.anchor = Vector::new(x, y);
+            }
+        }
+    }
+
     /// RPE input depends on parents even when they occur later in line order.
     /// Move the judge's existing time evaluation here; it must not run twice.
     pub(crate) fn prepare_rpe_input_time(&mut self, time: f64) -> bool {
@@ -367,11 +375,12 @@ impl Chart {
                     Point::new(pos.x, pos.y)
                 });
             let rotation = self.line_rotations.get(id).copied().unwrap_or_else(|| line.object.rotation.now());
-            let half_x = texture.width() * scale.x.abs() * 0.5;
-            let half_y = texture.height() * scale.y.abs() * 0.5;
+            let tr = marker.transform(Vector::new(center.x, center.y), scale, Vector::new(texture.width(), texture.height()), rotation);
+            let half_x = tr.size.x * 0.5;
+            let half_y = tr.size.y * 0.5;
             let to_pct_x = |x: f32| (x + 1.) * 0.5;
             let to_pct_y = |y: f32| (y * aspect + 1.) * 0.5;
-            let c = Vector::new(center.x, center.y);
+            let c = tr.center;
             let top_right = Vector::new(to_pct_x(c.x + half_x), to_pct_y(c.y + half_y));
             let bottom_left = Vector::new(to_pct_x(c.x - half_x), to_pct_y(c.y - half_y));
             let anchor = Vector::new(to_pct_x(c.x), to_pct_y(c.y));

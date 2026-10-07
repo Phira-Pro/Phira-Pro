@@ -42,6 +42,11 @@ fn f32_one() -> f32 {
     1.
 }
 
+fn default_anchor() -> [f32; 2] {
+    // Older RPE charts omit this field and use a centred image pivot.
+    [0.5, 0.5]
+}
+
 fn i32_one() -> i32 {
     1
 }
@@ -176,6 +181,8 @@ struct RPEJudgeLine {
     name: String,
     #[serde(rename = "Texture")]
     texture: String,
+    #[serde(default = "default_anchor")]
+    anchor: [f32; 2],
     #[serde(rename = "father")]
     parent: Option<isize>,
     rotate_with_father: Option<bool>,
@@ -923,8 +930,11 @@ pub async fn parse_rpe_with_path(
         .max().unwrap_or_default() + 1.;
     // don't want to add a whole crate for a mere join_all...
     let mut lines = Vec::new();
+    let mut block_anchors = Vec::new();
     let mut line_texture_map = HashMap::new();
     for (id, rpe) in rpe.judge_line_list.into_iter().enumerate() {
+        anyhow::ensure!(rpe.anchor.iter().all(|v| v.is_finite()), "Non-finite RPE anchor on line {id}");
+        block_anchors.push(rpe.anchor);
         let name = rpe.name.clone();
         lines.push(
             parse_judge_line(&mut r, rpe, max_time, speed_mode, fs, use_rpe_170_speed, &bezier_map, &mut hitsounds, &mut line_texture_map)
@@ -951,6 +961,7 @@ pub async fn parse_rpe_with_path(
     }
     process_lines(&mut lines);
     let mut chart = Chart::new(rpe.meta.offset as f32 / 1000.0, lines, r, ChartSettings::default(), extra, hitsounds);
+    chart.set_rpe_block_anchors(&block_anchors);
     // Embedded official blocks keep seconds, screen percentages and native
     // easing IDs. RPE BPM conversion applies only to the RPE line events.
     chart.block_areas = block_areas;
@@ -1229,6 +1240,18 @@ mod block_area_tests {
                     assert!(Zone::from_area(area, time, 16. / 9.) == Zone::from_area(&official.block_areas[0], time, 16. / 9.));
                 }
             }
+        }
+    }
+
+    #[test]
+    fn texture_line_anchor_is_preserved_and_legacy_charts_stay_centred() {
+        let mut source = chart_json(120.)["judgeLineList"][0].clone();
+        let line: RPEJudgeLine = serde_json::from_value(source.clone()).unwrap();
+        assert_eq!(line.anchor, [0.5, 0.5]);
+        for anchor in [[0.5, 1.], [0.5, 0.], [-0.25, 1.5]] {
+            source["anchor"] = json!(anchor);
+            let line: RPEJudgeLine = serde_json::from_value(source.clone()).unwrap();
+            assert_eq!(line.anchor, anchor);
         }
     }
 

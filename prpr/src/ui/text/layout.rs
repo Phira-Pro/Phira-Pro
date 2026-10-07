@@ -2,11 +2,20 @@ use glyph_brush::{
     ab_glyph::{point, Font, FontArc, Rect, ScaleFont},
     FontId, GlyphCruncher, HorizontalAlign, Layout, Section, SectionGlyph, Text,
 };
-use std::collections::HashMap;
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
+};
 use unicode_segmentation::UnicodeSegmentation;
 
+struct CachedLine {
+    text: String,
+    metrics: [u32; 4],
+    bounds: (f32, f32, f32, f32),
+}
+
 #[derive(Default)]
-pub(super) struct InkCache(HashMap<(usize, u16), Option<Rect>>);
+pub(super) struct InkCache(HashMap<(usize, u16), Option<Rect>>, HashMap<u64, CachedLine>);
 
 impl InkCache {
     fn bounds(&mut self, fonts: &[FontArc], glyph: &SectionGlyph) -> Option<Rect> {
@@ -98,6 +107,53 @@ fn previous_grapheme(text: &str, end: usize) -> usize {
 }
 
 pub(super) fn layout_text<'a>(
+    brush: &mut impl GlyphCruncher,
+    cache: &mut InkCache,
+    text: &'a str,
+    options: LayoutOptions,
+) -> (Section<'a>, (f32, f32, f32, f32)) {
+    if !options.multiline {
+        let metrics = [
+            options.scale.to_bits(),
+            options.primary_scale.to_bits(),
+            options.baseline as u32,
+            options.h_align as u32,
+        ];
+        let mut hasher = DefaultHasher::new();
+        text.hash(&mut hasher);
+        metrics.hash(&mut hasher);
+        let key = hasher.finish();
+        let bounds = if let Some(line) = cache.1.get(&key).filter(|line| line.text == text && line.metrics == metrics) {
+            line.bounds
+        } else {
+            let (_, bounds) = layout_uncached(brush, cache, text, LayoutOptions { max_width: None, ..options });
+            // Dynamic scores/timers cannot grow the cache without bound.
+            if cache.1.len() >= 512 {
+                cache.1.clear();
+            }
+            cache.1.insert(
+                key,
+                CachedLine {
+                    text: text.to_owned(),
+                    metrics,
+                    bounds,
+                },
+            );
+            bounds
+        };
+        let width = options.max_width.filter(|w| w.is_finite()).map(|w| w.max(0.)).unwrap_or(f32::INFINITY);
+        if bounds.2 <= width {
+            // Fades change color/position without changing optical bounds.
+            let section = Section::default()
+                .with_text(runs(text, brush.fonts(), options))
+                .with_layout(Layout::default_single_line().h_align(options.h_align));
+            return (section, bounds);
+        }
+    }
+    layout_uncached(brush, cache, text, options)
+}
+
+fn layout_uncached<'a>(
     brush: &mut impl GlyphCruncher,
     cache: &mut InkCache,
     text: &'a str,
@@ -227,6 +283,29 @@ mod tests {
     }
 
     #[test]
+    fn cached_optical_bounds_preserve_width_alignment_font_scale_and_fade_color() {
+        let (mut brush, mut cache, mut options) = setup();
+        for text in ["UNRATED 1.25x STRICT", "中文ABC中文", "gjpq", "", "   ", "AP 全连", "1000000"] {
+            for align in [HorizontalAlign::Left, HorizontalAlign::Center, HorizontalAlign::Right] {
+                for size in [20., 30., 36.] {
+                    options.h_align = align;
+                    options.scale = size;
+                    for width in [None, Some(0.), Some(90.), Some(1000.)] {
+                        options.max_width = width;
+                        for alpha in [1., 0.4, 0.] {
+                            options.color = [0.1, 0.3, 0.8, alpha];
+                            let (expected, a) = layout_uncached(&mut brush, &mut cache, text, options);
+                            let (actual, b) = layout_text(&mut brush, &mut cache, text, options);
+                            assert_eq!(a, b, "{text} {align:?} {width:?}");
+                            assert_eq!(expected, actual);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn numeric_leaderboard_labels_keep_positive_ink_bounds() {
         let font = FontArc::try_from_slice(include_bytes!("../../../../assets/phigros.ttf")).unwrap();
         let mut brush: GlyphBrush<()> = GlyphBrushBuilder::using_font(font).build();
@@ -240,6 +319,24 @@ mod tests {
             let rendered: String = section.text.iter().map(|r| r.text).collect();
             assert_eq!(rendered, text);
             assert!(bounds.2 > 0. && bounds.3 > 0., "{text}: {bounds:?}");
+        }
+    }
+
+    #[test]
+    #[ignore = "local CPU benchmark"]
+    fn repeated_ui_labels_benchmark() {
+        let (mut brush, mut cache, options) = setup();
+        let labels = ["UNRATED", "主界面 Play", "1000000", "霜月Frostone", "游玩设置 Settings", "PERFECT+"];
+        for label in labels { layout_text(&mut brush, &mut cache, label, options); }
+        for cached in [false, true] {
+            let start = std::time::Instant::now();
+            for i in 0..60000 {
+                let label = labels[i % labels.len()];
+                let result = if cached { layout_text(&mut brush, &mut cache, label, options) }
+                    else { layout_uncached(&mut brush, &mut cache, label, options) };
+                std::hint::black_box(result);
+            }
+            println!("cached={cached}: {:.3} ms for 60000 labels", start.elapsed().as_secs_f64() * 1000.);
         }
     }
 

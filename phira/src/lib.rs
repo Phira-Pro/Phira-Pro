@@ -13,6 +13,7 @@ mod client;
 mod data;
 pub mod deeplink;
 mod font_store;
+mod frame_profile;
 mod history;
 mod hud;
 mod icons;
@@ -466,8 +467,16 @@ async fn the_main() -> Result<()> {
     let mut fps_times = VecDeque::<f64>::with_capacity(FPS_BUF_SIZE);
     let mut last_frame_start = f64::NAN;
     let mut fps_time_sum = 0.;
+    #[cfg(target_os = "windows")]
+    let mut frame_pacer = prpr::desktop_pacing::Pacer::new();
+    let mut frame_profile = frame_profile::FrameProfile::from_env();
+    let mut profile_previous = std::time::Instant::now();
 
     'app: loop {
+        let profile_start = frame_profile.as_ref().map(|_| std::time::Instant::now());
+        #[cfg(target_os = "windows")]
+        frame_pacer.wait();
+        let profile_work = frame_profile.as_ref().map(|_| std::time::Instant::now());
         // 处理积压的暂停 / 恢复消息（以最后一条为准）。日志保留：暂停 / 恢复一旦不成对，
         // 就会出现「画面卡死、切后台也救不回来」，需要靠日志定位。
         let mut state = None;
@@ -530,6 +539,8 @@ async fn the_main() -> Result<()> {
         let avg_frame_time = fps_time_sum / fps_times.len().max(1) as f64;
         let cur_fps = if avg_frame_time > 0. { 1. / avg_frame_time } else { 0. };
         prpr::ui::CURRENT_FPS.store((cur_fps as f32).to_bits(), std::sync::atomic::Ordering::Relaxed);
+        let mut profile_update = 0.;
+        let mut profile_render = 0.;
         let res = || -> Result<()> {
             main.update()?;
             // 结算界面的「应用推荐偏移」请求：落到全局配置并持久化。
@@ -539,8 +550,13 @@ async fn the_main() -> Result<()> {
                 config.offset = (config.offset + delta).clamp(-0.5, 0.5);
                 save_data()?;
             }
+            let render_start = frame_profile.as_ref().map(|_| std::time::Instant::now());
+            if let (Some(work), Some(render)) = (profile_work, render_start) {
+                profile_update = render.duration_since(work).as_secs_f64() * 1000.;
+            }
             main.render(&mut painter)?;
             prpr::ext::flush_pending_texture_deletions();
+            if let Some(start) = render_start { profile_render = start.elapsed().as_secs_f64() * 1000.; }
             Ok(())
         }();
         if let Err(err) = res {
@@ -565,7 +581,13 @@ async fn the_main() -> Result<()> {
 
         // 暂停时会走上面的分支直接 `continue`（不更新不渲染），所以这里不用再额外处理。
 
+        let present_start = frame_profile.as_ref().map(|_| std::time::Instant::now());
         next_frame().await;
+        if let (Some(profile), Some(start), Some(work), Some(present)) = (&mut frame_profile, profile_start, profile_work, present_start) {
+            let interval = start.duration_since(profile_previous).as_secs_f64() * 1000.;
+            profile_previous = start;
+            profile.record(start, interval, work.duration_since(start).as_secs_f64() * 1000., profile_update, profile_render, present.elapsed().as_secs_f64() * 1000.);
+        }
     }
     Ok(())
 }
@@ -590,6 +612,10 @@ fn build_global_window_conf() -> Conf {
 
     #[cfg(target_os = "windows")]
     {
+        // Windows' composed OpenGL swap can quantize missed presents to
+        // 60/80 Hz even on a 165 Hz monitor. Pace explicitly at this window's
+        // current monitor refresh rate, shared by menus and gameplay.
+        conf.platform.swap_interval = Some(0);
         conf.fullscreen = dir::root()
             .ok()
             .and_then(|r| std::fs::read_to_string(std::path::Path::new(&r).join("data.json")).ok())

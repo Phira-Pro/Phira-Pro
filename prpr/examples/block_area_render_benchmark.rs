@@ -8,6 +8,7 @@ struct Resource {
     config: prpr::config::Config,
     camera: Camera2D,
     chart_target: Option<MSRenderTarget>,
+    snapshot_blit_sources: Vec<(miniquad::RenderPass, bool)>,
 }
 impl Resource {
     fn apply_model_of(&mut self, mat: &Matrix, f: impl FnOnce(&mut Self)) {
@@ -37,19 +38,26 @@ async fn main() {
         config: Default::default(),
         camera: Camera2D::default(),
         chart_target: None,
+        snapshot_blit_sources: Vec::new(),
     };
     block_shader::prepare_block_effects();
-    let chart = prpr::parse::parse_phigros(
-        &std::fs::read_to_string("data/charts/custom/f681f94e-57d3-4d7c-bfd6-fb8cc3f1dd13/DesultorySignals.technoplanet.0.json").unwrap(),
-        Default::default(),
-    )
-    .unwrap();
+    let path = std::env::var("BLOCK_BENCH_CHART")
+        .unwrap_or_else(|_| "data/charts/custom/f681f94e-57d3-4d7c-bfd6-fb8cc3f1dd13/DesultorySignals.technoplanet.0.json".into());
+    let chart = prpr::parse::parse_phigros(&std::fs::read_to_string(path).unwrap(), Default::default()).unwrap();
+    let times: Vec<f64> = std::env::var("BLOCK_BENCH_TIMES")
+        .unwrap_or_else(|_| "65,67,71.8".into())
+        .split(',')
+        .map(|t| t.trim().parse().expect("chart seconds"))
+        .collect();
     for (width, height) in [(960, 720), (1920, 1440), (2560, 1600)] {
         let aspect = width as f32 / height as f32;
         res.camera.zoom = vec2(1., aspect);
         set_camera(&res.camera);
         unsafe { get_internal_gl() }.quad_gl.viewport(Some((0, 0, width, height)));
-        for start in [65., 67., 71.8] {
+        if std::env::var_os("BLOCK_BENCH_PREPARE").is_some() {
+            block_shader::prepare_block_geometry(&chart.block_areas, width as usize, height as usize, aspect);
+        }
+        for &start in &times {
             let mut elapsed = 0.;
             for i in 0..72 {
                 let chart_time = start + i as f64 / 120.;

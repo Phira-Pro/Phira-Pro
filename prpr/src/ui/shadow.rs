@@ -88,8 +88,54 @@ pub fn rounded_rect_shadow(ui: &mut Ui, r: Rect, config: &ShadowConfig) {
     .apply(&mat);
     gl_use_material(mat);
     let r3 = config.elevation * 3.0;
-    draw_rectangle(gr.x - r3, gr.y - r3, gr.w + r3 * 2., gr.h + r3 * 2., WHITE);
+    // The shader's inner mask is exactly zero inside radius + 0.0007.
+    // Submit only the surrounding four strips. They share one material and
+    // batch together, avoiding Gaussian evaluation across the card interior.
+    for strip in shadow_strips(gr, r3, config.radius) {
+        if strip.w > 0. && strip.h > 0. {
+            draw_rectangle(strip.x, strip.y, strip.w, strip.h, WHITE);
+        }
+    }
     gl_use_default_material();
+}
+
+fn shadow_strips(rect: Rect, feather: f32, radius: f32) -> [Rect; 4] {
+    let outer = Rect::new(rect.x - feather, rect.y - feather, rect.w + feather * 2., rect.h + feather * 2.);
+    let inset = radius.max(0.) + 0.0007;
+    if rect.w <= inset * 2. || rect.h <= inset * 2. {
+        return [outer, Rect::default(), Rect::default(), Rect::default()];
+    }
+    let inner = Rect::new(rect.x + inset, rect.y + inset, rect.w - inset * 2., rect.h - inset * 2.);
+    [
+        Rect::new(outer.x, outer.y, outer.w, inner.y - outer.y),
+        Rect::new(outer.x, inner.bottom(), outer.w, outer.bottom() - inner.bottom()),
+        Rect::new(outer.x, inner.y, inner.x - outer.x, inner.h),
+        Rect::new(inner.right(), inner.y, outer.right() - inner.right(), inner.h),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shadow_strips_cover_the_original_quad_without_overlap_except_the_zero_alpha_interior() {
+        for rect in [Rect::new(-0.5, -0.3, 0.83, 0.45), Rect::new(0., 0., 0.001, 0.001)] {
+            let feather = 0.015;
+            let strips = shadow_strips(rect, feather, 0.005);
+            let outer = Rect::new(rect.x - feather, rect.y - feather, rect.w + 2. * feather, rect.h + 2. * feather);
+            let inset = 0.0057;
+            let inner_area = (rect.w - 2. * inset).max(0.) * (rect.h - 2. * inset).max(0.);
+            let area: f32 = strips.iter().map(|r| r.w * r.h).sum();
+            assert!((area + inner_area - outer.w * outer.h).abs() < 1e-6);
+            for (i, a) in strips.iter().enumerate() {
+                for b in &strips[i + 1..] {
+                    let overlap = (a.right().min(b.right()) - a.x.max(b.x)).max(0.) * (a.bottom().min(b.bottom()) - a.y.max(b.y)).max(0.);
+                    assert!(overlap < 1e-8);
+                }
+            }
+        }
+    }
 }
 
 pub fn clip_rounded_rect<R>(ui: &mut Ui, r: Rect, radius: f32, f: impl FnOnce(&mut Ui) -> R) -> R {

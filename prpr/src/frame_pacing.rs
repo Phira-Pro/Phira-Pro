@@ -88,7 +88,10 @@ pub fn install() {
         let maximum = UIScreen::mainScreen(mtm).maximumFramesPerSecond().clamp(1, 120);
         if link.respondsToSelector(sel!(setPreferredFrameRateRange:)) {
             link.setPreferredFrameRateRange(CAFrameRateRange {
-                minimum: maximum.min(80) as f32,
+                // An 80..120 range explicitly permits ProMotion to settle at
+                // 80 Hz. Rhythm input and rendering request the display maximum;
+                // iOS may still override this for power/thermal system policy.
+                minimum: maximum as f32,
                 maximum: maximum as f32,
                 preferred: maximum as f32,
             });
@@ -98,12 +101,14 @@ pub fn install() {
         }
         // Prevent two render loops, including after a GLK automatic resume.
         unsafe {
+            let _: () = msg_send![&controller, setPreferredFramesPerSecond: maximum];
             let _: () = msg_send![&controller, setPaused: true];
         }
         unsafe {
             link.addToRunLoop_forMode(&NSRunLoop::mainRunLoop(), NSRunLoopCommonModes);
         }
         *driver.borrow_mut() = Some(Driver { link, controller });
+        tracing::info!("iOS display link installed: requested {maximum} Hz");
     });
 }
 
@@ -114,6 +119,14 @@ pub fn set_paused(paused: bool) {
     }
     DRIVER.with(|driver| {
         if let Some(driver) = driver.borrow().as_ref() {
+            if !paused {
+                let maximum = UIScreen::mainScreen(MainThreadMarker::new().unwrap()).maximumFramesPerSecond().clamp(1, 120);
+                if driver.link.respondsToSelector(sel!(setPreferredFrameRateRange:)) {
+                    driver.link.setPreferredFrameRateRange(CAFrameRateRange { minimum: maximum as f32, maximum: maximum as f32, preferred: maximum as f32 });
+                } else {
+                    driver.link.setPreferredFramesPerSecond(maximum);
+                }
+            }
             unsafe {
                 let _: () = msg_send![&driver.controller, setPaused: true];
             }

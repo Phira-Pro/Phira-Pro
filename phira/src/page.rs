@@ -88,7 +88,7 @@ pub fn illustration_task(notify: Arc<Notify>, path: String, full: bool) -> Task<
         } else {
             img = None;
         }
-        Ok((thumbnail, img))
+        Ok((Images::gpu_ready(thumbnail), img.map(Images::gpu_ready)))
     })
 }
 
@@ -138,7 +138,7 @@ impl Illustration {
             notify: Arc::clone(&notify),
             task: Some(Task::new(async move {
                 notify.notified().await;
-                Ok((file.load_image().await?, None))
+                Ok((Images::gpu_ready(file.load_image().await?), None))
             })),
             loaded: Arc::default(),
             load_time: f32::NAN,
@@ -152,7 +152,7 @@ impl Illustration {
             notify: Arc::clone(&notify),
             task: Some(Task::new(async move {
                 notify.notified().await;
-                Ok((file.load_thumbnail().await?, None))
+                Ok((Images::gpu_ready(file.load_thumbnail().await?), None))
             })),
             loaded: Arc::default(),
             load_time: f32::NAN,

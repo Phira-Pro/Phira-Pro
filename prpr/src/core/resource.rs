@@ -358,18 +358,27 @@ impl ParticleEmitter {
     }
 }
 
-type NoteBufferMap = BTreeMap<(i8, GLuint), Vec<(Vec<Vertex>, Vec<u16>)>>;
+#[derive(Default)]
+struct NoteMeshes {
+    meshes: Vec<(Vec<Vertex>, Vec<u16>)>,
+    current: usize,
+}
+
+type NoteBufferMap = BTreeMap<(i8, GLuint), NoteMeshes>;
 
 #[derive(Default)]
 pub struct NoteBuffer(NoteBufferMap);
 
 impl NoteBuffer {
     pub fn push(&mut self, key: (i8, GLuint), vertices: [Vertex; 4]) {
-        let meshes = self.0.entry(key).or_default();
-        if meshes.last().is_none_or(|it| it.0.len() + 4 > MAX_SIZE * 4) {
-            meshes.push(Default::default());
+        let batch = self.0.entry(key).or_default();
+        if batch.meshes.get(batch.current).is_some_and(|it| it.0.len() + 4 > MAX_SIZE * 4) {
+            batch.current += 1;
         }
-        let last = meshes.last_mut().unwrap();
+        if batch.current == batch.meshes.len() {
+            batch.meshes.push(Default::default());
+        }
+        let last = &mut batch.meshes[batch.current];
         let i = last.0.len() as u16;
         last.0.extend_from_slice(&vertices);
         last.1.extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);
@@ -379,11 +388,22 @@ impl NoteBuffer {
         // Continue the current target; geometry recording snapshots draw state.
         let gl = unsafe { get_internal_gl() }.quad_gl;
         gl.draw_mode(DrawMode::Triangles);
-        for ((_, tex_id), meshes) in std::mem::take(&mut self.0).into_iter() {
-            gl.texture(Some(Texture2D::from_miniquad_texture(unsafe { Texture::from_raw_id(tex_id, miniquad::TextureFormat::RGBA8) })));
-            for mesh in meshes {
-                gl.geometry(&mesh.0, &mesh.1);
+        // Retain per-texture allocations across frames. GL copies geometry
+        // while recording it; clearing these buffers doesn't alter queued draws.
+        for ((_, tex_id), batch) in &mut self.0 {
+            if batch.meshes.first().is_none_or(|mesh| mesh.0.is_empty()) {
+                continue;
             }
+            gl.texture(Some(Texture2D::from_miniquad_texture(unsafe { Texture::from_raw_id(*tex_id, miniquad::TextureFormat::RGBA8) })));
+            for mesh in &mut batch.meshes {
+                if mesh.0.is_empty() {
+                    break;
+                }
+                gl.geometry(&mesh.0, &mesh.1);
+                mesh.0.clear();
+                mesh.1.clear();
+            }
+            batch.current = 0;
         }
     }
 }

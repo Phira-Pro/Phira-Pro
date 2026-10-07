@@ -563,7 +563,16 @@ impl Scene for EndingScene {
                         .no_baseline()
                         .color(semi_black(0.6))
                         .size(text_size);
-                    let tr = text.measure_using(&BOLD_FONT);
+                    let mut tr = text.measure_using(&BOLD_FONT);
+                    // Status badges share the icon strip's height. Imported
+                    // fonts and the display-size setting must not enlarge them
+                    // into the score panel; shrink the entire label, never cut it.
+                    let max_width = (0.95 - active_mod_indices.len() as f32 * 0.08).max(0.25);
+                    let fit = (para_h * 0.78 / tr.h.max(0.0001)).min(max_width / tr.w.max(0.0001)).min(1.);
+                    if fit < 1. {
+                        text = text.size(text_size * fit);
+                        tr = text.measure_using(&BOLD_FONT);
+                    }
                     let r = Rect::new(-1., tr.y, tr.right() + 1.03, tr.h);
                     let mut b = text.ui.builder(WHITE);
                     b.add(-1., tr.y);

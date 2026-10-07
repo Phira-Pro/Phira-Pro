@@ -23,13 +23,20 @@ async fn finish<T>(future: impl std::future::Future<Output = T>) -> T {
 }
 
 fn conf() -> Conf {
-    Conf {
+    let mut conf = Conf {
         window_title: "Official block full-frame comparison".into(),
         window_width: 960,
         window_height: 720,
         headless: true,
         ..Default::default()
+    };
+    if std::env::var_os("BLOCK_CAPTURE_BENCH").is_some() {
+        conf.platform.swap_interval = Some(0);
+        conf.headless = std::env::var_os("BLOCK_BENCH_VISIBLE").is_none();
+        conf.window_width = std::env::var("BLOCK_CAPTURE_WIDTH").ok().and_then(|v| v.parse().ok()).unwrap_or(960);
+        conf.window_height = std::env::var("BLOCK_CAPTURE_HEIGHT").ok().and_then(|v| v.parse().ok()).unwrap_or(720);
     }
+    conf
 }
 
 #[macroquad::main(conf)]
@@ -49,7 +56,15 @@ async fn main() {
         .and_then(|v| v.parse::<u32>().ok())
         .unwrap_or(1)
         .clamp(1, 2);
-    let capture = render_target(960 * scale, 720 * scale);
+    let capture_width = std::env::var("BLOCK_CAPTURE_WIDTH")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(960 * scale);
+    let capture_height = std::env::var("BLOCK_CAPTURE_HEIGHT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(720 * scale);
+    let capture = render_target(capture_width, capture_height);
     let folder = std::env::var("BLOCK_CAPTURE_DIR").unwrap_or_else(|_| {
         if scale > 1 {
             "target/block-area-frames-2x"
@@ -70,8 +85,7 @@ async fn main() {
             "hate",
             "data/charts/custom/19d0e386-5929-4031-85fb-28ac8e6a472f",
             vec![
-                0., 2., 4., 6., 8.,
-                79., 79.2, 79.4, 79.46667, 79.9, 80.2, 81.9, 82.2, 134.96667, 136.9, 137., 138.8, 139.8, 141.8, 142.6,
+                0., 2., 4., 6., 8., 79., 79.2, 79.4, 79.46667, 79.9, 80.2, 81.9, 82.2, 134.96667, 136.9, 137., 138.8, 139.8, 141.8, 142.6,
             ],
         ),
     ]
@@ -89,8 +103,11 @@ async fn main() {
     for (name, path, times) in charts {
         let reference = std::env::var("BLOCK_REFERENCE_DIR").unwrap_or_else(|_| "target/block-area-reference".into());
         let metadata: Option<serde_json::Value> = std::fs::read(format!("{reference}/{name}/metadata.json"))
-            .ok().map(|bytes| serde_json::from_slice(&bytes).unwrap());
-        if metadata.is_none() { println!("{name}: no video alignment metadata; using requested chart seconds"); }
+            .ok()
+            .map(|bytes| serde_json::from_slice(&bytes).unwrap());
+        if metadata.is_none() {
+            println!("{name}: no video alignment metadata; using requested chart seconds");
+        }
         let mut manifest = Vec::new();
         let mut scene = finish(async {
             let mut fs = fs_from_file(Path::new(&path)).unwrap();
@@ -103,7 +120,7 @@ async fn main() {
             let (illustration, background, _) = LoadingScene::load(fs.as_mut(), &info.illustration).await.unwrap();
             let mut config = Config::default();
             config.mods = Mods::AUTOPLAY;
-            config.particle = false;
+            config.particle = std::env::var_os("BLOCK_BENCH_AUTOPLAY").is_some();
             config.volume_sfx = 0.;
             config.volume_music = 0.;
             config.sample_count = std::env::var("BLOCK_CAPTURE_SAMPLES")
@@ -116,18 +133,74 @@ async fn main() {
                 .unwrap()
         })
         .await;
-        scene.res.camera.render_target = Some(capture);
-        let mut tm = TimeManager::manual(Box::new(|| 1000.));
+        if std::env::var_os("BLOCK_BENCH_BACKBUFFER").is_none() {
+            scene.res.camera.render_target = Some(capture);
+        }
+        let mut tm = if std::env::var_os("BLOCK_CAPTURE_BENCH").is_some() {
+            TimeManager::default()
+        } else {
+            TimeManager::manual(Box::new(|| 1000.))
+        };
+        if std::env::var_os("BLOCK_CAPTURE_BENCH").is_some() {
+            let mut costs = Vec::new();
+            let mut intervals = Vec::new();
+            let mut previous = std::time::Instant::now();
+            #[cfg(target_os = "windows")]
+            let mut pacer = prpr::desktop_pacing::Pacer::new();
+            let start = times[0];
+            let frames = std::env::var("BLOCK_BENCH_FRAMES").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(480).clamp(60, 10_000);
+            let autoplay = std::env::var_os("BLOCK_BENCH_AUTOPLAY").is_some();
+            let mut bad_notes = Vec::new();
+            if autoplay {
+                scene.judge.advance_to(&mut scene.chart, start);
+            }
+            for i in 0..frames {
+                #[cfg(target_os = "windows")]
+                pacer.wait();
+                let begun = std::time::Instant::now();
+                let t = start + i as f64 / 165.;
+                scene.res.time = t;
+                scene.res.alpha = 1.;
+                tm.seek_to(t);
+                if autoplay {
+                    scene.judge.update(&mut scene.res, &mut scene.chart, &mut bad_notes);
+                }
+                scene.tick_replay();
+                let mut ui = Ui::new(&mut painter, Some((0, 0, capture_width as i32, capture_height as i32)));
+                scene.render(&mut tm, &mut ui).unwrap();
+                unsafe {
+                    get_internal_gl().flush();
+                    miniquad::gl::glFinish();
+                }
+                if i >= 30 {
+                    costs.push(begun.elapsed().as_secs_f64() * 1000.);
+                    intervals.push(begun.duration_since(previous).as_secs_f64());
+                }
+                previous = begun;
+                next_frame().await;
+            }
+            let avg = costs.iter().sum::<f64>() / costs.len() as f64;
+            costs.sort_by(f64::total_cmp);
+            println!("Full GameScene {capture_width}x{capture_height} chart={start}..{:.3}: render-loop FPS={:.2}, render avg={avg:.3}ms p95={:.3}ms p99={:.3}ms (desktop, MSAA {}, autoplay/particles {}, no music/live input)",
+                start + frames as f64 / 165., intervals.len() as f64 / intervals.iter().sum::<f64>(),
+                costs[costs.len() * 95 / 100], costs[costs.len() * 99 / 100], scene.res.config.sample_count, autoplay);
+            continue;
+        }
         for requested in times {
-            let t = metadata.as_ref().and_then(|m| m["extraction"].as_array())
-                .and_then(|rows| rows.iter().find(|row| row["requested_video_seconds"].as_f64().is_some_and(|v| (v - requested).abs() < 0.00002)))
+            let t = metadata
+                .as_ref()
+                .and_then(|m| m["extraction"].as_array())
+                .and_then(|rows| {
+                    rows.iter()
+                        .find(|row| row["requested_video_seconds"].as_f64().is_some_and(|v| (v - requested).abs() < 0.00002))
+                })
                 .and_then(|row| row["decoded_frame_pts_seconds"].as_f64())
                 .unwrap_or(requested);
             scene.res.time = t;
             scene.res.alpha = 1.;
             for (li, line) in scene.chart.lines.iter_mut().enumerate() {
                 for (ni, n) in line.notes.iter_mut().enumerate() {
-                    if n.time < t && matches!(n.judge, JudgeStatus::NotJudged) {
+                    if !n.fake && n.time < t && matches!(n.judge, JudgeStatus::NotJudged) {
                         scene.judge.commit(n.time as f64, Judgement::Perfect, li as u32, ni as u32, 0.);
                         n.judge = match n.kind {
                             NoteKind::Hold { end_time, .. } if end_time > t => JudgeStatus::Hold(true, n.time as f64, 0., false, f64::INFINITY),
@@ -138,10 +211,10 @@ async fn main() {
             }
             tm.seek_to(t);
             scene.tick_replay();
-            let mut ui = Ui::new(&mut painter, Some((0, 0, (960 * scale) as i32, (720 * scale) as i32)));
+            let mut ui = Ui::new(&mut painter, Some((0, 0, capture_width as i32, capture_height as i32)));
             scene.render(&mut tm, &mut ui).unwrap();
             unsafe { get_internal_gl() }.flush();
-            let (width, height) = ((960 * scale) as usize, (720 * scale) as usize);
+            let (width, height) = (capture_width as usize, capture_height as usize);
             let mut bytes = vec![0; width * height * 4];
             unsafe {
                 use miniquad::gl::*;

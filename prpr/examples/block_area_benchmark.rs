@@ -5,13 +5,23 @@ mod mask;
 use std::{hint::black_box, time::Instant};
 
 fn main() {
-    let source = std::fs::read_to_string("data/charts/custom/f681f94e-57d3-4d7c-bfd6-fb8cc3f1dd13/DesultorySignals.technoplanet.0.json").unwrap();
+    let path = std::env::var("BLOCK_BENCH_CHART")
+        .unwrap_or_else(|_| "data/charts/custom/f681f94e-57d3-4d7c-bfd6-fb8cc3f1dd13/DesultorySignals.technoplanet.0.json".into());
+    let source = std::fs::read_to_string(path).unwrap();
+    let times: Vec<f64> = std::env::var("BLOCK_BENCH_TIMES")
+        .unwrap_or_else(|_| "65,67,71.8".into())
+        .split(',')
+        .map(|t| t.trim().parse().expect("chart seconds"))
+        .collect();
     let chart = prpr::parse::parse_phigros(&source, Default::default()).unwrap();
     for (width, height) in [(960, 720), (1920, 1440), (2560, 1600)] {
         let aspect = width as f32 / height as f32;
-        for time in [65., 67., 71.8] {
+        for &time in &times {
             let zones: Vec<_> = chart.block_areas.iter().filter_map(|b| Zone::from_area(b, time, aspect)).collect();
             let mut masks = mask::Masks::default();
+            if std::env::var_os("BLOCK_BENCH_PREPARE").is_some() {
+                masks.prepare_geometry(width, height, aspect, &chart.block_areas);
+            }
             masks.render_displaced(width, height, aspect, &zones, 1.);
             let started = Instant::now();
             for i in 0..120 {

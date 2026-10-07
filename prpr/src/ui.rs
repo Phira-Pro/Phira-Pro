@@ -714,6 +714,38 @@ pub struct Ui<'a> {
     pub alpha: f32,
 }
 
+struct UiScratch {
+    vertex_buffers: VertexBuffers<Vertex, u16>,
+    fill_tess: FillTessellator,
+    stroke_tess: StrokeTessellator,
+}
+
+impl Default for UiScratch {
+    fn default() -> Self {
+        Self { vertex_buffers: VertexBuffers::new(), fill_tess: FillTessellator::new(), stroke_tess: StrokeTessellator::new() }
+    }
+}
+
+thread_local! {
+    // Nested scene previews can have more than one live Ui. Recycle only
+    // after its scope ends, so no tessellator or geometry is shared in use.
+    static UI_SCRATCH: RefCell<Vec<UiScratch>> = RefCell::default();
+}
+
+impl Drop for Ui<'_> {
+    fn drop(&mut self) {
+        let scratch = UiScratch {
+            vertex_buffers: std::mem::replace(&mut self.vertex_buffers, VertexBuffers::new()),
+            fill_tess: std::mem::replace(&mut self.fill_tess, FillTessellator::new()),
+            stroke_tess: std::mem::replace(&mut self.stroke_tess, StrokeTessellator::new()),
+        };
+        let _ = UI_SCRATCH.try_with(|pool| {
+            let mut pool = pool.borrow_mut();
+            if pool.len() < 4 { pool.push(scratch); }
+        });
+    }
+}
+
 impl<'a> Ui<'a> {
     pub fn new(text_painter: &'a mut TextPainter, viewport: Option<(i32, i32, i32, i32)>) -> Self {
         unsafe { get_internal_gl() }.quad_context.begin_default_pass(PassAction::Clear {
@@ -722,6 +754,9 @@ impl<'a> Ui<'a> {
             color: None,
         });
         let viewport = viewport.unwrap_or_else(|| (0, 0, screen_width() as i32, screen_height() as i32));
+        let mut scratch = UI_SCRATCH.with(|pool| pool.borrow_mut().pop()).unwrap_or_default();
+        scratch.vertex_buffers.vertices.clear();
+        scratch.vertex_buffers.indices.clear();
         Self {
             top: viewport.3 as f32 / viewport.2 as f32,
             viewport,
@@ -734,10 +769,10 @@ impl<'a> Ui<'a> {
             cull_enabled: true,
             touches: None,
 
-            vertex_buffers: VertexBuffers::new(),
-            fill_tess: FillTessellator::new(),
+            vertex_buffers: scratch.vertex_buffers,
+            fill_tess: scratch.fill_tess,
             fill_options: FillOptions::default(),
-            stroke_tess: StrokeTessellator::new(),
+            stroke_tess: scratch.stroke_tess,
             stroke_options: StrokeOptions::default(),
 
             alpha: 1.,
@@ -771,14 +806,15 @@ impl<'a> Ui<'a> {
         if !self.rect_visible(rect) {
             return;
         }
-        let mut b = self.builder(shading);
-        b.add(rect.x, rect.y);
-        b.add(rect.x + rect.w, rect.y);
-        b.add(rect.x, rect.y + rect.h);
-        b.add(rect.x + rect.w, rect.y + rect.h);
-        b.triangle(0, 1, 2);
-        b.triangle(1, 2, 3);
-        b.commit();
+        let shading = shading.into_shading();
+        let vertices = [
+            Point::new(rect.x, rect.y), Point::new(rect.right(), rect.y),
+            Point::new(rect.x, rect.bottom()), Point::new(rect.right(), rect.bottom()),
+        ].map(|p| shading.new_vertex(&self.transform, &p, self.alpha));
+        let gl = unsafe { get_internal_gl() }.quad_gl;
+        gl.texture(shading.texture());
+        gl.draw_mode(DrawMode::Triangles);
+        gl.geometry(&vertices, &[0, 1, 2, 1, 2, 3]);
     }
 
     fn set_tolerance(&mut self) {
@@ -836,7 +872,9 @@ impl<'a> Ui<'a> {
         let gl = unsafe { get_internal_gl() }.quad_gl;
         gl.texture(texture);
         gl.draw_mode(DrawMode::Triangles);
-        gl.geometry(&std::mem::take(&mut self.vertex_buffers.vertices), &std::mem::take(&mut self.vertex_buffers.indices));
+        gl.geometry(&self.vertex_buffers.vertices, &self.vertex_buffers.indices);
+        self.vertex_buffers.vertices.clear();
+        self.vertex_buffers.indices.clear();
     }
 
     pub fn screen_rect(&self) -> Rect {

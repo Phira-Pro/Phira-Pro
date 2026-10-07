@@ -9,6 +9,7 @@ use crate::{
     client::{recv_raw, Character, Client, ErrorCode, LoginParams, User, UserManager},
     dir, get_data, get_data_mut,
     icons::Icons,
+    images::Images,
     login::Login,
     save_data,
     scene::{check_read_tos_and_policy, ProfileScene, JUST_LOADED_TOS},
@@ -245,6 +246,30 @@ impl HomePage {
         };
         res.load_char_illu();
 
+        // A local character's first mipmap upload can compile a driver kernel.
+        // Finish it during initialization, before menu animations/input start.
+        // Do not wait for network characters or a slow/unavailable local file.
+        #[cfg(not(closed))]
+        if crate::dir::find_appearance("character").is_some() {
+            let started = std::time::Instant::now();
+            while res.char_illu_task.as_ref().is_some_and(|task| !task.ok())
+                && started.elapsed() < std::time::Duration::from_secs(1)
+            {
+                next_frame().await;
+            }
+            if let Some(image) = res.char_illu_task.as_mut().and_then(Task::take) {
+                res.char_illu_task = None;
+                match image {
+                    Ok(image) => {
+                        let tex: SafeTexture = image.into();
+                        res.char_illu = Some(tex.with_mipmap());
+                        res.char_appear_p.goto(1., 0., 0.5);
+                    }
+                    Err(err) => warn!(?err, "failed to prepare local character"),
+                }
+            }
+        }
+
         Ok(res)
     }
 }
@@ -275,14 +300,14 @@ impl HomePage {
                 url: self.character.illust.clone(),
             };
             self.char_illu_task =
-                Some(Task::new(async move { Ok(image::load_from_memory(&crate::inner::resolve_data(file.fetch().await?.to_vec()))?) }));
+                Some(Task::new(async move { Ok(Images::gpu_ready(image::load_from_memory(&crate::inner::resolve_data(file.fetch().await?.to_vec()))?)) }));
         }
 
         // 开源构建无法解码官方的 `res/*.char` 立绘，因此这里允许用
         // `data/appearance/character.*` 提供一个自定义主页立绘。
         #[cfg(not(closed))]
         if let Some(path) = crate::dir::find_appearance("character") {
-            self.char_illu_task = Some(Task::new(async move { Ok(image::load_from_memory(&std::fs::read(path)?)?) }));
+            self.char_illu_task = Some(Task::new(async move { Ok(Images::gpu_ready(image::load_from_memory(&std::fs::read(path)?)?)) }));
         }
     }
 
@@ -663,7 +688,7 @@ impl Page for HomePage {
                 self.board_task = Some(Task::new(async move {
                     let info: ChartInfo = serde_yaml::from_reader(dir.open("info.yml")?)?;
                     let bytes = dir.read(info.illustration)?;
-                    Ok(Some(image::load_from_memory(&bytes)?))
+                    Ok(Some(Images::gpu_ready(image::load_from_memory(&bytes)?)))
                 }));
             }
         }

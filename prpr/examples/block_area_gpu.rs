@@ -9,6 +9,7 @@ struct Resource {
     config: prpr::config::Config,
     camera: Camera2D,
     chart_target: Option<MSRenderTarget>,
+    snapshot_blit_sources: Vec<(miniquad::RenderPass, bool)>,
 }
 impl Resource {
     fn apply_model_of(&mut self, mat: &Matrix, f: impl FnOnce(&mut Self)) {
@@ -46,6 +47,7 @@ async fn main() {
             ..Default::default()
         },
         chart_target: None,
+        snapshot_blit_sources: Vec::new(),
     };
     next_frame().await;
     set_camera(&res.camera);

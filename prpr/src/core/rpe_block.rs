@@ -1,7 +1,8 @@
 //! Adapter for texture-line block markers. The PNGs are editor guides, not
 //! runtime materials; their alpha tracks select the native block lifecycle.
 
-use super::{AnimFloat, BlockPhase};
+use super::{AnimFloat, BlockPhase, BlockTransform, Vector};
+use nalgebra::Rotation2;
 
 pub(crate) fn marker_kind(path: &str) -> Option<bool> {
     let name = path.rsplit(['/', '\\']).next()?;
@@ -56,6 +57,7 @@ struct Span {
 pub(crate) struct Marker {
     pub line: usize,
     pub invert: bool,
+    pub anchor: Vector,
     spans: Vec<Span>,
 }
 
@@ -145,7 +147,25 @@ impl Marker {
             }
             first = end;
         }
-        Self { line, invert, spans }
+        Self {
+            line,
+            invert,
+            anchor: Vector::new(0.5, 0.5),
+            spans,
+        }
+    }
+
+    /// RPE move events position the image's anchor, not its centre. Preserve
+    /// signed scale for the anchor offset (mirrored images swap their edges),
+    /// then rotate in chart space, after the RPE Y/aspect conversion.
+    pub fn transform(&self, position: Vector, scale: Vector, pixels: Vector, rotation: f32) -> BlockTransform {
+        let signed_size = pixels.component_mul(&scale);
+        let local_center = (Vector::new(0.5, 0.5) - self.anchor).component_mul(&signed_size);
+        BlockTransform {
+            center: position + Rotation2::new(rotation.to_radians()) * local_center,
+            size: signed_size.map(f32::abs),
+            rotation,
+        }
     }
 
     /// Timings for the existing Disabled/Ready/Active materials and input model.
@@ -200,6 +220,71 @@ mod tests {
     #[test]
     fn invalid_or_cyclic_parent_dependencies_do_not_loop_during_loading() {
         assert_eq!(input_lines(&[Some(1), Some(0), Some(99)], [0, 2].into_iter()), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn scarlet_combo_60_top_and_bottom_anchors_leave_the_flick_gap() {
+        let aspect = 16. / 9.;
+        let mut marker = Marker::new(0, false, &AnimFloat::fixed(1.));
+        let scale = Vector::new(0.27777778, 1.5) * (2. / 1350.);
+        let pixels = Vector::new(900., 900.);
+        marker.anchor = Vector::new(0.5, 1.);
+        let lower = marker.transform(Vector::new(0., -425. * 2. / 900. / aspect), scale, pixels, 0.);
+        marker.anchor.y = 0.;
+        let upper = marker.transform(Vector::new(0., -175. * 2. / 900. / aspect), scale, pixels, 0.);
+        let flick_y = -300. * 2. / 900. / aspect;
+        assert!(lower.center.y + lower.size.y / 2. < flick_y);
+        assert!(upper.center.y - upper.size.y / 2. > flick_y);
+        assert!((lower.center.y + lower.size.y / 2. + 0.53125).abs() < 1e-6);
+        assert!((upper.center.y - upper.size.y / 2. + 0.21875).abs() < 1e-6);
+    }
+
+    #[test]
+    fn scarlet_combo_273_upper_edge_stays_in_the_bottom_quarter() {
+        let mut marker = Marker::new(0, false, &AnimFloat::fixed(1.));
+        marker.anchor = Vector::new(0.5, 1.);
+        for aspect in [4. / 3., 16. / 9., 20. / 9.] {
+            let position = Vector::new(-630. * 2. / 1350., -225. * 2. / 900. / aspect);
+            let tr = marker.transform(position, Vector::new(0.22222222, 1.) * (2. / 1350.), Vector::new(900., 900.), 2.5);
+            let edge = tr.center + Rotation2::new(tr.rotation.to_radians()) * Vector::new(0., tr.size.y / 2.);
+            assert!((edge - position).norm() < 1e-6, "top anchor must remain at move-event position");
+            assert!((edge.y * aspect * 0.5 + 0.5 - 0.25).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn anchor_offset_rotates_with_parents_and_preserves_negative_scale() {
+        let mut marker = Marker::new(0, false, &AnimFloat::fixed(1.));
+        marker.anchor = Vector::new(0., 1.);
+        for scale in [Vector::new(2., 3.), Vector::new(-2., 3.), Vector::new(2., -3.)] {
+            let tr = marker.transform(Vector::new(0.2, -0.3), scale, Vector::new(1., 1.), 120.);
+            let anchor_local = (marker.anchor - Vector::new(0.5, 0.5)).component_mul(&scale);
+            let anchor_world = tr.center + Rotation2::new(tr.rotation.to_radians()) * anchor_local;
+            assert!((anchor_world - Vector::new(0.2, -0.3)).norm() < 1e-6);
+            assert_eq!(tr.size, scale.map(f32::abs));
+        }
+        marker.anchor = Vector::new(0.5, 0.5);
+        assert_eq!(marker.transform(Vector::zeros(), Vector::new(-2., 3.), Vector::new(1., 1.), 90.).center, Vector::zeros());
+    }
+
+    #[test]
+    fn brainrot_64s_corner_anchors_preserve_the_rotated_inner_tips() {
+        // Sample's beat 147: 900px guides, 1/3 scale, RPE rotation +45deg.
+        // Their [1,1]/[0,0] corners are the inner tips of the two diamonds.
+        let mut marker = Marker::new(0, false, &AnimFloat::fixed(1.));
+        let size = Vector::new(900., 900.);
+        let scale = Vector::repeat((1. / 3.) * 2. / 1350.);
+        for (anchor, x) in [(Vector::repeat(1.), -212.132036), (Vector::zeros(), 212.132036)] {
+            marker.anchor = anchor;
+            let tip = Vector::new(x * 2. / 1350., 0.);
+            let tr = marker.transform(tip, scale, size, -45.);
+            let corner = tr.center + Rotation2::new(-45_f32.to_radians()) * (anchor - Vector::repeat(0.5)).component_mul(&tr.size);
+            assert!((corner - tip).norm() < 1e-6);
+            // Ignoring the corner anchor shifts this inner boundary by half
+            // the diagonal (~0.314 chart units), closing the intended opening.
+            assert!((tr.center.x - tip.x).abs() > 0.31);
+            assert!(tr.center.y.abs() < 1e-6);
+        }
     }
 
     #[test]

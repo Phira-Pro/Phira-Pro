@@ -4,6 +4,73 @@ use super::Zone;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
+#[cfg(any(target_os = "windows", target_os = "ios"))]
+static MASK_WORKERS: Lazy<Option<rayon::ThreadPool>> = Lazy::new(|| {
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(2));
+    (threads > 1)
+        .then(|| {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .thread_name(|n| format!("block-mask-{n}"))
+                .build()
+                .ok()
+        })
+        .flatten()
+});
+
+pub(super) fn prepare_workers() {
+    #[cfg(any(target_os = "windows", target_os = "ios"))]
+    Lazy::force(&MASK_WORKERS);
+}
+
+// Row ownership is disjoint. Workers read only the completed Compose plane;
+// every GL call, texture upload and input evaluation stays on the main thread.
+fn warp_rows(rgba: &mut [u8], active: &mut [u64], width: usize, stride: usize, apply: impl Fn((usize, (&mut [u8], &mut [u64]))) + Sync + Send) {
+    #[cfg(any(target_os = "windows", target_os = "ios"))]
+    if rgba.len() >= 400_000 {
+        if let Some(pool) = &*MASK_WORKERS {
+            use rayon::prelude::*;
+            pool.install(|| {
+                rgba.par_chunks_exact_mut(width * 4)
+                    .zip(active.par_chunks_exact_mut(stride))
+                    .enumerate()
+                    .for_each(&apply)
+            });
+            return;
+        }
+    }
+    rgba.chunks_exact_mut(width * 4)
+        .zip(active.chunks_exact_mut(stride))
+        .enumerate()
+        .for_each(apply);
+}
+
+fn prefix_rows(plane: &mut [u8], diff: &[i32], width: usize, curve: Option<(&[u8; 256], i32)>) {
+    let apply = |(dst, counts): (&mut [u8], &[i32])| {
+        let mut sum = 0_i32;
+        if let Some((curve, end)) = curve {
+            for (pixel, count) in dst.iter_mut().zip(counts) {
+                sum += count;
+                *pixel = curve[sum.clamp(0, end) as usize];
+            }
+        } else {
+            for (pixel, count) in dst.iter_mut().zip(counts) {
+                sum += count;
+                *pixel = sum.clamp(0, 255) as u8;
+            }
+        }
+    };
+    #[cfg(any(target_os = "windows", target_os = "ios"))]
+    if plane.len() >= 100_000 {
+        if let Some(pool) = &*MASK_WORKERS {
+            use rayon::prelude::*;
+            pool.install(|| plane.par_chunks_exact_mut(width).zip(diff.par_chunks_exact(width + 1)).for_each(&apply));
+            return;
+        }
+    }
+    plane.chunks_exact_mut(width).zip(diff.chunks_exact(width + 1)).for_each(apply);
+}
+
 static DISPLACE: Lazy<image::RgbImage> = Lazy::new(|| {
     let source = image::load_from_memory(include_bytes!("../../../assets/blockarea/BlockNoise1.png"))
         .unwrap()
@@ -35,6 +102,7 @@ pub(super) struct Masks {
     ready_green: Vec<u8>,
     gray_ping: Vec<u8>,
     gray_pong: Vec<u8>,
+    gray_horizontal: Vec<u8>,
     warp_x: Vec<(f32, usize, usize)>,
     warp_y: Vec<(f32, usize)>,
     enabled_compose: Vec<u8>,
@@ -59,6 +127,7 @@ impl Masks {
         let (bw, bh) = ((width / 8).max(1) * 2, (height / 8).max(1) * 2);
         self.prepared_dim = (bw, bh, aspect);
         Lazy::force(&DISPLACE);
+        prepare_workers();
         for area in areas {
             let times = [area.appear_time, area.enable_time, area.disable_time, area.disappear_time.next_down()]
                 .into_iter()
@@ -250,17 +319,7 @@ impl Masks {
                     7 => &mut self.ready_green,
                     _ => &mut self.layers[channel],
                 };
-                for y in 0..bh {
-                    let mut sum = 0_i32;
-                    for x in 0..bw {
-                        sum += self.coverage_diff[channel][y * (bw + 1) + x];
-                        plane[y * bw + x] = if same_opacity[channel] {
-                            curves[channel][sum.clamp(0, curve_end[channel] as i32) as usize]
-                        } else {
-                            sum.clamp(0, 255) as u8
-                        };
-                    }
-                }
+                prefix_rows(plane, &self.coverage_diff[channel], bw, same_opacity[channel].then_some((&curves[channel], curve_end[channel] as i32)));
             }
             self.enabled_compose.resize(bw * bh, 0);
             self.base_rgba.resize(bw * bh * 4, 0);
@@ -268,23 +327,34 @@ impl Masks {
             self.aux_rgba.resize(bw * bh * 4, 0);
             self.aux_rgba.fill(0);
             let mut bounds = (bw, bh, 0, 0);
-            for y in 0..bh {
-                for x in 0..bw {
-                    let i = y * bw + x;
-                    self.enabled_compose[i] = self.layers[0][i].abs_diff(if subtract_enabled(self.layers[1][i]) == 1. { 255 } else { 0 });
-                    if self.enabled_compose[i] != 0 {
-                        bounds.0 = bounds.0.min(x);
-                        bounds.1 = bounds.1.min(y);
-                        bounds.2 = bounds.2.max(x + 1);
-                        bounds.3 = bounds.3.max(y + 1);
-                    }
-                    let disabled = if self.layers[2][i] == 0 && self.layers[3][i] == 0 && self.raw_disabled_green[i] == 0 {
+            let has_disabled = used[2] || used[3] || used[6];
+            let has_ready_subtract = used[5] || used[7];
+            // R8 samples in the native [.09,.12) window are exactly bytes
+            // 23..=30. This independent byte loop can vectorize; no floating
+            // conversion or per-pixel support reduction blocks it.
+            for ((dst, &normal), &subtract) in self.enabled_compose.iter_mut().zip(&self.layers[0]).zip(&self.layers[1]) {
+                *dst = normal.abs_diff(if (23..=30).contains(&subtract) { 255 } else { 0 });
+            }
+            for (y, row) in self.enabled_compose.chunks_exact(bw).enumerate() {
+                if let Some(first) = row.iter().position(|&p| p != 0) {
+                    let last = row.iter().rposition(|&p| p != 0).unwrap();
+                    bounds.0 = bounds.0.min(first);
+                    bounds.1 = bounds.1.min(y);
+                    bounds.2 = bounds.2.max(last + 1);
+                    bounds.3 = y + 1;
+                }
+            }
+            // Active-only frames don't sample Disabled/Ready masks. Avoid
+            // rewriting their already-zero RGBA planes on the common path.
+            if has_disabled || used[4] || has_ready_subtract {
+                for i in 0..bw * bh {
+                    let disabled = if !has_disabled || (self.layers[2][i] == 0 && self.layers[3][i] == 0 && self.raw_disabled_green[i] == 0) {
                         0
                     } else {
                         let (sr, sg) = subtract_disabled(self.layers[3][i], self.raw_disabled_green[i]);
                         unorm((sr * sg - self.layers[2][i] as f32 / 255.).abs())
                     };
-                    let ready_s = if self.ready_green[i] == 0 {
+                    let ready_s = if !has_ready_subtract || self.ready_green[i] == 0 {
                         0
                     } else {
                         unorm(subtract_disabled(self.layers[5][i], self.ready_green[i]).1)
@@ -348,28 +418,36 @@ impl Masks {
             .source_bounds
             .map(|(x0, y0, x1, y1)| (x0.saturating_sub(pad_x), y0.saturating_sub(pad_y), (x1 + pad_x).min(bw), (y1 + pad_y).min(bh)))
             .unwrap_or((0, 0, 0, 0));
-        for y in y0..y1 {
+        let uniform = self.uniform_compose;
+        let warp_x = &self.warp_x;
+        let warp_y = &self.warp_y;
+        let compose = &self.enabled_compose;
+        warp_rows(&mut self.rgba, &mut self.active, bw, stride, |(y, (rgba, active))| {
+            if y < y0 || y >= y1 {
+                return;
+            }
             for x in x0..x1 {
-                let i = y * bw + x;
-                let mask = if let Some(value) = self.uniform_compose {
+                let mask = if let Some(value) = uniform {
                     value
                 } else {
-                    let (u, xa, xb) = self.warp_x[x];
-                    let (v, row) = self.warp_y[y];
+                    let (u, xa, xb) = warp_x[x];
+                    let (v, row) = warp_y[y];
                     let a = centered[pixels[row + xa] as usize];
                     let b = centered[pixels[row + xb] as usize];
                     let duv = [(d * a + b * -d) * 0.1 + u, (d * a + b * d) * 0.1 + v];
-                    let sx = (duv[0] * bw as f32).floor().clamp(0., (bw - 1) as f32) as usize;
-                    let sy = (duv[1] * bh as f32).floor().clamp(0., (bh - 1) as f32) as usize;
-                    self.enabled_compose[sy * bw + sx]
+                    // The clamped values are nonnegative; integer truncation
+                    // already computes floor. Avoid two scalar floor calls
+                    // per pixel without changing point-sampled texel indices.
+                    let sx = (duv[0] * bw as f32).clamp(0., (bw - 1) as f32) as usize;
+                    let sy = (duv[1] * bh as f32).clamp(0., (bh - 1) as f32) as usize;
+                    compose[sy * bw + sx]
                 };
-                let dst = i * 4;
-                self.rgba[dst] = mask;
+                rgba[x * 4] = mask;
                 if mask != 0 {
-                    self.active[y * stride + x / 64] |= 1 << (x % 64);
+                    active[x / 64] |= 1 << (x % 64);
                 }
             }
-        }
+        });
         self.render_rings();
         self.last_time = Some(time);
         self.revision = self.revision.wrapping_add(1);
@@ -415,6 +493,7 @@ impl Masks {
         let (w, h) = (self.width, self.height);
         self.gray_ping.resize(w * h, 0);
         self.gray_pong.resize(w * h, 0);
+        self.gray_horizontal.resize(w * h, 0);
         for (i, p) in self.rgba.chunks_exact(4).enumerate() {
             self.gray_ping[i] = p[0];
         }
@@ -422,22 +501,37 @@ impl Masks {
             if weight < 0.01 {
                 break;
             }
+            // A 3x3 maximum is exactly two separable maxima. Keep R8 values
+            // throughout; this reduces nine reads per pixel to six and lets
+            // the contiguous horizontal pass vectorize on desktop and ARM.
+            for (src, dst) in self.gray_ping.chunks_exact(w).zip(self.gray_horizontal.chunks_exact_mut(w)) {
+                dst[0] = src[0].max(src[1.min(w - 1)]);
+                if w > 2 {
+                    for (out, triple) in dst[1..w - 1].iter_mut().zip(src.windows(3)) {
+                        *out = triple[0].max(triple[1]).max(triple[2]);
+                    }
+                }
+                dst[w - 1] = src[w - 1].max(src[w.saturating_sub(2)]);
+            }
             for y in 0..h {
+                let above = y.saturating_sub(1) * w;
+                let below = (y + 1).min(h - 1) * w;
                 for x in 0..w {
                     let i = y * w + x;
-                    let mut maximum = self.gray_ping[i];
-                    for yy in y.saturating_sub(1)..=(y + 1).min(h - 1) {
-                        for xx in x.saturating_sub(1)..=(x + 1).min(w - 1) {
-                            maximum = maximum.max(self.gray_ping[yy * w + xx]);
-                        }
-                    }
+                    let maximum = self.gray_horizontal[above + x]
+                        .max(self.gray_horizontal[i])
+                        .max(self.gray_horizontal[below + x]);
                     self.gray_pong[i] = maximum;
-                    let delta = (maximum - self.gray_ping[i]) as f32 / 255.;
+                    let delta = maximum - self.gray_ping[i];
                     if pass == 0 {
-                        self.rgba[i * 4 + 1] = maximum - self.gray_ping[i];
+                        self.rgba[i * 4 + 1] = delta;
+                    }
+                    // No change to the quantized glow when this pass adds zero.
+                    if delta == 0 || self.rgba[i * 4] == 255 {
+                        continue;
                     }
                     let outside = 1. - self.rgba[i * 4] as f32 / 255.;
-                    self.rgba[i * 4 + 2] = unorm(weight * (outside * delta) + self.rgba[i * 4 + 2] as f32 / 255.);
+                    self.rgba[i * 4 + 2] = unorm(weight * (outside * (delta as f32 / 255.)) + self.rgba[i * 4 + 2] as f32 / 255.);
                 }
             }
             std::mem::swap(&mut self.gray_ping, &mut self.gray_pong);
@@ -454,7 +548,11 @@ fn glow_weights() -> [f32; 6] {
 }
 
 fn unorm(v: f32) -> u8 {
-    (v.clamp(0., 1.) * 255.).round() as u8
+    let scaled = v.clamp(0., 1.) * 255.;
+    let whole = scaled as u8;
+    // Nonnegative R8 round-to-nearest, preserving exact half ties without a
+    // scalar roundf call or the precision loss of adding .5 before truncation.
+    whole + u8::from(scaled - whole as f32 >= 0.5)
 }
 
 fn subtract_enabled(red: u8) -> f32 {
@@ -468,11 +566,22 @@ fn subtract_enabled(red: u8) -> f32 {
 }
 
 fn subtract_disabled(red: u8, green: u8) -> (f32, f32) {
-    let g = green as f32 / 255.;
-    let t = ((g - 0.2) * -10.).clamp(0., 1.);
-    let r = subtract_enabled(red) + t * t * (3. - 2. * t);
-    // The intermediate is RG16, clamped and rounded after shader output.
-    (unorm(r) as f32 / 255., unorm(g * r * 10.) as f32 / 255.)
+    // Red affects this shader only through the enabled threshold's 0/1
+    // result. All possible RG8 inputs therefore fit an exact 1 KiB table.
+    // Preserve the two native intermediate roundings, including green's use
+    // of the unquantized red expression before its own R8 conversion.
+    static TABLE: Lazy<[[[u8; 2]; 256]; 2]> = Lazy::new(|| {
+        std::array::from_fn(|enabled| {
+            std::array::from_fn(|green| {
+                let g = green as f32 / 255.;
+                let t = ((g - 0.2) * -10.).clamp(0., 1.);
+                let r = enabled as f32 + t * t * (3. - 2. * t);
+                [unorm(r), unorm(g * r * 10.)]
+            })
+        })
+    });
+    let [r, g] = TABLE[usize::from((23..=30).contains(&red))][green as usize];
+    (r as f32 / 255., g as f32 / 255.)
 }
 
 pub(super) fn compose_uv(uv: [f32; 2], time: f32) -> [f32; 2] {
@@ -592,6 +701,123 @@ fn dilate(source: &[u64], dest: &mut [u64], width: usize, height: usize) {
 mod tests {
     use super::*;
     use crate::core::Vector;
+
+    #[test]
+    fn byte_quantization_preserves_rounding_at_every_half_boundary() {
+        let reference = |v: f32| (v.clamp(0., 1.) * 255.).round() as u8;
+        for i in 0..=65535 {
+            let v = i as f32 / 65535.;
+            assert_eq!(unorm(v), reference(v));
+        }
+        for i in 0..255 {
+            let tie = (i as f32 + 0.5) / 255.;
+            for v in [tie.next_down(), tie, tie.next_up()] {
+                assert_eq!(unorm(v), reference(v), "R8 half boundary {i}, {v}");
+            }
+        }
+        for v in [-1., 0., 1., 2., f32::INFINITY, f32::NEG_INFINITY, f32::NAN] {
+            assert_eq!(unorm(v), reference(v));
+        }
+    }
+
+    #[test]
+    fn disabled_lookup_matches_native_formula_for_every_rg8_input() {
+        for red in 0..=255 {
+            for green in 0..=255 {
+                let g = green as f32 / 255.;
+                let t = ((g - 0.2) * -10.).clamp(0., 1.);
+                let r = subtract_enabled(red) + t * t * (3. - 2. * t);
+                let reference = ((r.clamp(0., 1.) * 255.).round() / 255., ((g * r * 10.).clamp(0., 1.) * 255.).round() / 255.);
+                assert_eq!(subtract_disabled(red, green), reference, "red={red}, green={green}");
+            }
+        }
+    }
+
+    #[test]
+    fn separable_gray_rings_match_ordered_nine_tap_r8_passes() {
+        for (w, h) in [(1, 1), (1, 7), (2, 9), (65, 13), (129, 31)] {
+            let mut mask = Masks {
+                width: w,
+                height: h,
+                rgba: vec![0; w * h * 4],
+                ..Default::default()
+            };
+            for (i, p) in mask.rgba.chunks_exact_mut(4).enumerate() {
+                p[0] = ((i * 71 + i / w * 53) % 256) as u8;
+            }
+            let mut expected = mask.rgba.clone();
+            let mut src: Vec<_> = expected.chunks_exact(4).map(|p| p[0]).collect();
+            let mut dst = vec![0; w * h];
+            for (pass, weight) in glow_weights().into_iter().enumerate() {
+                if weight < 0.01 {
+                    break;
+                }
+                for y in 0..h {
+                    for x in 0..w {
+                        let i = y * w + x;
+                        let mut maximum = src[i];
+                        for yy in y.saturating_sub(1)..=(y + 1).min(h - 1) {
+                            for xx in x.saturating_sub(1)..=(x + 1).min(w - 1) {
+                                maximum = maximum.max(src[yy * w + xx]);
+                            }
+                        }
+                        dst[i] = maximum;
+                        let delta = (maximum - src[i]) as f32 / 255.;
+                        if pass == 0 {
+                            expected[i * 4 + 1] = maximum - src[i];
+                        }
+                        let outside = 1. - expected[i * 4] as f32 / 255.;
+                        expected[i * 4 + 2] = unorm(weight * (outside * delta) + expected[i * 4 + 2] as f32 / 255.);
+                    }
+                }
+                std::mem::swap(&mut src, &mut dst);
+            }
+            mask.render_gray_rings();
+            assert_eq!(mask.rgba, expected, "{w}x{h}: quantized mask/edge/glow changed");
+        }
+    }
+
+    #[test]
+    fn displaced_masks_match_fresh_sampling_through_seeks_geometry_and_resize() {
+        let mut cached = Masks::default();
+        for (w, h) in [(320, 192), (320, 192), (192, 320), (8, 8), (320, 192)] {
+            for time in [0., 0.008, 0.016, 0.5, 12., 0.1] {
+                let zones = [Zone {
+                    opacity: 0.667,
+                    ..zone(time * 0.002, -0.2, 0.3, 0.35, time * 0.03, false)
+                }];
+                let mut fresh = Masks::default();
+                let aspect = w as f32 / h as f32;
+                cached.render_displaced(w, h, aspect, &zones, time);
+                fresh.render_displaced(w, h, aspect, &zones, time);
+                assert_eq!(cached.rgba, fresh.rgba, "{w}x{h} t={time}");
+            }
+        }
+    }
+
+    #[test]
+    fn large_parallel_mask_matches_native_point_samples_and_bit_rows() {
+        let (width, height, aspect, time) = (2560, 1440, 16. / 9., 3.17);
+        let zones = [Zone {
+            opacity: 0.667,
+            ..zone(-0.1, 0., 0.5, 0.3, 0.2, false)
+        }];
+        let mut mask = Masks::default();
+        mask.render_displaced(width, height, aspect, &zones, time);
+        let (w, h) = (mask.width, mask.height);
+        assert!(w * h >= 100_000, "exercise the worker threshold");
+        let stride = w.div_ceil(64);
+        for y in 0..h {
+            for x in 0..w {
+                let uv = compose_uv([(x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32], time);
+                let sx = (uv[0] * w as f32).floor().clamp(0., (w - 1) as f32) as usize;
+                let sy = (uv[1] * h as f32).floor().clamp(0., (h - 1) as f32) as usize;
+                let expected = mask.enabled_compose[sy * w + sx];
+                assert_eq!(mask.rgba[(y * w + x) * 4], expected, "pixel {x},{y}");
+                assert_eq!(mask.active[y * stride + x / 64] & (1 << (x % 64)) != 0, expected != 0);
+            }
+        }
+    }
 
     #[test]
     fn weighted_scanlines_match_ordered_r8_blending_with_fades_and_ready() {

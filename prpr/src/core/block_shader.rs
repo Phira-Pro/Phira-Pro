@@ -17,6 +17,22 @@ use miniquad::{TextureWrap, UniformType};
 use once_cell::sync::Lazy;
 use std::cell::RefCell;
 
+// Opt-in stage timings alongside the application's local frame CSV. GL
+// submission is measured without glFinish/readback or changing normal pacing.
+static PROFILE_BLOCKS: Lazy<bool> = Lazy::new(|| std::env::var_os("PHIRA_FRAME_PROFILE").is_some());
+thread_local! {
+    static BLOCK_TIMINGS: RefCell<([f64; 5], usize)> = const { RefCell::new(([0.; 5], 0)) };
+}
+
+fn profile_mark(start: &mut Option<std::time::Instant>) -> f64 {
+    start.as_mut().map_or(0., |start| {
+        let now = std::time::Instant::now();
+        let elapsed = now.duration_since(*start).as_secs_f64() * 1000.;
+        *start = now;
+        elapsed
+    })
+}
+
 #[path = "block_mask.rs"]
 mod mask;
 #[path = "block_simple.rs"]
@@ -282,6 +298,7 @@ static MATERIAL: Lazy<Option<[Material; 3]>> = Lazy::new(|| {
 });
 
 pub(crate) fn prepare_block_effects() {
+    mask::prepare_workers();
     // Link shaders and decode their textures during chart loading, before a
     // late first block would stall a live judgement frame.
     Lazy::force(&MATERIAL);
@@ -409,6 +426,8 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         let mut frame = frame.borrow_mut();
         let (width, height) = (viewport.2.max(1) as usize, viewport.3.max(1) as usize);
 
+        let mut profile_start = (*PROFILE_BLOCKS).then(std::time::Instant::now);
+
         frame.masks.render_displaced(width, height, aspect, zones, time);
 
         if !disabled {
@@ -437,7 +456,9 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
             None
         };
 
+        let mask_ms = profile_mark(&mut profile_start);
         gl.flush();
+        let flush_ms = profile_mark(&mut profile_start);
 
         let m = m[if disabled {
             0
@@ -508,6 +529,7 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         }
         frame.uploaded_masks = Some(frame.masks.revision);
         frame.uploaded_aux = Some(frame.masks.aux_revision);
+        let upload_ms = profile_mark(&mut profile_start);
 
         // Snapshot legality is independent of vertex instancing. Never inspect
         // or rebind the disabled layer's unresolved multisample source here.
@@ -573,6 +595,7 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         if !disabled {
             copy_scene(res, pass, viewport, scene, frame.scene_pass);
         }
+        let copy_ms = profile_mark(&mut profile_start);
 
         m.set_texture("uDisplaceTex", *DISPLACE_TEX);
         m.set_texture("uSparkTex", *SPARK_TEX);
@@ -609,6 +632,27 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
             unsafe { get_internal_gl() }.quad_gl.scissor(old_clip);
         }
         gl_use_default_material();
+        if profile_start.is_some() {
+            let queue_ms = profile_mark(&mut profile_start);
+            BLOCK_TIMINGS.with(|timings| {
+                let mut timings = timings.borrow_mut();
+                for (sum, value) in timings.0.iter_mut().zip([mask_ms, flush_ms, upload_ms, copy_ms, queue_ms]) {
+                    *sum += value;
+                }
+                timings.1 += 1;
+                if timings.1 == 120 {
+                    eprintln!(
+                        "block stages ms mask/flush/upload/copy/queue={:?}, zones={}, mask={}x{}, downsampled={}",
+                        timings.0.map(|v| v / 120.),
+                        zones.len(),
+                        effect_dim.0,
+                        effect_dim.1,
+                        frame.scene_pass.is_some()
+                    );
+                    *timings = ([0.; 5], 0);
+                }
+            });
+        }
     });
 }
 

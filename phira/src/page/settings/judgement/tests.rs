@@ -317,27 +317,46 @@ fn production_panel_save_cancel_reload_and_aspects() {
                     unsafe {
                         miniquad::gl::glReadPixels(0, 0, w, h, miniquad::gl::GL_RGBA, miniquad::gl::GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
                     }
-                    for (_, label, cell) in prpr::ui::grade_cells(&result, area) {
+                    for row in prpr::ui::judgement_grid_layout(&mut ui, &result, area, details) {
+                        let cell = row.cell;
+                        let label = row.name;
+                        assert!(row.label.x >= prpr::ui::judgement_panel_left(row.label.y) + 0.005, "label must stay in score panel");
+                        assert!(row.cell.right() <= 0.40 + 1e-5, "counts must stay left of RETRY");
+                        let count_right = if details && row.id != 3 {
+                            let early = ui
+                                .text(format!("-{}", result.early_kind[row.id]))
+                                .pos(row.count_x, cell.y)
+                                .size(row.count_size)
+                                .measure_using(&BOLD_FONT);
+                            ui.text(format!("+{}", result.late_kind[row.id]))
+                                .pos(early.right() + row.number_gap, cell.y)
+                                .size(row.count_size)
+                                .measure_using(&BOLD_FONT)
+                                .right()
+                        } else {
+                            ui.text(result.counts[row.id].to_string())
+                                .pos(row.count_x, cell.y)
+                                .size(row.count_size)
+                                .measure_using(&BOLD_FONT)
+                                .right()
+                        };
+                        assert!(count_right <= row.cell.right() + 0.004, "complete counter must fit {label}: {count_right} / {}", row.cell.right());
                         let x0 = ((cell.x + 1.) * w as f32 / 2.).ceil() as usize;
                         let x1 = ((cell.x + cell.w + 1.) * w as f32 / 2.).floor().min(w as f32) as usize;
                         let y0 = ((ui.top - cell.y - cell.h) * w as f32 / 2.).ceil() as usize;
                         let y1 = ((ui.top - cell.y) * w as f32 / 2.).floor().min(h as f32) as usize;
                         let mut ink = 0;
-                        let mut ink_top = usize::MAX;
-                        let mut ink_bottom = 0;
                         for y in y0..y1 {
                             for x in x0..x1 {
                                 let p = &bytes[(y * w as usize + x) * 4..][..4];
                                 if p[0] > 140 && p[1] > 140 && p[2] > 140 {
                                     ink += 1;
-                                    ink_top = ink_top.min(y);
-                                    ink_bottom = ink_bottom.max(y);
                                 }
                             }
                         }
                         assert!(ink > 20, "grade {label} must render in its cell at {suffix}, details={details}: {ink}");
                         if w == 1280 {
-                            assert!(ink_bottom - ink_top >= 17, "phone grade {label} must stay readable: {}", ink_bottom - ink_top);
+                            assert!((row.label_size - 0.64).abs() < 1e-5, "stress counters must not reduce the grade label font");
                         }
                     }
                     unsafe {
@@ -428,14 +447,17 @@ fn production_panel_save_cancel_reload_and_aspects() {
                                 let area = prpr::ui::judgement_grid_area(ui.top);
                                 let mut probe = prpr::judge::PlayResult::default();
                                 probe.grading.detailed = true;
-                                for (_, label, cell) in prpr::ui::grade_cells(&probe, area) {
-                                    let rect = ui
-                                        .text(label)
-                                        .pos(cell.x + cell.w * 0.54, cell.y)
-                                        .anchor(1., 0.)
-                                        .size(0.64)
-                                        .max_width(cell.w * 0.54)
-                                        .measure_using(&BOLD_FONT);
+                                probe.counts = [123, 45, 6, 7, 890, 234, 12, 34];
+                                probe.early_kind = [12; 8];
+                                probe.late_kind = [21; 8];
+                                let rows = prpr::ui::judgement_grid_layout(&mut ui, &probe, area, details);
+                                assert!((rows[4].cell.x - rows[0].cell.right() - 0.030).abs() < 1e-5, "column gap must match compact layout");
+                                for row in rows {
+                                    let label = row.name;
+                                    let rect = row.label;
+                                    assert!(rect.x >= prpr::ui::judgement_panel_left(rect.y) + 0.005, "{label} must stay in score panel at {suffix}");
+                                    assert!(row.cell.right() <= 0.40 + 1e-5);
+                                    assert!((row.label_size - 0.64).abs() < 1e-5, "normal phone labels retain original size");
                                     let x0 = ((rect.x + 1.) * w as f32 / 2.).ceil() as usize;
                                     let x1 = ((rect.x + rect.w / 4. + 1.) * w as f32 / 2.).floor() as usize;
                                     let y0 = ((ui.top - rect.bottom()) * w as f32 / 2.).ceil() as usize;

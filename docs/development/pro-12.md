@@ -8,7 +8,7 @@
 
 每档可分别设置提前／延后阈值，例如 Perfect+ −16ms / +20ms。本家流程的严判基础区间、Drag 区间和 Flick 倍率也支持分侧配置；非法数值拒绝写入，阈值按等级顺序归一化。旧配置继续使用原有对称区间。
 
-Perfect+ 可关闭：普通模式只剩 PERFECT / GOOD / BAD / MISS，原 Perfect+ 计入 PERFECT，理论值分数随之禁用。细致判定提供 PERFECT+ / PERFECT / GREAT / GOOD / OK / MEH / BAD / MISS，关闭 Perfect+ 时保留七档。结算和历史详情保留原来的粗体、灰白文字及提前蓝色／延后橙色，两列各最多四项，集中在 RETRY 左侧；连击栏保留原位置。细致判定时推荐偏移按钮放在 RETRY 上方，避免与档位重叠。
+Perfect+ 可关闭：普通模式只剩 PERFECT / GOOD / BAD / MISS，原 Perfect+ 计入 PERFECT，理论值分数随之禁用。细致判定提供 PERFECT+ / PERFECT / GREAT / GOOD / OK / MEH / BAD / MISS，关闭 Perfect+ 时保留七档。结算和历史详情保留原来的粗体、灰白文字及提前蓝色／延后橙色，两列各最多四项，按实际字宽收紧两列并约束在右侧面板的倾斜边界内，位于 RETRY 左侧；连击栏保留原位置。细致判定时推荐偏移按钮放在 RETRY 上方，避免与档位重叠。
 
 ## osu!mania OD 快捷设置
 
@@ -45,6 +45,6 @@ PERFECT+ 至 MEH 保持连击，BAD / MISS 断连；GREAT / GOOD / OK / MEH 会�
 
 ## 验证与构建
 
-核心 Rust 回归 145 项、应用回归 23 项、独立隐藏 OpenGL 面板及结算回归 1 项，共 169 项通过；图形回归覆盖 4:3 / 16:9 / 21:9、真实下拉选择、全部 31 个 OD 值、普通计数／早晚详情、偏移按钮和六位计数。版本和打包工具回归 17 项通过，安卓 Java 路由回归通过。
+核心 Rust 回归 145 项、应用回归 23 项、独立隐藏 OpenGL 面板及结算回归 1 项，共 169 项通过；图形回归覆盖 4:3 / 16:9 / 21:9、真实下拉选择、全部 31 个 OD 值、普通计数／早晚详情、偏移按钮和六位计数，并检查标签实际边界、数字完整宽度及紧凑列间距。版本和打包工具回归 17 项通过，安卓 Java 路由回归通过。
 
 Windows 与 Android arm64 release 已构建并校验签名、版本、包内程序及校验和。本轮没有完成 iOS IPA、Linux / macOS 构建或手机平板前台人工验收。构建与 Actions 使用方法见 [构建说明](build.md)。

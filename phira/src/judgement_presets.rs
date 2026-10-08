@@ -63,12 +63,15 @@ impl JudgeSettings {
         }
     }
     /// osu!mania nominal half-windows, extrapolated to the requested -15..15 range.
-    /// The extra Perfect+ splits PERFECT; BAD uses mania's MISS hit-window boundary.
+    /// ScoreV2 PERFECT varies with OD; Perfect+ is disabled; BAD uses mania's MISS hit-window boundary.
     /// This shortcut changes windows only, not score weights, matching or hold mechanics.
     pub fn apply_osu_mania_od(&mut self, od: i8) {
         let od = od.clamp(-15, 15) as f32;
         self.grading.detailed = true;
-        self.windows_ms = [8., 16., 97. - 3. * od, 188. - 3. * od];
+        self.grading.perfect_plus = false;
+        let perfect = if od <= 5. { 22.4 - 0.6 * od } else { 24.9 - 1.1 * od };
+        let perfect = (perfect * 10.).round() / 10.;
+        self.windows_ms = [8., perfect, 97. - 3. * od, 188. - 3. * od];
         self.timing = JudgeTiming::default();
         self.grading.early_ms = [64. - 3. * od, 127. - 3. * od, 151. - 3. * od];
         self.grading.late_ms = self.grading.early_ms;
@@ -79,6 +82,7 @@ impl JudgeSettings {
             let mut candidate = self.clone();
             candidate.apply_osu_mania_od(*od);
             self.grading.detailed
+                && !self.grading.perfect_plus
                 && self.windows_ms == candidate.windows_ms
                 && self.timing == candidate.timing
                 && self.grading.early_ms == candidate.grading.early_ms
@@ -143,7 +147,8 @@ mod tests {
             let o = 127. - 3. * od as f32;
             let m = 151. - 3. * od as f32;
             assert_eq!(s.grading.early_ms, [g, o, m]);
-            assert_eq!(s.windows_ms, [8., 16., 97. - 3. * od as f32, 188. - 3. * od as f32]);
+            assert_eq!(s.windows_ms[2..], [97. - 3. * od as f32, 188. - 3. * od as f32]);
+            assert!(!s.grading.perfect_plus);
             assert_eq!(s.grading.early_ms, s.grading.late_ms);
             assert_eq!(s.selected_osu_mania_od(), Some(od));
             let cfg = {
@@ -164,9 +169,17 @@ mod tests {
             assert_eq!(restored.selected_osu_mania_od(), Some(od));
         }
         let mut s = JudgeSettings::detailed();
+        for (od, perfect) in [(-15, 31.4), (0, 22.4), (5, 19.4), (10, 13.9), (15, 8.4)] {
+            s.apply_osu_mania_od(od);
+            assert_eq!(s.windows_ms[1], perfect);
+        }
         s.apply_osu_mania_od(5);
         assert_eq!(s.grading.early_ms, [49., 112., 136.]);
-        assert_eq!(s.windows_ms, [8., 16., 82., 173.]);
+        assert_eq!(s.windows_ms, [8., 19.4, 82., 173.]);
+        assert!(!s.grading.perfect_plus);
+        s.grading.perfect_plus = true;
+        assert_eq!(s.selected_osu_mania_od(), None);
+        s.grading.perfect_plus = false;
         s.grading.late_ms[0] = 50.;
         assert_eq!(s.selected_osu_mania_od(), None);
     }

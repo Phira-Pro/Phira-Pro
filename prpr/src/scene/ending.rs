@@ -748,11 +748,11 @@ impl Scene for EndingScene {
                     .draw_using(&BOLD_FONT);
             });
 
-            // Detailed grades occupy the space left of RETRY; put this action above RETRY.
-            if self.result.grading.detailed {
+            // Keep the original position on tablets. Only move up if the actual grade grid overlaps.
+            r.x -= r.w + 0.02;
+            if self.result.grading.detailed && crate::ui::judgement_grid_area(top).bottom() > r.y {
+                r.x += r.w + 0.02;
                 r.y -= r.h + 0.02;
-            } else {
-                r.x -= r.w + 0.02;
             }
             if !self.offset_applied && self.can_apply() {
                 self.btn_apply.render_shadow(ui, r, t, |ui, path| {

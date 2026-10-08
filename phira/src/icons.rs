@@ -6,6 +6,7 @@ use prpr::ext::SafeTexture;
 pub struct Icons {
     pub icon: SafeTexture,
     pub play: SafeTexture,
+    pub retry: SafeTexture,
     pub medal: SafeTexture,
     pub respack: SafeTexture,
     pub msg: SafeTexture,
@@ -45,6 +46,7 @@ impl Icons {
         Ok(Self {
             icon: load_texture("icon.png").await?.into(),
             play: load_texture("resume.png").await?.into(),
+            retry: load_texture("retry.png").await?.into(),
             medal: load_texture("medal.png").await?.into(),
             respack: load_texture("respack.png").await?.into(),
             msg: load_texture("message.png").await?.into(),

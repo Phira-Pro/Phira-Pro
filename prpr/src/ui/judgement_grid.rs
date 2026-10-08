@@ -15,7 +15,7 @@ pub fn judgement_panel_left(y: f32) -> f32 {
 pub fn judgement_grid_area(top: f32) -> Rect {
     let y = -top + 0.4 + top * 0.3 + 0.062;
     let x = judgement_panel_left(y) + 0.012;
-    Rect::new(x, y, 0.40 - x, (top - 0.04 - y).min(0.32).max(0.04))
+    Rect::new(x, y, 0.43 - x, (top - 0.04 - y).min(0.32).max(0.04))
 }
 
 /// Column-major: four grades in each column, with the original slanted alignment.
@@ -51,7 +51,7 @@ pub fn judgement_grid_layout(ui: &mut Ui, result: &PlayResult, area: Rect, detai
     let glyph_height = ui.text("PERFECT+").size(0.64).measure_using(&BOLD_FONT).h;
     let mut size = 0.64 * ((area.h / 4. * 0.85) / glyph_height).min(1.);
     let cells = grade_cells(result, area);
-    let label_gap = 0.025;
+    let label_gap = if details { 0.015 } else { 0.025 };
     let column_gap = 0.030;
     let mut label_widths = [0f32; 2];
     let mut count_widths = [0f32; 2];
@@ -80,7 +80,16 @@ pub fn judgement_grid_layout(ui: &mut Ui, result: &PlayResult, area: Rect, detai
         }
     }
     let count_budget = (area.w - label_widths.iter().sum::<f32>() - label_gap * 2. - column_gap - 0.006).max(0.001);
-    let count_scale = (count_budget / count_widths.iter().sum::<f32>().max(0.001)).min(1.);
+    let mut count_scale = (count_budget / count_widths.iter().sum::<f32>().max(0.001)).min(1.);
+    if details && count_scale < 1. {
+        let total = label_widths.iter().sum::<f32>() + count_widths.iter().sum::<f32>();
+        let scale = ((area.w - label_gap * 2. - column_gap - 0.006) / total.max(0.001)).min(1.);
+        size *= scale;
+        for width in label_widths.iter_mut().chain(count_widths.iter_mut()) {
+            *width *= scale;
+        }
+        count_scale = 1.;
+    }
     let widths = [
         label_widths[0] + label_gap + count_widths[0] * count_scale,
         label_widths[1] + label_gap + count_widths[1] * count_scale,
@@ -125,18 +134,21 @@ pub fn draw_judgement_grid(ui: &mut Ui, result: &PlayResult, area: Rect, details
         if details && row.id != 3 {
             let r = ui
                 .text(format!("-{}", result.early_kind[row.id]))
-                .pos(row.count_x, row.cell.y)
+                .pos(row.count_x, row.label.center().y)
+                .anchor(0., 0.5)
                 .size(row.count_size)
                 .color(Color::from_hex_rgb(0x81d4fa))
                 .draw_using(&BOLD_FONT);
             ui.text(format!("+{}", result.late_kind[row.id]))
-                .pos(r.right() + row.number_gap, row.cell.y)
+                .pos(r.right() + row.number_gap, row.label.center().y)
+                .anchor(0., 0.5)
                 .size(row.count_size)
                 .color(Color::from_hex_rgb(0xffab91))
                 .draw_using(&BOLD_FONT);
         } else {
             ui.text(result.counts[row.id].to_string())
-                .pos(row.count_x, row.cell.y)
+                .pos(row.count_x, row.label.center().y)
+                .anchor(0., 0.5)
                 .size(row.count_size)
                 .draw_using(&BOLD_FONT);
         }
@@ -158,7 +170,7 @@ mod tests {
             assert_eq!(cells[0].2.y, cells[4].2.y);
             assert!(cells[3].2.y > cells[0].2.y && cells[3].2.x < cells[0].2.x);
             for (_, _, r) in cells {
-                assert!(r.y + r.h <= top - 0.04 + 1e-6 && r.right() <= 0.40 + 1e-6 && r.x >= judgement_panel_left(r.y) + 0.011);
+                assert!(r.y + r.h <= top - 0.04 + 1e-6 && r.right() <= 0.43 + 1e-6 && r.x >= judgement_panel_left(r.y) + 0.011);
             }
             result.grading.perfect_plus = false;
             assert_eq!(grade_cells(&result, area).len(), 7);

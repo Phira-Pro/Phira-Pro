@@ -387,6 +387,6 @@ preset-number-27 = OK 区间
 preset-number-28 = MEH 区间
 theoretical-score-disabled = 请先在判定设置中开启 Perfect+
 
-preset-od = osu!mania OD 快捷区间
+preset-od = osu!mania ScoreV2 OD 快捷区间
 preset-od-custom = 自定义
-preset-od-sub = mania 对称宽判区间；扩展 OD −15～15
+preset-od-sub = ScoreV2 对称区间，关闭 Perfect+；扩展 OD −15～15

@@ -17,3 +17,6 @@ update-ignore = Ignore
 update-go = View
 
 change-char = Change Character (Web)
+
+music-loading = Loading music…
+music-empty = No playable local music

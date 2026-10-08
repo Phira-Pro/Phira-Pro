@@ -454,6 +454,7 @@ pub struct SharedState {
     pub rt: f32,
     pub fader: Fader,
     pub charts_local: Vec<ChartItem>,
+    pub menu_music: crate::menu_music::MenuMusic,
 
     pub icons: [SafeTexture; 8],
 }
@@ -508,6 +509,7 @@ impl SharedState {
             rt: 0.,
             fader: Fader::new(),
             charts_local: Vec::new(),
+            menu_music: crate::menu_music::MenuMusic::default(),
 
             icons: Resource::load_icons().await?,
         })

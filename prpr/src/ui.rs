@@ -1,6 +1,15 @@
 //! UI utilities.
 mod judgement_grid;
 pub use judgement_grid::{draw_judgement_grid, grade_cells, judgement_grid_area, judgement_grid_layout, judgement_panel_left, GradeLayout};
+
+/// The existing gameplay pause mark, sized to an icon rectangle.
+pub fn draw_pause_icon(ui: &mut Ui, r: macroquad::prelude::Rect, color: macroquad::prelude::Color) {
+    let w = (r.w / 3.).min(r.h / 3.2);
+    let h = w * 3.2;
+    let bar = macroquad::prelude::Rect::new(r.center().x - w * 1.5, r.center().y - h / 2., w, h);
+    ui.fill_rect(bar, color);
+    ui.fill_rect(macroquad::prelude::Rect::new(bar.x + w * 2., bar.y, w, h), color);
+}
 prpr_l10n::tl_file!("scene" ttl);
 mod billboard;
 pub use billboard::{BillBoard, Message, MessageHandle, MessageKind};

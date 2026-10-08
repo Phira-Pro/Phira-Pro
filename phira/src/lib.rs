@@ -21,6 +21,7 @@ mod icons;
 mod images;
 mod login;
 mod migrate;
+mod menu_music;
 mod page;
 mod popup;
 mod rate;
@@ -292,18 +293,6 @@ mod dir {
             .find(|it| it.is_file())
     }
 
-    /// 载入 `data/appearance/{stem}.*` 的音频字节；不存在或读不动时返回 `None`。
-    pub fn load_appearance_audio(stem: &str) -> Option<Vec<u8>> {
-        let path = find_appearance_audio(stem)?;
-        match std::fs::read(&path) {
-            Ok(bytes) => Some(bytes),
-            Err(err) => {
-                tracing::warn!(?err, ?path, "failed to read appearance audio");
-                None
-            }
-        }
-    }
-
     /// 把任意音频导入为 `data/appearance/{stem}.{ext}`。写之前先解码验证一次，
     /// 避免选中非音频文件后把原来的背景音乐弄丢；成功后再清掉同名的其它扩展名。
     pub fn import_appearance_audio(stem: &str, src: &std::path::Path) -> Result<()> {
@@ -321,6 +310,10 @@ mod dir {
             let _ = std::fs::remove_file(root.join(format!("{stem}.{old}")));
         }
         std::fs::write(root.join(format!("{stem}.{ext}")), data)?;
+        if stem == "bgm" {
+            let title = src.file_name().unwrap_or_default().to_string_lossy();
+            std::fs::write(root.join("bgm-title.txt"), title.as_bytes())?;
+        }
         Ok(())
     }
 
@@ -328,6 +321,7 @@ mod dir {
     /// 返回是否删除过至少一个文件。
     pub fn clear_appearance_audio(stem: &str) -> Result<bool> {
         let root = std::path::PathBuf::from(appearance()?);
+        if stem == "bgm" { let _ = std::fs::remove_file(root.join("bgm-title.txt")); }
         let mut removed = false;
         for ext in AUDIO_EXTS {
             let path = root.join(format!("{stem}.{ext}"));

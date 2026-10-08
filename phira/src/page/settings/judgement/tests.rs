@@ -71,6 +71,8 @@ fn render(list: &mut JudgementList, painter: &mut TextPainter, w: i32, h: i32, s
 #[test]
 #[ignore = "requires desktop OpenGL; run separately with --ignored --test-threads=1"]
 fn production_panel_save_cancel_reload_and_aspects() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let _runtime_guard = runtime.enter();
     std::env::set_current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()).unwrap();
     macroquad::Window::from_config(
         Conf {
@@ -321,7 +323,7 @@ fn production_panel_save_cancel_reload_and_aspects() {
                         let cell = row.cell;
                         let label = row.name;
                         assert!(row.label.x >= prpr::ui::judgement_panel_left(row.label.y) + 0.005, "label must stay in score panel");
-                        assert!(row.cell.right() <= 0.40 + 1e-5, "counts must stay left of RETRY");
+                        assert!(row.cell.right() <= 0.43 + 1e-5, "counts must stay left of RETRY");
                         let count_right = if details && row.id != 3 {
                             let early = ui
                                 .text(format!("-{}", result.early_kind[row.id]))
@@ -355,7 +357,9 @@ fn production_panel_save_cancel_reload_and_aspects() {
                             }
                         }
                         assert!(ink > 20, "grade {label} must render in its cell at {suffix}, details={details}: {ink}");
-                        if w == 1280 {
+                        if details {
+                            assert!((row.label_size - row.count_size).abs() < 1e-5, "even stress details use one font size");
+                        } else if w == 1280 {
                             assert!((row.label_size - 0.64).abs() < 1e-5, "stress counters must not reduce the grade label font");
                         }
                     }
@@ -456,8 +460,9 @@ fn production_panel_save_cancel_reload_and_aspects() {
                                     let label = row.name;
                                     let rect = row.label;
                                     assert!(rect.x >= prpr::ui::judgement_panel_left(rect.y) + 0.005, "{label} must stay in score panel at {suffix}");
-                                    assert!(row.cell.right() <= 0.40 + 1e-5);
-                                    assert!((row.label_size - 0.64).abs() < 1e-5, "normal phone labels retain original size");
+                                    assert!(row.cell.right() <= 0.43 + 1e-5);
+                                    if !details { assert!((row.label_size - 0.64).abs() < 1e-5, "normal phone labels retain original size"); }
+                                    else { assert!((row.label_size - row.count_size).abs() < 1e-5, "detail numbers share the label font size"); }
                                     let x0 = ((rect.x + 1.) * w as f32 / 2.).ceil() as usize;
                                     let x1 = ((rect.x + rect.w / 4. + 1.) * w as f32 / 2.).floor() as usize;
                                     let y0 = ((ui.top - rect.bottom()) * w as f32 / 2.).ceil() as usize;
@@ -529,6 +534,10 @@ fn production_panel_save_cancel_reload_and_aspects() {
                 _ => panic!("entry must open standalone page"),
             }
             println!("Production panel: add / save / reload / edit / cancel / rename / delete passed; rendered 16:9, 4:3, 21:9.");
+            drop(ui);
+            crate::page::home::music_panel::render_regression(&mut painter).await;
+            crate::menu_music::playback_regression().await;
+            prpr::ui::cleanup_audio();
         },
     );
 }

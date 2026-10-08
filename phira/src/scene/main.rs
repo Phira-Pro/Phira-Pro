@@ -25,7 +25,7 @@ use prpr::{
     time::TimeManager,
     ui::{button_hit, Dialog, FontArc, RectButton, Ui, UI_AUDIO},
 };
-use sasa::{AudioClip, Music};
+use sasa::AudioClip;
 use std::{
     any::Any,
     cell::RefCell,
@@ -168,11 +168,6 @@ impl IdleFps {
 pub struct MainScene {
     state: SharedState,
 
-    bgm: Option<Music>,
-    bgm_normalization: f32,
-    /// 内置背景音乐的字节（「恢复默认背景音乐」时回退用；open 构建没有）。
-    bgm_default: Option<Vec<u8>>,
-
     background: SafeTexture,
     /// Phira Pro：内置背景图（含磨砂版），供「恢复默认背景」使用。
     bg_default: SafeTexture,
@@ -212,55 +207,14 @@ enum ImportChart {
     Failed(String),
 }
 
-
-/// 用音频字节创建一首可循环播放的背景音乐。返回 (music, 响度归一化系数)。
-fn build_bgm(bytes: &[u8], loop_mix_time: f64) -> Result<(Music, f32)> {
-    let clip = AudioClip::new(bytes.to_vec())?;
-    let gain = prpr::audio::music_normalization_gain(&clip);
-    let config = &get_data().config;
-    let amplifier = config.music_volume(config.volume_bgm) * if config.uniform_loudness { gain } else { 1. };
-    let music = UI_AUDIO.with(|it| {
-        it.borrow_mut().create_music(
-            clip,
-            sasa::MusicParams {
-                amplifier,
-                loop_mix_time,
-                command_buffer_size: 64,
-                ..Default::default()
-            },
-        )
-    })?;
-    Ok((music, gain))
-}
-
 impl MainScene {
     // shall be call exactly once
     pub async fn new(fallback: FontArc) -> Result<Self> {
         Self::init().await?;
         crate::hud::selftest();
 
-        // 内置背景音乐：只有 closed 构建自带 `res/bgm`（「恢复默认背景音乐」时用它）。
-        #[cfg(closed)]
-        let bgm_default: Option<Vec<u8>> = Some(crate::load_res("res/bgm").await);
-        #[cfg(not(closed))]
-        let bgm_default: Option<Vec<u8>> = None;
-        // Phira Pro：自定义背景音乐（`data/appearance/bgm.*`）优先。
-        // 自定义的那首按原样接循环（loop_mix_time = 0），内置 `res/bgm` 保留原本的 5.46 秒交叉循环。
-        let custom_bgm = dir::load_appearance_audio("bgm");
-        let loop_mix_time = if custom_bgm.is_some() { 0. } else { 5.46 };
-        let (bgm, bgm_normalization) = match custom_bgm.or_else(|| bgm_default.clone()) {
-            Some(bytes) => match build_bgm(&bytes, loop_mix_time) {
-                Ok((music, gain)) => (Some(music), gain),
-                Err(err) => {
-                    tracing::warn!(?err, "failed to load background music");
-                    (None, 1.)
-                }
-            },
-            None => (None, 1.),
-        };
-
-        let mut sf = Self::new_inner(bgm, fallback).await?;
-        sf.bgm_normalization = bgm_normalization;
+        let mut sf = Self::new_inner(fallback).await?;
+        sf.state.menu_music.refresh();
         sf.pages.push(Box::new(HomePage::new(Arc::clone(&sf.icons)).await?));
         Ok(sf)
     }
@@ -304,14 +258,10 @@ impl MainScene {
         Ok(())
     }
 
-    async fn new_inner(bgm: Option<Music>, fallback: FontArc) -> Result<Self> {
+    async fn new_inner(fallback: FontArc) -> Result<Self> {
         let state = SharedState::new(fallback).await?;
         Ok(Self {
             state,
-
-            bgm,
-            bgm_normalization: 1.,
-            bgm_default: None,
 
             background: TEX_BACKGROUND.with(|it| it.borrow().clone().unwrap()),
             bg_default: TEX_BACKGROUND_DEFAULT.with(|it| it.borrow().clone().unwrap()),
@@ -345,9 +295,7 @@ impl MainScene {
 
     fn pop(&mut self) {
         if !self.pages.last().unwrap().can_play_bgm() && self.pages[self.pages.len() - 2].can_play_bgm() {
-            if let Some(bgm) = &mut self.bgm {
-                let _ = bgm.fade_in(0.5);
-            }
+            let _ = self.state.menu_music.set_active(true);
         }
         self.state.fader.back(self.state.t);
     }
@@ -363,9 +311,7 @@ impl Scene for MainScene {
     }
 
     fn enter(&mut self, tm: &mut TimeManager, _target: Option<RenderTarget>) -> Result<()> {
-        if let Some(bgm) = &mut self.bgm {
-            let _ = bgm.fade_in(1.3);
-        }
+        self.state.menu_music.set_active(self.pages.last().is_some_and(|it| it.can_play_bgm()))?;
         self.state.update(tm);
         self.pages.last_mut().unwrap().enter(&mut self.state)?;
         Ok(())
@@ -373,9 +319,7 @@ impl Scene for MainScene {
 
     fn resume(&mut self, tm: &mut TimeManager) -> Result<()> {
         tm.resume();
-        if let Some(bgm) = &mut self.bgm {
-            bgm.play()?;
-        }
+        self.state.menu_music.set_active(self.pages.last().is_some_and(|it| it.can_play_bgm()))?;
         self.state.update(tm);
         self.pages.last_mut().unwrap().resume()?;
         Ok(())
@@ -383,9 +327,7 @@ impl Scene for MainScene {
 
     fn pause(&mut self, tm: &mut TimeManager) -> Result<()> {
         tm.pause();
-        if let Some(bgm) = &mut self.bgm {
-            bgm.pause()?;
-        }
+        self.state.menu_music.set_active(false)?;
         self.state.update(tm);
         self.pages.last_mut().unwrap().pause()?;
         Ok(())
@@ -429,9 +371,7 @@ impl Scene for MainScene {
             button_hit();
             if !self.pages.last_mut().unwrap().on_back_pressed(&mut self.state) {
                 if self.pages.len() == 2 {
-                    if let Some(bgm) = &mut self.bgm {
-                        bgm.set_low_pass(0.)?;
-                    }
+                    self.state.menu_music.set_low_pass(0.)?;
                 }
                 self.pop();
             }
@@ -493,15 +433,11 @@ impl Scene for MainScene {
             match self.pages.last_mut().unwrap().next_page() {
                 NextPage::Overlay(mut sub) => {
                     if self.pages.len() == 1 {
-                        if let Some(bgm) = &mut self.bgm {
-                            bgm.set_low_pass(LOW_PASS)?;
-                        }
+                        s.menu_music.set_low_pass(LOW_PASS)?;
                     }
                     sub.enter(s)?;
                     if !sub.can_play_bgm() {
-                        if let Some(bgm) = &mut self.bgm {
-                            let _ = bgm.fade_out(0.5);
-                        }
+                        s.menu_music.leave();
                     }
                     self.pages.push(sub);
                     s.fader.sub(s.t);
@@ -525,33 +461,13 @@ impl Scene for MainScene {
             TEX_BACKGROUND.with(|it| *it.borrow_mut() = Some(self.background.clone()));
             TEX_BACKGROUND_BLUR.with(|it| *it.borrow_mut() = Some(blur));
         }
-        // Phira Pro：自定义背景音乐被导入 / 恢复默认 → 就地换一首（自定义优先，没有就回内置）。
         if BGM_UPDATED.swap(false, Ordering::Relaxed) {
-            self.bgm = None;
-            self.bgm_normalization = 1.;
-            let custom_bgm = dir::load_appearance_audio("bgm");
-            let loop_mix_time = if custom_bgm.is_some() { 0. } else { 5.46 };
-            if let Some(bytes) = custom_bgm.or_else(|| self.bgm_default.clone()) {
-                match build_bgm(&bytes, loop_mix_time) {
-                    Ok((music, gain)) => {
-                        self.bgm = Some(music);
-                        self.bgm_normalization = gain;
-                        if self.pages.last().map(|it| it.can_play_bgm()).unwrap_or(false) {
-                            if let Some(bgm) = &mut self.bgm {
-                                let _ = bgm.fade_in(0.5);
-                            }
-                        }
-                    }
-                    Err(err) => tracing::warn!(?err, "failed to load background music"),
-                }
-            }
+            self.state.menu_music.refresh();
         }
-        if let Some(bgm) = &mut self.bgm {
-            if BGM_VOLUME_UPDATED.fetch_and(false, Ordering::Relaxed) {
-                let config = &get_data().config;
-                bgm.set_amplifier(config.music_volume(config.volume_bgm) * if config.uniform_loudness { self.bgm_normalization } else { 1. })?;
-            }
+        if BGM_VOLUME_UPDATED.swap(false, Ordering::Relaxed) {
+            self.state.menu_music.update_volume()?;
         }
+        self.state.menu_music.update()?;
         if let Some(task) = &mut self.import_task {
             if let Some(res) = task.take() {
                 match res {
@@ -1019,16 +935,12 @@ impl Scene for MainScene {
 
     fn next_scene(&mut self, _tm: &mut TimeManager) -> NextScene {
         if let Some(next) = self.deeplink_scene.take() {
-            if let Some(bgm) = &mut self.bgm {
-                let _ = bgm.fade_out(0.5);
-            }
+            self.state.menu_music.leave();
             return next;
         }
         let res = self.pages.last_mut().unwrap().next_scene(&mut self.state);
         if !matches!(res, NextScene::None) {
-            if let Some(bgm) = &mut self.bgm {
-                let _ = bgm.fade_out(0.5);
-            }
+            self.state.menu_music.leave();
         }
         res
     }

@@ -388,6 +388,6 @@ preset-number-27 = OK window
 preset-number-28 = MEH window
 theoretical-score-disabled = Enable Perfect+ in judgement settings first
 
-preset-od = osu!mania OD timing shortcut
+preset-od = osu!mania ScoreV2 OD timing shortcut
 preset-od-custom = Custom
-preset-od-sub = mania symmetric normal windows; extended OD -15 to 15
+preset-od-sub = ScoreV2 symmetric windows, Perfect+ off; extended OD -15 to 15

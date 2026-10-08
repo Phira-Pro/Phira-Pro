@@ -43,6 +43,8 @@ use std::{
 use tap::Tap;
 use tracing::{info, warn};
 
+pub(crate) mod music_panel;
+
 const BOARD_SWITCH_TIME: f32 = 4.;
 const BOARD_TRANSIT_TIME: f32 = 1.2;
 
@@ -65,6 +67,7 @@ pub struct HomePage {
     btn_msg: DRectButton,
     btn_settings: DRectButton,
     btn_user: DRectButton,
+    music_panel: music_panel::MusicPanel,
 
     next_page: Option<NextPage>,
 
@@ -160,6 +163,7 @@ impl HomePage {
             btn_msg: DRectButton::new().with_radius(0.008).with_delta(-0.003).with_elevation(0.002),
             btn_settings: DRectButton::new().with_radius(0.008).with_delta(-0.003).with_elevation(0.002),
             btn_user: DRectButton::new().with_delta(-0.003),
+            music_panel: music_panel::MusicPanel::default(),
 
             next_page: None,
 
@@ -252,9 +256,7 @@ impl HomePage {
         #[cfg(not(closed))]
         if crate::dir::find_appearance("character").is_some() {
             let started = std::time::Instant::now();
-            while res.char_illu_task.as_ref().is_some_and(|task| !task.ok())
-                && started.elapsed() < std::time::Duration::from_secs(1)
-            {
+            while res.char_illu_task.as_ref().is_some_and(|task| !task.ok()) && started.elapsed() < std::time::Duration::from_secs(1) {
                 next_frame().await;
             }
             if let Some(image) = res.char_illu_task.as_mut().and_then(Task::take) {
@@ -300,7 +302,9 @@ impl HomePage {
                 url: self.character.illust.clone(),
             };
             self.char_illu_task =
-                Some(Task::new(async move { Ok(Images::gpu_ready(image::load_from_memory(&crate::inner::resolve_data(file.fetch().await?.to_vec()))?)) }));
+                Some(Task::new(
+                    async move { Ok(Images::gpu_ready(image::load_from_memory(&crate::inner::resolve_data(file.fetch().await?.to_vec()))?)) },
+                ));
         }
 
         // 开源构建无法解码官方的 `res/*.char` 立绘，因此这里允许用
@@ -334,16 +338,16 @@ impl HomePage {
     fn render_not_char(&mut self, ui: &mut Ui, s: &mut SharedState) {
         // HUD 自定义：主菜单顶层组件（默认矩形与改造前逐像素一致）。
         const SLOT_PLAY: crate::hud::SlotDef = crate::hud::SlotDef::centered("play", [0., -0.33, 0.83, 0.45], crate::hud::Cap(true, true, true));
-        const SLOT_EVENT: crate::hud::SlotDef = crate::hud::SlotDef::centered("event", [0., 0.17, 0.38, 0.23], crate::hud::Cap(true, true, true));
-        const SLOT_RESPACK: crate::hud::SlotDef = crate::hud::SlotDef::centered("respack", [0.4, 0.17, 0.29, 0.23], crate::hud::Cap(true, true, true));
-        const SLOT_MSG: crate::hud::SlotDef = crate::hud::SlotDef::centered("msg", [0.71, 0.17, 0.11, 0.11], crate::hud::Cap(true, false, false));
-        const SLOT_SETTINGS: crate::hud::SlotDef = crate::hud::SlotDef::centered("settings", [0.71, 0.29, 0.11, 0.11], crate::hud::Cap(true, false, false));
-
         let t = s.t;
 
         let pad = 0.04;
         // play button
-        let r = crate::hud::slot(ui, "home", SLOT_PLAY);
+        let mut play_def = SLOT_PLAY;
+        // Reserve the same 0.05 gap on both sides of the shortcut row, even on wide phones.
+        play_def.size[1] = (ui.top - 0.04 - 0.11 - 0.05 - 0.23 - 0.05 + 0.33).min(0.45);
+        play_def.offset[1] = -0.33 + play_def.size[1] / 2.;
+        let r_play = crate::hud::slot(ui, "home", play_def);
+        let r = r_play;
         let mat = self.btn_play_3d.now(ui, r, t);
         let top = ui.with_gl(mat, |ui| {
             s.render_fader(ui, |ui| {
@@ -388,7 +392,11 @@ impl HomePage {
                 btn.render_shadow(ui, r, t, |ui, path| {
                     ui.fill_path(&path, semi_black(0.4));
                     let ir = Rect::new(r.x + 0.02, r.bottom() - 0.08, 0.14, 0.14);
-                    ui.text(text).pos(r.x + 0.026, r.y + 0.026).size(0.7 * r.w / ow).max_width((r.w - 0.052).max(0.)).draw();
+                    ui.text(text)
+                        .pos(r.x + 0.026, r.y + 0.026)
+                        .size(0.7 * r.w / ow)
+                        .max_width((r.w - 0.052).max(0.))
+                        .draw();
                     ui.fill_rect(
                         {
                             let mut ir = ir;
@@ -401,11 +409,13 @@ impl HomePage {
             });
         };
 
-        let r_event = crate::hud::slot(ui, "home", SLOT_EVENT);
-        let r_respack = crate::hud::slot(ui, "home", SLOT_RESPACK);
-        let r_msg = crate::hud::slot(ui, "home", SLOT_MSG);
-        let r_settings = crate::hud::slot(ui, "home", SLOT_SETTINGS);
-
+        let row_y = r_play.bottom() + 0.05;
+        let r_event = crate::hud::slot_or(ui, "home", "event", crate::hud::Cap(true, true, true), Rect::new(0., row_y, 0.38, 0.23));
+        let r_respack = crate::hud::slot_or(ui, "home", "respack", crate::hud::Cap(true, true, true), Rect::new(0.4, row_y, 0.29, 0.23));
+        let r_msg = crate::hud::slot_or(ui, "home", "msg", crate::hud::Cap(true, false, false), Rect::new(0.71, row_y, 0.11, 0.11));
+        let r_settings = crate::hud::slot_or(ui, "home", "settings", crate::hud::Cap(true, false, false), Rect::new(0.71, row_y + 0.12, 0.11, 0.11));
+        let row_bottom = r_event.bottom().max(r_respack.bottom()).max(r_settings.bottom());
+        let music_rect = music_panel::panel_rect(r_play, row_bottom, 0.05);
         let mat = self.btn_other_3d.now(ui, Rect::new(0., top - 0.4, 0.83, 0.23), t);
         ui.with_gl(mat, |ui| {
             text_and_icon(s, ui, r_event, &mut self.btn_event, tl!("event"), *self.icons.medal);
@@ -429,6 +439,13 @@ impl HomePage {
                     let r = r.feather(0.004);
                     ui.fill_rect(r, (*self.icons.settings, r, ScaleType::Fit));
                 });
+            });
+        });
+        let t = s.t;
+        ui.with_gl(mat, |ui| {
+            s.fader.render(ui, t, |ui| {
+                self.music_panel
+                    .render(ui, music_rect, r_respack.right(), r_settings, t, &s.menu_music, &self.icons);
             });
         });
     }
@@ -464,6 +481,9 @@ impl Page for HomePage {
             return Ok(true);
         }
         if self.char_screen_p.now(rt) < 1e-2 {
+            if self.music_panel.touch(touch, t, &mut s.menu_music)? {
+                return Ok(true);
+            }
             self.btn_play_3d.touch(touch, t);
             if self.btn_play.touch(touch, t) {
                 button_hit_large();
@@ -837,13 +857,8 @@ impl Page for HomePage {
         let cp = self.char_screen_p.now(rt);
         s.render_fader(ui, |ui| {
             // HUD 自定义：立绘（锚在左下，换宽高比时贴合底边）。
-            const SLOT_CHAR_ILLU: crate::hud::SlotDef = crate::hud::SlotDef::at(
-                "char_illu",
-                crate::hud::Anchor::BottomLeft,
-                [0.5, 0.97],
-                [1., 1.7],
-                crate::hud::Cap(true, true, true),
-            );
+            const SLOT_CHAR_ILLU: crate::hud::SlotDef =
+                crate::hud::SlotDef::at("char_illu", crate::hud::Anchor::BottomLeft, [0.5, 0.97], [1., 1.7], crate::hud::Cap(true, true, true));
             let mut r = crate::hud::slot(ui, "home", SLOT_CHAR_ILLU);
             r.x += 0.14 * cp;
             if let Some(illu) = &self.char_illu {
@@ -1015,6 +1030,18 @@ impl Page for HomePage {
         }
         self.sf.render(ui, t);
 
+        Ok(())
+    }
+
+    fn render_top(&mut self, ui: &mut Ui, s: &mut SharedState) -> Result<()> {
+        if self.char_screen_p.now(s.rt) < 1e-2 && !self.sf.transiting() {
+            let fallback = if s.menu_music.loading() {
+                tl!("music-loading")
+            } else {
+                tl!("music-empty")
+            };
+            self.music_panel.render_top(ui, &s.menu_music, &fallback);
+        }
         Ok(())
     }
 

@@ -929,10 +929,7 @@ impl GameScene {
                 legacy_aui.then(|| (pause_center.x, pause_center.y)),
                 (pause_center.x - pause_w * 1.5, pause_center.y - pause_h / 2.),
                 |ui, c| {
-                    let mut r = Rect::new(pause_center.x - pause_w * 1.5, pause_center.y - pause_h / 2., pause_w, pause_h);
-                    ui.fill_rect(r, c);
-                    r.x += pause_w * 2.;
-                    ui.fill_rect(r, c);
+                    crate::ui::draw_pause_icon(ui, Rect::new(pause_center.x - pause_w * 1.5, pause_center.y - pause_h / 2., pause_w * 3., pause_h), c);
                 },
             );
             if self.judge.combo() >= 3 {

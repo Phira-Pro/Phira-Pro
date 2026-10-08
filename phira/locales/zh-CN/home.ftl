@@ -17,3 +17,6 @@ update-ignore = 忽略该版本
 update-go = 更新
 
 change-char = 更换角色
+
+music-loading = 正在载入音乐…
+music-empty = 暂无可播放的本地音乐

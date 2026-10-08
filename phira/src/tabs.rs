@@ -111,7 +111,8 @@ impl<T> Tabs<T> {
     }
 
     fn render_plain(&mut self, ui: &mut Ui, c: Color, first: bool) {
-        let mut r = Rect::new(Self::LEFT, -ui.top + 0.16, Self::WIDTH, 0.125);
+        let height = ((ui.top * 2. - 0.22) / self.items.len().max(1) as f32).clamp(0.06, 0.125);
+        let mut r = Rect::new(Self::LEFT, -ui.top + 0.16, Self::WIDTH, height);
         for (index, item) in self.items.iter_mut().enumerate() {
             if index == self.selected {
                 self.y_upper.alter_to(r.y);
@@ -129,11 +130,17 @@ impl<T> Tabs<T> {
                 .max_width((r.w - 0.02).max(0.))
                 .color(c)
                 .draw();
-            r.y += 0.125;
+            r.y += height;
         }
     }
 
     pub fn render(&mut self, ui: &mut Ui, t: f32, cr: Rect, mut f: impl FnMut(&mut Ui, &mut T) -> Result<()>) -> Result<()> {
+        // Resolve row geometry before sampling the animation, including the first frame
+        // and viewport changes; a zero-height initial highlight produces a diagonal strip.
+        let height = ((ui.top * 2. - 0.22) / self.items.len().max(1) as f32).clamp(0.06, 0.125);
+        let top = -ui.top + 0.16 + height * self.selected as f32;
+        self.y_upper.alter_to(top);
+        self.y_lower.alter_to(top + height);
         // HUD 自定义：tab 栏整体偏移。选框用「真实栏位」当默认值，避免框和图形错位。
         let (y_upper, y_lower) = (self.y_upper.now(t), self.y_lower.now(t));
         let col = Rect::new(Self::LEFT, y_upper, Self::WIDTH, (y_lower - y_upper).max(0.1));

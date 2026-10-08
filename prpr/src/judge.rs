@@ -1,7 +1,7 @@
 //! Judgement system
 
 use crate::{
-    config::{Config, JudgeWindows, Mods},
+    config::{Config, JudgeAlgorithm, JudgeWindows, Mods},
     core::{BadNote, Chart, NoteKind, Point, Resource, Vector, NOTE_WIDTH_RATIO_BASE},
     ext::{get_viewport, NotNanExt},
 };
@@ -21,7 +21,8 @@ use std::{
 };
 
 pub const FLICK_SPEED_THRESHOLD: f32 = 0.8;
-/// Perfect+（大 P）的默认窗口。比 Perfect 更严格，且不参与准确率/分数计算。
+mod phigros;
+/// Perfect+（Perfect+）的默认窗口。比 Perfect 更严格，且不参与准确率/分数计算。
 pub const LIMIT_PERFECT_PLUS: f64 = 0.016;
 pub const LIMIT_PERFECT: f64 = 0.08;
 pub const LIMIT_GOOD: f64 = 0.16;
@@ -166,6 +167,20 @@ pub enum JudgeStatus {
     Hold(bool, f64, f64, bool, f64), // perfect, at, diff, pre-judge, up-time
 }
 
+impl JudgeStatus {
+    /// A successful score before a hold's tail must not acquire the Miss rendering state.
+    /// Shared with event replay so early completion has the same visual lifetime.
+    pub fn finish_hold_score(&mut self, time: f64, tail: f64) -> bool {
+        if time < tail {
+            if let Self::Hold(_, _, _, ref mut scored, _) = self {
+                *scored = true;
+                return true;
+            }
+        }
+        false
+    }
+}
+
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, Serialize)]
 pub enum Judgement {
@@ -173,9 +188,12 @@ pub enum Judgement {
     Good,
     Bad,
     Miss,
-    /// Perfect+（大 P）：比 Perfect 更严格，但只作为 Perfect 的子分类，
+    /// Perfect+（Perfect+）：比 Perfect 更严格，但只作为 Perfect 的子分类，
     /// 不改变准确率与分数口径。追加在末尾以保持既有下标语义（0..=3）不变。
     PerfectPlus,
+    Great,
+    Ok,
+    Meh,
 }
 
 /// 局内 early/late 判定条保留的最近命中数。
@@ -185,18 +203,26 @@ pub const MAX_RECENT_HITS: usize = 24;
 ///
 /// 尾判（mania 风格的松手判定）也走这套口径。
 pub fn judgement_of_offset(off: f64, limits: &JudgeWindows) -> Judgement {
-    let d = off.abs();
-    if d <= limits.perfect_plus {
-        Judgement::PerfectPlus
-    } else if d <= limits.perfect {
-        Judgement::Perfect
-    } else if d <= limits.good {
-        Judgement::Good
-    } else if d <= limits.bad {
-        Judgement::Bad
-    } else {
-        Judgement::Miss
-    }
+    let side = limits.for_offset(off);
+    judgement_at_distance(off.abs(), &side, false)
+}
+
+/// Classify an already compensated distance; Phigros uses open window boundaries.
+pub fn judgement_at_distance(d: f64, w: &JudgeWindows, open: bool) -> Judgement {
+    let fits = |limit| if open { d < limit } else { d <= limit };
+    if w.grading.perfect_plus && fits(w.perfect_plus) { Judgement::PerfectPlus }
+    else if fits(w.perfect) { Judgement::Perfect }
+    else if w.grading.detailed && fits(w.extended[0]) { Judgement::Great }
+    else if fits(w.good) { Judgement::Good }
+    else if w.grading.detailed && fits(w.extended[1]) { Judgement::Ok }
+    else if w.grading.detailed && fits(w.extended[2]) { Judgement::Meh }
+    else if fits(w.bad) { Judgement::Bad }
+    else { Judgement::Miss }
+}
+
+pub const GRADE_ORDER: [(usize, &str); 8] = [(4, "PERFECT+"), (0, "PERFECT"), (5, "GREAT"), (1, "GOOD"), (6, "OK"), (7, "MEH"), (2, "BAD"), (3, "MISS")];
+pub fn visible_grades(grading: crate::config::JudgeGrading) -> impl Iterator<Item = (usize, &'static str)> {
+    GRADE_ORDER.into_iter().filter(move |(i, _)| (*i != 4 || grading.perfect_plus) && (*i < 5 || grading.detailed))
 }
 
 /// Positive offsets are late. Apply optional leniency only on that side,
@@ -327,14 +353,15 @@ pub struct RecentHit {
 #[cfg(not(closed))]
 #[derive(Default)]
 pub(crate) struct JudgeInner {
+    grading: crate::config::JudgeGrading,
     diffs: Vec<f64>,
 
     combo: u32,
     max_combo: u32,
-    counts: [u32; 5],
+    counts: [u32; 8],
     num_of_notes: u32,
-    early_kind: [u32; 5],
-    late_kind: [u32; 5],
+    early_kind: [u32; 8],
+    late_kind: [u32; 8],
     recent: Vec<RecentHit>,
     /// 本局所有有效命中的偏移（秒），供结算时的偏差统计使用。
     offsets: Vec<f64>,
@@ -352,14 +379,15 @@ pub(crate) struct JudgeInner {
 impl JudgeInner {
     pub fn new(num_of_notes: u32) -> Self {
         Self {
+            grading: Default::default(),
             diffs: Vec::new(),
 
             combo: 0,
             max_combo: 0,
-            counts: [0; 5],
+            counts: [0; 8],
             num_of_notes,
-            early_kind: [0; 5],
-            late_kind: [0; 5],
+            early_kind: [0; 8],
+            late_kind: [0; 8],
             recent: Vec::new(),
             offsets: Vec::new(),
             hist: [0; HIST_BUCKETS],
@@ -383,6 +411,7 @@ impl JudgeInner {
 
     /// 记录一次命中的真实偏移。Miss 与拖拽/滑动音符没有有意义的偏移，不记录。
     pub fn push_recent(&mut self, offset: f64, judgement: Judgement, time: f64) {
+        let judgement = if !self.grading.perfect_plus && matches!(judgement, Judgement::PerfectPlus) { Judgement::Perfect } else { judgement };
         if !offset.is_finite() {
             return;
         }
@@ -425,6 +454,7 @@ impl JudgeInner {
     }
 
     pub fn commit(&mut self, what: Judgement, diff: f64) {
+        let what = if !self.grading.perfect_plus && matches!(what, Judgement::PerfectPlus) { Judgement::Perfect } else { what };
         use Judgement::*;
         if matches!(what, Judgement::Good) {
             self.diffs.push(diff);
@@ -435,11 +465,13 @@ impl JudgeInner {
             self.late_kind[what as usize] += 1;
         }
         self.counts[what as usize] += 1;
-        // 血条：大 P / Perfect 回血，Good 微增，Bad 小扣，Miss 大扣。
+        // 血条：Perfect+ / Perfect 回血，Good 微增，Bad 小扣，Miss 大扣。
         let base = match what {
             PerfectPlus => 0.02,
             Perfect => 0.01,
+            Great => 0.006,
             Good => 0.002,
+            Ok | Meh => 0.,
             Bad => -0.06,
             Miss => -0.12,
         };
@@ -447,7 +479,7 @@ impl JudgeInner {
         let delta = base * self.hp_scale * if base < 0. { self.hp_amount } else { 1. };
         self.hp = (self.hp + delta).clamp(0., 1.);
         match what {
-            Perfect | PerfectPlus | Good => {
+            Perfect | PerfectPlus | Great | Good | Ok | Meh => {
                 self.combo += 1;
                 if self.combo > self.max_combo {
                     self.max_combo = self.combo;
@@ -462,10 +494,10 @@ impl JudgeInner {
     pub fn reset(&mut self) {
         self.combo = 0;
         self.max_combo = 0;
-        self.counts = [0; 5];
+        self.counts = [0; 8];
         self.diffs.clear();
-        self.early_kind = [0; 5];
-        self.late_kind = [0; 5];
+        self.early_kind = [0; 8];
+        self.late_kind = [0; 8];
         self.recent.clear();
         self.offsets.clear();
         self.hist = [0; HIST_BUCKETS];
@@ -478,7 +510,7 @@ impl JudgeInner {
     }
 
     pub fn accuracy(&self) -> f64 {
-        (self.perfect_count() as f64 + self.counts[1] as f64 * 0.65) / self.num_of_notes as f64
+        (self.perfect_count() as f64 + self.counts[1] as f64 * 0.65 + self.counts[5] as f64 * 0.85 + self.counts[6] as f64 * 0.5 + self.counts[7] as f64 * 0.25) / self.num_of_notes as f64
     }
 
     pub fn real_time_accuracy(&self) -> f64 {
@@ -486,7 +518,7 @@ impl JudgeInner {
         if cnt == 0 {
             return 1.;
         }
-        (self.perfect_count() as f64 + self.counts[1] as f64 * 0.65) / cnt as f64
+        (self.perfect_count() as f64 + self.counts[1] as f64 * 0.65 + self.counts[5] as f64 * 0.85 + self.counts[6] as f64 * 0.5 + self.counts[7] as f64 * 0.25) / cnt as f64
     }
 
     /// `no_combo_score` 为真时不把最大连击计入分数（分数 = 准确率 × 1,000,000）。
@@ -511,6 +543,7 @@ impl JudgeInner {
         let mean = self.offset_stats().map_or(0., |(_, mean, _)| mean as f32);
         let std = timing_mean_square(&self.offsets, self.counts[3], self.num_of_notes).sqrt() as f32;
         PlayResult {
+            grading: self.grading,
             score: self.score(no_combo_score),
             accuracy: self.accuracy(),
             max_combo: self.max_combo,
@@ -531,7 +564,7 @@ impl JudgeInner {
         self.combo
     }
 
-    pub fn counts(&self) -> [u32; 5] {
+    pub fn counts(&self) -> [u32; 8] {
         self.counts
     }
 }
@@ -546,8 +579,23 @@ pub fn timing_mean_square(offsets: &[f64], misses: u32, notes: u32) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{judgement_of_offset, JudgeInner, Judgement, MAX_RECENT_HITS};
+    use super::{judgement_of_offset, JudgeInner, JudgeStatus, Judgement, MAX_RECENT_HITS};
     use crate::config::JudgeWindows;
+
+    #[test]
+    fn hold_score_and_replay_preserve_success_until_tail() {
+        for perfect in [true, false] {
+            let mut status = JudgeStatus::Hold(perfect, 0.5, -0.03, false, f64::INFINITY);
+            assert!(status.finish_hold_score(0.781, 1.));
+            assert!(matches!(status, JudgeStatus::Hold(p, 0.5, -0.03, true, _) if p == perfect));
+            assert!(status.finish_hold_score(0.99, 1.));
+            assert!(!status.finish_hold_score(1., 1.), "real tail ends the visual hold");
+        }
+        let mut miss = JudgeStatus::Judged;
+        assert!(!miss.finish_hold_score(0.8, 1.), "a miss must never regain successful hold effects");
+        let mut unhit = JudgeStatus::NotJudged;
+        assert!(!unhit.finish_hold_score(0.8, 1.), "a score cannot invent a missing head event");
+    }
 
     fn match_pair(
         kind: &crate::core::NoteKind,
@@ -726,10 +774,44 @@ mod tests {
     }
 
     #[test]
+    fn extended_grades_boundaries_scoring_and_perfect_plus_switch() {
+        let mut cfg = crate::config::Config::default();
+        cfg.lim_perfect_ms = 40.; cfg.lim_good_ms = 100.;
+        cfg.judge_grading.detailed = true;
+        cfg.judge_grading.late_ms = [75., 135., 165.];
+        let windows = cfg.judge_windows();
+        for (offset, expected) in [(0., Judgement::PerfectPlus), (0.03, Judgement::Perfect), (0.05, Judgement::Great), (0.09, Judgement::Good), (0.12, Judgement::Ok), (0.15, Judgement::Meh), (0.20, Judgement::Bad), (0.23, Judgement::Miss)] {
+            for sign in [-1., 1.] { assert_eq!(judgement_of_offset(offset * sign, &windows) as u8, expected as u8); }
+        }
+        assert_eq!(judgement_of_offset(-0.072, &windows) as u8, Judgement::Good as u8);
+        assert_eq!(judgement_of_offset(0.072, &windows) as u8, Judgement::Great as u8);
+        for (n, bound) in [0.016, 0.040, 0.070, 0.100, 0.130, 0.160, 0.220].into_iter().enumerate() {
+            let expected = [4, 0, 5, 1, 6, 7, 2][n];
+            assert_eq!(judgement_of_offset(-bound, &windows) as u8, expected);
+            assert_ne!(super::judgement_at_distance(bound, &windows.for_offset(-1.), true) as u8, expected);
+        }
+        let mut j = JudgeInner::new(8); j.grading = cfg.judge_grading;
+        for (id, _) in super::GRADE_ORDER { j.commit(match id { 4 => Judgement::PerfectPlus, 0 => Judgement::Perfect, 5 => Judgement::Great, 1 => Judgement::Good, 6 => Judgement::Ok, 7 => Judgement::Meh, 2 => Judgement::Bad, _ => Judgement::Miss }, 0.); }
+        assert_eq!(j.counts(), [1; 8]); assert_eq!(j.max_combo, 6); assert_eq!(j.combo(), 0);
+        assert!((j.accuracy() - 4.25 / 8.).abs() < 1e-12);
+        assert_eq!(j.score(true), 531250); assert_eq!(j.score(false), 553125);
+        cfg.judge_grading.perfect_plus = false; cfg.theoretical_score = true; cfg.clamp_judge_windows();
+        assert!(!cfg.theoretical_score);
+        assert_eq!(judgement_of_offset(0., &cfg.judge_windows()) as u8, Judgement::Perfect as u8);
+        let mut j = JudgeInner::new(1); j.grading = cfg.judge_grading;
+        j.commit(Judgement::PerfectPlus, 0.);
+        assert_eq!(j.counts(), [1, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(j.result(false).displayed_score(true), 1000000);
+        assert!(!cfg.is_official_play(crate::config::Mods::empty()));
+        cfg.force_official_play(&mut crate::config::Mods::empty());
+        assert!(!cfg.judge_grading.detailed);
+    }
+
+    #[test]
     fn theoretical_result_bonus_does_not_change_saved_score() {
         let result = super::PlayResult {
             score: 1_000_000,
-            counts: [0, 0, 0, 0, 2000],
+            counts: [0, 0, 0, 0, 2000, 0, 0, 0],
             ..Default::default()
         };
         assert_eq!(result.displayed_score(true), 1_002_000);
@@ -773,6 +855,12 @@ mod tests {
             good: 0.16,
             bad: 0.22,
             fullscreen: false,
+            grading: Default::default(),
+            extended: [0.; 3],
+            extended_early: [0.; 3],
+            extended_late: [0.; 3],
+            early: [0.016, 0.08, 0.16, 0.22],
+            late: [0.016, 0.08, 0.16, 0.22],
         };
         assert!(matches!(judgement_of_offset(0.0, &limits), Judgement::PerfectPlus));
         assert!(matches!(judgement_of_offset(0.016, &limits), Judgement::PerfectPlus));
@@ -785,6 +873,17 @@ mod tests {
     }
 
     /// Perfect+ 与 Perfect 同权：同样的「完美」个数落在哪一档，准确率、分数、连击都应一致。
+    #[test]
+    fn sided_offset_tiering_covers_tail_and_pro_grades() {
+        let mut cfg = crate::config::Config::default();
+        cfg.judge_timing.early_ms = Some([16., 60., 100., 200.]);
+        cfg.judge_timing.late_ms = Some([20., 90., 180., 220.]);
+        let windows = cfg.judge_windows();
+        for (offset, expected) in [(-0.018, Judgement::Perfect), (0.018, Judgement::PerfectPlus), (-0.075, Judgement::Good), (0.075, Judgement::Perfect), (-0.150, Judgement::Bad), (0.150, Judgement::Good), (-0.201, Judgement::Miss), (0.201, Judgement::Bad)] {
+            assert_eq!(judgement_of_offset(offset, &windows) as u8, expected as u8);
+        }
+    }
+
     #[test]
     fn perfect_plus_weighs_like_perfect() {
         let mut a = JudgeInner::new(4);
@@ -799,8 +898,8 @@ mod tests {
         }
         b.commit(Judgement::Good, 0.1);
 
-        assert_eq!(a.counts(), [3, 1, 0, 0, 0]);
-        assert_eq!(b.counts(), [0, 1, 0, 0, 3]);
+        assert_eq!(a.counts(), [3, 1, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(b.counts(), [0, 1, 0, 0, 3, 0, 0, 0]);
         assert_eq!(a.accuracy(), b.accuracy());
         assert_eq!(a.score(false), b.score(false));
         assert_eq!(a.combo(), b.combo());
@@ -867,7 +966,7 @@ mod tests {
         assert_eq!(j.recent_hits().len(), MAX_RECENT_HITS);
     }
 
-    /// 血条：大 P/Perfect 回血、Bad/Miss 扣血；扣血受倍率影响，且夹在 0..=1，重开回到满血。
+    /// 血条：Perfect+/Perfect 回血、Bad/Miss 扣血；扣血受倍率影响，且夹在 0..=1，重开回到满血。
     #[test]
     fn hp_drains_and_heals() {
         let mut j = JudgeInner::new(64);
@@ -903,6 +1002,7 @@ type Judgements = Vec<(f64, u32, u32, Result<Judgement, bool>)>;
 
 #[repr(C)]
 pub struct Judge {
+    phigros: Option<phigros::Engine>,
     // notes of each line in order
     // LinkedList::drain_filter is unstable...
     pub notes: Vec<(Vec<u32>, usize)>,
@@ -965,6 +1065,7 @@ impl Judge {
                 .sum::<u32>();
         }
         Self {
+            phigros: None,
             notes,
             trackers: HashMap::new(),
             last_time: 0.,
@@ -981,6 +1082,7 @@ impl Judge {
     }
 
     pub fn reset(&mut self) {
+        self.phigros = None;
         self.notes.iter_mut().for_each(|it| it.1 = 0);
         self.trackers.clear();
         self.infected.clear();
@@ -994,6 +1096,7 @@ impl Judge {
     /// Releases still arrive while gameplay judgement is paused. Consuming
     /// their lifecycle prevents phantom infected fingers after resuming.
     pub fn observe_paused_input(&mut self) {
+        if let Some(engine) = &mut self.phigros { engine.clear_input(); }
         TOUCHES.with(|status| {
             let status = status.borrow();
             self.key_down_count = self.key_down_count.saturating_add_signed(status.key_delta);
@@ -1010,6 +1113,7 @@ impl Judge {
     /// Advance note pointers past notes before time `t`, marking them as judged.
     /// Used in exercise mode to skip notes before the exercise range start.
     pub fn advance_to(&mut self, chart: &mut Chart, t: f64) {
+        if let Some(engine) = &mut self.phigros { engine.advance_to(t); }
         for (line, (idx, st)) in chart.lines.iter_mut().zip(self.notes.iter_mut()) {
             while *st < idx.len() {
                 let note = &mut line.notes[idx[*st] as usize];
@@ -1024,7 +1128,10 @@ impl Judge {
         self.sound_cursor = self.sound_schedule.partition_point(|(time, _)| *time < t);
     }
 
+    pub fn set_grading(&mut self, grading: crate::config::JudgeGrading) { self.inner.grading = grading; }
+
     pub fn commit(&mut self, t: f64, what: Judgement, line_id: u32, note_id: u32, diff: f64) {
+        let what = if !self.inner.grading.perfect_plus && matches!(what, Judgement::PerfectPlus) { Judgement::Perfect } else { what };
         self.judgements.borrow_mut().push((t, line_id, note_id, Ok(what)));
         self.inner.commit(what, diff);
     }
@@ -1045,7 +1152,7 @@ impl Judge {
     }
 
     pub fn displayed_score(&self, no_combo_score: bool, theoretical: bool) -> u32 {
-        score_for_display(self.score(no_combo_score), self.inner.counts[Judgement::PerfectPlus as usize], theoretical)
+        score_for_display(self.score(no_combo_score), self.inner.counts[Judgement::PerfectPlus as usize], theoretical && self.inner.grading.perfect_plus)
     }
 
     pub(crate) fn on_new_frame() {
@@ -1175,6 +1282,10 @@ impl Judge {
             }
         });
         self.key_down_count = self.key_down_count.saturating_add_signed(key_delta);
+        let mut event_order = HashMap::new();
+        for (index, event) in events.iter().enumerate() {
+            event_order.entry(event.id).or_insert(index);
+        }
         {
             fn to_local(Vec2 { x, y }: Vec2) -> Point {
                 Point::new(x / screen_width() * 2. - 1., y / screen_height() * 2. - 1.)
@@ -1241,6 +1352,9 @@ impl Judge {
                 it
             })
             .collect();
+        if res.config.judge_algorithm == JudgeAlgorithm::Phigros {
+            touches.sort_by_key(|touch| (event_order.get(&touch.id).copied().unwrap_or(usize::MAX), touch.id));
+        }
         // Phigros 9th-chapter block areas: a touch that lands inside an active
         // zone (`enableTime <= t < disableTime`) is removed from the touch list,
         // so the notes underneath it are never hit and end up as misses.
@@ -1302,7 +1416,79 @@ impl Judge {
         // 尾判模式：hold 的尾判需要额外结算一次（`(line_id, note_id, 尾判偏移)`）。
         // 和 `judgements` 分开收集，避免在后面那个循环里再借 `self.notes`。
         let mut tail_judgements: Vec<(usize, u32, f64)> = Vec::new();
-        // clicks & flicks
+        if res.config.judge_algorithm == JudgeAlgorithm::Phigros {
+            let engine = self.phigros.get_or_insert_with(|| {
+                let specs = chart.lines.iter().enumerate().flat_map(|(line, value)| {
+                    value.notes.iter().enumerate().filter(|(_, n)| !n.fake).map(move |(id, n)| phigros::Spec {
+                        target: (line, id as u32), time: n.time,
+                        end: if let NoteKind::Hold { end_time, .. } = n.kind { end_time } else { n.time },
+                        kind: match n.kind { NoteKind::Click => phigros::Kind::Tap, NoteKind::Hold { .. } => phigros::Kind::Hold,
+                            NoteKind::Drag => phigros::Kind::Drag, NoteKind::Flick => phigros::Kind::Flick },
+                        skipped: matches!(n.judge, JudgeStatus::Judged),
+                    })
+                }).collect();
+                phigros::Engine::new(specs)
+            });
+            // world unit = physical screen height / 10, independent of note size and aspect override.
+            let world_scale = get_viewport().2 as f64 / screen_height() as f64 * 5.;
+            let mut fingers: Vec<_> = touches.iter().map(|touch| phigros::Finger {
+                id: touch.id, started: touch.phase == TouchPhase::Started,
+                world: [touch.position.x as f64 * world_scale, touch.position.y as f64 * world_scale], keyboard: false,
+            }).collect();
+            for key in 0..keys_down.max(u32::from(self.key_down_count != 0)) {
+                fingers.push(phigros::Finger { id: u64::MAX / 2 - key as u64, started: key < keys_down,
+                    world: [0., 0.], keyboard: true });
+            }
+            let (windows, events) = engine.step(&res.config, t, get_frame_time() as f64, res.dpi as f64, &fingers, |(line, id), finger| {
+                if finger >= touches.len() { return Some((0., 0.)); }
+                let p = pos[line][finger]?;
+                let note = &mut chart.lines[line].notes[id as usize];
+                note.object.translation.0.set_time(t);
+                Some((if res.windows.fullscreen { 0. } else {
+                    (p.x - note.object.translation.0.now()).abs() as f64 * world_scale / note.judge_area as f64
+                }, p.y as f64 * world_scale))
+            });
+            res.windows = windows;
+            for event in events {
+                let (line, id) = event.target;
+                let head_fx = if matches!(event.action, phigros::Action::Head { .. }) {
+                    chart.lines[line].notes[id as usize].object.set_time(t);
+                    let line = &chart.lines[line];
+                    let note = &line.notes[id as usize];
+                    Some((line.now_transform(res, &chart.lines) * note.object.now(res), note.rotation(line)))
+                } else { None };
+                let note = &mut chart.lines[line].notes[id as usize];
+                match event.action {
+                    phigros::Action::Head { judgement, offset } => {
+                        let perfect = matches!(judgement, Judgement::Perfect | Judgement::PerfectPlus);
+                        note.hitsound.play(res);
+                        if let Some((matrix, rotation)) = head_fx {
+                            let color = note.fx_color.unwrap_or_else(|| if perfect { res.res_pack.info.fx_perfect() } else { res.res_pack.info.fx_good() });
+                            res.with_model(matrix, |res| res.emit_at_origin(rotation, color));
+                        }
+                        self.judgements.borrow_mut().push((t, line as u32, id, Err(perfect)));
+                        self.inner.push_recent(offset, judgement, t);
+                        if res.config.hold_tail_judge { self.commit(t, judgement, line as u32, id, offset); }
+                        note.judge = JudgeStatus::Hold(perfect, t, note.time + offset * spd, false, f64::INFINITY);
+                    }
+                    phigros::Action::Score { judgement, offset } => {
+                        if res.config.hold_tail_judge && matches!(note.kind, NoteKind::Hold { .. }) {
+                            self.inner.push_recent(offset, judgement, t);
+                        }
+                        if let NoteKind::Hold { end_time, .. } = note.kind {
+                            // Keep a successful hold bright and emitting until its real tail.
+                            // The Phigros engine has already committed it and never scores it twice.
+                            if matches!(judgement, Judgement::Miss) || !note.judge.finish_hold_score(t, end_time) {
+                                note.judge = JudgeStatus::Judged;
+                            }
+                        } else { note.judge = JudgeStatus::Judged; }
+                        judgements.push((judgement, line, id, Some(note.time + offset * spd)));
+                    }
+                    phigros::Action::EndHold => note.judge = JudgeStatus::Judged,
+                }
+            }
+        } else {
+        // clicks & flicks (the established Phira Pro engine).
         for (id, touch) in touches.iter().enumerate() {
             let click = touch.phase == TouchPhase::Started;
             let flick =
@@ -1325,10 +1511,11 @@ impl Judge {
                         continue;
                     }
                     let dt = (note.time - t) / spd;
-                    if dt >= matcher.time_limit(limits.bad) {
+                    if dt >= matcher.time_limit(limits.early[3]) {
                         break;
                     }
                     // 晚按（dt < 0）时按配置放宽；默认 0 → 和早按完全对称。
+                    let limits = limits.for_offset(-dt);
                     let dt = judge_distance(-dt, late_leniency);
                     let x = &mut note.object.translation.0;
                     x.set_time(t);
@@ -1343,17 +1530,18 @@ impl Judge {
                     let gate = if matches!(note.kind, NoteKind::Click) {
                         limits.bad - limits.perfect * (dist - 0.9).max(0.)
                     } else {
-                        limits.good
+                        limits.acceptance()
                     };
                     if dt > gate {
                         continue;
                     }
-                    matcher.consider((line_id, *id), &note.kind, &note.judge, (t - note.time) / spd, dt, dist, limits.good);
+                    matcher.consider((line_id, *id), &note.kind, &note.judge, (t - note.time) / spd, dt, dist, limits.acceptance());
                 }
             }
             if let Some(candidate) = matcher.finish() {
                 let (line_id, id) = candidate.target;
                 let dt = candidate.dt;
+                let limits = limits.for_offset(candidate.offset);
                 let line = &mut chart.lines[line_id];
                 if candidate.protected {
                     let note = &mut line.notes[id as usize];
@@ -1369,33 +1557,19 @@ impl Judge {
                     if matches!(note.kind, NoteKind::Flick) {
                         continue; // to next loop
                     }
-                    if dt <= limits.good || matches!(note.kind, NoteKind::Hold { .. }) {
+                    if dt <= limits.acceptance() || matches!(note.kind, NoteKind::Hold { .. }) {
                         let perfect = dt <= limits.perfect;
                         match note.kind {
                             NoteKind::Click => {
                                 note.judge = JudgeStatus::Judged;
-                                let judgement = if dt <= limits.perfect_plus {
-                                    Judgement::PerfectPlus
-                                } else if perfect {
-                                    Judgement::Perfect
-                                } else {
-                                    Judgement::Good
-                                };
+                                let judgement = judgement_at_distance(dt, &limits, false);
                                 judgements.push((judgement, line_id, id, Some(t)));
                             }
                             NoteKind::Hold { .. } => {
                                 note.hitsound.play(res);
                                 self.judgements.borrow_mut().push((t, line_id as _, id, Err(perfect)));
                                 // 头判的偏移：按下时就进判定条（原来要等按住结束才显示）。
-                                let head_j = if perfect {
-                                    if dt <= limits.perfect_plus {
-                                        Judgement::PerfectPlus
-                                    } else {
-                                        Judgement::Perfect
-                                    }
-                                } else {
-                                    Judgement::Good
-                                };
+                                let head_j = judgement_at_distance(dt, &limits, false);
                                 self.inner.push_recent((t - note.time) / spd, head_j, t);
                                 // 尾判模式：头判在按下时立即结算，尾判等松手 / 结尾再结算。
                                 if res.config.hold_tail_judge {
@@ -1442,22 +1616,15 @@ impl Judge {
                 .min_by_key(|(line_id, id)| chart.lines[*line_id].notes[*id as usize].time.not_nan())
             {
                 let note = &mut chart.lines[line_id].notes[id as usize];
+                let limits = limits.for_offset((t - note.time) / spd);
                 let dt = judge_distance((t - note.time) / spd, late_leniency);
-                if dt <= if matches!(note.kind, NoteKind::Click) { limits.bad } else { limits.good } {
+                if dt <= if matches!(note.kind, NoteKind::Click) { limits.bad } else { limits.acceptance() } {
                     let perfect = dt <= limits.perfect;
                     match note.kind {
                         NoteKind::Click => {
                             note.judge = JudgeStatus::Judged;
                             judgements.push((
-                                if dt <= limits.perfect_plus {
-                                    Judgement::PerfectPlus
-                                } else if perfect {
-                                    Judgement::Perfect
-                                } else if dt <= limits.good {
-                                    Judgement::Good
-                                } else {
-                                    Judgement::Bad
-                                },
+                                judgement_at_distance(dt, &limits, false),
                                 line_id,
                                 id,
                                 None,
@@ -1467,15 +1634,7 @@ impl Judge {
                             note.hitsound.play(res);
                             self.judgements.borrow_mut().push((t, line_id as _, id, Err(perfect)));
                             // 头判的偏移：按下时就进判定条（原来要等按住结束才显示）。
-                            let head_j = if perfect {
-                                if dt <= limits.perfect_plus {
-                                    Judgement::PerfectPlus
-                                } else {
-                                    Judgement::Perfect
-                                }
-                            } else {
-                                Judgement::Good
-                            };
+                            let head_j = judgement_at_distance(dt, &limits, false);
                             self.inner.push_recent((t - note.time) / spd, head_j, t);
                             // 尾判模式：头判在按下时立即结算，尾判等松手 / 结尾再结算。
                             if res.config.hold_tail_judge {
@@ -1513,7 +1672,7 @@ impl Judge {
                                     *up_time = t;
                                 }
                                 // 松手位置离结尾还远（超出 bad 窗）→ 尾判直接 Miss。
-                                if t > *up_time + UP_TOLERANCE && (*end_time - t) / spd > limits.bad {
+                                if t > *up_time + UP_TOLERANCE && (*end_time - t) / spd > limits.early[3] {
                                     note.judge = JudgeStatus::Judged;
                                     judgements.push((Judgement::Miss, line_id, *id, None));
                                 }
@@ -1522,7 +1681,7 @@ impl Judge {
                         }
                     }
                     if let JudgeStatus::Hold(.., ref mut pre_judge, ref mut up_time) = note.judge {
-                        if (*end_time - t) / spd <= limits.bad {
+                        if (*end_time - t) / spd <= limits.early[3] {
                             *pre_judge = true;
                             continue;
                         }
@@ -1551,7 +1710,7 @@ impl Judge {
                 }
                 // process miss
                 let dt = (t - note.time) / spd;
-                if dt > limits.bad + late_leniency {
+                if dt > limits.late[3] + late_leniency {
                     note.judge = JudgeStatus::Judged;
                     judgements.push((Judgement::Miss, line_id, *id, None));
                     if res.config.hold_tail_judge && matches!(note.kind, NoteKind::Hold { .. }) {
@@ -1560,12 +1719,13 @@ impl Judge {
                     }
                     continue;
                 }
-                if -dt > limits.bad {
+                if -dt > limits.early[3] {
                     break;
                 }
                 if !matches!(note.kind, NoteKind::Drag) && (self.key_down_count == 0 || !matches!(note.kind, NoteKind::Flick)) {
                     continue;
                 }
+                let limits = limits.for_offset(dt);
                 let dt = judge_distance(dt, late_leniency);
                 let x = &mut note.object.translation.0;
                 x.set_time(t);
@@ -1604,26 +1764,19 @@ impl Judge {
                         }
                     }
                 }
-                if let JudgeStatus::Hold(perfect, .., diff, true, _) = note.judge {
+                if let JudgeStatus::Hold(_, .., diff, true, _) = note.judge {
                     if let NoteKind::Hold { end_time, .. } = &note.kind {
                         if *end_time <= t {
                             note.judge = JudgeStatus::Judged;
-                            let judgement = if perfect {
-                                if judge_distance((diff - note.time) / spd, late_leniency) <= limits.perfect_plus {
-                                    Judgement::PerfectPlus
-                                } else {
-                                    Judgement::Perfect
-                                }
-                            } else {
-                                Judgement::Good
-                            };
+                            let head_side = limits.for_offset((diff - note.time) / spd);
+                            let judgement = judgement_at_distance(judge_distance((diff - note.time) / spd, late_leniency), &head_side, false);
                             judgements.push((judgement, line_id, *id, Some(diff)));
                             continue;
                         }
                     }
                 }
                 // TODO adjust
-                let ghost_t = t + limits.good;
+                let ghost_t = t + limits.acceptance();
                 if matches!(note.kind, NoteKind::Click) {
                     if ghost_t < note.time {
                         break;
@@ -1642,7 +1795,7 @@ impl Judge {
                     };
                     note.judge = JudgeStatus::Judged;
                     if !matches!(note.kind, NoteKind::Click) {
-                        let judgement = if diff.is_some_and(|d| (d - note.time).abs() / spd <= limits.perfect_plus) {
+                        let judgement = if diff.is_some_and(|d| (d - note.time).abs() / spd <= limits.for_offset((d - note.time) / spd).perfect_plus) {
                             Judgement::PerfectPlus
                         } else {
                             Judgement::Perfect
@@ -1651,6 +1804,7 @@ impl Judge {
                     }
                 }
             }
+        }
         }
         for (judgement, line_id, id, diff) in judgements {
             let line = &mut chart.lines[line_id];
@@ -1677,16 +1831,16 @@ impl Judge {
                 continue;
             }
             if match judgement {
-                // 大 P 与 P 都算命中：都要出打击特效与音效。
-                // （漏掉 `PerfectPlus` 会让大 P 以及自动判定的拖拽 / 滑动音符完全没有特效和音效，
-                // 多押时几路按键的时间戳略有差异、常常一个大 P 一个不是，看起来就像「只渲染了一个」。）
+                // Perfect+ 与 P 都算命中：都要出打击特效与音效。
+                // （漏掉 `PerfectPlus` 会让Perfect+ 以及自动判定的拖拽 / 滑动音符完全没有特效和音效，
+                // 多押时几路按键的时间戳略有差异、常常一个Perfect+ 一个不是，看起来就像「只渲染了一个」。）
                 Judgement::Perfect | Judgement::PerfectPlus => {
                     res.with_model(line_tr * note.object.now(res), |res| {
                         res.emit_at_origin(note.rotation(line), note.fx_color.unwrap_or_else(|| res.res_pack.info.fx_perfect()))
                     });
                     true
                 }
-                Judgement::Good => {
+                Judgement::Good | Judgement::Great | Judgement::Ok | Judgement::Meh => {
                     res.with_model(line_tr * note.object.now(res), |res| {
                         res.emit_at_origin(note.rotation(line), note.fx_color.unwrap_or_else(|| res.res_pack.info.fx_good()))
                     });
@@ -1811,7 +1965,7 @@ impl Judge {
     }
 
     #[inline]
-    pub fn counts(&self) -> [u32; 5] {
+    pub fn counts(&self) -> [u32; 8] {
         self.inner.counts()
     }
 
@@ -1908,11 +2062,12 @@ impl EventHandler for Handler {
 
 #[derive(Default)]
 pub struct PlayResult {
+    pub grading: crate::config::JudgeGrading,
     pub score: u32,
     pub accuracy: f64,
     pub max_combo: u32,
     pub num_of_notes: u32,
-    pub counts: [u32; 5],
+    pub counts: [u32; 8],
     pub early: u32,
     pub late: u32,
     /// Score-protocol RMS timing error (seconds), including 250ms misses.
@@ -1923,13 +2078,13 @@ pub struct PlayResult {
     pub offsets: Vec<f64>,
     /// 判定时间误差分布（-HIST_MAX_MS .. +HIST_MAX_MS，共 HIST_BUCKETS 个桶）。
     pub hist: [u32; HIST_BUCKETS],
-    pub early_kind: [u32; 5],
-    pub late_kind: [u32; 5],
+    pub early_kind: [u32; 8],
+    pub late_kind: [u32; 8],
 }
 
 impl PlayResult {
     pub fn displayed_score(&self, theoretical: bool) -> u32 {
-        score_for_display(self.score, self.counts[Judgement::PerfectPlus as usize], theoretical)
+        score_for_display(self.score, self.counts[Judgement::PerfectPlus as usize], theoretical && self.grading.perfect_plus)
     }
 }
 

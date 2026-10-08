@@ -305,6 +305,12 @@ fn load_block_material(disabled: bool, hover: bool, colored: bool) -> Result<Mat
         let end = start + fragment[start..].find('}').expect("hover shader body") + 1;
         fragment.replace_range(start..end, "float hoverSample(vec2 uv) { return 0.0; }");
     }
+    if colored {
+        // iOS/GLES may execute mediump temporaries in binary16. Keep palette
+        // and HSV intermediates highp so neutral event colors cannot acquire
+        // channel differences at rims. Native-red specialization stays exact.
+        fragment = fragment.replace("mediump", "highp");
+    }
     load_material(VERTEX, &fragment, params).map(|material| {
         for (name, value) in FLOATS {
             material.set_uniform(name, *value);
@@ -343,7 +349,7 @@ static MATERIAL: Lazy<Option<[Material; 6]>> = Lazy::new(|| {
     .ok()
 });
 
-pub(crate) fn prepare_block_effects() {
+pub(crate) fn prepare_block_effects() -> bool {
     mask::prepare_workers();
     // Link shaders and decode their textures during chart loading, before a
     // late first block would stall a live judgement frame.
@@ -374,6 +380,7 @@ pub(crate) fn prepare_block_effects() {
         gl_use_default_material();
         unsafe { get_internal_gl() }.flush();
     }
+    MATERIAL.is_some()
 }
 
 pub(crate) fn prepare_block_geometry(areas: &[BlockArea], width: usize, height: usize, aspect: f32) {
@@ -477,7 +484,7 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         frame.masks.render_displaced(width, height, aspect, zones, time);
         let colored = {
             let FrameTextures { masks, colors, .. } = &mut *frame;
-            colors.update(masks, aspect, zones)
+            colors.update(masks, aspect, zones, time)
         };
         if colored && frame.uploaded_colors != Some(frame.colors.revision) {
             for layer in 0..2 {

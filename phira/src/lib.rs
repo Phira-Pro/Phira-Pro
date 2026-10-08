@@ -15,6 +15,7 @@ pub mod deeplink;
 mod font_store;
 mod frame_profile;
 mod history;
+mod judgement_presets;
 mod hud;
 mod icons;
 mod images;
@@ -118,8 +119,8 @@ pub fn get_data_mut() -> &'static mut Data {
 }
 
 pub fn save_data() -> Result<()> {
-    std::fs::write(format!("{}/data.json", dir::root()?), serde_json::to_string(get_data())?)?;
-    Ok(())
+    let path = std::path::PathBuf::from(dir::root()?).join("data.json");
+    transfer::write_atomic(&path, serde_json::to_string(get_data())?.as_bytes())
 }
 
 mod dir {

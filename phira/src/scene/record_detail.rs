@@ -100,15 +100,16 @@ impl RecordDetailScene {
             max_combo: r.max_combo,
             num_of_notes: r.num_of_notes,
             // 历史记录把 Perfect+ 并入 Perfect：counts[0]=Perfect(含 P+)，后面依次 Good/Bad/Miss。
-            counts: [r.counts[0], r.counts[1], r.counts[2], r.counts[3], 0],
+            counts: r.grade_counts.unwrap_or([r.counts[0], r.counts[1], r.counts[2], r.counts[3], 0, 0, 0, 0]),
+            grading: r.grading.unwrap_or(prpr::config::JudgeGrading { perfect_plus: false, ..Default::default() }),
             early: 0,
             late: 0,
             std: r.std,
             mean: 0.,
             offsets: Vec::new(),
             hist,
-            early_kind: [0; 5],
-            late_kind: [0; 5],
+            early_kind: [0; 8],
+            late_kind: [0; 8],
         }
     }
 }
@@ -201,14 +202,13 @@ impl Scene for RecordDetailScene {
         let sector_start = p * (angle_end - angle_start - center_angle) + angle_start;
         let project_y = ct.y + (1. - ct.x) * (sector_start + center_angle).sin();
         let pf = ran(t, 2., 2.4);
+        let res = self.play_result();
 
         if project_y < top {
             let c = ui.background();
             let y = -top + 0.12;
             let br = Rect::new(-1., y, 2., 0.34);
             ui.fill_rect(br, (c, (-1., y), Color { a: 0.1, ..c }, (1., y + 0.3)));
-
-            let res = self.play_result();
 
             let y = y - 0.07;
             ui.fill_rect(Rect::new(-1., y, 2., 0.07), Color { a: 0.3, ..c });
@@ -309,17 +309,19 @@ impl Scene for RecordDetailScene {
             let mut x = -0.26 + (1.2 - y) / 1.9 * 0.4;
             let lf = x;
             let s = 0.64;
-            for (id, title) in [(0usize, "PERFECT"), (1, "GOOD"), (2, "BAD"), (3, "MISS")] {
-                ui.text(title)
-                    .pos(x, y)
-                    .anchor(1., 0.)
-                    .color(semi_white(0.6))
-                    .size(s)
-                    .draw_using(&BOLD_FONT);
-                let r = ui.text(res.counts[id].to_string()).pos(x + 0.06, y).size(s).draw_using(&BOLD_FONT);
-                let dy = r.h + 0.03;
-                y += dy;
-                x -= dy / 1.9 * 0.4;
+            if !res.grading.detailed {
+                for (id, title) in prpr::judge::visible_grades(res.grading) {
+                    ui.text(title)
+                        .pos(x, y)
+                        .anchor(1., 0.)
+                        .color(semi_white(0.6))
+                        .size(s)
+                        .draw_using(&BOLD_FONT);
+                    let r = ui.text(res.counts[id].to_string()).pos(x + 0.06, y).size(s).draw_using(&BOLD_FONT);
+                    let dy = r.h + 0.03;
+                    y += dy;
+                    x -= dy / 1.9 * 0.4;
+                }
             }
 
             // 连击进度条
@@ -426,6 +428,12 @@ impl Scene for RecordDetailScene {
             ui.fill_rect(sr, (*self.illustration, sr.feather(0.15)));
         });
 
+        if project_y < top && res.grading.detailed {
+            ui.alpha(pf, |ui| {
+                prpr::ui::draw_judgement_grid(ui, &res, prpr::ui::judgement_grid_area(ui.top), false);
+            });
+        }
+
         // —— 底部按钮：返回 / 播放回放 / 打开回放文件 ——
         ui.alpha(pf, |ui| {
             let t = tm.real_time() as f32;
@@ -454,7 +462,7 @@ impl Scene for RecordDetailScene {
             });
             #[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
             {
-                r.x -= r.w + 0.02;
+                if res.grading.detailed { r.y -= r.h + 0.02; } else { r.x -= r.w + 0.02; }
                 self.btn_open.render_shadow(ui, r, t, |ui, path| {
                     ui.fill_path(&path, Color::from_hex_rgb(0x455a64));
                     ui.text(tl!("record-open"))

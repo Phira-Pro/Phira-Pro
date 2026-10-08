@@ -61,6 +61,11 @@ jobs:
           key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'prpr-avc/ffmpeg-version') }}
           restore-keys: desktop-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Verify judgement and preset regressions
+        run: |
+          cargo test --locked -p prpr --no-default-features --lib
+          cargo test --locked -p phira --no-default-features --lib
+
       - name: Build and package
         run: python scripts/build.py --platform ${{ matrix.platform }} --package --output dist/${{ matrix.platform }}
 

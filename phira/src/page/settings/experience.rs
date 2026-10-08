@@ -81,7 +81,7 @@ impl ExperienceList {
         }
         let config = &mut get_data_mut().config;
         if self.theoretical.touch(touch, t) {
-            config.theoretical_score ^= true;
+            config.theoretical_score = config.judge_grading.perfect_plus && !config.theoretical_score;
             return Ok(Some(true));
         }
         if self.loudness.touch(touch, t) {
@@ -182,7 +182,7 @@ impl ExperienceList {
         macro_rules! item { ($($body:tt)*) => {{ $($body)* ui.dy(item_row_h()); h += item_row_h(); }}; }
         let config = &get_data().config;
         item! { render_title(ui, tl!("font-display-size"), None); self.font.render(ui, rr, t); }
-        item! { render_title(ui, tl!("theoretical-score"), Some(tl!("theoretical-score-sub"))); render_switch(ui, rr, t, &mut self.theoretical, config.theoretical_score); }
+        item! { render_title(ui, tl!("theoretical-score"), Some(if config.judge_grading.perfect_plus { tl!("theoretical-score-sub") } else { tl!("theoretical-score-disabled") })); render_switch(ui, rr, t, &mut self.theoretical, config.theoretical_score); }
         item! { render_title(ui, tl!("uniform-loudness"), Some(tl!("uniform-loudness-sub"))); render_switch(ui, rr, t, &mut self.loudness, config.uniform_loudness); }
         if config.uniform_loudness {
             item! { render_title(ui, tl!("uniform-level"), None); self.level.render(ui, rr, t, config.loudness, format!("{:.2}", config.loudness)); }

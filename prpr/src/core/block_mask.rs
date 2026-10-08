@@ -119,6 +119,26 @@ pub(super) struct Masks {
 }
 
 impl Masks {
+    /// Palette sampling follows the exact Compose source texel, including its
+    /// binary16 noise rounding and clamp. Coverage remains independent of RGB.
+    pub(super) fn compose_source_pixel(&self, pixel: usize, time: f32) -> usize {
+        let uv = if self.last_time == Some(time) && self.warp_x.len() == self.width && self.warp_y.len() == self.height {
+            let (u, xa, xb) = self.warp_x[pixel % self.width];
+            let (v, row) = self.warp_y[pixel / self.width];
+            let pixels = DISPLACE.as_raw();
+            let a = medium(medium(pixels[row + xa] as f32 / 255.) - 0.5);
+            let b = medium(medium(pixels[row + xb] as f32 / 255.) - 0.5);
+            let d = 0.70703125;
+            [(d * a - d * b) * 0.1 + u, (d * a + d * b) * 0.1 + v]
+        } else {
+            compose_uv([((pixel % self.width) as f32 + 0.5) / self.width as f32,
+                ((pixel / self.width) as f32 + 0.5) / self.height as f32], time)
+        };
+        let x = (uv[0] * self.width as f32).clamp(0., (self.width - 1) as f32) as usize;
+        let y = (uv[1] * self.height as f32).clamp(0., (self.height - 1) as f32) as usize;
+        y * self.width + x
+    }
+
     /// Choose the side contributing visible color after native subtraction.
     /// Equal coverage is a hole, not a color seed for its edge or glow.
     pub(super) fn color_source(&self, layer: usize, pixel: usize) -> Option<bool> {

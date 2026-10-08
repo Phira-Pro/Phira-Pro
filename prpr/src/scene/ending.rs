@@ -126,7 +126,7 @@ impl EndingScene {
             target: None,
             audio,
             bgm,
-            update_state: if upload_task.is_some() {
+            update_state: if upload_task.is_some() || result.grading.detailed {
                 None
             } else {
                 let (best, improvement) = if (result.score as i32) > (historic_best as i32) {
@@ -425,31 +425,33 @@ impl Scene for EndingScene {
             let mut x = -0.26 + (1.2 - y) / 1.9 * 0.4;
             let lf = x;
             let s = 0.64;
-            for (id, title) in [(4usize, "PERFECT+"), (0, "PERFECT"), (1, "GOOD"), (2, "BAD"), (3, "MISS")] {
-                ui.text(title)
-                    .pos(x, y)
-                    .anchor(1., 0.)
-                    .color(semi_white(0.6))
-                    .size(s)
-                    .draw_using(&BOLD_FONT);
-                let r = if self.detail_mode && id != 3 {
-                    let r = ui
-                        .text(format!("-{}", res.early_kind[id]))
-                        .pos(x + 0.03, y)
+            if !res.grading.detailed {
+                for (id, title) in crate::judge::visible_grades(res.grading) {
+                    ui.text(title)
+                        .pos(x, y)
+                        .anchor(1., 0.)
+                        .color(semi_white(0.6))
                         .size(s)
-                        .color(Color::from_hex_rgb(0x81d4fa))
                         .draw_using(&BOLD_FONT);
-                    ui.text(format!("+{}", res.late_kind[id]))
-                        .pos(r.right() + 0.01, y)
-                        .size(s)
-                        .color(Color::from_hex_rgb(0xffab91))
-                        .draw_using(&BOLD_FONT)
-                } else {
-                    ui.text(res.counts[id].to_string()).pos(x + 0.06, y).size(s).draw_using(&BOLD_FONT)
-                };
-                let dy = r.h + 0.03;
-                y += dy;
-                x -= dy / 1.9 * 0.4;
+                    let r = if self.detail_mode && id != 3 {
+                        let r = ui
+                            .text(format!("-{}", res.early_kind[id]))
+                            .pos(x + 0.03, y)
+                            .size(s)
+                            .color(Color::from_hex_rgb(0x81d4fa))
+                            .draw_using(&BOLD_FONT);
+                        ui.text(format!("+{}", res.late_kind[id]))
+                            .pos(r.right() + 0.01, y)
+                            .size(s)
+                            .color(Color::from_hex_rgb(0xffab91))
+                            .draw_using(&BOLD_FONT)
+                    } else {
+                        ui.text(res.counts[id].to_string()).pos(x + 0.06, y).size(s).draw_using(&BOLD_FONT)
+                    };
+                    let dy = r.h + 0.03;
+                    y += dy;
+                    x -= dy / 1.9 * 0.4;
+                }
             }
 
             let p = ran(t, 0.8, 1.8);
@@ -551,7 +553,7 @@ impl Scene for EndingScene {
             let has_text = !status_text.is_empty();
             let has_icons = !active_mod_indices.is_empty();
             if has_text || has_icons {
-                let text_size = 0.5;
+                let text_size = 0.4;
                 let skew_height_ratio = skew_factor;
                 let mut current_x = base_x;
                 let para_h = 0.04;
@@ -664,6 +666,13 @@ impl Scene for EndingScene {
             ui.fill_rect(sr, (*self.illustration, sr.feather(0.15)));
         });
 
+        // Draw the left-aligned table above the illustration so its opening mask cannot hide labels.
+        if project_y < top && self.result.grading.detailed {
+            ui.alpha(pf, |ui| {
+                crate::ui::draw_judgement_grid(ui, &self.result, crate::ui::judgement_grid_area(ui.top), self.detail_mode);
+            });
+        }
+
         ui.alpha(pf, |ui| {
             let s = 0.05;
             let pad = 0.02;
@@ -739,8 +748,12 @@ impl Scene for EndingScene {
                     .draw_using(&BOLD_FONT);
             });
 
-            // 「应用推荐偏移」放在「重试」左侧，样式与重试一致（灰底 + 投影）。
-            r.x -= r.w + 0.02;
+            // Detailed grades occupy the space left of RETRY; put this action above RETRY.
+            if self.result.grading.detailed {
+                r.y -= r.h + 0.02;
+            } else {
+                r.x -= r.w + 0.02;
+            }
             if !self.offset_applied && self.can_apply() {
                 self.btn_apply.render_shadow(ui, r, t, |ui, path| {
                     ui.fill_path(&path, Color::from_hex_rgb(0x78909c));

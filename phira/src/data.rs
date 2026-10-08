@@ -102,6 +102,8 @@ fn default_anys_gateway() -> String {
 #[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Data {
+    pub judge_presets: Vec<crate::judgement_presets::JudgePreset>,
+    pub judge_preset_id: Option<String>,
     pub me: Option<User>,
     pub charts: Vec<LocalChart>,
     pub local_records: HashMap<String, Option<SimpleRecord>>,
@@ -141,6 +143,8 @@ pub struct Data {
 
 impl Data {
     pub async fn init(&mut self) -> Result<()> {
+        self.config.phigros_rules.sanitize();
+        for preset in &mut self.judge_presets { preset.settings.normalize(); }
         fn persist_retry_state(data: &Data) {
             let res = (|| -> Result<()> {
                 let root = dir::root().with_context(|| "failed to get root directory")?;

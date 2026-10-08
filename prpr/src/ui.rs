@@ -1,4 +1,6 @@
 //! UI utilities.
+mod judgement_grid;
+pub use judgement_grid::{draw_judgement_grid, grade_cells, judgement_grid_area};
 prpr_l10n::tl_file!("scene" ttl);
 mod billboard;
 pub use billboard::{BillBoard, Message, MessageHandle, MessageKind};

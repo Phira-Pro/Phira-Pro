@@ -7,13 +7,14 @@
 //   保证分数 / 准度 / 连击与原始游玩完全一致。
 //
 // 回放文件 `.phirar` 是自包含的二进制格式（魔数沿用 PHIRAREC 家族）：
-//   magic "PHIRAREC" (8B) | version u32 = 3 |
+//   magic "PHIRAREC" (8B) | version u32 = 4 |
 //   chart_kind u8 (0=谱面 id，1=本地路径) |
 //   谱面引用：id → i32；路径 → u8 长度 + UTF-8 字节 |
-//   offset f32 | speed f32 | mods u32 |
+//   offset f32 | speed f32 | mods u32 | Perfect+ u8 | detailed u8 |
+//   chart_updated i64 | chart_file u32 length + UTF-8 |
 //   touch_count u32 | judge_count u32 |
 //   touches[]: u8 phase(0=按下 1=移动 2=抬起) + i8 触点 id + f32 x + f32 y + f32 t
-//   judges[]: f64 t + u32 判定线 + u32 音符 + u8 判定(0..=4) + f32 diff
+//   judges[]: f64 t + u32 判定线 + u32 音符 + u8 判定(0..=9) + f32 diff
 //
 // 存储位置：`<data>/replays/<chart-key>_<时间戳>.phirar`，文件名与成绩历史记录的
 // `key + time` 一一对应，因此「本地成绩详情」页可以按名字直接找到对应的回放。
@@ -52,7 +53,7 @@ pub struct JudgeEvent {
     pub t: f64,
     pub line: u32,
     pub note: u32,
-    /// 0=Perfect 1=Good 2=Bad 3=Miss 4=PerfectPlus 5=HoldPerfect 6=HoldGood
+    /// 0=Perfect 1=Good 2=Bad 3=Miss 4=PerfectPlus 5=HoldPerfect 6=HoldGood 7=Great 8=Ok 9=Meh
     pub kind: u8,
     pub diff: f32,
 }
@@ -71,6 +72,7 @@ pub struct Replay {
     pub offset: f32,
     pub speed: f32,
     pub mods: u32,
+    pub grading: prpr::config::JudgeGrading,
     pub touches: Vec<TouchEvent>,
     pub judges: Vec<JudgeEvent>,
     /// 录制时该在线谱面的压缩包 URL（内容寻址，每个版本不变），用于回放时下载对应版本。
@@ -116,7 +118,7 @@ pub fn save(replay: &Replay, path: &PathBuf) -> Result<()> {
     }
     let mut buf = Vec::new();
     buf.write_all(b"PHIRAREC")?;
-    buf.write_all(&3u32.to_le_bytes())?;
+    buf.write_all(&4u32.to_le_bytes())?;
     match &replay.chart {
         None => buf.write_all(&[0])?,
         Some(ChartRef::Id(id)) => {
@@ -132,6 +134,7 @@ pub fn save(replay: &Replay, path: &PathBuf) -> Result<()> {
     buf.write_all(&replay.offset.to_le_bytes())?;
     buf.write_all(&replay.speed.to_le_bytes())?;
     buf.write_all(&replay.mods.to_le_bytes())?;
+    buf.write_all(&[u8::from(replay.grading.perfect_plus), u8::from(replay.grading.detailed)])?;
     buf.write_all(&replay.chart_updated.unwrap_or(i64::MIN).to_le_bytes())?;
     let file = replay.chart_file.as_deref().unwrap_or("");
     let fb = file.as_bytes();
@@ -159,17 +162,17 @@ pub fn load(path: &std::path::Path) -> Result<Replay> {
     }
     let version = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
     match version {
-        3 => parse_v3(&bytes),
+        3 | 4 => parse_v3(&bytes),
         0 | 1 => parse_phirarec(&bytes, version),
         _ => anyhow::bail!("不支持的版本号：{version}"),
     }
 }
 
-/// 解析 Phira Pro 自己的回放格式（v3）。
+/// 解析 Phira Pro 自己的回放格式（v3 / v4）。
 fn parse_v3(bytes: &[u8]) -> Result<Replay> {
     let mut r = FileCursor::new(bytes);
     r.take(8)?; // magic
-    r.u32()?; // version
+    let version = r.u32()?; // version
     let mut chart = None;
     match r.u8()? {
         0 => chart = Some(ChartRef::Id(r.i32()?)),
@@ -183,6 +186,11 @@ fn parse_v3(bytes: &[u8]) -> Result<Replay> {
     let offset = r.f32()?;
     let speed = r.f32()?;
     let mods = r.u32()?;
+    let grading = if version >= 4 {
+        let p = r.u8()?; let d = r.u8()?;
+        anyhow::ensure!(p <= 1 && d <= 1, "invalid replay grading flags");
+        prpr::config::JudgeGrading { perfect_plus: p != 0, detailed: d != 0, ..Default::default() }
+    } else { Default::default() };
     let cu = r.i64()?;
     let chart_updated = if cu == i64::MIN { None } else { Some(cu) };
     let flen = r.u32()? as usize;
@@ -213,7 +221,7 @@ fn parse_v3(bytes: &[u8]) -> Result<Replay> {
             diff: r.f32()?,
         });
     }
-    Ok(Replay { chart, offset, speed, mods, touches, judges, chart_file, chart_updated })
+    Ok(Replay { chart, offset, speed, mods, grading, touches, judges, chart_file, chart_updated })
 }
 
 /// 解析官方 Java 回放器 / 联机监视器生成的 `.phirarec`（JPhiraRec v0 / v1）。
@@ -307,6 +315,7 @@ fn parse_phirarec(bytes: &[u8], version: u32) -> Result<Replay> {
         offset: 0.,
         speed: 1.,
         mods: 0,
+        grading: Default::default(),
         touches,
         judges,
         chart_file: None,
@@ -316,6 +325,27 @@ fn parse_phirarec(bytes: &[u8], version: u32) -> Result<Replay> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn eight_grade_replay_roundtrip_and_v3_compatibility() {
+        let file = std::env::temp_dir().join(format!("phira-grades-{}.phirar", uuid::Uuid::new_v4()));
+        let mut replay = super::Replay { chart: Some(super::ChartRef::Id(338)), speed: 1., ..Default::default() };
+        replay.grading.perfect_plus = false; replay.grading.detailed = true;
+        for id in [4, 0, 5, 1, 6, 7, 2, 3] {
+            let grade = match id { 4 => prpr::judge::Judgement::PerfectPlus, 0 => prpr::judge::Judgement::Perfect, 5 => prpr::judge::Judgement::Great, 1 => prpr::judge::Judgement::Good, 6 => prpr::judge::Judgement::Ok, 7 => prpr::judge::Judgement::Meh, 2 => prpr::judge::Judgement::Bad, _ => prpr::judge::Judgement::Miss };
+            replay.judges.push(super::JudgeEvent { kind: super::judge_kind(&Ok(grade)), ..Default::default() });
+        }
+        super::save(&replay, &file).unwrap();
+        let loaded = super::load(&file).unwrap();
+        assert!(!loaded.grading.perfect_plus && loaded.grading.detailed);
+        assert_eq!(loaded.judges.iter().map(|e| e.kind).collect::<Vec<_>>(), [4, 0, 7, 1, 8, 9, 2, 3]);
+        let mut bytes = std::fs::read(&file).unwrap();
+        bytes[8..12].copy_from_slice(&3u32.to_le_bytes());
+        bytes.drain(29..31); // v4 flags after chart ID, offset, speed and mods
+        let legacy = super::parse_v3(&bytes).unwrap();
+        assert!(legacy.grading.perfect_plus && !legacy.grading.detailed);
+        assert_eq!(legacy.judges.len(), 8);
+        std::fs::remove_file(file).unwrap();
+    }
     #[test]
     fn parse_sample_phirarec() {
         // 用随回放器附带的真实样本验证 JPhiraRec v0 解析。
@@ -453,6 +483,9 @@ fn judge_kind(res: &Result<prpr::judge::Judgement, bool>) -> u8 {
         Ok(prpr::judge::Judgement::Bad) => 2,
         Ok(prpr::judge::Judgement::Miss) => 3,
         Ok(prpr::judge::Judgement::PerfectPlus) => 4,
+        Ok(prpr::judge::Judgement::Great) => 7,
+        Ok(prpr::judge::Judgement::Ok) => 8,
+        Ok(prpr::judge::Judgement::Meh) => 9,
         Err(true) => 5,  // HoldPerfect
         Err(false) => 6, // HoldGood
     }
@@ -464,6 +497,7 @@ struct Pending {
     offset: f32,
     speed: f32,
     mods: u32,
+    grading: prpr::config::JudgeGrading,
     chart_file: Option<String>,
     chart_updated: Option<i64>,
     touches: Vec<TouchEvent>,
@@ -492,6 +526,7 @@ pub fn recorder(chart: Option<ChartRef>, offset: f32, speed: f32, mods: u32) -> 
             offset,
             speed,
             mods,
+            grading: crate::get_data().config.judge_grading,
             chart_file,
             chart_updated,
             touches: Vec::new(),
@@ -502,7 +537,7 @@ pub fn recorder(chart: Option<ChartRef>, offset: f32, speed: f32, mods: u32) -> 
         PENDING.with(|it| {
             let mut g = it.borrow_mut();
             let Some(p) = g.as_mut() else { return };
-            let _ = res;
+            p.grading = res.config.judge_grading;
             // 触摸帧：非 Stationary 才记录，避免一帧刷好几条重复数据。
             for touch in Judge::get_touches() {
                 if matches!(touch.phase, macroquad::prelude::TouchPhase::Stationary) {
@@ -544,6 +579,7 @@ pub fn save_recording(key: &str, time_ms: i64) -> Option<PathBuf> {
         offset: p.offset,
         speed: p.speed,
         mods: p.mods,
+        grading: p.grading,
         touches: p.touches,
         judges: p.judges,
         chart_file: p.chart_file,

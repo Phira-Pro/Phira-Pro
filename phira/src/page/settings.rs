@@ -1,6 +1,8 @@
 prpr_l10n::tl_file!("settings");
 mod experience;
+mod judgement;
 use experience::ExperienceList;
+use judgement::JudgementPage;
 
 use super::{BlacklistPage, HistoryPage, NextPage, OffsetPage, Page, SharedState, TransferPage};
 use crate::{
@@ -263,6 +265,7 @@ impl Page for SettingsPage {
 
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
         let t = s.t;
+        if self.tabs.changed() { self.scroll.y_scroller.reset(); }
         let changed = match self.tabs.selected() {
             SettingListType::General => self.list_general.update(t)?,
             SettingListType::Audio => self.list_audio.update(t)?,
@@ -466,6 +469,7 @@ fn reset_all_settings() {
     {
         let data = get_data_mut();
         data.config = defaults.config;
+        data.judge_preset_id = None;
         // 语言回到「跟随系统」，下面 sync_data() 会立刻生效。
         data.language = None;
         data.prefer_reduced_motion = defaults.prefer_reduced_motion;
@@ -1347,11 +1351,6 @@ struct ChartList {
     aspect_btn: DRectButton,
     /// 局内判定偏移条开关。
     offset_indicator_btn: DRectButton,
-    limit_perfect_plus_btn: DRectButton,
-    limit_perfect_btn: DRectButton,
-    limit_good_btn: DRectButton,
-    limit_bad_btn: DRectButton,
-    hold_tail_btn: DRectButton,
     auto_retry_slider: Slider,
     retry_lead_slider: Slider,
     practice_ramp_btn: DRectButton,
@@ -1363,11 +1362,9 @@ struct ChartList {
     hp_height_slider: Slider,
     hp_scale_slider: Slider,
     hp_color_btn: DRectButton,
-    late_leniency_slider: Slider,
-    drag_protect_btn: DRectButton,
-    flick_protect_btn: DRectButton,
     combo_text_btn: DRectButton,
     judge_chart_btn: DRectButton,
+    judgement_btn: DRectButton,
     history_btn: DRectButton,
     next_page: Option<NextPage>,
 }
@@ -1391,11 +1388,6 @@ impl ChartList {
             custom_aspect_btn: DRectButton::new(),
             aspect_btn: DRectButton::new(),
             offset_indicator_btn: DRectButton::new(),
-            limit_perfect_plus_btn: DRectButton::new(),
-            limit_perfect_btn: DRectButton::new(),
-            limit_good_btn: DRectButton::new(),
-            limit_bad_btn: DRectButton::new(),
-            hold_tail_btn: DRectButton::new(),
             auto_retry_slider: Slider::new(0.0..10.0, 1.0),
             retry_lead_slider: Slider::new(0.0..10.0, 0.5),
             practice_ramp_btn: DRectButton::new(),
@@ -1407,11 +1399,9 @@ impl ChartList {
             hp_height_slider: Slider::new(0.5..3.0, 0.1),
             hp_scale_slider: Slider::new(0.2..3.0, 0.1),
             hp_color_btn: DRectButton::new(),
-            late_leniency_slider: Slider::new(0.0..200.0, 5.0),
-            drag_protect_btn: DRectButton::new(),
-            flick_protect_btn: DRectButton::new(),
             combo_text_btn: DRectButton::new(),
             judge_chart_btn: DRectButton::new(),
+            judgement_btn: DRectButton::new(),
             history_btn: DRectButton::new(),
             next_page: None,
         }
@@ -1507,44 +1497,9 @@ impl ChartList {
                 return Ok(Some(true));
             }
         }
-        // Phira Pro Flash（轻量版）：不提供改判（判定窗口）与 Hold 尾判。
-        if !cfg!(flash) {
-            // 判定窗口：点按钮直接填数值（不再用滑块）。
-            if self.limit_perfect_plus_btn.touch(touch, t) {
-                request_input("lim_perfect_plus", InputBox::new().default_text(format!("{:.0}", config.lim_perfect_plus_ms)));
-                return Ok(Some(true));
-            }
-            if self.limit_perfect_btn.touch(touch, t) {
-                request_input("lim_perfect", InputBox::new().default_text(format!("{:.0}", config.lim_perfect_ms)));
-                return Ok(Some(true));
-            }
-            if self.limit_good_btn.touch(touch, t) {
-                request_input("lim_good", InputBox::new().default_text(format!("{:.0}", config.lim_good_ms)));
-                return Ok(Some(true));
-            }
-            if self.limit_bad_btn.touch(touch, t) {
-                request_input("lim_bad", InputBox::new().default_text(format!("{:.0}", config.lim_bad_ms)));
-                return Ok(Some(true));
-            }
-            if self.hold_tail_btn.touch(touch, t) {
-                config.hold_tail_judge ^= true;
-                return Ok(Some(true));
-            }
-        }
-        // Phira Pro Flash（轻量版）：不提供晚按补偿 / 黄键保护 / 红键保护。
-        if !cfg!(flash) {
-            if let wt @ Some(_) = self.late_leniency_slider.touch(touch, t, &mut config.late_leniency_ms) {
-                config.late_leniency_ms = config.late_leniency_ms.clamp(0., prpr::config::Config::LATE_LENIENCY_MAX);
-                return Ok(wt);
-            }
-            if self.drag_protect_btn.touch(touch, t) {
-                config.drag_protect ^= true;
-                return Ok(Some(true));
-            }
-            if self.flick_protect_btn.touch(touch, t) {
-                config.flick_protect ^= true;
-                return Ok(Some(true));
-            }
+        if !cfg!(flash) && self.judgement_btn.touch(touch, t) {
+            self.next_page = Some(NextPage::Overlay(Box::new(JudgementPage::new())));
+            return Ok(Some(false));
         }
         if self.combo_text_btn.touch(touch, t) {
             request_input("combo_text", InputBox::new().default_text(&config.combo_text));
@@ -1583,8 +1538,6 @@ impl ChartList {
     }
 
     pub fn update(&mut self, _t: f32) -> Result<bool> {
-        // 判定窗口的数值输入：解析后交给 `Config::set_judge_window`，
-        // 由它保证 perfect+ < perfect < good < bad 并做连带调整。
         if let Some((id, text)) = take_input() {
             // 连击文字：这一行渲染在「谱面」页，输入处理也必须在这里。
             // 之前放在通用页的 update 里，而 `SettingsPage::update` 只更新**当前选中页**，
@@ -1606,25 +1559,6 @@ impl ChartList {
                     }
                     None => {
                         show_error(anyhow::anyhow!(tl!("aspect-invalid").into_owned()));
-                        Ok(false)
-                    }
-                };
-            }
-            let idx = match id.as_str() {
-                "lim_perfect_plus" => Some(0),
-                "lim_perfect" => Some(1),
-                "lim_good" => Some(2),
-                "lim_bad" => Some(3),
-                _ => None,
-            };
-            if let Some(idx) = idx {
-                return match text.trim().parse::<f32>() {
-                    Ok(v) => {
-                        get_data_mut().config.set_judge_window(idx, v);
-                        Ok(true)
-                    }
-                    Err(_) => {
-                        show_error(anyhow::anyhow!(tl!("judge-window-invalid").into_owned()));
                         Ok(false)
                     }
                 };
@@ -1723,36 +1657,12 @@ impl ChartList {
             render_title(ui, tl!("item-offset-indicator"), Some(tl!("item-offset-indicator-sub")));
             render_switch(ui, rr, t, &mut self.offset_indicator_btn, config.offset_indicator);
         }
-        ui.dy(0.04);
-        h += 0.04;
-        // Phira Pro Flash（轻量版）：不提供改判（判定窗口）与 Hold 尾判。
         if !cfg!(flash) {
             item! {
-                render_title(ui, tl!("item-limit-perfect-plus"), None);
-                self.limit_perfect_plus_btn
-                    .render_text(ui, rr, t, format!("±{:.0} ms", config.lim_perfect_plus_ms), 0.42, false);
-            }
-            item! {
-                render_title(ui, tl!("item-limit-perfect"), None);
-                self.limit_perfect_btn
-                    .render_text(ui, rr, t, format!("±{:.0} ms", config.lim_perfect_ms), 0.42, false);
-            }
-            item! {
-                render_title(ui, tl!("item-limit-good"), None);
-                self.limit_good_btn
-                    .render_text(ui, rr, t, format!("±{:.0} ms", config.lim_good_ms), 0.42, false);
-            }
-            item! {
-                render_title(ui, tl!("item-limit-bad"), None);
-                self.limit_bad_btn
-                    .render_text(ui, rr, t, format!("±{:.0} ms", config.lim_bad_ms), 0.42, false);
-            }
-            item! {
-                render_title(ui, tl!("item-hold-tail-judge"), Some(tl!("item-hold-tail-judge-sub")));
-                render_switch(ui, rr, t, &mut self.hold_tail_btn, config.hold_tail_judge);
+                render_title(ui, tl!("judgement-settings"), Some(tl!("judgement-settings-sub")));
+                self.judgement_btn.render_text(ui, rr, t, tl!("judgement-open"), 0.42, false);
             }
         }
-        ui.dy(0.04);
         item! {
             render_title(ui, tl!("item-auto-retry"), Some(tl!("item-auto-retry-sub")));
             self.auto_retry_slider.render(ui, rr, t, config.auto_retry, format!("{}", config.auto_retry.round() as u32));
@@ -1794,21 +1704,6 @@ impl ChartList {
             self.hp_height_slider.render(ui, rr, t, config.hp_height, format!("{:.1}x", config.hp_height));
         }
         h += 0.04;
-        // Phira Pro Flash（轻量版）：不提供晚按补偿 / 黄键保护 / 红键保护。
-        if !cfg!(flash) {
-            item! {
-                render_title(ui, tl!("item-late-leniency"), Some(tl!("item-late-leniency-sub")));
-                self.late_leniency_slider.render(ui, rr, t, config.late_leniency_ms, format!("{:.0} ms", config.late_leniency_ms));
-            }
-            item! {
-                render_title(ui, tl!("item-drag-protect"), Some(tl!("item-drag-protect-sub")));
-                render_switch(ui, rr, t, &mut self.drag_protect_btn, config.drag_protect);
-            }
-            item! {
-                render_title(ui, tl!("item-flick-protect"), Some(tl!("item-flick-protect-sub")));
-                render_switch(ui, rr, t, &mut self.flick_protect_btn, config.flick_protect);
-            }
-        }
         item! {
             render_title(ui, tl!("item-combo-text"), Some(tl!("item-combo-text-sub")));
             let label = if config.combo_text.is_empty() {

@@ -230,6 +230,7 @@ pub struct ChooseButton {
     width: Option<f32>,
     height: f32,
     need_to_show: bool,
+    compact: bool,
 }
 
 impl ChooseButton {
@@ -240,6 +241,7 @@ impl ChooseButton {
             width: None,
             height: 0.34,
             need_to_show: false,
+            compact: false,
         }
     }
 
@@ -260,6 +262,10 @@ impl ChooseButton {
         self.popup.selected
     }
 
+    pub fn set_selected(&mut self, index: usize) {
+        self.popup.set_selected(index);
+    }
+
     #[inline]
     pub fn changed(&mut self) -> bool {
         self.popup.changed()
@@ -273,16 +279,43 @@ impl ChooseButton {
         self.popup.set_options(options);
     }
 
+    /// Keep both the control and the popup inside the settings panel.
+    pub fn with_compact_popup(mut self) -> Self {
+        self.compact = true;
+        self.popup.size = 0.42;
+        self
+    }
+    #[cfg(test)]
+    pub(crate) fn popup_rect(&self) -> Rect {
+        self.popup.rect()
+    }
+    #[cfg(test)]
+    pub(crate) fn control_for_test(&self) -> &DRectButton {
+        &self.btn
+    }
+
     pub fn render(&mut self, ui: &mut Ui, r: Rect, t: f32) {
         self.btn
             .render_text(ui, r, t, &self.popup.options[self.popup.selected].0, self.popup.size, false);
         if self.need_to_show {
             let pad = 0.007;
             let mut rr = Rect::new(r.x, r.bottom() + pad, self.width.unwrap_or(r.w), self.height);
-            let delta = 0.1;
-            rr.x -= delta;
-            rr.w += delta;
             self.popup.set_bottom(true);
+            if self.compact {
+                let area = ui.content_rect().feather(-0.02);
+                rr.w = rr.w.min(area.w);
+                rr.h = rr.h.min(area.h);
+                let below = ui.rect_to_global(rr);
+                if below.bottom() > area.bottom() {
+                    rr.y = r.y - pad - rr.h;
+                    self.popup.set_bottom(false);
+                }
+                self.popup.set_auto_adjust(Some(area));
+            } else {
+                let delta = 0.1;
+                rr.x -= delta;
+                rr.w += delta;
+            }
             self.popup.show(ui, t, rr);
             self.need_to_show = false;
         }

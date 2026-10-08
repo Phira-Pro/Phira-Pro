@@ -33,6 +33,7 @@ pub struct ReplayScene {
     judge_idx: usize,
     touch_idx: usize,
     touch_points: Vec<(f32, f32)>,
+    finishing_holds: HashMap<(u32, u32), f64>,
 
     // 触点插值用（同 phira-monitor 的 PlayerView）
     current_touches: HashMap<i8, Vec2>,
@@ -82,6 +83,7 @@ impl ReplayScene {
         config.sample_count = 4;
         config.player_name = "REPLAY".to_owned();
         config.offset = replay.offset;
+        config.judge_grading = replay.grading;
         config.speed = if replay.speed > 0. { replay.speed } else { 1. };
         config.mods = Mods::from_bits(replay.mods as i32).unwrap_or_default();
         config.interactive = false;
@@ -114,6 +116,7 @@ impl ReplayScene {
             judge_idx: 0,
             touch_idx: 0,
             touch_points: Vec::new(),
+            finishing_holds: HashMap::new(),
             current_touches: HashMap::new(),
             last_t: 0.,
             exit: false,
@@ -170,6 +173,7 @@ impl ReplayScene {
         self.touch_idx = 0;
         self.current_touches.clear();
         self.touch_points.clear();
+        self.finishing_holds.clear();
         self.game_scene.res.time = t;
         self.apply_judges(t, true);
         self.apply_touches(t);
@@ -188,12 +192,19 @@ impl ReplayScene {
             let GameScene { chart, judge, res, bad_notes, .. } = &mut self.game_scene;
             let Some(line) = chart.lines.get_mut(ev.line as usize) else { continue };
             let Some(note) = line.notes.get_mut(ev.note as usize) else { continue };
+            let hold_success = matches!(ev.kind, 0 | 1 | 4 | 7 | 8 | 9) && matches!(note.kind, prpr::core::NoteKind::Hold { .. });
+            let hold_active = if hold_success {
+                let prpr::core::NoteKind::Hold { end_time, .. } = note.kind else { unreachable!() };
+                let active = note.judge.finish_hold_score(ev.t, end_time);
+                if active { self.finishing_holds.insert((ev.line, ev.note), end_time); }
+                active
+            } else { false };
             match ev.kind {
                 0 | 4 => {
-                    note.judge = JudgeStatus::Judged;
+                    if !hold_active { note.judge = JudgeStatus::Judged; }
                     let tj = if ev.kind == 4 { TJ::PerfectPlus } else { TJ::Perfect };
                     judge.commit(ev.t, tj, ev.line, ev.note, ev.diff as f64);
-                    if !silent {
+                    if !silent && !hold_success {
                         let fx = res.res_pack.info.fx_perfect();
                         let (line_tr, obj, rot) = {
                             let line = &chart.lines[ev.line as usize];
@@ -204,10 +215,10 @@ impl ReplayScene {
                         res.with_model(line_tr * obj, |res| res.emit_at_origin(rot, fx));
                     }
                 }
-                1 => {
-                    note.judge = JudgeStatus::Judged;
-                    judge.commit(ev.t, TJ::Good, ev.line, ev.note, ev.diff as f64);
-                    if !silent {
+                1 | 7 | 8 | 9 => {
+                    if !hold_active { note.judge = JudgeStatus::Judged; }
+                    judge.commit(ev.t, match ev.kind { 7 => TJ::Great, 8 => TJ::Ok, 9 => TJ::Meh, _ => TJ::Good }, ev.line, ev.note, ev.diff as f64);
+                    if !silent && !hold_success {
                         let fx = res.res_pack.info.fx_good();
                         let (line_tr, obj, rot) = {
                             let line = &chart.lines[ev.line as usize];
@@ -244,11 +255,20 @@ impl ReplayScene {
                 5 => {
                     note.judge = JudgeStatus::Hold(true, ev.t, 0., false, f64::INFINITY);
                 }
-                _ => {
+                6 => {
                     note.judge = JudgeStatus::Hold(false, ev.t, 0., false, f64::INFINITY);
                 }
+                _ => {}
             }
         }
+        // Only ongoing, already scored holds are visited. Ending their visual
+        // lifetime adds no judgement event and no second score; seek clears this map.
+        let chart = &mut self.game_scene.chart;
+        self.finishing_holds.retain(|&(line, id), tail| {
+            let note = &mut chart.lines[line as usize].notes[id as usize];
+            if t >= *tail { note.judge = JudgeStatus::Judged; }
+            !matches!(note.judge, JudgeStatus::Judged)
+        });
     }
 
     /// 应用 `t` 时刻的触点（用于画手指圆点，做帧间插值）。

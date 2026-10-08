@@ -45,6 +45,9 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Verify multi-finger input routing
+        run: python scripts/verify_android_multitouch.py
+
       # runner 预装了 Android SDK / cmdline-tools，这里只用它的 sdkmanager 补齐
       # 需要的 platform / build-tools / NDK，避免依赖第三方 setup action。
       - name: Install Android SDK components

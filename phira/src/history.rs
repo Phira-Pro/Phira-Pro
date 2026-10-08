@@ -41,6 +41,8 @@ pub struct Record {
     pub num_of_notes: u32,
     /// Perfect / Good / Bad / Miss（Perfect+ 已并入 Perfect）
     pub counts: [u32; 4],
+    pub grade_counts: Option<[u32; 8]>,
+    pub grading: Option<prpr::config::JudgeGrading>,
     /// 判定误差分布（早 ← → 晚）
     pub hist: Vec<u32>,
     /// 本局成绩协议 RMS（秒）；旧存档可能保留旧版本的偏差标准差。
@@ -178,6 +180,8 @@ pub fn record_play(
     max_combo: u32,
     num_of_notes: u32,
     counts: [u32; 4],
+    grade_counts: Option<[u32; 8]>,
+    grading: Option<prpr::config::JudgeGrading>,
     hist: &[u32],
     std: f32,
 ) -> Result<i64> {
@@ -200,8 +204,29 @@ pub fn record_play(
         max_combo,
         num_of_notes,
         counts,
+        grade_counts,
+        grading,
         hist: hist.to_vec(),
         std,
     })?;
     Ok(time)
+}
+
+#[cfg(test)]
+mod grade_tests {
+    use super::*;
+    #[test]
+    fn legacy_history_and_eight_grade_history_roundtrip_without_losing_counts() {
+        let old: Record = serde_json::from_str(r#"{"counts":[3,2,1,0],"numOfNotes":6}"#).unwrap();
+        assert!(old.grade_counts.is_none() && old.grading.is_none());
+        let detailed = Record {
+            counts: [2, 1, 1, 1], grade_counts: Some([1; 8]),
+            grading: Some(prpr::config::JudgeGrading { detailed: true, ..Default::default() }),
+            num_of_notes: 8, max_combo: 6, ..Default::default()
+        };
+        let restored: Record = serde_json::from_str(&serde_json::to_string(&detailed).unwrap()).unwrap();
+        assert_eq!(restored.grade_counts, Some([1; 8]));
+        assert!(restored.grading.unwrap().detailed);
+        assert!(!restored.is_full_combo() && !restored.is_all_perfect());
+    }
 }

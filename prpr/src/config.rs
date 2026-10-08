@@ -4,6 +4,21 @@
 use bitflags::bitflags;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+
+mod grading;
+pub use grading::JudgeGrading;
+mod timing;
+pub use timing::JudgeTiming;
+mod phigros;
+pub use phigros::PhigrosRules;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum JudgeAlgorithm {
+    #[default]
+    PhiraPro,
+    Phigros,
+}
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 pub static TIPS: Lazy<Vec<String>> = Lazy::new(|| include_str!("tips.txt").split('\n').map(str::to_owned).collect());
@@ -139,6 +154,10 @@ impl Mods {
 #[serde(default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
+    pub judge_algorithm: JudgeAlgorithm,
+    pub judge_timing: JudgeTiming,
+    pub judge_grading: JudgeGrading,
+    pub phigros_rules: PhigrosRules,
     /// UI font scale selector: 80/90/100/110/120 percent.
     pub font_size: usize,
     /// Gameplay/result display adds one per Perfect+; stored/uploaded score is unchanged.
@@ -269,11 +288,41 @@ pub struct JudgeWindows {
     pub bad: f64,
     /// 是否开启「全屏判定」（忽略横向位置）。
     pub fullscreen: bool,
+    pub grading: JudgeGrading,
+    pub extended: [f64; 3],
+    pub extended_early: [f64; 3],
+    pub extended_late: [f64; 3],
+    pub early: [f64; 4],
+    pub late: [f64; 4],
+}
+
+impl JudgeWindows {
+    /// Negative offset = early; positive offset = late.
+    pub fn for_offset(&self, offset: f64) -> Self {
+        let [perfect_plus, perfect, good, bad] = if offset > 0. { self.late } else { self.early };
+        Self { perfect_plus, perfect, good, bad, extended: if offset > 0. { self.extended_late } else { self.extended_early }, ..*self }
+    }
+    pub fn acceptance(&self) -> f64 { if self.grading.detailed { self.extended[2] } else { self.good } }
+    pub fn early_acceptance(&self) -> f64 { self.for_offset(-1.).acceptance() }
+    pub fn late_acceptance(&self) -> f64 { self.for_offset(1.).acceptance() }
+    pub fn refresh_maxima(&mut self) {
+        self.extended = std::array::from_fn(|i| self.extended_early[i].max(self.extended_late[i]));
+        [self.perfect_plus, self.perfect, self.good, self.bad] = std::array::from_fn(|i| self.early[i].max(self.late[i]));
+    }
+    pub fn add_frame_pad(&mut self, pad: f64) {
+        for side in [&mut self.early, &mut self.late] { for v in &mut side[1..] { *v += pad; } }
+        for side in [&mut self.extended_early, &mut self.extended_late] { for v in side { *v += pad; } }
+        self.refresh_maxima();
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
+            judge_algorithm: JudgeAlgorithm::PhiraPro,
+            judge_timing: JudgeTiming::default(),
+            judge_grading: JudgeGrading::default(),
+            phigros_rules: PhigrosRules::default(),
             font_size: 2,
             theoretical_score: false,
             uniform_loudness: false,
@@ -382,12 +431,18 @@ impl Config {
     /// 强制各档窗口单调不减（perfect+ ≤ perfect ≤ good ≤ bad）。滑块越界或
     /// `data.json` 被手改成倒挂后，都会回到合法状态。
     pub fn clamp_judge_windows(&mut self) {
-        let windows = self.judge_windows();
-        let scale = if self.mods.contains(Mods::STRICT_JUDGE) { 2000. } else { 1000. };
+        let mut base = self.clone();
+        base.mods.remove(Mods::STRICT_JUDGE);
+        base.judge_timing = JudgeTiming::default();
+        let windows = base.judge_windows();
+        let scale = 1000.;
         self.lim_perfect_plus_ms = (windows.perfect_plus * scale) as f32;
         self.lim_perfect_ms = (windows.perfect * scale) as f32;
         self.lim_good_ms = (windows.good * scale) as f32;
         self.lim_bad_ms = (windows.bad * scale) as f32;
+        self.judge_timing.normalize([self.lim_perfect_plus_ms, self.lim_perfect_ms, self.lim_good_ms, self.lim_bad_ms]);
+        self.judge_grading.normalize(self.judge_timing.sides([self.lim_perfect_plus_ms, self.lim_perfect_ms, self.lim_good_ms, self.lim_bad_ms]));
+        if !self.judge_grading.perfect_plus { self.theoretical_score = false; }
     }
 
     /// 各档窗口的填写范围（毫秒），顺序为 perfect+ / perfect / good / bad。
@@ -455,13 +510,34 @@ impl Config {
         let bad = valid(self.lim_bad_ms, crate::judge::LIMIT_BAD, Self::JUDGE_WINDOW_RANGES[3]).max(good);
         let scale = if self.mods.contains(Mods::STRICT_JUDGE) { 0.5 } else { 1. };
         let secs = |ms: f32| ms as f64 / 1000. * scale;
-        JudgeWindows {
+        let mut windows = JudgeWindows {
             perfect_plus: secs(perfect_plus),
             perfect: secs(perfect),
             good: secs(good),
             bad: secs(bad),
             fullscreen: self.mods.contains(Mods::FULLSCREEN_JUDGE),
+            grading: self.judge_grading,
+            extended: [0.; 3],
+            extended_early: self.judge_grading.early_ms.map(secs),
+            extended_late: self.judge_grading.late_ms.map(secs),
+            early: self.judge_timing.sides([perfect_plus, perfect, good, bad])[0].map(secs),
+            late: self.judge_timing.sides([perfect_plus, perfect, good, bad])[1].map(secs),
+        };
+        if self.judge_algorithm == JudgeAlgorithm::Phigros && self.mods.contains(Mods::STRICT_JUDGE) {
+            let mut rules = self.phigros_rules.clone();
+            rules.sanitize();
+            let [early, late] = rules.strict_sides();
+            windows.early = [windows.early[0].min(early[0] / 1000.), early[0] / 1000., early[1] / 1000., early[2] / 1000.];
+            windows.late = [windows.late[0].min(late[0] / 1000.), late[0] / 1000., late[1] / 1000., late[2] / 1000.];
         }
+        for (ext, base) in [(&mut windows.extended_early, windows.early), (&mut windows.extended_late, windows.late)] {
+            for (i, fallback) in [0.070, 0.130, 0.160].into_iter().enumerate() { if !ext[i].is_finite() { ext[i] = fallback * scale; } }
+            ext[0] = ext[0].clamp(base[1], base[2]);
+            ext[1] = ext[1].clamp(base[2], base[3]);
+            ext[2] = ext[2].clamp(ext[1], base[3]);
+        }
+        windows.refresh_maxima();
+        windows
     }
 
     /// 列出当前配置里「会改变判定 / 玩法、且不是官方默认值」的项。
@@ -480,6 +556,11 @@ impl Config {
     pub fn non_official_items(&self, run_mods: Mods) -> Vec<&'static str> {
         let mods = self.mods | run_mods;
         let mut items = Vec::new();
+        if self.judge_grading.detailed { items.push("judge_grading"); }
+        if self.judge_algorithm != JudgeAlgorithm::PhiraPro {
+            items.push("judge_algorithm");
+        }
+        if self.judge_timing != JudgeTiming::default() { items.push("judge_timing"); }
         if self.offline_mode {
             items.push("offline_mode");
         }
@@ -545,6 +626,7 @@ impl Config {
         let changed = self.non_official_items(*run_mods);
         for item in &changed {
             match *item {
+                "judge_algorithm" => self.judge_algorithm = JudgeAlgorithm::PhiraPro,
                 "offline_mode" => self.offline_mode = false,
                 "use_keyboard" => self.use_keyboard = false,
                 "speed" => self.speed = 1.,
@@ -557,6 +639,8 @@ impl Config {
                     self.mods.remove(Mods::STRICT_JUDGE);
                     run_mods.remove(Mods::STRICT_JUDGE);
                 }
+                "judge_timing" => self.judge_timing = JudgeTiming::default(),
+                "judge_grading" => self.judge_grading = JudgeGrading::default(),
                 "lim_perfect_plus" => self.lim_perfect_plus_ms = (crate::judge::LIMIT_PERFECT_PLUS * 1000.) as f32,
                 "lim_perfect" => self.lim_perfect_ms = (crate::judge::LIMIT_PERFECT * 1000.) as f32,
                 "lim_good" => self.lim_good_ms = (crate::judge::LIMIT_GOOD * 1000.) as f32,
@@ -577,9 +661,12 @@ impl Config {
     /// 一律夹回官方默认，防止手改 `data.json` 绕过界面。
     #[cfg(flash)]
     pub fn apply_flash_limits(&mut self) {
+        self.judge_algorithm = JudgeAlgorithm::PhiraPro;
         self.offline_mode = false;
         self.use_keyboard = false;
         self.speed = if self.speed.is_finite() { self.speed.max(1.) } else { 1. };
+        self.judge_timing = JudgeTiming::default();
+        self.judge_grading = JudgeGrading::default();
         self.lim_perfect_plus_ms = (crate::judge::LIMIT_PERFECT_PLUS * 1000.) as f32;
         self.lim_perfect_ms = (crate::judge::LIMIT_PERFECT * 1000.) as f32;
         self.lim_good_ms = (crate::judge::LIMIT_GOOD * 1000.) as f32;
@@ -600,10 +687,13 @@ impl Config {
     /// 这里把**所有会影响成绩可比性的设置项**恢复成官方默认。`mods` 本身不动。
     #[cfg(flash)]
     pub fn sanitize_on_autoplay(&mut self) {
+        self.judge_grading = JudgeGrading::default();
+        self.judge_algorithm = JudgeAlgorithm::PhiraPro;
         self.offline_mode = false;
         self.use_keyboard = false;
         self.speed = 1.;
         self.flow_speed = 1.;
+        self.judge_timing = JudgeTiming::default();
         self.lim_perfect_plus_ms = (crate::judge::LIMIT_PERFECT_PLUS * 1000.) as f32;
         self.lim_perfect_ms = (crate::judge::LIMIT_PERFECT * 1000.) as f32;
         self.lim_good_ms = (crate::judge::LIMIT_GOOD * 1000.) as f32;
@@ -633,6 +723,8 @@ impl Config {
     }
 
     pub fn init(&mut self) {
+        if !self.judge_grading.perfect_plus { self.theoretical_score = false; }
+        self.phigros_rules.sanitize();
         crate::ui::FONT_DISPLAY_SCALE.store(self.font_scale().to_bits(), std::sync::atomic::Ordering::Relaxed);
         if let Some(flag) = self.autoplay {
             self.mods.set(Mods::AUTOPLAY, flag);

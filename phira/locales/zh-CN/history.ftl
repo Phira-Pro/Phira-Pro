@@ -35,3 +35,5 @@ daily-speed = 速度 1.1x
 daily-strict = 严格判定 ±60ms
 daily-health = 血条模式
 daily-nohints = 关闭所有提示
+
+detailed-grades = 细致判定 · 查看详情

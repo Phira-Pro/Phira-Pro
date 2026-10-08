@@ -7,13 +7,13 @@
 ```json
 {
   "base_version": "0.8.2",
-  "pro_revision": 9,
+  "pro_revision": 12,
   "flash_revision": 1,
-  "build_number": 44
+  "build_number": 48
 }
 ```
 
-`base_version` 是与官服交互的兼容版本，同时用于 Cargo 包版本和 iOS 系统展示版本。Pro 应用内版本、Android versionName 和发布包文件名由它与 `pro_revision` 拼成 `0.8.2-pro.9`；Flash 应用内版本为 `flash.1`。`build_number` 同时用于 Android versionCode 与 iOS CFBundleVersion。普通编译不递增版本，发布新包时显式提升构建号。
+`base_version` 是与官服交互的兼容版本，同时用于 Cargo 包版本和 iOS 系统展示版本。Pro 应用内版本、Android versionName 和发布包文件名由它与 `pro_revision` 拼成 `0.8.2-pro.12`；Flash 应用内版本为 `flash.1`。`build_number` 同时用于 Android versionCode 与 iOS CFBundleVersion。普通编译不递增版本，发布新包时显式提升构建号。
 
 修改 JSON 后执行：
 
@@ -44,7 +44,7 @@ Rust 工具链由 `rust-toolchain.toml` 锁定。Linux 的 Ubuntu 构建依赖�
 sudo apt-get install --no-install-recommends build-essential cmake pkg-config libasound2-dev libx11-dev libxi-dev libwayland-dev libgl1-mesa-dev libdbus-1-dev zlib1g-dev
 ```
 
-ALSA 开发包用于音频后端，见 [CPAL 的 Linux 构建依赖说明](https://github.com/RustAudio/cpal#linux-build-dependencies)。桌面 ZIP 包含程序、仓库资源与许可证；Windows 同时复制 release 目录中的 DLL。更新日志和用户数据不打包。包名自动读取版本和目标架构，例如 `PhiraPro-v0.8.2-pro.9-win64.zip`。默认输出在仓库父目录的 `dist/<平台>`，可用 `--output` 指定交付目录。解压后在解压目录运行 phira-main（Windows 为 phira-main.exe）。
+ALSA 开发包用于音频后端，见 [CPAL 的 Linux 构建依赖说明](https://github.com/RustAudio/cpal#linux-build-dependencies)。桌面 ZIP 包含程序、仓库资源与许可证；Windows 同时复制 release 目录中的 DLL。更新日志和用户数据不打包。包名自动读取版本和目标架构，例如 `PhiraPro-v0.8.2-pro.12-win64.zip`。默认输出在仓库父目录的 `dist/<平台>`，可用 `--output` 指定交付目录。解压后在解压目录运行 phira-main（Windows 为 phira-main.exe）。
 
 原有 Windows PowerShell 入口 `scripts/package-windows.ps1` 仍可使用，内部调用公共脚本；Android 的 `scripts/package-android.ps1` 负责本机 APK 签名校验与交付，也从 JSON 读取版本。两者不再接受手工指定版本的参数。
 
@@ -92,7 +92,7 @@ Rust 工具链镜像不替代 Cargo 的 crate 和 Git 依赖下载。使用代�
 **Build Release Assets**（`.github/workflows/release.yml`）监听 `release.published`，正式版和预发布版均触发；创建草稿或日常 push 不触发构建。工作流不代替维护者创建或发布 Release，也不修改 Release 正文。
 
 1. 修改 `version.json` 中的 Pro 版本并提升 `build_number`，执行 `python scripts/version.py sync` 和 `python scripts/version.py check`，提交版本文件与同步结果。
-2. 将包含发版工作流和版本更新的提交推送到 GitHub，再为该提交创建 Tag，例如 `v0.8.2-pro.9`。Tag 必须与该提交的 `pro_version` 一致；也接受不带 `v` 的 `0.8.2-pro.9`。
+2. 将包含发版工作流和版本更新的提交推送到 GitHub，再为该提交创建 Tag，例如 `v0.8.2-pro.12`。Tag 必须与该提交的 `pro_version` 一致；也接受不带 `v` 的 `0.8.2-pro.12`。
 3. 在 Releases 页面选择这个 Tag，填写更新说明并发布 Release；标记为预发布版也会构建。
 4. 工作流检查版本、Release 状态和 Tag 提交，随后并行调用桌面、Android 和 iOS 工作流。各平台固定构建同一个提交 SHA。全部成功后才开始向该 Release 上传完整附件集。
 
@@ -100,11 +100,11 @@ Rust 工具链镜像不替代 Cargo 的 crate 和 Git 依赖下载。使用代�
 
 | 平台 | 附件 |
 |---|---|
-| Windows x64 | `PhiraPro-v0.8.2-pro.9-win64.zip` |
-| Linux x86_64 | `PhiraPro-v0.8.2-pro.9-linux-x86_64.zip` |
-| macOS arm64 | `PhiraPro-v0.8.2-pro.9-macos-aarch64.zip` |
-| Android arm64-v8a | `PhiraPro-v0.8.2-pro.9-android-arm64-v8a.apk`，使用现有密钥签名 |
-| iOS arm64 | `PhiraPro-v0.8.2-pro.9-ios-arm64-unsigned.ipa`，安装前自行签名 |
+| Windows x64 | `PhiraPro-v0.8.2-pro.12-win64.zip` |
+| Linux x86_64 | `PhiraPro-v0.8.2-pro.12-linux-x86_64.zip` |
+| macOS arm64 | `PhiraPro-v0.8.2-pro.12-macos-aarch64.zip` |
+| Android arm64-v8a | `PhiraPro-v0.8.2-pro.12-android-arm64-v8a.apk`，使用现有密钥签名 |
+| iOS arm64 | `PhiraPro-v0.8.2-pro.12-ios-arm64-unsigned.ipa`，安装前自行签名 |
 | 校验清单 | `SHA256SUMS`，包含上述五个文件的 SHA-256 |
 
 发布前需允许 GitHub 官方 Actions 和标准托管 runner，四项 Android 签名 Secrets 对本仓库可用。仓库默认 `GITHUB_TOKEN` 权限可以保持只读，只有最终上传 job 声明 `contents: write`，无需额外 PAT。仓库的 **Settings → General → Releases → Enable release immutability** 必须关闭；已发布的不可变 Release 会在构建前被拒绝，因为它无法追加附件。详见 [Release 触发规则](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release) 和 [不可变 Release 设置](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/establish-provenance-and-integrity/prevent-release-changes)。

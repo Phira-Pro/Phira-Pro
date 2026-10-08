@@ -436,7 +436,7 @@ impl Page for HistoryPage {
                         .color(semi_white(0.88))
                         .no_baseline()
                         .draw();
-                    ui.text(format!("P{} G{} B{} M{}", rec.counts[0], rec.counts[1], rec.counts[2], rec.counts[3]))
+                    ui.text(if rec.grading.is_some_and(|g| g.detailed) { tl!("detailed-grades").into_owned() } else { format!("P{} G{} B{} M{}", rec.counts[0], rec.counts[1], rec.counts[2], rec.counts[3]) })
                         .pos(ix + r.w * 0.29, cy)
                         .anchor(0., 0.5)
                         .size(0.34)

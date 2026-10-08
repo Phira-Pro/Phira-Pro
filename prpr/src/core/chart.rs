@@ -395,7 +395,7 @@ impl Chart {
                     Point::new(pos.x, pos.y)
                 });
             let rotation = self.line_rotations.get(id).copied().unwrap_or_else(|| line.object.rotation.now());
-            let tr = marker.transform(Vector::new(center.x, center.y), scale, Vector::new(texture.width(), texture.height()), rotation);
+            let tr = marker.transform(Vector::new(center.x, center.y), scale, Vector::new(texture.width(), texture.height()), rotation, aspect);
             let half_x = tr.size.x * 0.5;
             let half_y = tr.size.y * 0.5;
             let to_pct_x = |x: f32| (x + 1.) * 0.5;

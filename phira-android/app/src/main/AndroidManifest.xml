@@ -7,6 +7,7 @@
     <application
         android:name=".PhiraApplication"
         android:allowBackup="true"
+        android:appCategory="game"
         android:icon="@mipmap/ic_launcher"
         android:isGame="true"
         android:label="@string/app_name"

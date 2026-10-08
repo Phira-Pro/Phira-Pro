@@ -224,8 +224,12 @@ impl Marker {
     /// RPE move events position the image's anchor, not its centre. Preserve
     /// signed scale for the anchor offset (mirrored images swap their edges),
     /// then rotate in chart space, after the RPE Y/aspect conversion.
-    pub fn transform(&self, position: Vector, scale: Vector, pixels: Vector, rotation: f32) -> BlockTransform {
-        let signed_size = pixels.component_mul(&scale);
+    pub fn transform(&self, position: Vector, scale: Vector, pixels: Vector, rotation: f32, aspect: f32) -> BlockTransform {
+        // The parser scales both texture axes by 2/1350. Recorder marker
+        // dimensions instead use the full 1350x900 RPE canvas. Convert height
+        // to the current chart viewport before applying rotation/anchor offsets.
+        let mut signed_size = pixels.component_mul(&scale);
+        signed_size.y *= (1350. / 900.) / aspect;
         let local_center = (Vector::new(0.5, 0.5) - self.anchor).component_mul(&signed_size);
         BlockTransform {
             center: position + Rotation2::new(rotation.to_radians()) * local_center,
@@ -249,6 +253,25 @@ impl Marker {
 mod tests {
     use super::*;
     use crate::core::{BlockArea, Keyframe, Vector, Zone};
+
+    #[test]
+    fn recorder_full_screen_rectangle_covers_every_viewport_and_blocks_its_corners() {
+        let marker = Marker::new(0, false, &AnimFloat::fixed(1.));
+        for aspect in [3. / 4., 1., 4. / 3., 3. / 2., 16. / 9., 20. / 9.] {
+            let tr = marker.transform(Vector::zeros(), Vector::new(1.5, 1.) * (2. / 1350.), Vector::repeat(900.), 0., aspect);
+            assert!((tr.size.x - 2.).abs() < 1e-6);
+            assert!((tr.size.y * aspect - 2.).abs() < 1e-6, "1350x900 must fill the RPE viewport at aspect {aspect}");
+            let mut rect = area(&marker, 1.).unwrap();
+            rect.bottom_left = Vector::zeros();
+            rect.top_right = Vector::new(tr.size.x / 2., tr.size.y * aspect / 2.);
+            // Input intentionally leaves a native safety inset at the rim.
+            for x in [-0.8, 0.8] {
+                for y in [-0.8 / aspect, 0.8 / aspect] {
+                    assert!(crate::core::block_touch_blocked(std::slice::from_ref(&rect), Vector::new(x, y), 1., aspect));
+                }
+            }
+        }
+    }
 
     #[test]
     fn speed_codes_override_editor_alpha_and_restart_lifecycles() {
@@ -326,9 +349,9 @@ mod tests {
         let scale = Vector::new(0.27777778, 1.5) * (2. / 1350.);
         let pixels = Vector::new(900., 900.);
         marker.anchor = Vector::new(0.5, 1.);
-        let lower = marker.transform(Vector::new(0., -425. * 2. / 900. / aspect), scale, pixels, 0.);
+        let lower = marker.transform(Vector::new(0., -425. * 2. / 900. / aspect), scale, pixels, 0., aspect);
         marker.anchor.y = 0.;
-        let upper = marker.transform(Vector::new(0., -175. * 2. / 900. / aspect), scale, pixels, 0.);
+        let upper = marker.transform(Vector::new(0., -175. * 2. / 900. / aspect), scale, pixels, 0., aspect);
         let flick_y = -300. * 2. / 900. / aspect;
         assert!(lower.center.y + lower.size.y / 2. < flick_y);
         assert!(upper.center.y - upper.size.y / 2. > flick_y);
@@ -342,7 +365,7 @@ mod tests {
         marker.anchor = Vector::new(0.5, 1.);
         for aspect in [4. / 3., 16. / 9., 20. / 9.] {
             let position = Vector::new(-630. * 2. / 1350., -225. * 2. / 900. / aspect);
-            let tr = marker.transform(position, Vector::new(0.22222222, 1.) * (2. / 1350.), Vector::new(900., 900.), 2.5);
+            let tr = marker.transform(position, Vector::new(0.22222222, 1.) * (2. / 1350.), Vector::new(900., 900.), 2.5, aspect);
             let edge = tr.center + Rotation2::new(tr.rotation.to_radians()) * Vector::new(0., tr.size.y / 2.);
             assert!((edge - position).norm() < 1e-6, "top anchor must remain at move-event position");
             assert!((edge.y * aspect * 0.5 + 0.5 - 0.25).abs() < 1e-6);
@@ -354,14 +377,14 @@ mod tests {
         let mut marker = Marker::new(0, false, &AnimFloat::fixed(1.));
         marker.anchor = Vector::new(0., 1.);
         for scale in [Vector::new(2., 3.), Vector::new(-2., 3.), Vector::new(2., -3.)] {
-            let tr = marker.transform(Vector::new(0.2, -0.3), scale, Vector::new(1., 1.), 120.);
+            let tr = marker.transform(Vector::new(0.2, -0.3), scale, Vector::new(1., 1.), 120., 1.5);
             let anchor_local = (marker.anchor - Vector::new(0.5, 0.5)).component_mul(&scale);
             let anchor_world = tr.center + Rotation2::new(tr.rotation.to_radians()) * anchor_local;
             assert!((anchor_world - Vector::new(0.2, -0.3)).norm() < 1e-6);
             assert_eq!(tr.size, scale.map(f32::abs));
         }
         marker.anchor = Vector::new(0.5, 0.5);
-        assert_eq!(marker.transform(Vector::zeros(), Vector::new(-2., 3.), Vector::new(1., 1.), 90.).center, Vector::zeros());
+        assert_eq!(marker.transform(Vector::zeros(), Vector::new(-2., 3.), Vector::new(1., 1.), 90., 1.5).center, Vector::zeros());
     }
 
     #[test]
@@ -374,13 +397,13 @@ mod tests {
         for (anchor, x) in [(Vector::repeat(1.), -212.132036), (Vector::zeros(), 212.132036)] {
             marker.anchor = anchor;
             let tip = Vector::new(x * 2. / 1350., 0.);
-            let tr = marker.transform(tip, scale, size, -45.);
+            let tr = marker.transform(tip, scale, size, -45., 16. / 9.);
             let corner = tr.center + Rotation2::new(-45_f32.to_radians()) * (anchor - Vector::repeat(0.5)).component_mul(&tr.size);
             assert!((corner - tip).norm() < 1e-6);
-            // Ignoring the corner anchor shifts this inner boundary by half
-            // the diagonal (~0.314 chart units), closing the intended opening.
-            assert!((tr.center.x - tip.x).abs() > 0.31);
-            assert!(tr.center.y.abs() < 1e-6);
+            // At 16:9 the 300x300 RPE rectangle is 0.444444 x 0.375 chart
+            // units. Its rotated corner offset preserves the intended opening.
+            assert!(((tr.center.x - tip.x).abs() - 0.2897167).abs() < 1e-6);
+            assert!((tr.center.y.abs() - 0.02455232).abs() < 1e-6);
         }
     }
 

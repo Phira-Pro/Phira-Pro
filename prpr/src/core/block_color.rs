@@ -17,16 +17,20 @@ pub(super) struct Colors {
     zones: Vec<Zone>,
     seeds: Vec<usize>,
     owners: Vec<usize>,
+    raw_active: Vec<u8>,
+    warp_active: bool,
+    time: Option<f32>,
 }
 
 impl Colors {
-    pub fn update(&mut self, masks: &Masks, aspect: f32, zones: &[Zone]) -> bool {
+    pub fn update(&mut self, masks: &Masks, aspect: f32, zones: &[Zone], time: f32) -> bool {
         let (width, height) = (masks.width, masks.height);
         let colored = zones.iter().any(|z| z.opacity > 0. && z.color != DEFAULT_BLOCK_COLOR);
         if !colored {
             return false;
         }
         if (self.width, self.height, self.aspect) == (width, height, aspect) && self.zones == zones {
+            self.warp(masks, time);
             return true;
         }
         self.width = width;
@@ -107,8 +111,31 @@ impl Colors {
                 pixel[3] = 255;
             }
         }
+        self.raw_active.clone_from(&self.rgba[0]);
+        // A single visible tint (including white fields with canceled red
+        // holes) needs neither per-frame palette work nor another upload.
+        self.warp_active = self.raw_active.chunks_exact(4).any(|p| p != &self.raw_active[..4]);
+        self.time = None;
+        self.warp(masks, time);
         self.revision = self.revision.wrapping_add(1);
         true
+    }
+
+    fn warp(&mut self, masks: &Masks, time: f32) {
+        if !self.warp_active || self.time == Some(time) {
+            return;
+        }
+        let mut changed = false;
+        for (i, pixel) in self.rgba[0].chunks_exact_mut(4).enumerate() {
+            let source = masks.compose_source_pixel(i, time) * 4;
+            let rgb = &self.raw_active[source..source + 4];
+            changed |= pixel != rgb;
+            pixel.copy_from_slice(rgb);
+        }
+        self.time = Some(time);
+        if changed {
+            self.revision = self.revision.wrapping_add(1);
+        }
     }
 }
 
@@ -133,7 +160,42 @@ mod tests {
     fn update(colors: &mut Colors, width: usize, height: usize, aspect: f32, zones: &[Zone]) -> bool {
         let mut masks = Masks::default();
         masks.render_displaced(width * 4, height * 4, aspect, zones, 1.);
-        colors.update(&masks, aspect, zones)
+        colors.update(&masks, aspect, zones, 1.)
+    }
+
+    #[test]
+    fn adjacent_white_and_red_follow_composed_source_pixels_on_repeat_and_resize() {
+        let mut colors = Colors::default();
+        let mut masks = Masks::default();
+        let mut white = zone(-0.5, [1.; 3], true, false);
+        let mut red = zone(0.5, DEFAULT_BLOCK_COLOR, true, false);
+        white.half = Vector::new(0.5, 1.);
+        red.half = white.half;
+        let zones = [white, red];
+        for (width, height) in [(128, 96), (192, 108), (127, 95)] {
+            let aspect = width as f32 / height as f32;
+            for time in [1., 9., 32., 1.] {
+                masks.render_displaced(width * 4, height * 4, aspect, &zones, time);
+                colors.update(&masks, aspect, &zones, time);
+                let (width, height) = (masks.width, masks.height);
+                let mut moved = 0;
+                for y in 0..height {
+                    for x in 0..width {
+                        // Independent native Compose oracle (not palette code).
+                        let uv = super::super::mask::compose_uv([(x as f32 + 0.5) / width as f32, (y as f32 + 0.5) / height as f32], time);
+                        let source_x = (uv[0] * width as f32).clamp(0., (width - 1) as f32) as usize;
+                        let expected = if source_x < width / 2 { [255; 3] } else { [255, 84, 84] };
+                        let i = (y * width + x) * 4;
+                        assert_eq!(colors.rgba[0][i..i + 3], expected, "displaced edge sampled wrong color at {x},{y}, clock {time}");
+                        moved += usize::from((source_x < width / 2) != (x < width / 2));
+                    }
+                }
+                assert!(moved > 0, "probe must exercise pixels crossing the color boundary");
+                let revision = colors.revision;
+                colors.update(&masks, aspect, &zones, time);
+                assert_eq!(colors.revision, revision, "same clock must reuse palette upload");
+            }
+        }
     }
 
     #[test]

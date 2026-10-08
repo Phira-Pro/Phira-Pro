@@ -25,8 +25,8 @@ async fn finish<T>(future: impl std::future::Future<Output = T>) -> T {
 fn conf() -> Conf {
     let mut conf = Conf {
         window_title: "Official block full-frame comparison".into(),
-        window_width: 960,
-        window_height: 720,
+        window_width: std::env::var("BLOCK_CAPTURE_WIDTH").ok().and_then(|v| v.parse().ok()).unwrap_or(960),
+        window_height: std::env::var("BLOCK_CAPTURE_HEIGHT").ok().and_then(|v| v.parse().ok()).unwrap_or(720),
         headless: true,
         ..Default::default()
     };
@@ -239,6 +239,35 @@ async fn main() {
             image::save_buffer(&file, &bytes, width as u32, height as u32, image::ColorType::Rgba8).unwrap();
             println!("{file}: combo={}, aspect={}, shader clock={:.6}s", scene.judge.combo(), scene.res.aspect_ratio, get_time());
             manifest.push(serde_json::json!({"requested_video_seconds":requested,"chart_seconds":t,"file":file,"width":width,"height":height,"combo":scene.judge.combo(),"background_brightness":1.0-scene.res.info.background_dim,"shader_clock_seconds_approx":get_time()}));
+            if std::env::var_os("BLOCK_CAPTURE_WHITE").is_some() {
+                // Keep the evaluated chart pose, but isolate its postprocess
+                // over gray so colored notes/background cannot hide red rims.
+                set_camera(&scene.res.camera);
+                unsafe { get_internal_gl() }.quad_gl.render_pass(Some(capture.render_pass));
+                clear_background(Color::new(0.1, 0.1, 0.1, 1.));
+                scene.chart.render_block_overlay(&mut scene.res);
+                unsafe { get_internal_gl() }.flush();
+                let mut gray_bytes = vec![0_u8; width * height * 4];
+                unsafe {
+                    use miniquad::gl::*;
+                    let mut read = 0;
+                    glGetIntegerv(0x8CAA, &mut read);
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, capture.render_pass.gl_internal_id(get_internal_gl().quad_context));
+                    glReadPixels(0, 0, width as i32, height as i32, GL_RGBA, GL_UNSIGNED_BYTE, gray_bytes.as_mut_ptr() as _);
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, read as u32);
+                    assert_eq!(glGetError(), 0);
+                }
+                let tinted = gray_bytes.chunks_exact(4).filter(|p| p[..3].iter().max().unwrap() - p[..3].iter().min().unwrap() > 1).count();
+                let gray_file = format!("{folder}/{name}-{requested:.5}-gray.png");
+                for y in 0..height / 2 {
+                    let (a, b) = gray_bytes.split_at_mut((height - y - 1) * width * 4);
+                    a[y * width * 4..(y + 1) * width * 4].swap_with_slice(&mut b[..width * 4]);
+                }
+                image::save_buffer(&gray_file, &gray_bytes, width as u32, height as u32, image::ColorType::Rgba8).unwrap();
+                manifest.last_mut().unwrap()["white_probe_tinted_pixels"] = tinted.into();
+                println!("{gray_file}: tinted pixels={tinted}");
+                assert_eq!(tinted, 0, "white chart pose contains colored rim pixels");
+            }
             next_frame().await;
         }
         std::fs::write(format!("{folder}/{name}-manifest.json"), serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();

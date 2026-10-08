@@ -1,7 +1,9 @@
 //! Render the production block shader in a hidden native GL context.
 //! Run from the workspace: cargo run -p prpr --example block_area_gpu
 use macroquad::prelude::*;
-use prpr::core::{BlockArea, BlockPhase, MSRenderTarget, Matrix, Vector};
+use prpr::core::{Anim, AnimFloat, BlockArea, BlockPhase, BlockTransform, MSRenderTarget, Matrix, Vector};
+#[path = "../src/core/rpe_block.rs"]
+mod rpe_block;
 
 // Supply just the production renderer's model stack and optional chart target.
 // No audio or resource pack; render targets below exercise the existing MSAA path.
@@ -29,8 +31,8 @@ mod reference_touch;
 fn conf() -> Conf {
     Conf {
         window_title: "Block area GPU regression".into(),
-        window_width: 960,
-        window_height: 540,
+        window_width: std::env::var("BLOCK_GPU_WIDTH").ok().and_then(|v| v.parse().ok()).unwrap_or(960),
+        window_height: std::env::var("BLOCK_GPU_HEIGHT").ok().and_then(|v| v.parse().ok()).unwrap_or(540),
         headless: true,
         sample_count: std::env::var("BLOCK_GPU_SAMPLES").ok().and_then(|s| s.parse().ok()).unwrap_or(4),
         ..Default::default()
@@ -53,9 +55,13 @@ async fn main() {
     set_camera(&res.camera);
     std::fs::create_dir_all("target/block-area-gpu").unwrap();
     clear_background(Color::new(0.1, 0.1, 0.1, 1.));
-    block_shader::prepare_block_effects();
+    assert!(block_shader::prepare_block_effects(), "full shader must compile; simple fallback cannot pass this regression");
     assert!(screen_pixels().bytes.chunks_exact(4).all(|p| p == [25, 25, 25, 255]), "shader warmup must leave the loading frame intact");
 
+    if std::env::var_os("BLOCK_GPU_MATRIX").is_some() {
+        viewport_matrix_probe(&mut res);
+        return;
+    }
     let active = [zone(0., 0., 0.5, 0.25, false, true)];
     let pixels = render(&mut res, aspect, &active, "active-default", 1., false);
     assert!(pixel(&pixels, 580, 270)[0] > pixel(&pixels, 580, 270)[1] + 10, "active fill must be visible");
@@ -276,6 +282,56 @@ async fn main() {
     // Show that a correctly typed scalar uniform works in this macroquad fork.
     scalar_uniform_probe();
     println!("All native GPU checks passed.");
+}
+
+// Recorder dimensions exercise the production marker adapter, then the real
+// renderer. Gray input isolates forbidden red tint from colored scene pixels.
+fn viewport_matrix_probe(res: &mut Resource) {
+    let aspect = (screen_width() / screen_height()).min(16. / 9.);
+    let viewport_width = (screen_height() * aspect).round() as i32;
+    let x = (screen_width() as i32 - viewport_width) / 2;
+    res.camera.zoom = vec2(1., aspect);
+    res.camera.viewport = Some((x, 0, viewport_width, screen_height() as i32));
+    set_camera(&res.camera);
+    let marker = rpe_block::Marker::new(0, false, &AnimFloat::fixed(1.));
+    let from_rpe = |x: f32, y: f32, width: f32, height: f32, invert, active| {
+        let tr = marker.transform(Vector::new(x * 2. / 1350., y * 2. / 900. / aspect),
+            Vector::new(width / 900., height / 900.) * (2. / 1350.), Vector::repeat(900.), 0., aspect);
+        zone(tr.center.x, tr.center.y, tr.size.x / 2., tr.size.y / 2., invert, active)
+    };
+    let mut full = from_rpe(0., 0., 1350., 900., false, true);
+    full.color = [1.; 3];
+    for simple in [false, true] {
+        res.config.block_area_simple = simple;
+        for active in [false, true] {
+            full.active = active;
+            let name = format!("matrix-full-{simple}-{active}");
+            let image = render(res, aspect, &[full.clone()], &name, 32., false);
+            // Every viewport pixel must be covered (letterbox bars excluded).
+            for row in image.bytes.chunks_exact(image.width as usize * 4) {
+                for p in row[x as usize * 4..(x + viewport_width) as usize * 4].chunks_exact(4) {
+                    assert_ne!(p, [25, 25, 25, 255], "{name}: uncovered pixel in chart viewport");
+                }
+            }
+        }
+        // A slightly undersized white field and holes touching its top edge:
+        // unlike the earlier probe this stresses actual MilK dimensions.
+        for active in [false, true] {
+            let mut field = from_rpe(0., 0., 1250., 800., true, active);
+            field.color = [1.; 3];
+            let holes = [field,
+                from_rpe(-385., 250., 300., 300., false, active),
+                from_rpe(-15., 50., 300., 300., false, active),
+                from_rpe(355., 250., 300., 300., false, active)];
+            for time in [1., 9., 32., 32.125, 1000.] {
+                let name = format!("matrix-white-{simple}-{active}-{time}");
+                let image = render(res, aspect, &holes, &name, time, false);
+                let tinted = image.bytes.chunks_exact(4).filter(|p| p[..3].iter().max().unwrap() - p[..3].iter().min().unwrap() > 1).count();
+                assert_eq!(tinted, 0, "{name}: red residue on white rims");
+            }
+        }
+    }
+    println!("Viewport matrix passed: {}x{}, chart aspect {aspect}", screen_width(), screen_height());
 }
 
 fn zone(x: f32, y: f32, hx: f32, hy: f32, invert: bool, active: bool) -> block_shader::Zone {

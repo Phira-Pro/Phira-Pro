@@ -35,3 +35,5 @@ daily-speed = Speed 1.1x
 daily-strict = Strict judge ±60ms
 daily-health = Health mode
 daily-nohints = No hints
+
+detailed-grades = Detailed · View grades

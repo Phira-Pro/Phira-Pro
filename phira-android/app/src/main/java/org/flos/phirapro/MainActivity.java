@@ -35,6 +35,8 @@ public class MainActivity extends AppCompatActivity {
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE);
         super.onCreate(savedInstanceState);
         Log.i(TAG, "Activity onCreate: native initialization begins");
+        Log.i("PhiraProTouch", "device=" + Build.MANUFACTURER + "/" + Build.MODEL
+                + " android=" + Build.VERSION.RELEASE + " sdk=" + Build.VERSION.SDK_INT);
 
         view = new QuadSurface(this);
         setContentView(view);
@@ -67,6 +69,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         Log.i(TAG, "Activity onPause");
+        if (view != null) view.cancelTouches("activity-paused");
         super.onPause();
         QuadNative.activityOnPause();
         QuadNative.prprActivityOnPause();

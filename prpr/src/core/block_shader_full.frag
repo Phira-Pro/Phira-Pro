@@ -310,7 +310,12 @@ vec4 fullActive() {
         u_xlat49 = u_xlat16_21.x + 1.00000001e-10;
         u_xlat49 = u_xlat16_8.x / u_xlat49;
         u_xlat16_5.x = u_xlat1.x * _SparkHueShiftAmount + abs(u_xlat32.x);
-        u_xlat16_37 = u_xlat1.y * _SparkHueShiftAmount + u_xlat49;
+        // White/gray sparks can brighten the snapshot without adding the
+        // native red material's saturation. Keep its native path when uncolored.
+        float paletteHigh = max(rgb.r, max(rgb.g, rgb.b));
+        float paletteLow = min(rgb.r, min(rgb.g, rgb.b));
+        float paletteSaturation = uColored == 0 ? 1.0 : (paletteHigh - paletteLow) / max(paletteHigh, 0.00001) / (1.0 - 84.0 / 255.0);
+        u_xlat16_37 = u_xlat1.y * _SparkHueShiftAmount * paletteSaturation + u_xlat49;
         u_xlat16_21.x = u_xlat1.z * _SparkHueShiftAmount + u_xlat16_21.x;
         u_xlat16_8.xyz = u_xlat16_5.xxx + vec3(1.0, 0.666666687, 0.333333343);
         u_xlat16_8.xyz = fract(u_xlat16_8.xyz);

@@ -862,10 +862,13 @@ impl SongScene {
                 new_rec.max_combo,
                 new_rec.num_of_notes,
                 new_rec.counts,
+                new_rec.grade_counts,
+                new_rec.grading,
                 &new_rec.hist,
                 new_rec.std,
             );
         }
+        if new_rec.grading.is_some_and(|g| g.detailed) { return Ok(()); }
         let rec = get_data_mut()
             .charts
             .iter_mut()
@@ -987,6 +990,8 @@ impl SongScene {
         record: Option<SimpleRecord>,
         is_unlock: bool,
     ) -> Result<LocalSceneTask> {
+        // Preset judgement mods must survive the per-chart mod assignment below.
+        let mods = mods | (get_data().config.mods & (Mods::STRICT_JUDGE | Mods::FULLSCREEN_JUDGE | Mods::NO_COMBO_SCORE));
         let mut fs = fs_from_path(local_path)?;
         let can_rated = id.is_some() || local_path.starts_with(':');
         #[cfg(feature = "video")]
@@ -1036,6 +1041,8 @@ impl SongScene {
                         new_rec.max_combo,
                         new_rec.num_of_notes,
                         new_rec.counts,
+                new_rec.grade_counts,
+                new_rec.grading,
                         &new_rec.hist,
                         new_rec.std,
                     )
@@ -1049,6 +1056,7 @@ impl SongScene {
                 } else {
                     crate::replay::discard_recording();
                 }
+                if new_rec.grading.is_some_and(|g| g.detailed) { return Ok(()); }
                 let rec = get_data_mut()
                     .charts
                     .iter_mut()

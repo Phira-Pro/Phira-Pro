@@ -88,7 +88,7 @@ thread_local! {
 ///
 /// 样式照搬 Malody 皮肤 "6513_Elaina_PC_4K" 的 `OFFSET_INDICATOR`：
 /// 一条中线参考线 + 停在最近一次命中位置上的下指箭头 + 每次命中留下的竖条残影。
-/// 残影按判定档着色、整体随时间淡出：大 P 用贴图原始的三段渐变，其余档用单色。
+/// 残影按判定档着色、整体随时间淡出：Perfect+ 用贴图原始的三段渐变，其余档用单色。
 /// 配色取自该皮肤的 `info.asm` 与 `shadow0_1.png` 实测值：
 /// 渐变 #99D4EF→#F9CBF7→#FDE7BC、shadow1(#99D4EF)、shadow2(#D7A5C3)、shadow3(#EABE93)。
 /// 指针用皮肤提供的下指箭头贴图 `assets/offset_indicator.png`。
@@ -180,6 +180,9 @@ fn draw_offset_indicator(ui: &mut Ui, res: &Resource, recent: &[RecentHit], top:
             let color = match hit.judgement {
                 Judgement::Perfect => C_PERFECT,
                 Judgement::Good => C_GOOD,
+                Judgement::Great => Color::from_hex_rgb(0x80cbc4),
+                Judgement::Ok => Color::from_hex_rgb(0xffb74d),
+                Judgement::Meh => Color::from_hex_rgb(0xff8a65),
                 _ => C_BAD,
             };
             fill_v(ui, rect, color, color, alpha);
@@ -256,19 +259,38 @@ fn debug_overlay(res: &Resource, chart: &Chart, ui: &mut Ui) {
             let mut ctrl = line.ctrl_obj.borrow().clone();
             // Sample the real scrolling track: speed events and time scaling
             // must affect the displayed timing bands, including late leniency.
-            let spans = debug_height_spans(&line.height, res.time, tiers.map(|it| it.0), res.config.speed as f64, res.config.late_leniency());
+            let spans = debug_height_spans_sided(&line.height, res.time, [3, 2, 1, 0].map(|i| limits.early[i]), [3, 2, 1, 0].map(|i| limits.late[i]), res.config.speed as f64, res.config.late_leniency());
             for note in &line.notes {
                 if note.fake || matches!(note.judge, crate::judge::JudgeStatus::Judged) || note.object.now_alpha() == 0. {
                     continue;
                 }
                 let (note_tr, speed) = note.debug_transform(res, &mut ctrl, line_height, incline);
+                let phigros = res.config.judge_algorithm == crate::config::JudgeAlgorithm::Phigros;
+                let world_scale = crate::ext::get_viewport().2 as f64 / screen_height() as f64 * 5.;
+                let rules = &res.config.phigros_rules;
+                let special_window = if phigros {
+                    match note.kind {
+                        NoteKind::Drag => Some(rules.drag_sides().map(|v| v / 1000.)),
+                        NoteKind::Flick => Some([limits.early[1] * rules.flick_sides()[0], limits.late[1] * rules.flick_sides()[1]]),
+                        _ => None,
+                    }
+                } else { None };
+                let note_tiers = special_window.map_or(tiers, |window| [
+                    (window[0].max(window[1]), res.res_pack.info.fx_perfect()), (0., WHITE), (0., WHITE), (0., WHITE),
+                ]);
+                let note_spans = if phigros {
+                    debug_height_spans_sided(&line.height, res.time, special_window.map_or([3, 2, 1, 0].map(|i| limits.early[i]), |w| [w[0], 0., 0., 0.]), special_window.map_or([3, 2, 1, 0].map(|i| limits.late[i]), |w| [w[1], 0., 0., 0.]), res.config.speed as f64, res.config.late_leniency())
+                } else { spans };
                 let side = Matrix::identity().append_nonuniform_scaling(&Vector::new(1., if note.above { 1. } else { -1. }));
                 let mat = tr * side * note_tr;
                 let pos = mat.transform_point(&Point::new(0., 0.));
                 if !pos.coords.iter().all(|v| v.is_finite()) || pos.x.abs() > 1.3 || pos.y.abs() > 1.3 / res.aspect_ratio {
                     continue;
                 }
-                let half = x_diff * note.judge_area;
+                let half = if phigros {
+                    (if matches!(note.kind, NoteKind::Drag | NoteKind::Flick) { rules.special_width } else { rules.tap_width }) as f32
+                        / world_scale as f32 * note.judge_area
+                } else { x_diff * note.judge_area };
                 let sy = note_tr.transform_vector(&Vector::new(0., 1.)).norm();
                 if !half.is_finite() || half <= 0. || !sy.is_finite() || sy <= f32::EPSILON {
                     continue;
@@ -277,7 +299,8 @@ fn debug_overlay(res: &Resource, chart: &Chart, ui: &mut Ui) {
                     // Outer-to-inner tints and outlines show four timing bands.
                     // Rectangles stay local so rotations cannot produce a
                     // negative width or an axis-aligned, stationary box.
-                    for ((_, tint), (early, late)) in tiers.iter().zip(spans) {
+                    for ((window, tint), (early, late)) in note_tiers.iter().zip(note_spans) {
+                        if *window <= 0. { continue; }
                         let factor = speed / res.aspect_ratio as f64 / sy as f64;
                         let a = (early * factor) as f32;
                         let b = (late * factor) as f32;
@@ -289,14 +312,17 @@ fn debug_overlay(res: &Resource, chart: &Chart, ui: &mut Ui) {
                         ui.stroke_path(&rect.rounded(0.), 0.0015, Color { a: 0.9, ..*tint });
                     }
                 });
-                ui.text(format!(
-                    "[{id}] {:.2}s P+/{:.0} P/{:.0} G/{:.0} B/{:.0}ms",
+                let label = if let Some(window) = special_window {
+                    format!("[{id}] {:.2}s {} -{:.0}/+{:.0}ms", note.time, if matches!(note.kind, NoteKind::Drag) { "Drag" } else { "Flick" }, window[0] * 1000., window[1] * 1000.)
+                } else { format!(
+                    "[{id}] {:.2}s Perfect+ -{:.0}/+{:.0} P -{:.0}/+{:.0} G -{:.0}/+{:.0} B -{:.0}/+{:.0}ms",
                     note.time,
-                    limits.perfect_plus * 1000.,
-                    limits.perfect * 1000.,
-                    limits.good * 1000.,
-                    limits.bad * 1000.
-                ))
+                    limits.early[0] * 1000., limits.late[0] * 1000.,
+                    limits.early[1] * 1000., limits.late[1] * 1000.,
+                    limits.early[2] * 1000., limits.late[2] * 1000.,
+                    limits.early[3] * 1000., limits.late[3] * 1000.
+                ) };
+                ui.text(label)
                 .pos(pos.x, pos.y - 0.012)
                 .anchor(0.5, 1.)
                 .size(0.04)
@@ -311,14 +337,20 @@ fn debug_screen_transform(flip_x: bool) -> Matrix {
     Matrix::identity().append_nonuniform_scaling(&Vector::new(if flip_x { -1. } else { 1. }, -1.))
 }
 
+#[cfg(test)]
 fn debug_height_spans(height: &crate::core::AnimFloat, time: f64, windows: [f64; 4], speed: f64, late: f64) -> [(f64, f64); 4] {
+    debug_height_spans_sided(height, time, windows, windows, speed, late)
+}
+
+fn debug_height_spans_sided(height: &crate::core::AnimFloat, time: f64, early: [f64; 4], late_windows: [f64; 4], speed: f64, late: f64) -> [(f64, f64); 4] {
     let mut sample = height.clone();
     sample.set_time(time);
     let center = sample.now() as f64;
-    windows.map(|window| {
+    std::array::from_fn(|i| {
+        let window = early[i];
         sample.set_time(time - window * speed);
         let early = sample.now() as f64 - center;
-        sample.set_time(time + (window + late) * speed);
+        sample.set_time(time + (late_windows[i] + late) * speed);
         (early, sample.now() as f64 - center)
     })
 }
@@ -386,6 +418,8 @@ pub struct SimpleRecord {
     pub num_of_notes: u32,
     /// Perfect / Good / Bad / Miss（Perfect+ 已并入 Perfect）。
     pub counts: [u32; 4],
+    pub grade_counts: Option<[u32; 8]>,
+    pub grading: Option<crate::config::JudgeGrading>,
     /// 判定误差分布（早 ← → 晚）。
     pub hist: Vec<u32>,
     /// 本局有效命中的偏差标准差（秒），用于成绩详情页显示「无瑕度」。
@@ -725,6 +759,7 @@ impl GameScene {
         let mut judge = Judge::new(&chart, res.config.hold_tail_judge);
         judge.set_hp_amount(res.config.hp_amount);
         judge.set_hp_scale(res.config.hp_scale);
+        judge.set_grading(res.config.judge_grading);
 
         let music = Self::new_music(&mut res)?;
         tracing::info!("game loading: audio ready");
@@ -1284,7 +1319,7 @@ impl GameScene {
     pub fn tick_replay(&mut self) {
         let counts = self.judge.counts();
         self.res.judge_line_color = if counts[2] + counts[3] == 0 && self.res.config.ap_fc_indicator {
-            if counts[1] == 0 {
+            if counts[1] + counts[5] + counts[6] + counts[7] == 0 {
                 self.res.res_pack.info.color_perfect()
             } else {
                 self.res.res_pack.info.color_good()
@@ -1518,6 +1553,8 @@ impl Scene for GameScene {
                             num_of_notes: result.num_of_notes,
                             // Perfect+ 并入 Perfect，让历史记录保持官方那套 4 档。
                             counts: [result.counts[0] + result.counts[4], result.counts[1], result.counts[2], result.counts[3]],
+                            grade_counts: Some(result.counts),
+                            grading: Some(result.grading),
                             hist: result.hist.to_vec(),
                             std: result.std,
                         })
@@ -1530,8 +1567,8 @@ impl Scene for GameScene {
                                     f(new_rec.clone())?;
                                 }
                                 if let Some(best) = &mut self.best_record {
-                                    best.update(new_rec);
-                                } else {
+                                    if !new_rec.grading.is_some_and(|g| g.detailed) { best.update(new_rec); }
+                                } else if !new_rec.grading.is_some_and(|g| g.detailed) {
                                     self.best_record = record.clone();
                                 }
                                 if let Some(best) = &self.best_record {
@@ -1593,7 +1630,7 @@ impl Scene for GameScene {
         }
         let counts = self.judge.counts();
         self.res.judge_line_color = if counts[2] + counts[3] == 0 && self.res.config.ap_fc_indicator {
-            if counts[1] == 0 {
+            if counts[1] + counts[5] + counts[6] + counts[7] == 0 {
                 self.res.res_pack.info.color_perfect()
             } else {
                 self.res.res_pack.info.color_good()
@@ -1604,7 +1641,7 @@ impl Scene for GameScene {
         if !self.dead
             && matches!(self.state, State::Playing)
             && !self.res.config.mods.contains(Mods::NO_FAIL)
-            && (self.res.config.mods.contains(Mods::INSTANT_DEATH_AP) && counts[1] + counts[2] + counts[3] > 0
+            && (self.res.config.mods.contains(Mods::INSTANT_DEATH_AP) && counts[1] + counts[2] + counts[3] + counts[5] + counts[6] + counts[7] > 0
                 || self.res.config.mods.contains(Mods::INSTANT_DEATH_FC) && counts[2] + counts[3] > 0
                 || self.res.config.hp_mode && self.judge.hp() <= 0.)
         {

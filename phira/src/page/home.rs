@@ -342,11 +342,7 @@ impl HomePage {
 
         let pad = 0.04;
         // play button
-        let mut play_def = SLOT_PLAY;
-        // Reserve the same 0.05 gap on both sides of the shortcut row, even on wide phones.
-        play_def.size[1] = (ui.top - 0.04 - 0.11 - 0.05 - 0.23 - 0.05 + 0.33).min(0.45);
-        play_def.offset[1] = -0.33 + play_def.size[1] / 2.;
-        let r_play = crate::hud::slot(ui, "home", play_def);
+        let r_play = crate::hud::slot(ui, "home", SLOT_PLAY);
         let r = r_play;
         let mat = self.btn_play_3d.now(ui, r, t);
         let top = ui.with_gl(mat, |ui| {
@@ -414,8 +410,7 @@ impl HomePage {
         let r_respack = crate::hud::slot_or(ui, "home", "respack", crate::hud::Cap(true, true, true), Rect::new(0.4, row_y, 0.29, 0.23));
         let r_msg = crate::hud::slot_or(ui, "home", "msg", crate::hud::Cap(true, false, false), Rect::new(0.71, row_y, 0.11, 0.11));
         let r_settings = crate::hud::slot_or(ui, "home", "settings", crate::hud::Cap(true, false, false), Rect::new(0.71, row_y + 0.12, 0.11, 0.11));
-        let row_bottom = r_event.bottom().max(r_respack.bottom()).max(r_settings.bottom());
-        let music_rect = music_panel::panel_rect(r_play, row_bottom, 0.05);
+        let music_rect = music_panel::panel_rect(super::home_title_left(ui), ui.top, r_play.w);
         let mat = self.btn_other_3d.now(ui, Rect::new(0., top - 0.4, 0.83, 0.23), t);
         ui.with_gl(mat, |ui| {
             text_and_icon(s, ui, r_event, &mut self.btn_event, tl!("event"), *self.icons.medal);
@@ -442,11 +437,8 @@ impl HomePage {
             });
         });
         let t = s.t;
-        ui.with_gl(mat, |ui| {
-            s.fader.render(ui, t, |ui| {
-                self.music_panel
-                    .render(ui, music_rect, r_respack.right(), r_settings, t, &s.menu_music, &self.icons);
-            });
+        s.fader.render(ui, t, |ui| {
+            self.music_panel.render(ui, music_rect, t, &s.menu_music, &self.icons);
         });
     }
 }

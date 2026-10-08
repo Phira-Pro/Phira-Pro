@@ -28,8 +28,16 @@ impl Default for MusicPanel {
         }
     }
 }
-pub fn panel_rect(play: Rect, row_bottom: f32, gap: f32) -> Rect {
-    Rect::new(play.x, row_bottom + gap, play.w, 0.11)
+pub fn panel_rect(title_left: f32, top: f32, width: f32) -> Rect {
+    let bottom_margin = if cfg!(feature = "hykb") { 0.10 } else { 0.04 };
+    Rect::new(title_left, top - bottom_margin - 0.11, width, 0.11)
+}
+fn control_rects(panel: Rect) -> (Rect, Rect, Rect) {
+    let width = 0.10;
+    let play = Rect::new(panel.right() - 0.012 - width, panel.y, width, panel.h);
+    let random = Rect::new(play.x - 0.008 - width, panel.y, width, panel.h);
+    let progress = Rect::new(panel.x + 0.022, panel.y, (random.x - panel.x - 0.042).max(0.02), panel.h);
+    (progress, random, play)
 }
 fn dropdown_rect(anchor: Rect, top: f32) -> Rect {
     let h = 0.18;
@@ -76,12 +84,11 @@ impl MusicPanel {
         }
         Ok(self.progress.contains(touch.position) || self.random.inner.contains(touch.position) || self.play.inner.contains(touch.position))
     }
-    pub fn render(&mut self, ui: &mut Ui, r: Rect, left_right: f32, settings: Rect, t: f32, music: &MenuMusic, icons: &Icons) {
+    pub fn render(&mut self, ui: &mut Ui, r: Rect, t: f32, music: &MenuMusic, icons: &Icons) {
         self.background.render_shadow(ui, r, t, |ui, path| ui.fill_path(&path, semi_black(0.4)));
-        let random = Rect::new(left_right - 0.09, r.y, 0.09, r.h);
-        let progress = Rect::new(r.x + 0.022, r.y, (random.x - r.x - 0.04).max(0.02), r.h);
+        let (progress, random, play) = control_rects(r);
         self.progress.set(ui, progress);
-        let anchor = Rect::new(r.x, r.y, (left_right - r.x).max(0.1), r.h);
+        let anchor = Rect::new(r.x, r.y, random.right() - r.x, r.h);
         let mat = prpr::ext::nalgebra_to_glm(&ui.transform) * ui.gl_transform;
         let corners = [
             (anchor.x, anchor.y),
@@ -109,10 +116,9 @@ impl MusicPanel {
         }
         let disabled = music.custom || music.loading();
         self.random.render_shadow(ui, random, t, |ui, _| {
-            let icon = random.feather(-0.024);
+            let icon = random.feather(-0.026);
             ui.fill_rect(icon, (*icons.retry, icon, ScaleType::Fit, semi_white(if disabled { 0.25 } else { 0.8 })));
         });
-        let play = Rect::new(settings.x, r.y, settings.w, r.h);
         self.play.render_shadow(ui, play, t, |ui, _| {
             let icon = play.feather(-0.026);
             if music.user_paused || music.duration == 0. {
@@ -131,7 +137,7 @@ impl MusicPanel {
         ui.abs_scope(|ui| {
             let r = dropdown_rect(self.anchor, ui.top);
             self.popup_rect = Some(r);
-            ui.fill_path(&r.rounded(0.008), semi_black(0.78));
+            ui.fill_path(&r.rounded(0.008), semi_black(0.48));
             let title = if music.title.is_empty() { title_fallback } else { &music.title };
             ui.text(title).pos(r.x + 0.02, r.y + 0.025).size(0.48).max_width(r.w - 0.04).draw();
             ui.text(format!("{} / {}", timestamp(music.position()), timestamp(music.duration)))
@@ -146,15 +152,14 @@ impl MusicPanel {
 mod tests {
     use super::*;
     #[test]
-    fn player_gap_width_and_dropdown_fit_tablet_and_phone() {
+    fn player_and_dropdown_fit_bottom_left_on_tablet_and_phone() {
         for top in [0.75, 0.5625, 0.428] {
-            let h = (top - 0.04 - 0.11 - 0.05 - 0.23 - 0.05 + 0.33_f32).min(0.45);
-            let play = Rect::new(0., -0.33, 0.83, h);
-            let row_bottom = play.bottom() + 0.05 + 0.23;
-            let panel = panel_rect(play, row_bottom, 0.05);
-            assert!((panel.w - play.w).abs() < 1e-6);
-            assert!((panel.y - row_bottom - 0.05).abs() < 1e-6);
+            let panel = panel_rect(-0.95, top, 0.83);
+            assert!(panel.x == -0.95 && panel.w == 0.83 && panel.right() < 0.);
             assert!(panel.bottom() <= top - 0.039);
+            let (progress, random, play) = control_rects(panel);
+            assert_eq!(random.w, play.w);
+            assert!(progress.right() < random.x && random.right() < play.x && play.right() < panel.right());
             let drop = dropdown_rect(panel, top);
             assert!(drop.y >= -top && drop.bottom() <= top);
         }
@@ -186,11 +191,13 @@ pub(crate) async fn render_regression(painter: &mut prpr::ui::TextPainter) {
         let mut ui = Ui::new(painter, Some((0, 0, w, h)));
         set_camera(&ui.camera());
         clear_background(Color::from_hex_rgb(0x253748));
-        let play_h = (ui.top - 0.04 - 0.11 - 0.05 - 0.23 - 0.05 + 0.33).min(0.45);
-        let play = Rect::new(0., -0.33, 0.83, play_h);
+        let play = Rect::new(0., -0.33, 0.83, 0.45);
         let row_y = play.bottom() + 0.05;
         let settings = Rect::new(0.71, row_y + 0.12, 0.11, 0.11);
-        let r = panel_rect(play, row_y + 0.23, 0.05);
+        let title_left = crate::page::home_title_left(&ui);
+        crate::page::Fader::new().render_title(&mut ui, 2., crate::page::HOME_LABEL);
+        let r = panel_rect(title_left, ui.top, play.w);
+        assert_eq!(r.x, title_left);
         ui.fill_path(&play.rounded(0.008), semi_black(0.4));
         ui.text("游玩").pos(play.x + 0.04, play.y + 0.04).draw();
         for (r, name) in [
@@ -201,8 +208,10 @@ pub(crate) async fn render_regression(painter: &mut prpr::ui::TextPainter) {
             ui.fill_path(&r.rounded(0.008), semi_black(0.4));
             ui.text(name).pos(r.x + 0.02, r.y + 0.02).size(0.44).draw();
         }
-        panel.render(&mut ui, r, 0.69, settings, 2., &player, &icons);
-        let p = vec2(0.2, r.center().y);
+        panel.render(&mut ui, r, 2., &player, &icons);
+        let (progress, random, pause) = control_rects(r);
+        assert_eq!(random.w, pause.w);
+        let p = progress.center();
         for phase in [TouchPhase::Started, TouchPhase::Ended] {
             assert!(panel
                 .touch(
@@ -256,7 +265,7 @@ pub(crate) async fn render_regression(painter: &mut prpr::ui::TextPainter) {
                     &Touch {
                         id: 213,
                         phase,
-                        position: vec2(settings.center().x, r.center().y),
+                        position: pause.center(),
                         time: 2.
                     },
                     2.,

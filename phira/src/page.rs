@@ -361,7 +361,7 @@ impl Fader {
             let tp = tp + h * p;
             let mut x = -0.87;
             if s == HOME_LABEL {
-                x -= ui.back_rect().w;
+                x = home_title_left(ui);
             }
             for c in s.chars() {
                 x += ui
@@ -390,6 +390,10 @@ impl Fader {
 /// 主页标题文字。`render_title` 的版式（额外位移、版本号叠加）与它绑定，
 /// 因此改版品牌时只需改这一处，两处判定会自动跟随。
 pub const HOME_LABEL: &str = "PHIRA PRO";
+
+pub fn home_title_left(ui: &Ui) -> f32 {
+    -0.87 - ui.back_rect().w
+}
 
 pub struct SFader {
     time: f32,

@@ -30,14 +30,57 @@ impl Default for MusicPanel {
 }
 pub fn panel_rect(title_left: f32, top: f32, width: f32) -> Rect {
     let bottom_margin = if cfg!(feature = "hykb") { 0.10 } else { 0.04 };
-    Rect::new(title_left, top - bottom_margin - 0.11, width, 0.11)
+    Rect::new(title_left, top - bottom_margin - 0.08, width, 0.08)
+}
+pub fn music_slot(ui: &Ui, width: f32) -> Rect {
+    let default = panel_rect(crate::page::home_title_left(ui), ui.top, width);
+    crate::hud::slot(
+        ui,
+        "home",
+        crate::hud::SlotDef::at(
+            "music",
+            // HUD anchors retain mathematical-Y names; +ui.top is the screen bottom.
+            crate::hud::Anchor::TopLeft,
+            [default.center().x + 1., default.center().y - ui.top],
+            [default.w, default.h],
+            crate::hud::Cap(true, false, false),
+        ),
+    )
 }
 fn control_rects(panel: Rect) -> (Rect, Rect, Rect) {
-    let width = 0.10;
+    let width = 0.075;
     let play = Rect::new(panel.right() - 0.012 - width, panel.y, width, panel.h);
     let random = Rect::new(play.x - 0.008 - width, panel.y, width, panel.h);
     let progress = Rect::new(panel.x + 0.022, panel.y, (random.x - panel.x - 0.042).max(0.02), panel.h);
     (progress, random, play)
+}
+// Visible artwork bounds of the built-in 128px assets, excluding transparent padding.
+const RETRY_ARTWORK: Rect = Rect {
+    x: 20. / 128.,
+    y: 20. / 128.,
+    w: 88. / 128.,
+    h: 88. / 128.,
+};
+const PLAY_ARTWORK: Rect = Rect {
+    x: 31. / 128.,
+    y: 19. / 128.,
+    w: 74. / 128.,
+    h: 90. / 128.,
+};
+
+fn icon_rect(button: Rect) -> Rect {
+    let size = button.w.min(button.h) * 0.46;
+    Rect::new(button.center().x - size / 2., button.center().y - size / 2., size, size)
+}
+fn texture_icon_rect(button: Rect, texture: Texture2D, artwork: Rect) -> Rect {
+    let icon = icon_rect(button);
+    let scale = icon.h / (artwork.h * texture.height());
+    Rect::new(
+        button.center().x - artwork.center().x * texture.width() * scale,
+        button.center().y - artwork.center().y * texture.height() * scale,
+        texture.width() * scale,
+        texture.height() * scale,
+    )
 }
 fn dropdown_rect(anchor: Rect, top: f32) -> Rect {
     let h = 0.18;
@@ -103,8 +146,8 @@ impl MusicPanel {
         let min = corners.iter().fold(vec2(f32::INFINITY, f32::INFINITY), |a, b| a.min(*b));
         let max = corners.iter().fold(vec2(f32::NEG_INFINITY, f32::NEG_INFINITY), |a, b| a.max(*b));
         self.anchor = Rect::new(min.x, min.y, max.x - min.x, max.y - min.y);
-        let track = Rect::new(progress.x, r.center().y - 0.006, progress.w, 0.012);
-        ui.fill_path(&track.rounded(0.006), Color::from_hex_rgb(0x424242));
+        let track = Rect::new(progress.x, r.center().y - 0.005, progress.w, 0.010);
+        ui.fill_path(&track.rounded(0.005), Color::from_hex_rgb(0x424242));
         let fraction = if music.duration > 0. {
             (music.position() / music.duration) as f32
         } else {
@@ -112,20 +155,20 @@ impl MusicPanel {
         };
         if fraction > 0. {
             let fill = Rect::new(track.x, track.y, track.w * fraction.clamp(0., 1.), track.h);
-            ui.fill_path(&fill.rounded(0.006_f32.min(fill.w / 2.)), WHITE);
+            ui.fill_path(&fill.rounded(0.005_f32.min(fill.w / 2.)), WHITE);
         }
         let disabled = music.custom || music.loading();
         self.random.render_shadow(ui, random, t, |ui, _| {
-            let icon = random.feather(-0.026);
+            let icon = texture_icon_rect(random, *icons.retry, RETRY_ARTWORK);
             ui.fill_rect(icon, (*icons.retry, icon, ScaleType::Fit, semi_white(if disabled { 0.25 } else { 0.8 })));
         });
         self.play.render_shadow(ui, play, t, |ui, _| {
-            let icon = play.feather(-0.026);
             if music.user_paused || music.duration == 0. {
+                let icon = texture_icon_rect(play, *icons.play, PLAY_ARTWORK);
                 ui.fill_rect(icon, (*icons.play, icon, ScaleType::Fit, semi_white(0.9)));
             } else {
                 // Reuse the gameplay pause symbol (the same two bars and proportions).
-                prpr::ui::draw_pause_icon(ui, icon, semi_white(0.9));
+                prpr::ui::draw_pause_icon(ui, icon_rect(play), semi_white(0.9));
             }
         });
     }
@@ -169,7 +212,24 @@ mod tests {
 
 #[cfg(test)]
 pub(crate) async fn render_regression(painter: &mut prpr::ui::TextPainter) {
+    fn ink_size(bytes: &[u8], width: usize, top: f32, rect: Rect) -> (usize, usize) {
+        let scale = width as f32 / 2.;
+        let mut min = (usize::MAX, usize::MAX);
+        let mut max = (0, 0);
+        for y in ((top - rect.bottom()) * scale).ceil() as usize..((top - rect.y) * scale).floor() as usize {
+            for x in ((rect.x + 1.) * scale).ceil() as usize..((rect.right() + 1.) * scale).floor() as usize {
+                let pixel = &bytes[(y * width + x) * 4..][..3];
+                if pixel.iter().all(|v| *v > 160) {
+                    min = (min.0.min(x), min.1.min(y));
+                    max = (max.0.max(x), max.1.max(y));
+                }
+            }
+        }
+        assert_ne!(min.0, usize::MAX, "icon must be visible");
+        (max.0 - min.0 + 1, max.1 - min.1 + 1)
+    }
     prpr::core::init_assets();
+    let isolated_hud = crate::hud::IsolatedTestLayout::new();
     crate::scene::TEX_ICON_BACK.with(|it| *it.borrow_mut() = Some(Texture2D::from_rgba8(1, 1, &[255; 4]).into()));
     let icons = Icons::new().await.unwrap();
     let mut player = MenuMusic::default();
@@ -196,8 +256,11 @@ pub(crate) async fn render_regression(painter: &mut prpr::ui::TextPainter) {
         let settings = Rect::new(0.71, row_y + 0.12, 0.11, 0.11);
         let title_left = crate::page::home_title_left(&ui);
         crate::page::Fader::new().render_title(&mut ui, 2., crate::page::HOME_LABEL);
-        let r = panel_rect(title_left, ui.top, play.w);
-        assert_eq!(r.x, title_left);
+        crate::hud::begin_frame();
+        let r = music_slot(&ui, play.w);
+        assert!((r.x - title_left).abs() < 1e-6);
+        assert!(r.y >= -ui.top && r.bottom() <= ui.top);
+        assert!(crate::hud::frame_slots().iter().any(|slot| slot.key == "music" && slot.cap.0));
         ui.fill_path(&play.rounded(0.008), semi_black(0.4));
         ui.text("游玩").pos(play.x + 0.04, play.y + 0.04).draw();
         for (r, name) in [
@@ -238,6 +301,10 @@ pub(crate) async fn render_regression(painter: &mut prpr::ui::TextPainter) {
             glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
             assert_eq!(glGetError(), 0);
         }
+        let random_ink = ink_size(&bytes, w as usize, ui.top, random);
+        let pause_ink = ink_size(&bytes, w as usize, ui.top, pause);
+        assert!(random_ink.0.abs_diff(random_ink.1) <= 2, "random icon must remain circular at {suffix}: {random_ink:?}");
+        assert!(random_ink.1.abs_diff(pause_ink.1) <= 2, "visible icon heights must match at {suffix}");
         Image {
             width: w as u16,
             height: h as u16,
@@ -274,7 +341,66 @@ pub(crate) async fn render_regression(painter: &mut prpr::ui::TextPainter) {
                 .unwrap());
         }
         assert!(player.user_paused);
+        clear_background(Color::from_hex_rgb(0x253748));
+        panel.render(&mut ui, r, 2., &player, &icons);
+        unsafe { get_internal_gl() }.flush();
+        let mut play_bytes = vec![0; (w * h * 4) as usize];
+        unsafe {
+            use miniquad::gl::*;
+            glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, play_bytes.as_mut_ptr() as _);
+            assert_eq!(glGetError(), 0);
+        }
+        let play_ink = ink_size(&play_bytes, w as usize, ui.top, pause);
+        assert!(random_ink.1.abs_diff(play_ink.1) <= 2, "random and play visible heights must match at {suffix}");
+        assert!((play_ink.0 as f32 - play_ink.1 as f32 * 74. / 90.).abs() <= 2., "play icon retains asset proportions");
         player.user_paused = false;
+        if suffix == "21x9" {
+            // Exercise the actual HUD editor, persistence and hit boxes after moving.
+            crate::hud::set_cur_page(crate::hud::PageId::Home);
+            crate::hud::set_snap(false);
+            let mut editor = crate::hud::Editor::default();
+            editor.render(&mut ui);
+            let mut touch = Touch {
+                id: 215,
+                phase: TouchPhase::Started,
+                position: r.center(),
+                time: 2.,
+            };
+            editor.touch(&touch);
+            editor.render(&mut ui);
+            touch.phase = TouchPhase::Moved;
+            touch.position += vec2(0.25, -0.15);
+            editor.touch(&touch);
+            editor.render(&mut ui);
+            touch.phase = TouchPhase::Ended;
+            editor.touch(&touch);
+            editor.render(&mut ui);
+            crate::hud::begin_frame();
+            let moved = music_slot(&ui, play.w);
+            assert!((moved.x - r.x - 0.25).abs() < 1e-5 && (moved.y - r.y + 0.15).abs() < 1e-5);
+            let stored: serde_json::Value = serde_json::from_slice(&std::fs::read(isolated_hud.saved_path()).unwrap()).unwrap();
+            assert!(stored["pages"]["home"]["slots"]["music"].is_object());
+            isolated_hud.reload_saved();
+            crate::hud::begin_frame();
+            assert_eq!(music_slot(&ui, play.w), moved, "HUD position must survive reloading the saved file");
+            panel.render(&mut ui, moved, 2., &player, &icons);
+            let new_play = control_rects(moved).2;
+            for phase in [TouchPhase::Started, TouchPhase::Ended] {
+                panel
+                    .touch(
+                        &Touch {
+                            id: 216,
+                            phase,
+                            position: new_play.center(),
+                            time: 2.,
+                        },
+                        2.,
+                        &mut player,
+                    )
+                    .unwrap();
+            }
+            assert!(player.user_paused, "play hit box follows the saved HUD position");
+        }
     }
     println!("Home music panel: production controls and dropdown rendered and clicked at 4:3 / 16:9 / 21:9.");
 }

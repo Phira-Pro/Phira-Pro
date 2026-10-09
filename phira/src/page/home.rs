@@ -410,7 +410,7 @@ impl HomePage {
         let r_respack = crate::hud::slot_or(ui, "home", "respack", crate::hud::Cap(true, true, true), Rect::new(0.4, row_y, 0.29, 0.23));
         let r_msg = crate::hud::slot_or(ui, "home", "msg", crate::hud::Cap(true, false, false), Rect::new(0.71, row_y, 0.11, 0.11));
         let r_settings = crate::hud::slot_or(ui, "home", "settings", crate::hud::Cap(true, false, false), Rect::new(0.71, row_y + 0.12, 0.11, 0.11));
-        let music_rect = music_panel::panel_rect(super::home_title_left(ui), ui.top, r_play.w);
+        let music_rect = music_panel::music_slot(ui, r_play.w);
         let mat = self.btn_other_3d.now(ui, Rect::new(0., top - 0.4, 0.83, 0.23), t);
         ui.with_gl(mat, |ui| {
             text_and_icon(s, ui, r_event, &mut self.btn_event, tl!("event"), *self.icons.medal);

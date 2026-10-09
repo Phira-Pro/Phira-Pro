@@ -141,6 +141,56 @@ const VERSION: u32 = 1;
 
 static LAYOUT: Lazy<Mutex<Option<Layout>>> = Lazy::new(|| Mutex::new(None));
 
+/// Scope GPU regression saves to a fresh directory and restore all HUD globals.
+#[cfg(test)]
+pub(crate) struct IsolatedTestLayout {
+    directory: tempfile::TempDir,
+    old_data_path: Option<String>,
+    old_layout: Option<Layout>,
+    old_snap: bool,
+    old_page: PageId,
+}
+
+#[cfg(test)]
+impl IsolatedTestLayout {
+    pub(crate) fn new() -> Self {
+        let directory = tempfile::tempdir_in("target/judgement-panel-qa").unwrap();
+        let isolated_path = directory.path().to_string_lossy().replace('\\', "/");
+        let old_data_path = crate::DATA_PATH.lock().unwrap().replace(isolated_path);
+        let old_layout = std::mem::replace(&mut *LAYOUT.lock().unwrap(), Some(Layout::default()));
+        Self {
+            directory,
+            old_data_path,
+            old_layout,
+            old_snap: snap_enabled(),
+            old_page: cur_page(),
+        }
+    }
+
+    pub(crate) fn saved_path(&self) -> std::path::PathBuf {
+        let saved = std::path::PathBuf::from(path().unwrap());
+        assert!(
+            saved.parent().unwrap().canonicalize().unwrap().starts_with(self.directory.path().canonicalize().unwrap()),
+            "HUD test must save inside its temporary directory"
+        );
+        saved
+    }
+
+    pub(crate) fn reload_saved(&self) {
+        *LAYOUT.lock().unwrap() = None;
+    }
+}
+
+#[cfg(test)]
+impl Drop for IsolatedTestLayout {
+    fn drop(&mut self) {
+        *LAYOUT.lock().unwrap() = self.old_layout.take();
+        *crate::DATA_PATH.lock().unwrap() = self.old_data_path.take();
+        set_snap(self.old_snap);
+        set_cur_page(self.old_page);
+    }
+}
+
 fn path() -> Result<String> {
     Ok(format!("{}/hud.json", dir::root()?))
 }

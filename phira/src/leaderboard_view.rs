@@ -64,7 +64,7 @@ impl Layout {
         let compact = height < 1.;
         let sources_y = if compact { 0.105 } else { 0.13 };
         let metric_y = sources_y + 0.09;
-        let ranks_y = metric_y + if local { 0.015 } else { 0.07 };
+        let ranks_y = metric_y + 0.07;
         let note_y = ranks_y + if local { 0.06 } else { 0.15 };
         Self {
             sources_y,

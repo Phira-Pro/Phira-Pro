@@ -537,6 +537,7 @@ pub struct GameScene {
 
     state: State,
     pub last_update_time: f64,
+    replay_frame_delta: Option<f32>,
     pause_rewind: Option<f64>,
     pause_first_time: f32,
 
@@ -795,6 +796,7 @@ impl GameScene {
             music,
 
             state: State::Starting,
+            replay_frame_delta: None,
             last_update_time: 0.,
             pause_rewind: None,
             pause_first_time: f32::NEG_INFINITY,
@@ -1331,6 +1333,11 @@ impl GameScene {
         }
     }
 
+    /// Replay transport can freeze effects while paused or after a discontinuous seek.
+    pub fn set_replay_frame_delta(&mut self, delta: f32) {
+        self.replay_frame_delta = Some(delta.max(0.));
+    }
+
     fn tweak_offset(&mut self, ui: &mut Ui, ita: bool) {
         let labels = OffsetPanelLabels {
             adjust_offset: tl!("adjust-offset"),
@@ -1847,7 +1854,8 @@ impl Scene for GameScene {
 
         self.bad_notes.retain(|dummy| dummy.render(res));
         let t = tm.real_time();
-        let dt = (t - std::mem::replace(&mut self.last_update_time, t)) as f32;
+        let real_dt = (t - std::mem::replace(&mut self.last_update_time, t)) as f32;
+        let dt = self.replay_frame_delta.take().unwrap_or(real_dt);
         if res.config.particle {
             res.emitter.draw(dt);
         }

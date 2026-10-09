@@ -1365,6 +1365,7 @@ struct ChartList {
     combo_text_btn: DRectButton,
     judge_chart_btn: DRectButton,
     judgement_btn: DRectButton,
+    replays_btn: DRectButton,
     history_btn: DRectButton,
     next_page: Option<NextPage>,
 }
@@ -1402,6 +1403,7 @@ impl ChartList {
             combo_text_btn: DRectButton::new(),
             judge_chart_btn: DRectButton::new(),
             judgement_btn: DRectButton::new(),
+            replays_btn: DRectButton::new(),
             history_btn: DRectButton::new(),
             next_page: None,
         }
@@ -1499,6 +1501,10 @@ impl ChartList {
         }
         if !cfg!(flash) && self.judgement_btn.touch(touch, t) {
             self.next_page = Some(NextPage::Overlay(Box::new(JudgementPage::new())));
+            return Ok(Some(false));
+        }
+        if self.replays_btn.touch(touch, t) {
+            self.next_page = Some(NextPage::Overlay(Box::new(super::replays::ReplayManager::new(None, false))));
             return Ok(Some(false));
         }
         if self.combo_text_btn.touch(touch, t) {
@@ -1662,6 +1668,10 @@ impl ChartList {
                 render_title(ui, tl!("judgement-settings"), Some(tl!("judgement-settings-sub")));
                 self.judgement_btn.render_text(ui, rr, t, tl!("judgement-open"), 0.42, false);
             }
+        }
+        item! {
+            render_title(ui, tl!("replays-settings"), Some(tl!("replays-settings-sub")));
+            self.replays_btn.render_text(ui, rr, t, tl!("judgement-open"), 0.42, false);
         }
         item! {
             render_title(ui, tl!("item-auto-retry"), Some(tl!("item-auto-retry-sub")));

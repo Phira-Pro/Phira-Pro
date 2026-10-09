@@ -159,7 +159,7 @@ impl FlickTracker {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum JudgeStatus {
     NotJudged,
     PreJudge,
@@ -351,7 +351,7 @@ pub struct RecentHit {
 }
 
 #[cfg(not(closed))]
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct JudgeInner {
     grading: crate::config::JudgeGrading,
     diffs: Vec<f64>,
@@ -998,7 +998,11 @@ pub mod inner;
 #[cfg(closed)]
 use inner::*;
 
-type Judgements = Vec<(f64, u32, u32, Result<Judgement, bool>)>;
+type Judgements = Vec<(f64, u32, u32, Result<Judgement, bool>, f64, Option<Judgement>)>;
+
+#[cfg(not(closed))]
+#[derive(Clone)]
+pub struct ReplayJudgeState(JudgeInner);
 
 #[repr(C)]
 pub struct Judge {
@@ -1037,6 +1041,17 @@ pub fn take_wheel() -> (f32, f32) {
 }
 
 impl Judge {
+    #[cfg(not(closed))]
+    pub fn replay_snapshot(&self) -> ReplayJudgeState {
+        ReplayJudgeState(self.inner.clone())
+    }
+    #[cfg(not(closed))]
+    pub fn restore_replay_snapshot(&mut self, state: &ReplayJudgeState) {
+        self.inner = state.0.clone();
+    }
+    pub fn record_replay_offset(&mut self, t: f64, grade: Judgement, diff: f64) {
+        self.inner.push_recent(diff, grade, t);
+    }
     pub fn new(chart: &Chart, hold_tail_judge: bool) -> Self {
         let mut sound_schedule: Vec<_> = chart
             .lines
@@ -1132,7 +1147,7 @@ impl Judge {
 
     pub fn commit(&mut self, t: f64, what: Judgement, line_id: u32, note_id: u32, diff: f64) {
         let what = if !self.inner.grading.perfect_plus && matches!(what, Judgement::PerfectPlus) { Judgement::Perfect } else { what };
-        self.judgements.borrow_mut().push((t, line_id, note_id, Ok(what)));
+        self.judgements.borrow_mut().push((t, line_id, note_id, Ok(what), diff, None));
         self.inner.commit(what, diff);
     }
 
@@ -1466,7 +1481,7 @@ impl Judge {
                             let color = note.fx_color.unwrap_or_else(|| if perfect { res.res_pack.info.fx_perfect() } else { res.res_pack.info.fx_good() });
                             res.with_model(matrix, |res| res.emit_at_origin(rotation, color));
                         }
-                        self.judgements.borrow_mut().push((t, line as u32, id, Err(perfect)));
+                        self.judgements.borrow_mut().push((t, line as u32, id, Err(perfect), offset, Some(judgement)));
                         self.inner.push_recent(offset, judgement, t);
                         if res.config.hold_tail_judge { self.commit(t, judgement, line as u32, id, offset); }
                         note.judge = JudgeStatus::Hold(perfect, t, note.time + offset * spd, false, f64::INFINITY);
@@ -1567,7 +1582,7 @@ impl Judge {
                             }
                             NoteKind::Hold { .. } => {
                                 note.hitsound.play(res);
-                                self.judgements.borrow_mut().push((t, line_id as _, id, Err(perfect)));
+                                self.judgements.borrow_mut().push((t, line_id as _, id, Err(perfect), (t - note.time) / spd, Some(judgement_at_distance(dt, &limits, false))));
                                 // 头判的偏移：按下时就进判定条（原来要等按住结束才显示）。
                                 let head_j = judgement_at_distance(dt, &limits, false);
                                 self.inner.push_recent((t - note.time) / spd, head_j, t);
@@ -1632,7 +1647,7 @@ impl Judge {
                         }
                         NoteKind::Hold { .. } => {
                             note.hitsound.play(res);
-                            self.judgements.borrow_mut().push((t, line_id as _, id, Err(perfect)));
+                            self.judgements.borrow_mut().push((t, line_id as _, id, Err(perfect), (t - note.time) / spd, Some(judgement_at_distance(dt, &limits, false))));
                             // 头判的偏移：按下时就进判定条（原来要等按住结束才显示）。
                             let head_j = judgement_at_distance(dt, &limits, false);
                             self.inner.push_recent((t - note.time) / spd, head_j, t);
@@ -1916,7 +1931,7 @@ impl Judge {
                 }
                 note.judge = if matches!(note.kind, NoteKind::Hold { .. }) {
                     note.hitsound.play(res);
-                    self.judgements.borrow_mut().push((t, line_id as _, *id, Err(true)));
+                    self.judgements.borrow_mut().push((t, line_id as _, *id, Err(true), 0., Some(Judgement::PerfectPlus)));
                     JudgeStatus::Hold(true, t, (t - note.time) / spd, false, f64::INFINITY)
                 } else {
                     judgements.push((line_id, *id));

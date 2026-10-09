@@ -391,3 +391,6 @@ theoretical-score-disabled = Enable Perfect+ in judgement settings first
 preset-od = osu!mania ScoreV2 OD timing shortcut
 preset-od-custom = Custom
 preset-od-sub = ScoreV2 symmetric windows, Perfect+ off; extended OD -15 to 15
+
+replays-settings = Replay files
+replays-settings-sub = Import, export, match charts and watch replays

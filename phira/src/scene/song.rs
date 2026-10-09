@@ -371,6 +371,12 @@ pub struct SongScene {
     /// 本地记录榜单。
     ldb_local: Vec<(history::Record, RectButton)>,
     ldb_local_revision: u64,
+    replay_manage_btn: DRectButton,
+    replay_filter_btn: DRectButton,
+    replay_filter: u8,
+    replay_rules_btn: DRectButton,
+    replay_rules: Vec<(String, String)>,
+    replay_rule: Option<String>,
     /// 上次同步黑名单时的版本号；黑名单增删后据此重新拉取榜单。
     ldb_bl_ver: u32,
 
@@ -564,6 +570,12 @@ impl SongScene {
             ldb_mode: 0,
             ldb_local: Vec::new(),
             ldb_local_revision: u64::MAX,
+            replay_manage_btn: DRectButton::new(),
+            replay_filter_btn: DRectButton::new(),
+            replay_filter: 0,
+            replay_rules_btn: DRectButton::new(),
+            replay_rules: Vec::new(),
+            replay_rule: None,
             ldb_bl_ver: crate::blacklist::version(),
 
             info_btn: RectButton::new(),
@@ -839,7 +851,31 @@ impl SongScene {
         } else {
             return;
         };
-        let mut recs: Vec<crate::history::Record> = crate::history::all().into_iter().filter(|it| it.key == key).collect();
+        let mut recs = crate::replay::library::board_records(&key);
+        self.replay_rules.clear();
+        for rec in &recs {
+            let key = rec.replay_rules.clone().unwrap_or_else(|| "unknown".into());
+            if !self.replay_rules.iter().any(|(k, _)| k == &key) {
+                let label = format!(
+                    "{} · {}",
+                    rec.replay_mode.as_deref().unwrap_or("规则未记录"),
+                    rec.replay_speed.map_or("速度未记录".into(), |s| format!("{s:.2}×"))
+                );
+                self.replay_rules.push((key, label));
+            }
+        }
+        let labels: Vec<_> = self.replay_rules.iter().map(|(_, label)| label.clone()).collect();
+        for (i, (_, label)) in self.replay_rules.iter_mut().enumerate() {
+            if labels.iter().filter(|other| *other == &labels[i]).count() > 1 {
+                *label = format!("{} · 配置{}", labels[i], i + 1);
+            }
+        }
+        recs.retain(|r| {
+            self.replay_rule
+                .as_ref()
+                .is_none_or(|key| r.replay_rules.as_deref().unwrap_or("unknown") == key)
+        });
+        recs.retain(|r| self.replay_filter == 0 || (self.replay_filter == 2) == r.replay_imported);
         recs.sort_by(|a, b| {
             b.score
                 .cmp(&a.score)
@@ -1079,6 +1115,9 @@ impl SongScene {
         Ok(Some(Box::pin(async move {
             let mut info = fs::load_info(fs.as_mut()).await?;
             info.id = id;
+            if update_fn.is_some() {
+                crate::replay::library::record_identity(fs.as_mut(), &info).await?;
+            }
             let mut config = get_data().config.clone();
             config.player_name = get_data()
                 .me
@@ -1251,9 +1290,9 @@ impl SongScene {
         let width = self.side_content.width();
         let height = ui.top * 2.;
         let local = self.ldb_source == BoardSource::Local;
-        if local && self.ldb_local_revision != history::revision() {
+        if local && self.ldb_local_revision != history::revision().wrapping_add(crate::replay::library::revision()) {
             self.rebuild_local_ldb();
-            self.ldb_local_revision = history::revision();
+            self.ldb_local_revision = history::revision().wrapping_add(crate::replay::library::revision());
         }
         let source = match self.ldb_source {
             BoardSource::Pro => 0,
@@ -1262,6 +1301,29 @@ impl SongScene {
         };
         let layout = leaderboard_view::header(ui, width, height, &self.info.name, source, self.ldb_mode, rt, &mut self.ldb_controls);
         if local {
+            self.replay_manage_btn
+                .render_text(ui, Rect::new(0.035, layout.metric_y, (width - 0.09) / 3., 0.055), rt, "导入 / 管理回放", 0.34, false);
+            self.replay_filter_btn.render_text(
+                ui,
+                Rect::new(0.045 + (width - 0.09) / 3., layout.metric_y, (width - 0.09) / 3., 0.055),
+                rt,
+                ["全部", "自己", "导入"][self.replay_filter as usize],
+                0.34,
+                false,
+            );
+            let rule_label = self
+                .replay_rule
+                .as_ref()
+                .and_then(|key| self.replay_rules.iter().find(|(k, _)| k == key))
+                .map_or("全部规则", |(_, label)| label.as_str());
+            self.replay_rules_btn.render_text(
+                ui,
+                Rect::new(0.055 + 2. * (width - 0.09) / 3., layout.metric_y, (width - 0.09) / 3., 0.055),
+                rt,
+                rule_label,
+                0.30,
+                self.replay_rule.is_some(),
+            );
             leaderboard_view::note(ui, width, layout.ranks_y, &tl!("ldb-local-count", "count" => self.ldb_local.len().to_string()));
         } else {
             leaderboard_view::rank_lines(
@@ -1350,15 +1412,36 @@ impl SongScene {
                                         rt,
                                         leaderboard_view::Row {
                                             rank: None,
-                                            name,
-                                            name_color: color,
-                                            avatar: me
-                                                .map_or_else(|| Err(self.icons.user.clone()), |id| UserManager::opt_avatar(id, &self.icons.user)),
-                                            metric: format!("{:07}", rec.score),
-                                            detail: format!("{:.2}% · {}", rec.accuracy * 100., rec.time_text()),
-                                            source: tl!("ldb-local").into_owned(),
+                                            name: rec.replay_player.clone().unwrap_or_else(|| if rec.replay_imported { "未记录".into() } else { name }),
+                                            name_color: if rec.replay_imported { WHITE } else { color },
+                                            avatar: if rec.replay_imported {
+                                                Err(self.icons.user.clone())
+                                            } else {
+                                                me.map_or_else(|| Err(self.icons.user.clone()), |id| UserManager::opt_avatar(id, &self.icons.user))
+                                            },
+                                            metric: if rec.replay_result_unknown {
+                                                "成绩未记录".into()
+                                            } else {
+                                                format!("{:07}", rec.score)
+                                            },
+                                            detail: format!(
+                                                "{} · {} · {} · {}",
+                                                rec.replay_mode.as_deref().unwrap_or("规则未记录"),
+                                                rec.replay_speed.map_or("速度未记录".into(), |s| format!("{s:.2}×")),
+                                                if rec.replay_result_unknown {
+                                                    "成绩未记录".into()
+                                                } else {
+                                                    format!("{:.2}%", rec.accuracy * 100.)
+                                                },
+                                                if rec.time > 0 { rec.time_text() } else { "时间未记录".into() }
+                                            ),
+                                            source: if rec.replay_imported {
+                                                "导入回放".into()
+                                            } else {
+                                                tl!("ldb-local").into_owned()
+                                            },
                                             pro: false,
-                                            me: true,
+                                            me: !rec.replay_imported,
                                             btn,
                                         },
                                     )
@@ -2002,6 +2085,31 @@ impl Scene for SongScene {
                                 }
                             }
                             return Ok(true);
+                        }
+                        if self.ldb_source == BoardSource::Local {
+                            if self.replay_manage_btn.touch(touch, t) {
+                                let key = crate::replay::key_for(self.info.id, self.local_path.as_deref());
+                                self.sf.goto(t, crate::page::replays::ReplayManager::new(Some(key), true));
+                                return Ok(true);
+                            }
+                            if self.replay_rules_btn.touch(touch, t) {
+                                self.replay_rule = match &self.replay_rule {
+                                    None => self.replay_rules.first().map(|(key, _)| key.clone()),
+                                    Some(key) => self
+                                        .replay_rules
+                                        .iter()
+                                        .position(|(k, _)| k == key)
+                                        .and_then(|i| self.replay_rules.get(i + 1))
+                                        .map(|(key, _)| key.clone()),
+                                };
+                                self.ldb_local_revision = u64::MAX;
+                                return Ok(true);
+                            }
+                            if self.replay_filter_btn.touch(touch, t) {
+                                self.replay_filter = (self.replay_filter + 1) % 3;
+                                self.ldb_local_revision = u64::MAX;
+                                return Ok(true);
+                            }
                         }
                         if self.ldb_scroll.touch(touch, t) {
                             for item in &mut self.ldb {

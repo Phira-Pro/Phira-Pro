@@ -1,35 +1,18 @@
-// 本地回放系统（Phira Pro）。
-//
-// 游玩时通过 `UpdateFn` 钩子记录两类数据：
-// - 触摸帧：每帧快照 `Judge::get_touches()`（屏幕坐标，已按判定线坐标系换算），
-//   供回放时画出手指触点。
-// - 判定事件：`judge.judgements` 增量取出，带时间戳，回放时按原样重放到谱面上，
-//   保证分数 / 准度 / 连击与原始游玩完全一致。
-//
-// 回放文件 `.phirar` 是自包含的二进制格式（魔数沿用 PHIRAREC 家族）：
-//   magic "PHIRAREC" (8B) | version u32 = 4 |
-//   chart_kind u8 (0=谱面 id，1=本地路径) |
-//   谱面引用：id → i32；路径 → u8 长度 + UTF-8 字节 |
-//   offset f32 | speed f32 | mods u32 | Perfect+ u8 | detailed u8 |
-//   chart_updated i64 | chart_file u32 length + UTF-8 |
-//   touch_count u32 | judge_count u32 |
-//   touches[]: u8 phase(0=按下 1=移动 2=抬起) + i8 触点 id + f32 x + f32 y + f32 t
-//   judges[]: f64 t + u32 判定线 + u32 音符 + u8 判定(0..=9) + f32 diff
-//
-// 存储位置：`<data>/replays/<chart-key>_<时间戳>.phirar`，文件名与成绩历史记录的
-// `key + time` 一一对应，因此「本地成绩详情」页可以按名字直接找到对应的回放。
+//! Separate, versioned replay tapes. v5 adds metadata, full judgement settings, real offsets and frame timestamps.
+pub mod library;
+pub mod transport;
 
 use anyhow::{Context, Result};
-use prpr::{
-    judge::Judge,
-    scene::UpdateFn,
-};
+use prpr::{judge::Judge, scene::UpdateFn};
 use std::{
     io::{Read, Write},
     path::PathBuf,
 };
 
 use crate::dir;
+use serde::{Deserialize, Serialize};
+const MAX_BYTES: u64 = 128 << 20;
+const MAX_EVENTS: usize = 2_000_000;
 
 /// 触摸相位。
 pub const PHASE_DOWN: u8 = 0;
@@ -37,10 +20,10 @@ pub const PHASE_MOVE: u8 = 1;
 pub const PHASE_UP: u8 = 2;
 
 /// 一条触摸帧。
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct TouchEvent {
     pub phase: u8,
-    pub id: i8,
+    pub id: u64,
     pub x: f32,
     pub y: f32,
     /// 谱面时间（秒，0 = 谱面偏移处，与 `Resource.time` 同基准）。
@@ -48,7 +31,7 @@ pub struct TouchEvent {
 }
 
 /// 一条判定事件。
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct JudgeEvent {
     pub t: f64,
     pub line: u32,
@@ -56,18 +39,29 @@ pub struct JudgeEvent {
     /// 0=Perfect 1=Good 2=Bad 3=Miss 4=PerfectPlus 5=HoldPerfect 6=HoldGood 7=Great 8=Ok 9=Meh
     pub kind: u8,
     pub diff: f32,
+    #[serde(default)]
+    pub head_grade: Option<u8>,
 }
 
 /// 谱面引用。
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ChartRef {
     Id(i32),
     Local(String),
 }
 
 /// 回放文件。
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Replay {
+    pub meta: Metadata,
+    pub frames: Vec<f64>,
+    pub aspect_ratio: Option<f32>,
+    pub settings: Option<crate::judgement_presets::JudgeSettings>,
+    pub gameplay: Option<Gameplay>,
+    pub theoretical_score: bool,
+    pub has_diffs: bool,
+    pub has_speed: bool,
     pub chart: Option<ChartRef>,
     pub offset: f32,
     pub speed: f32,
@@ -81,6 +75,114 @@ pub struct Replay {
     pub chart_updated: Option<i64>,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Metadata {
+    pub id: String,
+    pub player: Option<String>,
+    pub player_id: Option<i32>,
+    pub recorded_at: Option<i64>,
+    pub name: String,
+    pub level: String,
+    pub difficulty: f32,
+    pub server: Option<String>,
+    pub fingerprint: Option<String>,
+    pub audio_fingerprint: Option<String>,
+    pub result: Option<crate::history::Record>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Gameplay {
+    pub hp_mode: bool,
+    pub hp_amount: f32,
+    pub hp_scale: f32,
+    pub use_keyboard: bool,
+    pub note_scale: f32,
+    pub flow_speed: f32,
+    pub fade_strength: f32,
+}
+impl Gameplay {
+    fn capture(c: &prpr::config::Config) -> Self {
+        Self {
+            hp_mode: c.hp_mode,
+            hp_amount: c.hp_amount,
+            hp_scale: c.hp_scale,
+            use_keyboard: c.use_keyboard,
+            note_scale: c.note_scale,
+            flow_speed: c.flow_speed,
+            fade_strength: c.fade_strength,
+        }
+    }
+    pub fn apply(&self, c: &mut prpr::config::Config) {
+        c.hp_mode = self.hp_mode;
+        c.hp_amount = self.hp_amount;
+        c.hp_scale = self.hp_scale;
+        c.use_keyboard = self.use_keyboard;
+        c.note_scale = self.note_scale;
+        c.flow_speed = self.flow_speed;
+        c.fade_strength = self.fade_strength;
+    }
+}
+
+fn read_bounded(reader: impl Read) -> Result<Vec<u8>> {
+    read_with_limit(reader, MAX_BYTES)
+}
+fn read_with_limit(reader: impl Read, limit: u64) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    reader.take(limit + 1).read_to_end(&mut out)?;
+    anyhow::ensure!(out.len() as u64 <= limit, "回放文件超过大小上限");
+    Ok(out)
+}
+
+pub fn bytes(replay: &Replay) -> Result<Vec<u8>> {
+    validate(replay)?;
+    let mut out = b"PHIRAREC".to_vec();
+    out.extend_from_slice(&5u32.to_le_bytes());
+    let json = serde_json::to_vec(replay)?;
+    anyhow::ensure!(json.len() as u64 <= MAX_BYTES, "回放数据过大");
+    out.extend(zstd::stream::encode_all(json.as_slice(), 3)?);
+    Ok(out)
+}
+pub fn save(replay: &Replay, path: &PathBuf) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    crate::transfer::write_atomic(path, &bytes(replay)?)
+}
+fn validate(replay: &Replay) -> Result<()> {
+    anyhow::ensure!(replay.touches.len() <= MAX_EVENTS && replay.judges.len() <= MAX_EVENTS && replay.frames.len() <= MAX_EVENTS, "回放事件过多");
+    anyhow::ensure!(replay.offset.is_finite() && replay.speed.is_finite() && replay.speed > 0. && replay.speed <= 16., "回放速度或偏移无效");
+    anyhow::ensure!(replay.aspect_ratio.is_none_or(|v| v.is_finite() && v > 0. && v <= 10.), "回放比例无效");
+    if let Some(g) = &replay.gameplay {
+        anyhow::ensure!(
+            [g.hp_amount, g.hp_scale, g.note_scale, g.flow_speed, g.fade_strength]
+                .iter()
+                .all(|v| v.is_finite() && (0. ..=100.).contains(v)),
+            "回放玩法参数无效"
+        );
+    }
+    let time = |t: f64| t.is_finite() && (-3600. ..=86400.).contains(&t);
+    anyhow::ensure!(
+        replay
+            .touches
+            .iter()
+            .all(|e| time(e.t as f64) && e.x.is_finite() && e.y.is_finite() && e.phase <= 2)
+            && replay
+                .judges
+                .iter()
+                .all(|e| time(e.t) && e.diff.is_finite() && e.kind <= 9 && e.head_grade.is_none_or(|g| matches!(g, 0 | 1 | 2 | 3 | 4 | 7 | 8 | 9)))
+            && replay.frames.iter().all(|t| time(*t)),
+        "回放含无效事件"
+    );
+    anyhow::ensure!(
+        replay.frames.windows(2).all(|w| w[0] <= w[1])
+            && replay.judges.windows(2).all(|w| w[0].t <= w[1].t)
+            && replay.touches.windows(2).all(|w| w[0].t <= w[1].t),
+        "回放时间顺序无效"
+    );
+    Ok(())
+}
+
+#[cfg(test)]
 impl TouchEvent {
     fn encode(&self, w: &mut impl Write) -> Result<()> {
         w.write_all(&[self.phase])?;
@@ -92,6 +194,7 @@ impl TouchEvent {
     }
 }
 
+#[cfg(test)]
 impl JudgeEvent {
     fn encode(&self, w: &mut impl Write) -> Result<()> {
         w.write_all(&self.t.to_le_bytes())?;
@@ -112,7 +215,8 @@ pub fn path_for(key: &str, time_ms: i64) -> PathBuf {
     PathBuf::from(format!("{}/replays/{}_{}.phirar", dir::root().unwrap_or_default(), sanitize_key(key), time_ms))
 }
 
-pub fn save(replay: &Replay, path: &PathBuf) -> Result<()> {
+#[cfg(test)]
+fn save_legacy(replay: &Replay, path: &PathBuf) -> Result<()> {
     if let Some(p) = path.parent() {
         std::fs::create_dir_all(p)?;
     }
@@ -153,7 +257,7 @@ pub fn save(replay: &Replay, path: &PathBuf) -> Result<()> {
 }
 
 pub fn load(path: &std::path::Path) -> Result<Replay> {
-    let bytes = std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let bytes = read_bounded(std::fs::File::open(path).with_context(|| format!("failed to read {}", path.display()))?)?;
     if bytes.len() < 12 {
         anyhow::bail!("不是回放文件");
     }
@@ -161,11 +265,14 @@ pub fn load(path: &std::path::Path) -> Result<Replay> {
         anyhow::bail!("不是回放文件");
     }
     let version = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
-    match version {
+    let replay = match version {
+        5 => serde_json::from_slice(&read_bounded(zstd::stream::read::Decoder::new(&bytes[12..])?)?).context("回放元数据无效"),
         3 | 4 => parse_v3(&bytes),
         0 | 1 => parse_phirarec(&bytes, version),
         _ => anyhow::bail!("不支持的版本号：{version}"),
-    }
+    }?;
+    validate(&replay)?;
+    Ok(replay)
 }
 
 /// 解析 Phira Pro 自己的回放格式（v3 / v4）。
@@ -201,17 +308,18 @@ fn parse_v3(bytes: &[u8]) -> Result<Replay> {
     };
     let tn = r.u32()?;
     let jn = r.u32()?;
-    let mut touches = Vec::with_capacity(tn as usize);
+    anyhow::ensure!(tn as usize <= MAX_EVENTS && jn as usize <= MAX_EVENTS, "回放事件过多");
+    let mut touches = Vec::new();
     for _ in 0..tn {
         touches.push(TouchEvent {
             phase: r.u8()?,
-            id: r.i8()?,
+            id: r.i8()? as u8 as u64,
             x: r.f32()?,
             y: r.f32()?,
             t: r.f32()?,
         });
     }
-    let mut judges = Vec::with_capacity(jn as usize);
+    let mut judges = Vec::new();
     for _ in 0..jn {
         judges.push(JudgeEvent {
             t: r.f64()?,
@@ -219,9 +327,22 @@ fn parse_v3(bytes: &[u8]) -> Result<Replay> {
             note: r.u32()?,
             kind: r.u8()?,
             diff: r.f32()?,
+            head_grade: None,
         });
     }
-    Ok(Replay { chart, offset, speed, mods, grading, touches, judges, chart_file, chart_updated })
+    Ok(Replay {
+        chart,
+        offset,
+        speed,
+        mods,
+        grading,
+        touches,
+        judges,
+        chart_file,
+        chart_updated,
+        has_speed: true,
+        ..Default::default()
+    })
 }
 
 /// 解析官方 Java 回放器 / 联机监视器生成的 `.phirarec`（JPhiraRec v0 / v1）。
@@ -241,32 +362,30 @@ fn parse_phirarec(bytes: &[u8], version: u32) -> Result<Replay> {
         let rest = c.rest();
         match comp {
             0 => rest.to_vec(),
-            1 => zstd::stream::decode_all(rest).context("ZSTD 解压失败")?,
-            2 => {
-                let mut out = Vec::new();
-                flate2::read::ZlibDecoder::new(rest).read_to_end(&mut out).context("DEFLATE 解压失败")?;
-                out
-            }
+            1 => read_bounded(zstd::stream::read::Decoder::new(rest)?).context("ZSTD 解压失败")?,
+            2 => read_bounded(flate2::read::ZlibDecoder::new(rest)).context("DEFLATE 解压失败")?,
             other => anyhow::bail!("未知压缩类型：{other}"),
         }
     } else {
         c.rest().to_vec()
     };
     let mut r = FileCursor::new(payload.as_slice());
-    let _id = r.i32()?;
-    if version == 1 {
-        let _time = r.i64()?;
-    }
+    let record_id = r.i32()?;
+    let recorded_at = if version == 1 { Some(r.i64()?) } else { None };
     let chart = r.i32()?;
-    let _chart_name = r.str_uleb()?;
-    let _user = r.i32()?;
-    let _user_name = r.str_uleb()?;
+    let chart_name = r.str_uleb()?;
+    let user = r.i32()?;
+    let user_name = r.str_uleb()?;
 
     let touch_count = r.uleb()? as usize;
-    let mut touches = Vec::with_capacity(touch_count);
+    anyhow::ensure!(touch_count <= MAX_EVENTS, "回放帧数过多");
+    let mut touches = Vec::new();
+    let mut frames = Vec::new();
     for _ in 0..touch_count {
         let t = r.f32()?;
+        frames.push(t as f64);
         let pts = r.uleb()? as usize;
+        anyhow::ensure!(pts <= 256 && touches.len() + pts <= MAX_EVENTS, "触点数据过多");
         for _ in 0..pts {
             let id = r.i8()?;
             let x = r.f16()?;
@@ -275,7 +394,7 @@ fn parse_phirarec(bytes: &[u8], version: u32) -> Result<Replay> {
             if id >= 0 {
                 touches.push(TouchEvent {
                     phase: PHASE_MOVE,
-                    id,
+                    id: id as u64,
                     x,
                     y: y / 1.7777778,
                     t,
@@ -283,7 +402,7 @@ fn parse_phirarec(bytes: &[u8], version: u32) -> Result<Replay> {
             } else {
                 touches.push(TouchEvent {
                     phase: PHASE_UP,
-                    id: !id,
+                    id: (!id) as u64,
                     x,
                     y: y / 1.7777778,
                     t,
@@ -293,7 +412,8 @@ fn parse_phirarec(bytes: &[u8], version: u32) -> Result<Replay> {
     }
 
     let judge_count = r.uleb()? as usize;
-    let mut judges = Vec::with_capacity(judge_count);
+    anyhow::ensure!(judge_count <= MAX_EVENTS, "回放判定过多");
+    let mut judges = Vec::new();
     for _ in 0..judge_count {
         let t = r.f32()?;
         let line = r.u32()?;
@@ -305,12 +425,29 @@ fn parse_phirarec(bytes: &[u8], version: u32) -> Result<Replay> {
             2 => 2, // Bad
             3 => 3, // Miss
             4 => 5, // HoldPerfect
-            _ => 6, // HoldGood
+            5 => 6, // HoldGood
+            _ => anyhow::bail!("未知旧回放判定：{j}"),
         };
-        judges.push(JudgeEvent { t: t as f64, line, note, kind, diff: 0. });
+        judges.push(JudgeEvent {
+            t: t as f64,
+            line,
+            note,
+            kind,
+            diff: 0.,
+            head_grade: None,
+        });
     }
 
     Ok(Replay {
+        meta: Metadata {
+            id: format!("jphirarec-{user}-{record_id}"),
+            player: Some(user_name),
+            player_id: Some(user),
+            recorded_at,
+            name: chart_name,
+            ..Default::default()
+        },
+        frames,
         chart: Some(ChartRef::Id(chart)),
         offset: 0.,
         speed: 1.,
@@ -320,24 +457,170 @@ fn parse_phirarec(bytes: &[u8], version: u32) -> Result<Replay> {
         judges,
         chart_file: None,
         chart_updated: None,
+        ..Default::default()
     })
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    #[test]
+    fn v5_preserves_real_offsets_wide_ids_unicode_and_configuration() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("new.phirar");
+        let mut config = prpr::config::Config::default();
+        config.judge_algorithm = prpr::config::JudgeAlgorithm::Phigros;
+        config.hold_tail_judge = true;
+        config.drag_protect = true;
+        let settings = crate::judgement_presets::JudgeSettings::capture(&config);
+        let replay = Replay {
+            chart: Some(ChartRef::Local("本地谱面/".repeat(80))),
+            speed: 1.25,
+            offset: -0.023,
+            meta: Metadata {
+                id: "distinct-player-record".into(),
+                player: Some("回放作者".into()),
+                recorded_at: Some(123456),
+                ..Default::default()
+            },
+            frames: vec![0., 0.008, 0.024],
+            settings: Some(settings.clone()),
+            has_diffs: true,
+            touches: vec![TouchEvent {
+                id: u64::MAX,
+                phase: 0,
+                ..Default::default()
+            }],
+            judges: vec![JudgeEvent {
+                kind: 5,
+                diff: -0.021,
+                head_grade: Some(7),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        save(&replay, &path).unwrap();
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.chart, replay.chart);
+        assert_eq!(loaded.frames, replay.frames);
+        assert_eq!(loaded.touches[0].id, u64::MAX);
+        assert_eq!(loaded.judges[0].diff, -0.021);
+        assert_eq!(loaded.judges[0].head_grade, Some(7));
+        assert!(loaded.has_diffs);
+        assert_eq!(loaded.settings, Some(settings));
+        assert_eq!(loaded.meta.player, replay.meta.player);
+        let mut bad = replay.clone();
+        bad.frames = vec![1., 0.];
+        assert!(save(&bad, &path).is_err());
+        bad = replay;
+        bad.judges[0].diff = f32::NAN;
+        assert!(save(&bad, &path).is_err());
+        assert!(load(&path).is_ok(), "failed save must not truncate the previous tape");
+    }
+    #[test]
+    fn jphirarec_metadata_and_compressed_variants_are_not_discarded() {
+        let mut payload = Vec::new();
+        payload.extend(71i32.to_le_bytes());
+        payload.extend(123456789i64.to_le_bytes());
+        payload.extend(338i32.to_le_bytes());
+        payload.push(4);
+        payload.extend(b"Milk");
+        payload.extend(999i32.to_le_bytes());
+        payload.push(3);
+        payload.extend(b"Ken");
+        payload.push(1);
+        payload.extend(1f32.to_le_bytes());
+        payload.push(2);
+        for (id, x) in [(4u8, 0x3c00u16), (!4u8, 0u16)] {
+            payload.push(id);
+            payload.extend(x.to_le_bytes());
+            payload.extend(0u16.to_le_bytes());
+        }
+        payload.push(1);
+        payload.extend(1f32.to_le_bytes());
+        payload.extend(0u32.to_le_bytes());
+        payload.extend(0u32.to_le_bytes());
+        payload.push(0);
+        for compression in 0..=2 {
+            let mut bytes = b"PHIRAREC".to_vec();
+            bytes.extend(1u32.to_le_bytes());
+            bytes.push(compression);
+            let encoded = match compression {
+                0 => payload.clone(),
+                1 => zstd::stream::encode_all(payload.as_slice(), 1).unwrap(),
+                _ => {
+                    let mut w = flate2::write::ZlibEncoder::new(Vec::new(), Default::default());
+                    w.write_all(&payload).unwrap();
+                    w.finish().unwrap()
+                }
+            };
+            bytes.extend(encoded);
+            let replay = parse_phirarec(&bytes, 1).unwrap();
+            validate(&replay).unwrap();
+            assert_eq!(replay.meta.player.as_deref(), Some("Ken"));
+            assert_eq!(replay.meta.player_id, Some(999));
+            assert_eq!(replay.meta.recorded_at, Some(123456789));
+            assert_eq!(replay.frames, [1.]);
+            assert_eq!(replay.touches[0].id, 4);
+            assert_eq!(replay.touches[1].phase, PHASE_UP);
+            assert!(!replay.has_diffs, "legacy zero placeholders are not measured offsets");
+            let mut truncated = bytes.clone();
+            truncated.truncate(15);
+            assert!(parse_phirarec(&truncated, 1).is_err());
+        }
+        assert_eq!(half16_to_f32(1), 2f32.powi(-24));
+        assert_eq!(half16_to_f32(0x8001), -2f32.powi(-24));
+    }
+    #[test]
+    fn malformed_data_is_rejected_before_allocation_or_overflow() {
+        assert!(read_with_limit(&b"12345"[..], 4).is_err());
+        assert!(FileCursor::new(&[]).take(usize::MAX).is_err());
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("bad.phirar");
+        std::fs::write(&path, b"PHIRAREC\x05\0\0\0broken-zstd").unwrap();
+        assert!(load(&path).is_err());
+        let mut replay = Replay {
+            chart: Some(ChartRef::Id(1)),
+            speed: 1.,
+            ..Default::default()
+        };
+        save_legacy(&replay, &path).unwrap();
+        let mut bytes = std::fs::read(&path).unwrap();
+        let count = bytes.len() - 8;
+        bytes[count..count + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(parse_v3(&bytes).is_err());
+        replay.touches.push(TouchEvent {
+            x: f32::INFINITY,
+            ..Default::default()
+        });
+        assert!(validate(&replay).is_err());
+    }
     #[test]
     fn eight_grade_replay_roundtrip_and_v3_compatibility() {
         let file = std::env::temp_dir().join(format!("phira-grades-{}.phirar", uuid::Uuid::new_v4()));
         let mut replay = super::Replay { chart: Some(super::ChartRef::Id(338)), speed: 1., ..Default::default() };
         replay.grading.perfect_plus = false; replay.grading.detailed = true;
         for id in [4, 0, 5, 1, 6, 7, 2, 3] {
-            let grade = match id { 4 => prpr::judge::Judgement::PerfectPlus, 0 => prpr::judge::Judgement::Perfect, 5 => prpr::judge::Judgement::Great, 1 => prpr::judge::Judgement::Good, 6 => prpr::judge::Judgement::Ok, 7 => prpr::judge::Judgement::Meh, 2 => prpr::judge::Judgement::Bad, _ => prpr::judge::Judgement::Miss };
-            replay.judges.push(super::JudgeEvent { kind: super::judge_kind(&Ok(grade)), ..Default::default() });
+            let grade = match id {
+                4 => prpr::judge::Judgement::PerfectPlus,
+                0 => prpr::judge::Judgement::Perfect,
+                5 => prpr::judge::Judgement::Great,
+                1 => prpr::judge::Judgement::Good,
+                6 => prpr::judge::Judgement::Ok,
+                7 => prpr::judge::Judgement::Meh,
+                2 => prpr::judge::Judgement::Bad,
+                _ => prpr::judge::Judgement::Miss,
+            };
+            replay.judges.push(super::JudgeEvent {
+                kind: super::judge_kind(&Ok(grade)),
+                ..Default::default()
+            });
         }
         super::save(&replay, &file).unwrap();
         let loaded = super::load(&file).unwrap();
         assert!(!loaded.grading.perfect_plus && loaded.grading.detailed);
         assert_eq!(loaded.judges.iter().map(|e| e.kind).collect::<Vec<_>>(), [4, 0, 7, 1, 8, 9, 2, 3]);
+        super::save_legacy(&replay, &file).unwrap();
         let mut bytes = std::fs::read(&file).unwrap();
         bytes[8..12].copy_from_slice(&3u32.to_le_bytes());
         bytes.drain(29..31); // v4 flags after chart ID, offset, speed and mods
@@ -377,7 +660,7 @@ impl<'a> FileCursor<'a> {
     }
 
     fn take(&mut self, n: usize) -> Result<&'a [u8]> {
-        if self.pos + n > self.data.len() {
+        if n > self.data.len().saturating_sub(self.pos) {
             anyhow::bail!("回放文件数据不足");
         }
         let s = &self.data[self.pos..self.pos + n];
@@ -450,14 +733,7 @@ fn half16_to_f32(bits: u16) -> f32 {
     let exp = (bits >> 10) as u32 & 0x1f;
     let frac = (bits & 0x3ff) as u32;
     let f = if exp == 0 {
-        if frac == 0 {
-            sign << 31
-        } else {
-            // 次正规
-            let e = 127 - 15;
-            let m = frac;
-            (sign << 31) | (e << 23) | m << 13
-        }
+        return if sign == 0 { 1. } else { -1. } * frac as f32 * 2f32.powi(-24);
     } else if exp == 31 {
         (sign << 31) | (0xff << 23) | (frac << 13)
     } else {
@@ -497,6 +773,12 @@ struct Pending {
     offset: f32,
     speed: f32,
     mods: u32,
+    frames: Vec<f64>,
+    aspect_ratio: Option<f32>,
+    settings: Option<crate::judgement_presets::JudgeSettings>,
+    gameplay: Option<Gameplay>,
+    theoretical_score: bool,
+    player: Option<String>,
     grading: prpr::config::JudgeGrading,
     chart_file: Option<String>,
     chart_updated: Option<i64>,
@@ -505,6 +787,7 @@ struct Pending {
 }
 
 thread_local! {
+    static NEXT_IDENTITY: std::cell::RefCell<Option<Metadata>> = const { std::cell::RefCell::new(None) };
     static PENDING: std::cell::RefCell<Option<Pending>> = std::cell::RefCell::new(None);
     /// 下一次开始录制时要附带的谱面元信息（由 `SongScene` 在启动游玩前写入）。
     static NEXT_META: std::cell::RefCell<Option<(Option<String>, Option<i64>)>> = const { std::cell::RefCell::new(None) };
@@ -526,6 +809,12 @@ pub fn recorder(chart: Option<ChartRef>, offset: f32, speed: f32, mods: u32) -> 
             offset,
             speed,
             mods,
+            frames: Vec::new(),
+            aspect_ratio: None,
+            settings: None,
+            gameplay: None,
+            theoretical_score: false,
+            player: None,
             grading: crate::get_data().config.judge_grading,
             chart_file,
             chart_updated,
@@ -537,17 +826,34 @@ pub fn recorder(chart: Option<ChartRef>, offset: f32, speed: f32, mods: u32) -> 
         PENDING.with(|it| {
             let mut g = it.borrow_mut();
             let Some(p) = g.as_mut() else { return };
+            // A retry starts a new tape; never concatenate two attempts.
+            if p.frames.last().is_some_and(|last| t < *last) {
+                p.frames.clear();
+                p.touches.clear();
+                p.judges.clear();
+            }
+            p.frames.push(t);
+            p.aspect_ratio = Some(res.aspect_ratio);
+            p.settings = Some(crate::judgement_presets::JudgeSettings::capture(&res.config));
+            p.gameplay = Some(Gameplay::capture(&res.config));
+            p.theoretical_score = res.config.theoretical_score;
+            p.player = Some(res.config.player_name.clone());
+            p.speed = res.config.speed;
             p.grading = res.config.judge_grading;
             // 触摸帧：非 Stationary 才记录，避免一帧刷好几条重复数据。
             for touch in Judge::get_touches() {
                 if matches!(touch.phase, macroquad::prelude::TouchPhase::Stationary) {
                     continue;
                 }
+                let (sx, sy, sw, sh) = prpr::ext::get_viewport();
+                let (vx, vy, vw, vh) = res.camera.viewport.unwrap_or((sx, sy, sw, sh));
+                let px = sx as f32 + (touch.position.x + 1.) * sw as f32 / 2.;
+                let py = sy as f32 + sh as f32 / 2. - touch.position.y * sw as f32 / 2.;
                 p.touches.push(TouchEvent {
                     phase: phase_of(touch.phase),
-                    id: touch.id as i8,
-                    x: touch.position.x,
-                    y: touch.position.y,
+                    id: touch.id,
+                    x: (px - vx as f32) * 2. / vw as f32 - 1.,
+                    y: (vy as f32 + vh as f32 / 2. - py) * 2. / vw as f32,
                     t: t as f32,
                 });
             }
@@ -556,12 +862,13 @@ pub fn recorder(chart: Option<ChartRef>, offset: f32, speed: f32, mods: u32) -> 
                     .judgements
                     .borrow_mut()
                     .drain(..)
-                    .map(|(t, line, note, kind)| JudgeEvent {
+                    .map(|(t, line, note, kind, diff, head)| JudgeEvent {
                         t,
                         line,
                         note,
                         kind: judge_kind(&kind),
-                        diff: 0.,
+                        diff: diff as f32,
+                        head_grade: head.map(|j| judge_kind(&Ok(j))),
                     }),
             );
         });
@@ -574,7 +881,14 @@ pub fn save_recording(key: &str, time_ms: i64) -> Option<PathBuf> {
     if p.judges.is_empty() && p.touches.is_empty() {
         return None;
     }
-    let replay = Replay {
+    let mut replay = Replay {
+        frames: p.frames,
+        aspect_ratio: p.aspect_ratio,
+        settings: p.settings,
+        gameplay: p.gameplay,
+        theoretical_score: p.theoretical_score,
+        has_diffs: true,
+        has_speed: true,
         chart: p.chart,
         offset: p.offset,
         speed: p.speed,
@@ -584,7 +898,14 @@ pub fn save_recording(key: &str, time_ms: i64) -> Option<PathBuf> {
         judges: p.judges,
         chart_file: p.chart_file,
         chart_updated: p.chart_updated,
+        ..Default::default()
     };
+    replay.meta = NEXT_IDENTITY.with(|v| v.borrow_mut().take()).unwrap_or_default();
+    replay.meta.id = uuid::Uuid::new_v4().to_string();
+    replay.meta.recorded_at = Some(time_ms);
+    replay.meta.player = p.player;
+    replay.meta.player_id = crate::get_data().me.as_ref().map(|u| u.id);
+    replay.meta.result = crate::history::all().into_iter().find(|r| r.key == key && r.time == time_ms);
     let path = path_for(key, time_ms);
     match save(&replay, &path) {
         Ok(()) => Some(path),
@@ -608,5 +929,48 @@ pub fn key_for(chart_id: Option<i32>, local_path: Option<&str>) -> String {
         format!("local:{p}")
     } else {
         "unknown".to_owned()
+    }
+}
+
+thread_local! {
+    static EXPORT_BYTES: std::cell::RefCell<Option<Vec<u8>>> = const { std::cell::RefCell::new(None) };
+}
+pub fn request_export(path: &std::path::Path) -> Result<()> {
+    let mut replay = load(path)?;
+    if let Some(item) = library::all()?.into_iter().find(|i| i.path == path) {
+        replay.meta = item.meta;
+        replay.meta.result = item.record.map(|mut r| {
+            r.replay_file = None;
+            r.replay_player = None;
+            r.replay_imported = false;
+            r
+        });
+    }
+    if replay.meta.id.is_empty() {
+        use sha2::{Digest, Sha256};
+        replay.meta.id = format!("legacy-{:x}", Sha256::digest(std::fs::read(path)?));
+    }
+    let bytes = bytes(&replay)?;
+    let name = format!("replay-{}.phirar", sanitize_key(&replay.meta.id).chars().take(64).collect::<String>());
+    EXPORT_BYTES.with(|v| *v.borrow_mut() = Some(bytes));
+    crate::page::request_export(name);
+    Ok(())
+}
+pub fn poll_export() {
+    if !EXPORT_BYTES.with(|v| v.borrow().is_some()) {
+        return;
+    }
+    if let Some(config) = crate::page::take_export() {
+        let bytes = EXPORT_BYTES.with(|v| v.borrow_mut().take()).unwrap();
+        match config {
+            Ok(mut config) => match config.file.write_all(&bytes).and_then(|_| config.file.flush()) {
+                Ok(()) => crate::page::resolve_export(),
+                Err(err) => {
+                    let _ = (config.deleter)();
+                    prpr::scene::show_error(err.into());
+                }
+            },
+            Err(err) => prpr::scene::show_error(err.into()),
+        }
     }
 }

@@ -423,6 +423,14 @@ pub struct Emitter {
 }
 
 impl Emitter {
+    /// Discard transient particles on a replay seek without allocating new GL buffers.
+    pub fn reset(&mut self) {
+        self.gpu_particles.clear();
+        self.cpu_counterpart.clear();
+        self.last_emit_time = 0.;
+        self.time_passed = 0.;
+        self.particles_spawned = 0;
+    }
     const MAX_PARTICLES: usize = 12000;
 
     pub fn new(config: EmitterConfig) -> Emitter {

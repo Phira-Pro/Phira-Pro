@@ -25,7 +25,7 @@ pub use profile::ProfileScene;
 mod record_detail;
 pub use record_detail::RecordDetailScene;
 
-mod replay;
+pub(crate) mod replay;
 
 use crate::{
     client::{Client, UserManager},

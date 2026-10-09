@@ -11,7 +11,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows 压缩包或 Linux 压缩包或 Android arm64 APK。Windows 解压后运行 `phira-main.exe` (Linux为`phira-main`)；Android 安装 APK，更新时保留应用数据。
 
-当前源码版本为 **0.8.2-pro.12**（build 48）。新增功能与验证范围见 [pro.12 更新说明](docs/development/pro-12.md)；版本维护、五个平台的构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
+当前源码版本为 **0.8.2-pro.12**（build 49）。build 49 新增的回放增强见 [回放使用与兼容说明](docs/development/replays.md)；已发布 pro.12 的更新内容见 [pro.12 更新说明](docs/development/pro-12.md)。版本维护、五个平台的构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
 
 ## 相对官方版新增的功能
 
@@ -60,7 +60,9 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 ### 本地成绩
 
 - **成绩历史**：本机保存游玩记录，可查看列表、趋势、PB 对比、判定分布对比，并支持导入 / 导出。细致判定单独保留完整档位，不覆盖原计分体系的最佳成绩。
-- **本地回放**：新格式保存 Perfect+／扩展档位状态及新增等级，播放不依赖当前判定设置，兼容旧格式。
+- **回放文件管理**：从「设置 → 谱面 → 回放文件管理」统一导入、导出、关联和删除回放，单谱本地记录与成绩详情保留入口。`.phirar` 与谱面、音乐分离，缺少谱面时提供关联或在线下载入口。
+- **他人回放**：导入后显示在对应谱面的本地记录中，保留原玩家与来源标记，可按来源和录制规则筛选；不计入本人的 PB、RKS 或统计，也不上传。
+- **回放播放器**：连续拖动时间轴、观看倍速、实际录制帧步进、A–B 循环、BAD／MISS 定位、触点编号与显示调节、判定范围和录制信息。新格式保存原判定配置及真实误差，兼容旧格式；旧回放缺失的信息明确标为未记录。
 
 ### 其他
 

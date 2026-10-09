@@ -390,3 +390,6 @@ theoretical-score-disabled = 请先在判定设置中开启 Perfect+
 preset-od = osu!mania ScoreV2 OD 快捷区间
 preset-od-custom = 自定义
 preset-od-sub = ScoreV2 对称区间，关闭 Perfect+；扩展 OD −15～15
+
+replays-settings = 回放文件管理
+replays-settings-sub = 导入、导出、关联谱面与播放回放

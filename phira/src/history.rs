@@ -27,6 +27,14 @@ pub const MAX_RECORDS: usize = 3000;
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Record {
+    /// Present only in the local-board view of a portable imported replay.
+    pub replay_file: Option<String>,
+    pub replay_player: Option<String>,
+    pub replay_imported: bool,
+    pub replay_result_unknown: bool,
+    pub replay_mode: Option<String>,
+    pub replay_speed: Option<f32>,
+    pub replay_rules: Option<String>,
     /// 结束时的 Unix 毫秒时间戳。
     pub time: i64,
     /// 谱面标识：官方谱用 `id:<id>`，本地导入谱用 `local:<local_path>`，
@@ -208,6 +216,7 @@ pub fn record_play(
         grading,
         hist: hist.to_vec(),
         std,
+        ..Default::default()
     })?;
     Ok(time)
 }

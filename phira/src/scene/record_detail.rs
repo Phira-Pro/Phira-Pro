@@ -4,14 +4,14 @@ prpr_l10n::tl_file!("record");
 // 一致的排版（背景 + 曲绘开屏动画 + 滚动分数 + 判定计数 + 连击条 + 判定分布图），
 // 左下角按钮为「返回」与「播放回放」。
 
-use super::{replay::ReplayScene, fs_from_path};
+use super::{fs_from_path, replay::ReplayScene};
 use crate::{history, replay};
 use anyhow::Result;
 use macroquad::prelude::*;
 use prpr::{
     core::{BOLD_FONT, PGR_FONT},
     ext::{poll_future, semi_black, semi_white, LocalTask, RectExt, SafeTexture, ScaleType, BLACK_TEXTURE},
-    judge::{PlayResult, HIST_BUCKETS, HIST_MAX_MS, icon_index},
+    judge::{icon_index, PlayResult, HIST_BUCKETS, HIST_MAX_MS},
     scene::{show_error, LoadingScene, NextScene, Scene},
     time::TimeManager,
     ui::{clip_sector, DRectButton, Ui},
@@ -36,13 +36,22 @@ pub struct RecordDetailScene {
     btn_back: DRectButton,
     btn_replay: DRectButton,
     btn_open: DRectButton,
+    btn_export: DRectButton,
 }
 
 impl RecordDetailScene {
     pub fn new(record: history::Record, rank_icons: [SafeTexture; 8]) -> Self {
         let replay_path = {
-            let p = replay::path_for(&record.key, record.time);
-            if p.is_file() { Some(p) } else { None }
+            let p = record
+                .replay_file
+                .as_ref()
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| replay::path_for(&record.key, record.time));
+            if p.is_file() {
+                Some(p)
+            } else {
+                None
+            }
         };
         let visual_task = Self::make_visual_task(&record);
         Self {
@@ -58,6 +67,7 @@ impl RecordDetailScene {
             btn_back: DRectButton::new(),
             btn_replay: DRectButton::new(),
             btn_open: DRectButton::new(),
+            btn_export: DRectButton::new(),
         }
     }
 
@@ -135,20 +145,23 @@ impl Scene for RecordDetailScene {
             }
             return Ok(true);
         }
-        #[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
-        if self.btn_open.touch(touch, t) {
-            // 直接打开一个回放文件（.phirar / .phirarec 均可，自动识别格式）。
-            if let Some(path) = rfd::FileDialog::new().add_filter("回放文件", &["phirar", "phirarec"]).pick_file() {
-                if self.replay_task.is_none() {
-                    self.replay_task = Some(Box::pin(async move { ReplayScene::new(path).await }));
+        if self.btn_export.touch(touch, t) {
+            if let Some(path) = &self.replay_path {
+                if let Err(err) = replay::request_export(path) {
+                    show_error(err);
                 }
             }
+            return Ok(true);
+        }
+        if self.btn_open.touch(touch, t) {
+            self.next = Some(NextScene::Overlay(Box::new(crate::page::replays::ReplayManager::new(Some(self.record.key.clone()), true))));
             return Ok(true);
         }
         Ok(false)
     }
 
     fn update(&mut self, _tm: &mut TimeManager) -> Result<()> {
+        replay::poll_export();
         if let Some(task) = &mut self.visual_task {
             if let Some(res) = poll_future(task.as_mut()) {
                 self.visual_task = None;
@@ -185,6 +198,25 @@ impl Scene for RecordDetailScene {
         // 背景：与结算界面一致——高斯模糊曲绘铺满（CropCenter）+ 30% 压暗。
         ui.fill_rect(sr, (*self.background, sr));
         ui.fill_rect(sr, Color::new(0., 0., 0., 0.3));
+
+        if self.record.replay_result_unknown {
+            ui.text(&self.record.name).pos(-0.9, -top + 0.15).size(0.8).max_width(1.8).draw();
+            ui.text("旧回放未记录原始成绩；可播放录制事件，成绩数据保持未记录。")
+                .pos(-0.9, -top + 0.3)
+                .size(0.5)
+                .max_width(1.8)
+                .draw();
+            self.btn_back
+                .render_text(ui, Rect::new(-0.9, top - 0.16, 0.24, 0.09), t, "返回", 0.45, false);
+            self.btn_replay
+                .render_text(ui, Rect::new(-0.62, top - 0.16, 0.3, 0.09), t, "播放回放", 0.45, false);
+            self.btn_export
+                .render_text(ui, Rect::new(-0.29, top - 0.16, 0.3, 0.09), t, "导出回放", 0.45, false);
+            if self.replay_task.is_some() {
+                ui.full_loading_simple(t);
+            }
+            return Ok(());
+        }
 
         fn ran(t: f32, l: f32, r: f32) -> f32 {
             ((t - l) / (r - l)).clamp(0., 1.)
@@ -442,7 +474,14 @@ impl Scene for RecordDetailScene {
             r.y -= r.h;
             let replay_exists = self.replay_path.is_some();
             self.btn_replay.render_shadow(ui, r, t, |ui, path| {
-                ui.fill_path(&path, if replay_exists { Color::from_hex_rgb(0x43a047) } else { Color::from_hex_rgb(0x37474f) });
+                ui.fill_path(
+                    &path,
+                    if replay_exists {
+                        Color::from_hex_rgb(0x43a047)
+                    } else {
+                        Color::from_hex_rgb(0x37474f)
+                    },
+                );
                 ui.text(if replay_exists { tl!("record-play") } else { tl!("record-no-replay") })
                     .pos(r.center().x, r.center().y)
                     .anchor(0.5, 0.5)
@@ -460,12 +499,15 @@ impl Scene for RecordDetailScene {
                     .size(0.44)
                     .draw_using(&BOLD_FONT);
             });
-            #[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
+            if self.replay_path.is_some() {
+                self.btn_export
+                    .render_text(ui, Rect::new(-0.96, top - 0.11, 0.24, 0.075), t, "导出回放", 0.4, false);
+            }
             {
                 if res.grading.detailed { r.y -= r.h + 0.02; } else { r.x -= r.w + 0.02; }
                 self.btn_open.render_shadow(ui, r, t, |ui, path| {
                     ui.fill_path(&path, Color::from_hex_rgb(0x455a64));
-                    ui.text(tl!("record-open"))
+                    ui.text("导入 / 管理回放")
                         .pos(r.center().x, r.center().y)
                         .anchor(0.5, 0.5)
                         .no_baseline()

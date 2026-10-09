@@ -9,7 +9,7 @@
   "base_version": "0.8.2",
   "pro_revision": 12,
   "flash_revision": 1,
-  "build_number": 48
+  "build_number": 49
 }
 ```
 

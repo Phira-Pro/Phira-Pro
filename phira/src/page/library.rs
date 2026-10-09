@@ -486,7 +486,7 @@ static EXPORT_PICKER_PATH: Mutex<Option<String>> = Mutex::new(None);
 fn present_export_picker(path: String) {
     use objc2::{available, define_class, rc::Retained, runtime::ProtocolObject, MainThreadMarker, MainThreadOnly};
     use objc2_foundation::{NSArray, NSObject, NSObjectProtocol, NSString, NSURL};
-    use objc2_ui_kit::{UIDocumentPickerDelegate, UIDocumentPickerViewController};
+    use objc2_ui_kit::{UIApplication, UIDocumentPickerDelegate, UIDocumentPickerViewController};
 
     thread_local! {
         static DELEGATE: RefCell<Option<Retained<PickerDelegate>>> = const { RefCell::new(None) };
@@ -538,7 +538,16 @@ fn present_export_picker(path: String) {
     picker.setDelegate(Some(ProtocolObject::from_ref(&*dlg_obj)));
     DELEGATE.with(|it| *it.borrow_mut() = Some(dlg_obj));
 
-    if let Some(controller) = inputbox::backend::IOS::get_top_view_controller(mtm) {
+    // This app uses a window-based lifecycle; the inputbox scene lookup can
+    // miss its active window. Use the same root as the import picker first.
+    let app = UIApplication::sharedApplication(mtm);
+    #[allow(deprecated)]
+    let controller = app.keyWindow().and_then(|window| window.rootViewController())
+        .or_else(|| inputbox::backend::IOS::get_top_view_controller(mtm));
+    if let Some(mut controller) = controller {
+        while let Some(presented) = controller.presentedViewController() {
+            controller = presented;
+        }
         controller.presentViewController_animated_completion(&picker, true, None);
     } else {
         show_error(Error::msg("Failed to present export dialog"));

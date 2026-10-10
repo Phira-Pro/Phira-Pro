@@ -1,6 +1,7 @@
 package org.flos.phirapro;
 
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -34,6 +35,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE);
         super.onCreate(savedInstanceState);
+        enforceLandscape();
         Log.i(TAG, "Activity onCreate: native initialization begins");
         Log.i("PhiraProTouch", "device=" + Build.MANUFACTURER + "/" + Build.MODEL
                 + " android=" + Build.VERSION.RELEASE + " sdk=" + Build.VERSION.SDK_INT);
@@ -61,9 +63,16 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        enforceLandscape();
         Log.i(TAG, "Activity onResume");
         QuadNative.activityOnResume();
         QuadNative.prprActivityOnResume();
+    }
+
+    private void enforceLandscape() {
+        // SENSOR_LANDSCAPE ignores the system rotation lock while preserving
+        // both landscape directions. Reapply after returning from a picker.
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
     }
 
     @Override

@@ -294,8 +294,7 @@ pub fn request_file(id: impl Into<String>) {
                     // SAFETY: The signature is correct.
                     #[unsafe(method(documentPicker:didPickDocumentsAtURLs:))]
                     fn did_pick_documents_at_urls(&self, controller: &UIDocumentPickerViewController, urls: &NSArray<NSURL>) {
-                        use objc2_foundation::{NSData, NSDataReadingOptions, NSTemporaryDirectory};
-
+                        use anyhow::Context as _;
                         let Some(url) = urls.firstObject() else {
                             controller.dismissViewControllerAnimated_completion(true, None);
                             show_error(Error::msg("No file was selected").context(ttl!("read-file-failed")));
@@ -304,14 +303,10 @@ pub fn request_file(id: impl Into<String>) {
                         let need_close = unsafe { url.startAccessingSecurityScopedResource() };
 
                         let imported: Result<String> = (|| {
-                            let data = NSData::dataWithContentsOfURL_options_error(&url, NSDataReadingOptions::Uncached)
-                                .map_err(|err| Error::msg(err.localizedDescription().to_string()).context(ttl!("read-file-failed")))?;
-                            let dir = NSTemporaryDirectory();
-                            let path = format!("{}{}", dir, uuid::Uuid::new_v4());
-                            if !data.writeToFile_atomically(&NSString::from_str(&path), true) {
-                                return Err(Error::msg("Unable to copy the selected file to app storage").context(ttl!("read-file-failed")));
-                            }
-                            Ok(path)
+                            let source = url.path().ok_or_else(|| Error::msg("所选文件没有本地路径"))?.to_string();
+                            crate::file_import::prepare(std::path::Path::new(&source), std::path::Path::new(&NSTemporaryDirectory().to_string()))
+                                .map(|path| path.to_string_lossy().into_owned())
+                                .context(ttl!("read-file-failed"))
                         })();
                         if need_close {
                             unsafe { url.stopAccessingSecurityScopedResource() };

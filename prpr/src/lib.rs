@@ -5,6 +5,8 @@ pub mod core;
 pub mod dir;
 pub mod ext;
 pub mod fs;
+#[cfg(any(target_os = "ios", test))]
+mod file_import;
 pub mod info;
 pub mod loading_cpu;
 pub mod loading_work;

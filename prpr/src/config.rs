@@ -11,6 +11,7 @@ mod timing;
 pub use timing::JudgeTiming;
 mod phigros;
 pub use phigros::PhigrosRules;
+mod mania;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

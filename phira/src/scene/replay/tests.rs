@@ -57,7 +57,7 @@ fn chart_fixture(root: &std::path::Path, name: &str) -> ChartInfo {
     std::fs::write(directory.join("chart.json"), serde_json::to_vec(&chart).unwrap()).unwrap();
     info
 }
-fn screenshot(painter: &mut TextPainter, scene: &mut ReplayScene, tm: &mut TimeManager, w: i32, h: i32, name: &str) {
+fn screenshot(painter: &mut TextPainter, scene: &mut ReplayScene, tm: &mut TimeManager, w: i32, h: i32, name: &str) -> Image {
     let mut ui = Ui::new(painter, Some((0, 0, w, h)));
     scene.render(tm, &mut ui).unwrap();
     assert!(scene.timeline.x >= -1. && scene.timeline.right() <= 1. && scene.timeline.bottom() <= ui.top);
@@ -68,12 +68,32 @@ fn screenshot(painter: &mut TextPainter, scene: &mut ReplayScene, tm: &mut TimeM
         glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
         assert_eq!(glGetError(), 0);
     }
-    Image {
+    let image = Image {
         width: w as u16,
         height: h as u16,
         bytes,
+    };
+    image.export_png(&format!("target/replay-qa/{name}.png"));
+    image
+}
+
+fn click(scene: &mut ReplayScene, tm: &mut TimeManager, position: Vec2) {
+    for phase in [TouchPhase::Started, TouchPhase::Ended] {
+        Scene::touch(scene, tm, &Touch { id: 99, phase, position, time: 0. }).unwrap();
     }
-    .export_png(&format!("target/replay-qa/{name}.png"));
+    Scene::update(scene, tm).unwrap();
+}
+
+fn click_analysis(scene: &mut ReplayScene, tm: &mut TimeManager, index: usize, column: usize, second_row: bool) {
+    let y = 720. / 1280. - 0.53 + 0.062 + 0.18 + if second_row { 0.08 } else { 0. };
+    let point = panel_cell(column, 1, y, 0.067).center();
+    assert!(scene.controls[index].inner.contains(point), "wrong hit region for control {index}");
+    click(scene, tm, point);
+}
+
+fn pixel(image: &Image, x: i32, y: i32) -> &[u8] {
+    let i = ((y * image.width as i32 + x) * 4) as usize;
+    &image.bytes[i..i+3]
 }
 
 #[test]
@@ -161,6 +181,8 @@ fn production_replay_transport_import_and_aspects() {
             for (t, id, x, phase) in [
                 (1., u64::MAX, 0., 0),
                 (1., 256, 0.6, 0),
+                (1.010, 900, -0.5, 0),
+                (1.011, 900, -0.5, 2),
                 (2., 256, 0.8, 1),
                 (3., u64::MAX, 0.2, 1),
                 (4., 256, 0.8, 2),
@@ -195,13 +217,130 @@ fn production_replay_transport_import_and_aspects() {
             assert_eq!(board[0].replay_player.as_deref(), Some("Other Player"));
             assert!(!isolated.path().join("data/history.json").exists());
             let mut scene = local(ReplayScene::new(path.clone())).await.unwrap();
-            let mut tm = TimeManager::default();
+            let clock = std::rc::Rc::new(std::cell::Cell::new(10.));
+            let source_clock = clock.clone();
+            let mut tm = TimeManager::manual(Box::new(move || source_clock.get()));
             Scene::enter(&mut scene, &mut tm, None).unwrap();
+            // Exercise rendered hit regions, not only control() calls.
+            scene.expanded = true;
+            scene.seek(0.017);
+            screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "buttons-before");
+            assert_eq!(prpr::ext::get_viewport(), (0, 0, 1280, 720));
+            for (index, position, expected) in [
+                (4, vec2(-0.594, 0.308), 0.006),
+                (5, vec2(-0.356, 0.308), 0.017),
+                (13, vec2(0.831, 0.128), 5.),
+                (13, vec2(0.831, 0.128), 7.),
+                (12, vec2(0.594, 0.128), 5.),
+            ] {
+                click(&mut scene, &mut tm, position);
+                assert_eq!(scene.current, expected, "button {index}");
+            }
+            let original_frames = std::mem::replace(&mut scene.replay.frames, (0..=1440).map(|i| i as f64 / 120.).collect());
+            scene.seek(3.);
+            for (index, column, frame) in [(3,0,350), (4,1,349), (5,2,350), (6,3,360)] {
+                click_analysis(&mut scene, &mut tm, index, column, false);
+                assert!((scene.current - frame as f64 / 120.).abs() < 1e-9);
+                assert!(!scene.playing && !scene.frame_fallback);
+            }
+            scene.replay.frames = vec![0., 12.];
+            click_analysis(&mut scene, &mut tm, 5, 2, false);
+            assert!((scene.current - (3. + 1. / 60.)).abs() < 1e-9 && scene.frame_fallback);
+            click_analysis(&mut scene, &mut tm, 4, 1, false);
+            assert!((scene.current - 3.).abs() < 1e-9);
+            scene.replay.frames = original_frames;
+            click_analysis(&mut scene, &mut tm, 7, 4, false);
+            assert_eq!(scene.a, Some(3.));
+            scene.seek(5.);
+            click_analysis(&mut scene, &mut tm, 8, 5, false);
+            assert_eq!(scene.b, Some(5.));
+            assert!(scene.looping);
+            click_analysis(&mut scene, &mut tm, 9, 6, false);
+            assert!(!scene.looping);
+            click_analysis(&mut scene, &mut tm, 18, 7, false);
+            assert!(scene.a.is_none() && scene.b.is_none());
+            click_analysis(&mut scene, &mut tm, 14, 4, true);
+            assert!(scene.ranges && scene.game_scene.res.config.chart_debug_note);
+            click_analysis(&mut scene, &mut tm, 14, 4, true);
+            assert!(!scene.ranges);
+            click_analysis(&mut scene, &mut tm, 20, 6, true);
+            assert!(scene.info_mode);
+            screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "info-open-by-button");
+            click_analysis(&mut scene, &mut tm, 20, 6, false);
+            assert!(!scene.info_mode);
+            screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "analysis-restored-by-button");
+            // Open the actual rate popup and choose its first option.
+            click(&mut scene, &mut tm, panel_cell(5, 1, 0.0945, 0.067).center());
+            screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "rate-opening");
+            clock.set(clock.get() + 0.5);
+            Scene::update(&mut scene, &mut tm).unwrap();
+            screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "rate-open");
+            let popup = scene.rate.popup_rect();
+            click(&mut scene, &mut tm, vec2(popup.center().x, popup.y + 0.05));
+            assert_eq!(scene.speed, 0.1);
+            clock.set(clock.get() + 0.5);
+            Scene::update(&mut scene, &mut tm).unwrap();
+            screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "rate-selected");
+            click(&mut scene, &mut tm, panel_cell(1, 1, 0.0945, 0.067).center());
+            assert!(scene.playing);
+            let before = scene.current;
+            clock.set(clock.get() + 0.125);
+            Scene::update(&mut scene, &mut tm).unwrap();
+            assert!((scene.current - before - 0.0125).abs() < 1e-8);
+            click(&mut scene, &mut tm, panel_cell(1, 1, 0.0945, 0.067).center());
+            assert!(!scene.playing && scene.game_scene.music.paused());
+            scene.rate.set_selected(4);
+            scene.speed = 1.;
+            scene.seek(3.);
+            click(&mut scene, &mut tm, panel_cell(4, 1, 0.0945, 0.067).center());
+            assert_eq!(scene.current, 8.);
+            click(&mut scene, &mut tm, panel_cell(3, 1, 0.0945, 0.067).center());
+            assert_eq!(scene.current, 3.);
+            click(&mut scene, &mut tm, panel_cell(2, 1, 0.0945, 0.067).center());
+            assert_eq!(scene.current, 0.);
+            let hide = panel_cell(7, 1, -720. / 1280. + 0.065, 0.055).center();
+            click(&mut scene, &mut tm, hide);
+            assert!(!scene.controls_visible);
+            screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "hidden-by-button");
+            let previous_size = scene.game_scene.res.config.touch_point_size;
+            click(&mut scene, &mut tm, panel_cell(2, 1, 0.3545, 0.067).center());
+            assert_eq!(scene.game_scene.res.config.touch_point_size, previous_size, "hidden controls must not react");
+            click(&mut scene, &mut tm, hide);
+            assert!(scene.controls_visible);
+            screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "shown-by-button");
+            scene.seek(1.5);
+            screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-before");
+            let on = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-on");
+            let fitted = scene.game_scene.res.camera.viewport.unwrap();
+            let pos = scene.visible_touches().iter().find(|p| p.0 == u64::MAX).unwrap().1;
+            let x = (fitted.0 as f32 + (pos.x + 1.) * fitted.2 as f32 / 2.).round() as i32;
+            let y = (fitted.1 as f32 + fitted.3 as f32 / 2. - pos.y * fitted.2 as f32 / 2.).round() as i32;
+            click_analysis(&mut scene, &mut tm, 10, 0, true);
+            assert!(!scene.fingers);
+            let off = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-off");
+            assert!(pixel(&on, x, y)[2] > pixel(&off, x, y)[2] + 20, "touch toggle must change rendered chart pixels");
+            click_analysis(&mut scene, &mut tm, 10, 0, true);
+            click_analysis(&mut scene, &mut tm, 15, 1, true);
+            assert!(scene.fingers && scene.finger_ids);
+            let ids = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-ids");
+            let changed_chart_pixels = (fitted.1..fitted.1 + fitted.3).flat_map(|y| (fitted.0..fitted.0 + fitted.2).map(move |x| (x,y)))
+                .filter(|&(x,y)| pixel(&on,x,y) != pixel(&ids,x,y)).count();
+            assert!(changed_chart_pixels > 20, "finger IDs must be visible in the chart");
+            let size = scene.game_scene.res.config.touch_point_size;
+            click_analysis(&mut scene, &mut tm, 16, 2, true);
+            assert_ne!(scene.game_scene.res.config.touch_point_size, size);
+            let alpha = scene.game_scene.res.config.touch_point_alpha;
+            click_analysis(&mut scene, &mut tm, 17, 3, true);
+            assert_ne!(scene.game_scene.res.config.touch_point_alpha, alpha);
+            scene.seek(1.03);
+            assert!(scene.visible_touches().iter().any(|p| p.0 == 900 && p.2 > 0.));
+            scene.seek(1.2);
+            assert!(!scene.visible_touches().iter().any(|p| p.0 == 900));
             scene.seek(1.5);
             assert_eq!(scene.game_scene.judge.counts()[4], 1);
             scene.apply_touches(2.);
-            let p = scene.touch_points.iter().find(|p| p.0 < 0.5).unwrap();
-            assert!((p.0 - 0.1).abs() < 0.001);
+            let &(pos, index) = scene.current_touches.get(&u64::MAX).unwrap();
+            assert!((scene.touch_position(pos, index, 2.).x - 0.1).abs() < 0.001);
             scene.seek(3.);
             assert!(matches!(scene.game_scene.chart.lines[0].notes[1].judge, JudgeStatus::Hold(..)));
             scene.checkpoint();

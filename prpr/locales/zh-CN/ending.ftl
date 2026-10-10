@@ -18,3 +18,5 @@ still-uploading = 尚在上传成绩
 
 apply-offset = 应用偏移
 offset-applied = 已应用推荐偏移
+
+play-settings = 本局判定与玩法

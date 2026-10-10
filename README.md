@@ -11,7 +11,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows 压缩包或 Linux 压缩包或 Android arm64 APK。Windows 解压后运行 `phira-main.exe` (Linux为`phira-main`)；Android 安装 APK，更新时保留应用数据。
 
-当前源码版本为 **0.8.2-pro.13**（build 50）。本轮修复见 [pro.13 更新与验证说明](docs/development/pro-13.md)；回放功能见 [回放使用与兼容说明](docs/development/replays.md)，已发布 pro.12 的更新内容见 [pro.12 更新说明](docs/development/pro-12.md)。版本维护、五个平台的构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
+当前源码版本为 **0.8.2-pro.13**（源码修复 build 52；已发布 build 50）。本轮修复见 [pro.13 更新与验证说明](docs/development/pro-13.md)；回放功能见 [回放使用与兼容说明](docs/development/replays.md)，已发布 pro.12 的更新内容见 [pro.12 更新说明](docs/development/pro-12.md)。版本维护、五个平台的构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
 
 ## 相对官方版新增的功能
 
@@ -55,6 +55,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 ### 结算与偏移
 
 - **结算判定分布图**：以 0ms 居中画一张判定时间分布图（早 ← → 晚），左蓝右橙。
+- **本局判定标注**：结算状态条显示判定体系、OD、STRICT MODE、自定义区间和倍速；点击可查看实际区间、保护、尾判和其他启用选项。
 - **一键应用推荐偏移**：分析本局判定后直接应用推荐的整体偏移。
 
 ### 本地成绩

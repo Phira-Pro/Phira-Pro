@@ -66,28 +66,18 @@ impl JudgeSettings {
     /// ScoreV2 PERFECT varies with OD; Perfect+ is disabled; BAD uses mania's MISS hit-window boundary.
     /// This shortcut changes windows only, not score weights, matching or hold mechanics.
     pub fn apply_osu_mania_od(&mut self, od: i8) {
-        let od = od.clamp(-15, 15) as f32;
-        self.grading.detailed = true;
-        self.grading.perfect_plus = false;
-        let perfect = if od <= 5. { 22.4 - 0.6 * od } else { 24.9 - 1.1 * od };
-        let perfect = (perfect * 10.).round() / 10.;
-        self.windows_ms = [8., perfect, 97. - 3. * od, 188. - 3. * od];
-        self.timing = JudgeTiming::default();
-        self.grading.early_ms = [64. - 3. * od, 127. - 3. * od, 151. - 3. * od];
-        self.grading.late_ms = self.grading.early_ms;
-        self.normalize();
+        let mut c = Config::default();
+        self.apply(&mut c);
+        c.apply_osu_mania_od(od);
+        *self = Self::capture(&c);
     }
     pub fn selected_osu_mania_od(&self) -> Option<i8> {
-        (-15..=15).find(|od| {
-            let mut candidate = self.clone();
-            candidate.apply_osu_mania_od(*od);
-            self.grading.detailed
-                && !self.grading.perfect_plus
-                && self.windows_ms == candidate.windows_ms
-                && self.timing == candidate.timing
-                && self.grading.early_ms == candidate.grading.early_ms
-                && self.grading.late_ms == candidate.grading.late_ms
-        })
+        let mut c = Config::default();
+        self.apply(&mut c);
+        // The editor identifies the saved shortcut. The result screen instead
+        // identifies effective windows, including the engine's strict override.
+        c.mods.remove(Mods::STRICT_JUDGE);
+        c.selected_osu_mania_od()
     }
     pub fn apply(&self, c: &mut Config) {
         c.judge_grading = self.grading;

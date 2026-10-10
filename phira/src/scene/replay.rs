@@ -34,7 +34,6 @@ pub struct ReplayScene {
     // 判定 / 触点应用进度
     judge_idx: usize,
     touch_idx: usize,
-    touch_points: Vec<(f32, f32)>,
     finishing_holds: HashMap<(u32, u32), f64>,
 
     // 触点插值用（同 phira-monitor 的 PlayerView）
@@ -65,6 +64,8 @@ pub struct ReplayScene {
     next_touch: Vec<Option<usize>>,
     finger_numbers: HashMap<u64, usize>,
     errors: Vec<f64>,
+    selected_error: Option<usize>,
+    frame_fallback: bool,
     checkpoints: Vec<Checkpoint>,
     checkpoint_step: f64,
 }
@@ -172,7 +173,8 @@ impl ReplayScene {
         for (i, e) in replay.touches.iter().enumerate().rev() {
             next_touch[i] = next.insert(e.id, i);
         }
-        let errors = replay.judges.iter().filter(|e| matches!(e.kind, 2 | 3)).map(|e| e.t).collect();
+        let mut errors = replay.judges.iter().filter(|e| matches!(e.kind, 2 | 3)).map(|e| e.t).collect::<Vec<_>>();
+        errors.dedup_by(|a, b| (*a - *b).abs() < 1e-7);
         let note_count = game_scene.chart.lines.iter().map(|l| l.notes.len()).sum::<usize>().max(1);
         let checkpoint_count = ((16 << 20) / (note_count * 64)).min(32);
         let checkpoint_step = if checkpoint_count == 0 {
@@ -189,7 +191,6 @@ impl ReplayScene {
             speed: 1.,
             judge_idx: 0,
             touch_idx: 0,
-            touch_points: Vec::new(),
             finishing_holds: HashMap::new(),
             current_touches: HashMap::new(),
             last_t: 0.,
@@ -219,12 +220,18 @@ impl ReplayScene {
             next_touch,
             finger_numbers,
             errors,
+            selected_error: None,
+            frame_fallback: false,
             checkpoints: Vec::new(),
             checkpoint_step,
         })
     }
 
     fn restart(&mut self) {
+        self.selected_error = None;
+        self.pending_seek = None;
+        self.looping = false;
+        self.frame_fallback = false;
         self.rewind_to(0.);
         self.current = 0.;
     }
@@ -257,7 +264,6 @@ impl ReplayScene {
         self.judge_idx = 0;
         self.touch_idx = 0;
         self.current_touches.clear();
-        self.touch_points.clear();
         self.finishing_holds.clear();
         if let Some(checkpoint) = self.checkpoints.iter().rev().find(|c| c.t <= t) {
             self.game_scene.judge.restore_replay_snapshot(&checkpoint.judge);
@@ -275,7 +281,6 @@ impl ReplayScene {
         self.particle_delta = 0.;
         self.apply_judges(t, true);
         self.apply_touches(t);
-        self.game_scene.touch_points = if self.fingers { self.touch_points.clone() } else { Vec::new() };
         let target = (t + self.game_scene.offset() as f64).max(0.);
         let _ = self.game_scene.music.seek_to(target);
     }
@@ -432,14 +437,6 @@ impl ReplayScene {
                 self.current_touches.insert(event.id, (vec2(event.x, event.y), index));
             }
         }
-        self.touch_points = self
-            .current_touches
-            .values()
-            .map(|(pos, index)| {
-                let pos = self.touch_position(*pos, *index, t);
-                (pos.x, pos.y)
-            })
-            .collect();
     }
     fn touch_position(&self, mut pos: Vec2, index: usize, t: f64) -> Vec2 {
         if let Some(next) = self.next_touch[index] {
@@ -451,6 +448,30 @@ impl ReplayScene {
             }
         }
         pos
+    }
+    /// Keep a released tap visible briefly, including DOWN/UP processed in one
+    /// playback update. This is a visual tail, never an active gameplay touch.
+    fn visible_touches(&self) -> Vec<(u64, Vec2, f32)> {
+        let mut points = HashMap::new();
+        for event in self.replay.touches[..self.touch_idx].iter().rev().take_while(|e| self.current - e.t as f64 <= 0.08) {
+            if event.phase == replay::PHASE_UP {
+                points.entry(event.id).or_insert((vec2(event.x, event.y), (1. - (self.current - event.t as f64) / 0.08) as f32));
+            }
+        }
+        for (&id, &(pos, index)) in &self.current_touches {
+            points.insert(id, (self.touch_position(pos, index, self.current), 1.));
+        }
+        let mut points = points.into_iter().map(|(id, (pos, alpha))| (id, pos, alpha)).collect::<Vec<_>>();
+        points.sort_by_key(|p| self.finger_numbers[&p.0]);
+        points
+    }
+    fn queue_seek(&mut self, t: f64) {
+        self.selected_error = None;
+        self.frame_fallback = false;
+        if self.a.zip(self.b).is_some_and(|(a, b)| t < a || t >= b) {
+            self.looping = false;
+        }
+        self.pending_seek = Some(t);
     }
     fn checkpoint(&mut self) {
         if !self.checkpoint_step.is_finite() {
@@ -476,14 +497,20 @@ impl ReplayScene {
         });
     }
     fn control(&mut self, i: usize) {
-        use replay::transport::{error_target, frame_target};
+        use replay::transport::{error_index, frame_step};
+        if matches!(i, 10 | 15 | 16 | 17) && self.replay.touches.is_empty() {
+            prpr::scene::show_message("该回放未记录触点，无法显示或调整触点").warn();
+            return;
+        }
         match i {
             0 => self.restart(),
-            1 => self.pending_seek = Some((self.current - 5.).max(0.)),
-            2 => self.pending_seek = Some((self.current + 5.).min(self.end())),
+            1 => self.queue_seek((self.pending_seek.unwrap_or(self.current) - 5.).max(0.)),
+            2 => self.queue_seek((self.pending_seek.unwrap_or(self.current) + 5.).min(self.end())),
             3..=6 => {
                 self.playing = false;
-                self.pending_seek = Some(frame_target(&self.replay.frames, self.current, [-10, -1, 1, 10][i - 3], self.end()));
+                let (target, recorded) = frame_step(&self.replay.frames, self.pending_seek.unwrap_or(self.current), [-10, -1, 1, 10][i - 3], self.end());
+                self.queue_seek(target);
+                self.frame_fallback = !recorded;
             }
             7 => {
                 self.a = Some(self.current);
@@ -503,11 +530,24 @@ impl ReplayScene {
             9 => {
                 if self.a.is_some() && self.b.is_some() {
                     self.looping = !self.looping;
+                } else {
+                    prpr::scene::show_message("先设置 A 和 B，再启用循环").warn();
                 }
             }
             10 => self.fingers = !self.fingers,
             11 => self.expanded = !self.expanded,
-            12 | 13 => self.pending_seek = error_target(&self.errors, self.current, i == 13),
+            12 | 13 => {
+                if let Some(index) = error_index(&self.errors, self.pending_seek.unwrap_or(self.current), i == 13, self.selected_error) {
+                    let target = (self.errors[index] - 1.).max(0.);
+                    self.queue_seek(target);
+                    self.selected_error = Some(index);
+                    self.playing = false;
+                } else {
+                    prpr::scene::show_message(if self.errors.is_empty() {
+                        "回放没有 BAD / MISS"
+                    } else if i == 13 { "已经是最后一处失误" } else { "没有更早的失误" });
+                }
+            }
             14 => {
                 if self.replay.settings.is_some() {
                     self.ranges = !self.ranges;
@@ -602,7 +642,7 @@ impl Scene for ReplayScene {
         if self.drag == Some(touch.id) {
             let p = ((touch.position.x - self.timeline.x) / self.timeline.w).clamp(0., 1.);
             if !matches!(touch.phase, TouchPhase::Cancelled) {
-                self.pending_seek = Some(self.end() * p as f64);
+                self.queue_seek(self.end() * p as f64);
             }
             if matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled) {
                 self.drag = None;
@@ -624,7 +664,7 @@ impl Scene for ReplayScene {
         if self.rate.touch(touch, t) {
             return Ok(true);
         }
-        if self.controls[20].touch(touch, t) {
+        if self.expanded && self.controls[20].touch(touch, t) {
             self.control(20);
             return Ok(true);
         }
@@ -632,6 +672,9 @@ impl Scene for ReplayScene {
             return Ok(true);
         }
         for i in 0..19 {
+            if !matches!(i, 0 | 1 | 2 | 11 | 12 | 13) && (!self.expanded || self.info_mode) {
+                continue;
+            }
             if self.controls[i].touch(touch, t) {
                 self.control(i);
                 return Ok(true);
@@ -653,7 +696,7 @@ impl Scene for ReplayScene {
         }
         self.particle_delta = 0.;
         if self.playing {
-            self.particle_delta = dt as f32 * self.speed;
+            self.particle_delta = dt as f32 * self.speed * self.game_scene.res.config.speed;
             let target = self.current + dt * self.speed as f64 * self.game_scene.res.config.speed as f64;
             if let Some(target) = replay::transport::loop_target(target, self.a, self.b, self.looping) {
                 self.seek(target);
@@ -669,7 +712,9 @@ impl Scene for ReplayScene {
         self.game_scene.res.alpha = 1.;
         self.apply_judges(self.current, false);
         self.apply_touches(self.current);
-        self.game_scene.touch_points = if self.fingers { self.touch_points.clone() } else { Vec::new() };
+        // Playback indicators are composited after GameScene, in its fitted
+        // chart viewport; gameplay HUD/post-processing must not hide them.
+        self.game_scene.touch_points.clear();
         self.game_scene.res.config.chart_debug = self.ranges;
         self.game_scene.res.config.chart_debug_note = self.ranges;
         self.game_scene.tick_replay();
@@ -697,23 +742,30 @@ impl Scene for ReplayScene {
             self.game_scene.set_replay_frame_delta(self.particle_delta);
             self.particle_delta = 0.;
             self.game_scene.render(tm, &mut chart_ui)?;
-            if self.finger_ids && self.fingers {
-                set_camera(&self.game_scene.res.camera);
-                for (id, (pos, index)) in &self.current_touches {
-                    let pos = self.touch_position(*pos, *index, self.current);
-                    chart_ui
-                        .text(format!("F{}", self.finger_numbers[id]))
-                        .pos(pos.x, pos.y - 0.035)
-                        .anchor(0.5, 1.)
-                        .size(0.35)
-                        .draw();
+            if self.fingers {
+                let fitted = self.game_scene.res.camera.viewport.unwrap_or(chart_vp);
+                let mut touch_ui = Ui::new(chart_ui.text_painter, Some(fitted));
+                set_camera(&touch_ui.camera());
+                let config = &self.game_scene.res.config;
+                for (id, pos, fade) in self.visible_touches() {
+                    let alpha = config.touch_point_alpha * fade;
+                    touch_ui.fill_circle(pos.x, pos.y, config.touch_point_size, Color { a: alpha, ..BLUE });
+                    if self.finger_ids {
+                        touch_ui.text(format!("F{}", self.finger_numbers[&id]))
+                            .pos(pos.x, pos.y - config.touch_point_size - 0.008)
+                            .anchor(0.5, 1.)
+                            .no_baseline()
+                            .size(0.32 * vp.2 as f32 / fitted.2 as f32)
+                            .color(semi_white(alpha))
+                            .draw();
+                    }
                 }
             }
         }
         set_camera(&ui.camera());
         self.controls[19].render_text(
             ui,
-            Rect::new(0.74, -ui.top + 0.065, 0.22, 0.055),
+            panel_cell(7, 1, -ui.top + 0.065, 0.055),
             t,
             if self.controls_visible { "隐藏控制" } else { "显示控制" },
             0.30,
@@ -742,21 +794,22 @@ impl Scene for ReplayScene {
         }
         let cy = y + 0.062;
         let bh = 0.067;
-        self.btn_back.render_text(ui, Rect::new(-0.95, cy, 0.13, bh), t, "返回", 0.36, false);
+        self.btn_back.render_text(ui, panel_cell(0, 1, cy, bh), t, "返回", 0.34, false);
         self.btn_play
-            .render_text(ui, Rect::new(-0.80, cy, 0.15, bh), t, if self.playing { "暂停" } else { "播放" }, 0.36, false);
+            .render_text(ui, panel_cell(1, 1, cy, bh), t, if self.playing { "暂停" } else { "播放" }, 0.34, false);
         for (i, label) in [(0, "重播"), (1, "−5s"), (2, "+5s")] {
-            self.controls[i].render_text(ui, Rect::new(-0.63 + i as f32 * 0.15, cy, 0.13, bh), t, label, 0.36, false);
+            self.controls[i].render_text(ui, panel_cell(i + 2, 1, cy, bh), t, label, 0.34, false);
         }
-        self.rate.render(ui, Rect::new(-0.16, cy, 0.16, bh), t);
-        self.controls[12].render_text(ui, Rect::new(0.02, cy, 0.20, bh), t, "上个失误", 0.33, false);
-        self.controls[13].render_text(ui, Rect::new(0.24, cy, 0.20, bh), t, "下个失误", 0.33, false);
-        self.controls[11].render_text(ui, Rect::new(0.46, cy, 0.22, bh), t, if self.expanded { "收起分析" } else { "展开分析" }, 0.33, self.expanded);
+        self.rate.render(ui, panel_cell(5, 1, cy, bh), t);
+        self.controls[12].render_text(ui, panel_cell(6, 1, cy, bh), t, "上个失误", 0.33, false);
+        self.controls[13].render_text(ui, panel_cell(7, 1, cy, bh), t, "下个失误", 0.33, false);
+        self.controls[11].render_text(ui, panel_cell(7, 1, cy + 0.09, bh), t, if self.expanded { "收起分析" } else { "展开分析" }, 0.33, self.expanded);
         ui.text(format!("{} / {}", clock(position), clock(self.end())))
-            .pos(0.96, cy + 0.027)
+            .pos(panel_cell(6, 1, cy, bh).right(), cy + 0.09 + bh / 2.)
             .anchor(1., 0.5)
             .no_baseline()
-            .size(0.34)
+            .size(0.31)
+            .max_width(panel_cell(5, 2, cy, bh).w)
             .draw();
         let name = self.replay.meta.player.as_deref().unwrap_or("玩家未记录");
         let diff = if self.replay.has_diffs {
@@ -788,25 +841,28 @@ impl Scene for ReplayScene {
             "录制速度未记录".into()
         };
         ui.text(format!("{name} · {recorded_rate} · 观看 {:.2}× · {diff}", self.speed))
-            .pos(-0.94, cy + 0.085)
+            .pos(-0.94, cy + 0.09 + bh / 2.)
+            .anchor(0., 0.5)
+            .no_baseline()
             .size(0.34)
-            .max_width(1.88)
+            .max_width(panel_cell(0, 5, cy, bh).w)
             .color(semi_white(0.7))
             .draw();
         if self.expanded {
-            let y = cy + 0.14;
+            let y = cy + 0.18;
             if self.info_mode {
-                self.controls[20].render_text(ui, Rect::new(0.66, y, 0.28, 0.06), t, "返回分析", 0.34, true);
+                self.controls[20].render_text(ui, panel_cell(6, 2, y, 0.065), t, "返回分析", 0.34, true);
                 let lines = recording_info(&self.replay, &self.game_scene.res.config);
-                self.info_scroll.size((1.56, 0.27));
+                let info_width = panel_cell(0, 6, y, bh).w;
+                self.info_scroll.size((info_width, 0.22));
                 ui.scope(|ui| {
                     ui.dx(-0.94);
                     ui.dy(y);
                     self.info_scroll.render(ui, |ui| {
                         for (i, line) in lines.iter().enumerate() {
-                            ui.text(line).pos(0., i as f32 * 0.052).size(0.34).max_width(1.54).draw();
+                            ui.text(line).pos(0., i as f32 * 0.052).size(0.34).max_width(info_width - 0.02).draw();
                         }
-                        (1.56, lines.len() as f32 * 0.052)
+                        (info_width, lines.len() as f32 * 0.052)
                     });
                 });
                 for index in [3, 4, 5, 6, 7, 8, 9, 10, 14, 15, 16, 17, 18] {
@@ -815,24 +871,27 @@ impl Scene for ReplayScene {
                 self.rate.render_top(ui, t, 1.);
                 return Ok(());
             }
-            let labels = ["−10帧", "−1帧", "+1帧", "+10帧", "设置A", "设置B", "A–B循环", "触点"];
+            let labels = ["−10帧", "−1帧", "+1帧", "+10帧", "设置A", "设置B", "A–B循环", "清除A/B"];
             for (n, label) in labels.iter().enumerate() {
-                let index = n + 3;
+                let index = if n == 7 { 18 } else { n + 3 };
                 self.controls[index].render_text(
                     ui,
-                    Rect::new(-0.95 + n as f32 * 0.24, y, 0.22, 0.065),
+                    panel_cell(n, 1, y, bh),
                     t,
                     *label,
                     0.34,
                     match index {
                         9 => self.looping,
-                        10 => self.fingers,
                         _ => false,
                     },
                 );
             }
             let y = y + 0.08;
             for (n, (index, label, active)) in [
+                (10, if self.replay.touches.is_empty() { "触点未记录" } else { "触点" }, self.fingers),
+                (15, "触点ID", self.finger_ids),
+                (16, "触点大小", false),
+                (17, "触点透明度", false),
                 (
                     14,
                     if self.replay.settings.is_some() {
@@ -842,27 +901,23 @@ impl Scene for ReplayScene {
                     },
                     self.ranges,
                 ),
-                (15, "触点ID", self.finger_ids),
-                (16, "触点大小", false),
-                (17, "触点透明度", false),
-                (18, "清除A/B", false),
             ]
             .iter()
             .enumerate()
             {
-                self.controls[*index].render_text(ui, Rect::new(-0.95 + n as f32 * 0.29, y, 0.27, 0.065), t, *label, 0.34, *active);
+                self.controls[*index].render_text(ui, panel_cell(n, if n == 4 { 2 } else { 1 }, y, bh), t, *label, 0.34, *active);
             }
-            let frame = if self.replay.frames.is_empty() {
-                "旧回放使用固定 60Hz 参考步长".into()
+            let frame = if self.replay.frames.is_empty() || self.frame_fallback {
+                "无连续录制帧 · 60Hz参考步长".into()
             } else {
                 format!("录制帧 {}/{}", self.replay.frames.partition_point(|t| *t <= self.current), self.replay.frames.len())
             };
-            self.controls[20].render_text(ui, Rect::new(0.52, y, 0.42, 0.065), t, "录制信息", 0.34, false);
+            self.controls[20].render_text(ui, panel_cell(6, 2, y, bh), t, "录制信息", 0.34, false);
             ui.text(frame)
-                .pos(0.96, y + 0.085)
+                .pos(0.94, y + 0.078)
                 .anchor(1., 0.)
                 .size(0.29)
-                .max_width(0.40)
+                .max_width(0.66)
                 .color(semi_white(0.6))
                 .draw();
             let info = format!(
@@ -877,9 +932,9 @@ impl Scene for ReplayScene {
                 self.replay.meta.fingerprint.as_ref().map_or("内容指纹未记录", |_| "已校验谱面内容")
             );
             ui.text(info)
-                .pos(-0.94, y + 0.08)
+                .pos(-0.94, y + 0.078)
                 .size(0.32)
-                .max_width(1.42)
+                .max_width(1.20)
                 .color(semi_white(0.6))
                 .draw();
             if self.ranges {
@@ -893,7 +948,7 @@ impl Scene for ReplayScene {
                     windows.early[3] * 1000.,
                     windows.late[3] * 1000.
                 ))
-                .pos(-0.94, y + 0.13)
+                .pos(-0.94, y + 0.12)
                 .size(0.30)
                 .max_width(1.88)
                 .draw();
@@ -948,6 +1003,12 @@ impl ReplayScene {
 
 fn clock(t: f64) -> String {
     format!("{}:{:05.2}", t.max(0.) as u64 / 60, t.max(0.) % 60.)
+}
+/// All console rows share the timeline's edges and an eight-column grid.
+fn panel_cell(column: usize, span: usize, y: f32, height: f32) -> Rect {
+    const GAP: f32 = 0.02;
+    const WIDTH: f32 = (1.88 - GAP * 7.) / 8.;
+    Rect::new(-0.94 + column as f32 * (WIDTH + GAP), y, WIDTH * span as f32 + GAP * (span - 1) as f32, height)
 }
 fn kind_name(kind: u8) -> &'static str {
     match kind {

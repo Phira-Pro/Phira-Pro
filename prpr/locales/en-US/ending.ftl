@@ -18,3 +18,5 @@ still-uploading = Uploading record to leaderboard…
 
 apply-offset = Apply Offset
 offset-applied = Suggested offset applied
+
+play-settings = Play settings

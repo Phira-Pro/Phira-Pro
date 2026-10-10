@@ -19,6 +19,9 @@ use serde::Deserialize;
 use std::{cell::RefCell, ops::DerefMut};
 
 /// 「已应用推荐偏移」提示：停留 5 秒后淡出。
+mod status;
+use status::PlayStatus;
+
 const TOAST_HOLD: f32 = 5.0;
 const TOAST_FADE: f32 = 0.8;
 
@@ -52,12 +55,11 @@ pub struct EndingScene {
     judge_chart: bool,
     /// 本局实际生效的判定窗口（秒），用来给分布图按档位上色。
     judge_windows: JudgeWindows,
-    use_keyboard: bool,
-    speed: f32,
+    status: PlayStatus,
+    btn_status: RectButton,
     mods: Mods,
     next: u8, // 0 -> none, 1 -> pop, 2 -> exit
     update_state: Option<RecordUpdateState>,
-    rated: bool,
 
     upload_fn: Option<UploadFn>,
     upload_task: Option<(Task<Result<RecordUpdateState>>, MessageHandle)>,
@@ -136,7 +138,8 @@ impl EndingScene {
                 };
                 Some(RecordUpdateState { best, improvement })
             },
-            rated: upload_task.is_some(),
+            status: PlayStatus::new(config, upload_task.is_some()),
+            btn_status: RectButton::new(),
 
             info,
             display_score: result.displayed_score(config.theoretical_score),
@@ -146,8 +149,6 @@ impl EndingScene {
             autoplay: config.autoplay(),
             judge_chart: config.ending_judge_chart,
             judge_windows: config.judge_windows(),
-            use_keyboard: config.use_keyboard,
-            speed: config.speed,
             mods: config.mods,
             next: 0,
 
@@ -227,6 +228,11 @@ impl Scene for EndingScene {
             crate::config::request_offset_delta(self.result.mean);
             self.offset_applied = true;
             self.applied_t = t;
+            return Ok(true);
+        }
+        if self.btn_status.touch(touch) {
+            button_hit();
+            Dialog::plain(tl!("play-settings"), self.status.details.clone()).show();
             return Ok(true);
         }
         if self.btn_detail.touch(touch) {
@@ -512,29 +518,9 @@ impl Scene for EndingScene {
                     .draw_using(&BOLD_FONT);
             });
 
-            let spd = if (self.speed - 1.).abs() <= 1e-4 {
-                String::new()
-            } else {
-                format!("{:.2}x", self.speed)
-            };
-            let mut status_text = if !self.rated && !self.autoplay && !self.use_keyboard {
-                if spd.is_empty() {
-                    "UNRATED".to_string()
-                } else {
-                    format!("UNRATED {spd}")
-                }
-            } else {
-                spd
-            };
-            if self.mods.contains(Mods::STRICT_JUDGE) {
-                if !status_text.is_empty() {
-                    status_text.push(' ');
-                }
-                status_text.push_str("STRICT");
-            }
-            let status_text = status_text.trim();
+            let status_text = self.status.label.as_str();
             // mod_icons order: FLIP_X, FADE_OUT, FADE_IN, NIGHTCORE, RAINBOW
-            let active_mod_indices: Vec<usize> = [
+            let mut active_mod_indices: Vec<usize> = [
                 (Mods::FLIP_X, 0),
                 (Mods::FADE_OUT, 1),
                 (Mods::FADE_IN, 2),
@@ -550,13 +536,21 @@ impl Scene for EndingScene {
             let ty = br.bottom();
             let base_x = -0.55 + (1.2 - ty) / 1.9 * 0.4;
             let skew_factor = 0.4 / 1.9;
+            // Do not sacrifice legibility to a long strip of Mod icons. Their
+            // names remain in the details, with the +N indicator on this badge.
+            let preferred = ui.text(status_text).size(0.38).no_baseline().measure_using(&BOLD_FONT);
+            let available = 0.94 - base_x - 0.06 - active_mod_indices.len() as f32 * 0.08;
+            if preferred.h * (available / preferred.w.max(0.0001)).min(1.) < 0.021 {
+                active_mod_indices.clear();
+            }
             let has_text = !status_text.is_empty();
             let has_icons = !active_mod_indices.is_empty();
             if has_text || has_icons {
-                let text_size = 0.4;
+                let text_size = 0.38;
                 let skew_height_ratio = skew_factor;
                 let mut current_x = base_x;
-                let para_h = 0.04;
+                // Fixed padded backing; font metrics never determine its height.
+                let para_h = 0.052;
                 if has_text {
                     let mut text = ui
                         .text(status_text)
@@ -569,18 +563,21 @@ impl Scene for EndingScene {
                     // Status badges share the icon strip's height. Imported
                     // fonts and the display-size setting must not enlarge them
                     // into the score panel; shrink the entire label, never cut it.
-                    let max_width = (0.95 - active_mod_indices.len() as f32 * 0.08).max(0.25);
-                    let fit = (para_h * 0.78 / tr.h.max(0.0001)).min(max_width / tr.w.max(0.0001)).min(1.);
+                    let max_width = (0.94 - current_x - 0.06 - active_mod_indices.len() as f32 * 0.08).max(0.25);
+                    let fit = (0.027 / tr.h.max(0.0001)).min(max_width / tr.w.max(0.0001)).min(1.);
                     if fit < 1. {
                         text = text.size(text_size * fit);
                         tr = text.measure_using(&BOLD_FONT);
                     }
-                    let r = Rect::new(-1., tr.y, tr.right() + 1.03, tr.h);
+                    debug_assert!(tr.h <= 0.0271 && tr.w <= max_width + 0.0001);
+                    let right = tr.right() + 0.025;
+                    let para_top = ty - para_h / 2.;
+                    let para_bottom = ty + para_h / 2.;
                     let mut b = text.ui.builder(WHITE);
-                    b.add(-1., tr.y);
-                    b.add(r.right(), tr.y);
-                    b.add(r.right() - tr.h * skew_height_ratio, tr.bottom());
-                    b.add(-1., tr.bottom());
+                    b.add(-1., para_top);
+                    b.add(right, para_top);
+                    b.add(right - para_h * skew_height_ratio, para_bottom);
+                    b.add(-1., para_bottom);
                     b.triangle(0, 1, 2);
                     b.triangle(0, 2, 3);
                     b.commit();
@@ -589,8 +586,8 @@ impl Scene for EndingScene {
                     current_x = tr.right() + 0.04;
                 }
                 for &mod_idx in &active_mod_indices {
-                    let icon_size = para_h * 0.9;
-                    let para_w = para_h + 0.02;
+                    let icon_size = 0.036;
+                    let para_w = 0.06;
                     let skew_offset = para_h * skew_height_ratio;
                     let para_left = current_x;
                     let para_right = current_x + para_w;
@@ -610,6 +607,7 @@ impl Scene for EndingScene {
                     ui.fill_rect(icon_rect, (*self.mod_icons[mod_idx], icon_rect, ScaleType::Fit, semi_black(0.6)));
                     current_x = para_right + 0.02;
                 }
+                self.btn_status.set(ui, Rect::new(base_x, ty - para_h / 2., current_x - base_x, para_h).feather(0.008));
             }
 
             // 结算判定分布图（早 ← → 晚）：21 个桶、0ms 居中。

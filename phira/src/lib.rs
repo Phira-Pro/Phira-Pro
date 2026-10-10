@@ -400,6 +400,13 @@ async fn the_main() -> Result<()> {
         .set_pause_resume_listener(on_pause_resume);
 
     startup::stage("fonts");
+    match load_file("font.ttf").await {
+        Ok(bytes) => match FontArc::try_from_vec(bytes) {
+            Ok(font) => prpr::ui::set_multilingual_fallback(font),
+            Err(err) => warn!(?err, "invalid multilingual fallback font"),
+        },
+        Err(err) => warn!(?err, "multilingual fallback font unavailable"),
+    }
     let pgr_font = FontArc::try_from_vec(load_file("phigros.ttf").await?)?;
     PGR_FONT.with(move |it| *it.borrow_mut() = Some(TextPainter::new(pgr_font, None)));
 

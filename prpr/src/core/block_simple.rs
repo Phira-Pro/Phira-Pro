@@ -63,7 +63,7 @@ fn tessellate(aspect: f32, zones: &[Zone], disabled: bool) -> Vec<([Vec2; 4], f3
         let (s, c) = (z.angle as f64).sin_cos();
         let corners = [(-1., -1.), (1., -1.), (1., 1.), (-1., 1.)].map(|(x, y)| {
             let (x, y) = (x * z.half.x as f64, y * z.half.y as f64);
-            (z.center.x as f64 + c * x - s * y, z.center.y as f64 + s * x + c * y)
+            (z.center.x as f64 + c * x - s * y, z.center.y as f64 + (s * x + c * y) * z.y_scale as f64)
         });
         if corners.iter().any(|&(x, y)| !x.is_finite() || !y.is_finite()) {
             continue;
@@ -190,6 +190,8 @@ mod tests {
 
     fn zone(x: f32, y: f32, hx: f32, hy: f32, angle: f32, invert: bool) -> Zone {
         Zone {
+            line2area: false,
+            y_scale: 1.,
             color: super::super::DEFAULT_BLOCK_COLOR,
             center: Vector::new(x, y),
             half: Vector::new(hx, hy),

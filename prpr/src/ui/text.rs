@@ -18,6 +18,16 @@ use tracing::debug;
 mod layout;
 use layout::{layout_text, InkCache, LayoutOptions};
 
+thread_local! {
+    static MULTILINGUAL_FALLBACK: std::cell::RefCell<Option<FontArc>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Install the last-resort script font before constructing UI painters. Keep
+/// the primary/custom face and its existing CJK fallback ahead of this font.
+pub fn set_multilingual_fallback(font: FontArc) {
+    MULTILINGUAL_FALLBACK.with(|slot| *slot.borrow_mut() = Some(font));
+}
+
 /// Reject invalid line metrics before glyph layout divides by font height.
 /// Parsing an SFNT alone does not guarantee that it can be rasterized safely.
 pub fn parse_font(bytes: Vec<u8>) -> anyhow::Result<FontArc> {
@@ -245,6 +255,7 @@ impl TextPainter {
         if let Some(fallback) = fallback {
             fonts.push(fallback);
         }
+        MULTILINGUAL_FALLBACK.with(|font| fonts.extend(font.borrow().iter().cloned()));
         let mut brush = GlyphBrushBuilder::using_fonts(fonts).build();
         let dim = *TEXTURE_DIM;
         brush.resize_texture(dim, dim);

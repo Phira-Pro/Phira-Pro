@@ -2,7 +2,7 @@ prpr_l10n::tl_file!("record");
 
 // 本地成绩详情页：从「本地记录」排行榜点开任意一条成绩，展示与正常游玩结算界面
 // 一致的排版（背景 + 曲绘开屏动画 + 滚动分数 + 判定计数 + 连击条 + 判定分布图），
-// 左下角按钮为「返回」与「播放回放」。
+// 底部三个按钮依次为「返回」「导入 / 管理回放」「播放回放」。
 
 use super::{fs_from_path, replay::ReplayScene};
 use crate::{history, replay};
@@ -466,10 +466,18 @@ impl Scene for RecordDetailScene {
             });
         }
 
-        // —— 底部按钮：返回 / 播放回放 / 打开回放文件 ——
+        // —— 底部按钮：返回 / 导入管理 / 播放回放，同一横排 ——
         ui.alpha(pf, |ui| {
             let t = tm.real_time() as f32;
-            let mut r = Rect::new(0.96, top - 0.04, 0.25, 0.1);
+            let grid = prpr::ui::judgement_grid_area(top);
+            let width = if res.grading.detailed && grid.bottom() > top - 0.14 {
+                // On wide phones the last judgement rows share this vertical
+                // strip. Fit all three buttons to their right, without stacking.
+                (0.96 - grid.right() - 0.01 - 2. * 0.02) / 3.
+            } else {
+                0.25
+            };
+            let mut r = Rect::new(0.96, top - 0.04, width, 0.1);
             r.x -= r.w;
             r.y -= r.h;
             let replay_exists = self.replay_path.is_some();
@@ -487,6 +495,21 @@ impl Scene for RecordDetailScene {
                     .anchor(0.5, 0.5)
                     .no_baseline()
                     .size(0.44)
+                    .max_width(r.w - 0.02)
+                    .draw_using(&BOLD_FONT);
+            });
+            r.x -= r.w + 0.02;
+            let manage_label = "导入 / 管理回放";
+            let manage_width = ui.text(manage_label).size(0.4).measure_using(&BOLD_FONT).w;
+            let manage_size = 0.4 * ((r.w - 0.025) / manage_width).min(1.);
+            self.btn_open.render_shadow(ui, r, t, |ui, path| {
+                ui.fill_path(&path, Color::from_hex_rgb(0x455a64));
+                ui.text(manage_label)
+                    .pos(r.center().x, r.center().y)
+                    .anchor(0.5, 0.5)
+                    .no_baseline()
+                    .size(manage_size)
+                    .max_width(r.w - 0.02)
                     .draw_using(&BOLD_FONT);
             });
             r.x -= r.w + 0.02;
@@ -497,23 +520,12 @@ impl Scene for RecordDetailScene {
                     .anchor(0.5, 0.5)
                     .no_baseline()
                     .size(0.44)
+                    .max_width(r.w - 0.02)
                     .draw_using(&BOLD_FONT);
             });
             if self.replay_path.is_some() {
                 self.btn_export
                     .render_text(ui, Rect::new(-0.96, top - 0.11, 0.24, 0.075), t, "导出回放", 0.4, false);
-            }
-            {
-                if res.grading.detailed { r.y -= r.h + 0.02; } else { r.x -= r.w + 0.02; }
-                self.btn_open.render_shadow(ui, r, t, |ui, path| {
-                    ui.fill_path(&path, Color::from_hex_rgb(0x455a64));
-                    ui.text("导入 / 管理回放")
-                        .pos(r.center().x, r.center().y)
-                        .anchor(0.5, 0.5)
-                        .no_baseline()
-                        .size(0.4)
-                        .draw_using(&BOLD_FONT);
-                });
             }
         });
 

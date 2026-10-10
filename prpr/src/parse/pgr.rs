@@ -145,6 +145,7 @@ fn v2(p: PgrVector2) -> Vector {
 pub(super) fn parse_block_areas(list: Vec<PgrBlockArea>) -> Vec<BlockArea> {
     list.into_iter()
         .map(|b| BlockArea {
+            rpe_canvas: false,
             top_right: v2(b.top_right_percentage),
             bottom_left: v2(b.bottom_left_percentage),
             appear_time: b.appear_time,

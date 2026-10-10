@@ -388,8 +388,9 @@ impl ReplayManager {
         self.buttons[1].render_text(ui, Rect::new(x + w - 0.4, y, 0.19, 0.075), t, "导入", 0.42, false);
         self.buttons[2].render_text(ui, Rect::new(x + w - 0.19, y, 0.19, 0.075), t, "刷新", 0.42, false);
         y += 0.095;
+        let filter_width = (w - 3. * 0.012) / 4.;
         for (i, label) in ["全部", "自己录制", "导入回放", "缺少谱面"].iter().enumerate() {
-            self.buttons[i + 3].render_text(ui, Rect::new(x + i as f32 * w / 4., y, w / 4. - 0.012, 0.07), t, *label, 0.4, self.filter == i);
+            self.buttons[i + 3].render_text(ui, Rect::new(x + i as f32 * (filter_width + 0.012), y, filter_width, 0.07), t, *label, 0.4, self.filter == i);
         }
         y += 0.09;
         if let Some(item) = self.selected_item() {
@@ -527,7 +528,8 @@ impl Page for ReplayManager {
         self.touch_inner(touch, s.t)
     }
     fn render(&mut self, ui: &mut Ui, s: &mut SharedState) -> Result<()> {
-        self.render_inner(ui, s.t);
+        let t = s.t;
+        s.render_fader(ui, |ui| self.render_inner(ui, t));
         Ok(())
     }
     fn next_scene(&mut self, _: &mut SharedState) -> NextScene {
@@ -562,7 +564,7 @@ impl Scene for ReplayManager {
 }
 
 #[cfg(all(test, target_os = "windows"))]
-pub(crate) fn render_regression(painter: &mut prpr::ui::TextPainter, path: &std::path::Path) {
+pub(crate) fn render_regression(painter: &mut prpr::ui::TextPainter, path: &std::path::Path, state: &mut SharedState) {
     let mut manager = ReplayManager::new(None, true);
     manager.selected = Some(path.to_path_buf());
     for (w, h, label) in [(960, 720, "4x3"), (1280, 720, "16x9"), (1280, 548, "21x9")] {
@@ -585,6 +587,29 @@ pub(crate) fn render_regression(painter: &mut prpr::ui::TextPainter, path: &std:
         }
         .export_png(&format!("target/replay-qa/manager-{label}.png"));
     }
+    manager.standalone = false;
+    for (time, name) in [(2., "settings-open"), (2.35, "settings-leaving"), (2.71, "settings-closed")] {
+        state.fader.back(2.);
+        state.fader.sub = true;
+        state.fader.reset();
+        state.t = time;
+        let mut ui = Ui::new(painter, Some((0, 0, 1280, 720)));
+        set_camera(&ui.camera());
+        clear_background(BLACK);
+        Page::render(&mut manager, &mut ui, state).unwrap();
+        unsafe { get_internal_gl() }.flush();
+        let mut bytes = vec![0; 1280 * 720 * 4];
+        unsafe {
+            use miniquad::gl::*;
+            glReadPixels(0, 0, 1280, 720, GL_RGBA, GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
+            assert_eq!(glGetError(), 0);
+        }
+        if name == "settings-closed" {
+            assert!(bytes.chunks_exact(4).all(|p| p[..3] == [0, 0, 0]), "replay buttons remain after page fade-out");
+        }
+        Image { width: 1280, height: 720, bytes }.export_png(&format!("target/replay-qa/manager-{name}.png"));
+    }
+    state.fader = super::Fader::new();
     let mut copied = replay::load(path).unwrap();
     copied.meta.id.push_str("-delete-check");
     let temporary = tempfile::tempdir().unwrap();

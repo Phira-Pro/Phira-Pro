@@ -239,6 +239,12 @@ async fn main() {
             image::save_buffer(&file, &bytes, width as u32, height as u32, image::ColorType::Rgba8).unwrap();
             println!("{file}: combo={}, aspect={}, shader clock={:.6}s", scene.judge.combo(), scene.res.aspect_ratio, get_time());
             manifest.push(serde_json::json!({"requested_video_seconds":requested,"chart_seconds":t,"file":file,"width":width,"height":height,"combo":scene.judge.combo(),"background_brightness":1.0-scene.res.info.background_dim,"shader_clock_seconds_approx":get_time()}));
+            let zones: Vec<_> = scene.chart.block_zones(&scene.res).iter().map(|z| serde_json::json!({
+                "center": [z.center.x, z.center.y], "half": [z.half.x, z.half.y], "angle": z.angle,
+                "y_scale": z.y_scale, "color": z.color, "active": z.active, "ready": z.ready,
+                "opacity": z.opacity, "line2area": z.line2area,
+            })).collect();
+            manifest.last_mut().unwrap()["zones"] = zones.into();
             if std::env::var_os("BLOCK_CAPTURE_WHITE").is_some() {
                 // Keep the evaluated chart pose, but isolate its postprocess
                 // over gray so colored notes/background cannot hide red rims.

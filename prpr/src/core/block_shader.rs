@@ -50,6 +50,9 @@ pub const DEFAULT_BLOCK_COLOR: [f32; 3] = [1., 84. / 255., 84. / 255.];
 /// A resolved rectangle (axis-aligned in its own space).
 #[derive(Clone, PartialEq)]
 pub struct Zone {
+    pub line2area: bool,
+    /// Post-rotation vertical stretch for Line2Area; native rectangles use one.
+    pub y_scale: f32,
     /// RPE colorEvents RGB; official areas retain the native red palette.
     pub color: [f32; 3],
     pub center: Vector,
@@ -77,6 +80,8 @@ impl Zone {
         let active = phase == BlockPhase::Active;
         let fades_in = !area.is_active(area.appear_time);
         Some(Self {
+            line2area: area.rpe_canvas,
+            y_scale: tr.y_scale,
             color: DEFAULT_BLOCK_COLOR,
             center: tr.center,
             half,
@@ -84,7 +89,7 @@ impl Zone {
             invert: area.is_subtract,
             active,
             ready: !active && time < area.enable_time && time >= area.enable_time - 0.5,
-            opacity: if !active && fades_in {
+            opacity: if !area.rpe_canvas && !active && fades_in {
                 ((time - area.appear_time) / 0.5).clamp(0., 1.) as f32
             } else {
                 1.
@@ -97,6 +102,8 @@ impl Zone {
     /// Compare coverage state independently of animated RGB.
     pub fn same_mask(&self, other: &Self) -> bool {
         self.center == other.center
+            && self.line2area == other.line2area
+            && self.y_scale == other.y_scale
             && self.half == other.half
             && self.angle == other.angle
             && self.invert == other.invert
@@ -246,6 +253,7 @@ fn load_block_material(disabled: bool, hover: bool, colored: bool) -> Result<Mat
         ("_TouchPosCount".to_owned(), UniformType::Int1),
         ("uLayer".to_owned(), UniformType::Int1),
         ("uColored".to_owned(), UniformType::Int1),
+        ("uReadyExtra".to_owned(), UniformType::Float1),
     ];
     uniforms.extend(FLOATS.iter().map(|(name, _)| (name.to_string(), UniformType::Float1)));
     uniforms.extend(COLORS.iter().map(|(name, _)| (name.to_string(), UniformType::Float4)));
@@ -399,7 +407,9 @@ pub fn draw_zones(res: &mut Resource, aspect: f32, zones: &[Zone]) {
 pub fn draw_disabled_zones(res: &mut Resource, aspect: f32, zones: &[Zone]) {
     // Unity's _Time is constant for all passes in a frame. Chart invokes this
     // before notes even when the disabled layer happens to be empty.
-    let time = shader_time();
+    // Drive Line2Area materials with chart seconds, matching the measured
+    // Recorder pulse; pauses/seeks and captures then reproduce the same phase.
+    let time = if zones.iter().any(|z| z.line2area) { res.time as f32 } else { shader_time() };
     FRAME.with(|frame| {
         let mut frame = frame.borrow_mut();
         frame.clock = Some(time);
@@ -690,6 +700,9 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         }
         m.set_uniform("_TouchPosShine", (0.63 + 0.37 * ((time * 43.).sin() * 0.5 + 0.5)) * 2.);
         m.set_uniform("uColored", i32::from(colored));
+        // Recorder beta3 draws both ReadyBlock (rd) and ActiveBlock's Ready
+        // branch (rd squared). Keep each branch's native 0.12 brightness.
+        m.set_uniform("uReadyExtra", if zones.iter().any(|z| z.line2area) { 1_f32 } else { 0_f32 });
         m.set_texture("uActiveColors", if colored { frame.color_textures[0].unwrap() } else { *EMPTY_TEX });
         m.set_texture("uDisabledColors", if colored { frame.color_textures[1].unwrap() } else { *EMPTY_TEX });
         gl_use_material(m);

@@ -312,7 +312,8 @@ impl Chart {
         });
     }
 
-    fn block_zones(&self, res: &Resource) -> std::cell::Ref<'_, [Zone]> {
+    /// Evaluated coverage shared by rendering and read-only diagnostic tools.
+    pub fn block_zones(&self, res: &Resource) -> std::cell::Ref<'_, [Zone]> {
         let key = (res.time, res.aspect_ratio, self.block_areas.len());
         let mut cache = self.block_frame.borrow_mut();
         if cache.key != Some(key) {
@@ -385,19 +386,14 @@ impl Chart {
             if scale.x.abs() < 1e-6 || scale.y.abs() < 1e-6 || texture.width() <= 0. || texture.height() <= 0. {
                 return None;
             }
-            let center = self
-                .line_transforms
-                .get(id)
-                .map(|matrix| matrix.transform_point(&Point::new(0., 0.)))
-                .unwrap_or_else(|| {
-                    let mut pos = line.object.translation.now();
-                    pos.y /= aspect;
-                    Point::new(pos.x, pos.y)
-                });
+            // Parent translations and rotations obey the same canvas-first
+            // mapping as each marker's geometry. Reusing note/world matrices
+            // would stretch child offsets before their parent's rotation.
+            let center = self.rpe_canvas_position(id).component_mul(&Vector::new(1., 1.5 / aspect));
             let rotation = self.line_rotations.get(id).copied().unwrap_or_else(|| line.object.rotation.now());
             let tr = marker.transform(Vector::new(center.x, center.y), scale, Vector::new(texture.width(), texture.height()), rotation, aspect);
             let half_x = tr.size.x * 0.5;
-            let half_y = tr.size.y * 0.5;
+            let half_y = tr.size.y * tr.y_scale * 0.5;
             let to_pct_x = |x: f32| (x + 1.) * 0.5;
             let to_pct_y = |y: f32| (y * aspect + 1.) * 0.5;
             let c = tr.center;
@@ -406,6 +402,7 @@ impl Chart {
             let anchor = Vector::new(to_pct_x(c.x), to_pct_y(c.y));
             Some((
                 BlockArea {
+                    rpe_canvas: true,
                     top_right,
                     bottom_left,
                     appear_time,
@@ -425,6 +422,17 @@ impl Chart {
                 marker.color_at(time),
             ))
         })
+    }
+
+    fn rpe_canvas_position(&self, id: usize) -> Vector {
+        let line = &self.lines[id];
+        let mut offset = line.object.translation.now();
+        offset.y /= 1.5;
+        if let Some(parent) = line.parent {
+            self.rpe_canvas_position(parent) + nalgebra::Rotation2::new(self.lines[parent].fetch_rot(&self.lines).to_radians()) * offset
+        } else {
+            offset
+        }
     }
 }
 
@@ -483,6 +491,18 @@ mod tests {
         assert_eq!(chart.lines[0].fetch_rot(&chart.lines), 55.);
         assert!(chart.prepare_rpe_input_time(0.));
         assert_eq!(chart.lines[0].fetch_rot(&chart.lines), 10.);
+    }
+
+    #[test]
+    fn line2area_parent_offsets_rotate_before_viewport_stretch() {
+        let mut chart = chart();
+        chart.lines[0].object.translation = super::super::AnimVector(AnimFloat::fixed(300. * 2. / 1350.), AnimFloat::fixed(150. * 2. / 900.));
+        chart.lines[1].object.rotation = AnimFloat::fixed(90.);
+        for aspect in [4. / 3., 16. / 9., 20. / 9.] {
+            let p = chart.rpe_canvas_position(0).component_mul(&Vector::new(1., 1.5 / aspect));
+            assert!((p.x + 150. * 2. / 1350.).abs() < 1e-6);
+            assert!((p.y - 300. * 2. / 900. / aspect).abs() < 1e-6);
+        }
     }
 
     #[test]

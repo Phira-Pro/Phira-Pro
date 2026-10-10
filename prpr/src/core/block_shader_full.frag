@@ -15,6 +15,7 @@ varying highp vec4 screenPos;
 varying highp float clipHalfWidth;
 uniform int uLayer;
 uniform int uColored;
+uniform float uReadyExtra;
 uniform mediump sampler2D uActiveColors;
 uniform mediump sampler2D uDisabledColors;
 vec3 blockPalette(vec3 nativeColor, vec3 rgb);
@@ -538,7 +539,7 @@ vec4 fullActive() {
         u_xlat16_8.y = float(0.0);
         u_xlat16_8.z = float(0.0);
     }
-    u_xlat16_2.xyz = u_xlat16_2.xzw * vec3(u_xlat16_18) + u_xlat16_3.xyz;
+    u_xlat16_2.xyz = u_xlat16_2.xzw * vec3(u_xlat16_18 + uReadyExtra) + u_xlat16_3.xyz;
     result.xyz = u_xlat16_8.xyz + u_xlat16_2.xyz;
     return result;
 

@@ -103,7 +103,7 @@ def main():
         'gpu_frames': len(probes) * 2 * 24, 'gpu_cases': probes, 'captures': captures,
         'limits': 'Windows OpenGL viewport emulation; does not certify iOS hardware. '
                   'Wider screens retain the configured chart viewport/letterbox. '
-                  'Synthetic GPU clocks are fixed; GameScene clocks remain live.'}
+                  'Synthetic GPU clocks are fixed; Line2Area follows chart time and native BlockAreaList follows runtime time.'}
     result_file.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
     print(f'Cycle passed: {result_file}', flush=True)
 

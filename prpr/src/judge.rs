@@ -255,7 +255,7 @@ struct TouchMatcher {
     flick_protect: bool,
     ceiling: f64,
     closest: Option<MatchCandidate>,
-    protection: Option<MatchCandidate>,
+    protection: Vec<MatchCandidate>,
 }
 
 impl TouchMatcher {
@@ -266,7 +266,7 @@ impl TouchMatcher {
             flick_protect,
             ceiling: bad + (X_DIFF_MAX / NOTE_WIDTH_RATIO_BASE - 1.).max(0.) * DIST_FACTOR,
             closest: None,
-            protection: None,
+            protection: Vec::new(),
         }
     }
 
@@ -278,7 +278,7 @@ impl TouchMatcher {
     fn consider(&mut self, target: (usize, u32), kind: &NoteKind, status: &JudgeStatus, offset: f64, dt: f64, dist: f64, good: f64) {
         let protected =
             self.click && ((self.drag_protect && matches!(kind, NoteKind::Drag)) || (self.flick_protect && matches!(kind, NoteKind::Flick)));
-        if protected && !matches!(status, JudgeStatus::NotJudged) {
+        if protected && !matches!(status, JudgeStatus::NotJudged | JudgeStatus::PreJudge) {
             return;
         }
         let dt = if !protected && matches!(kind, NoteKind::Drag | NoteKind::Flick) {
@@ -295,16 +295,23 @@ impl TouchMatcher {
             protected,
         };
         if protected {
-            if self.protection.is_none_or(|c| offset.abs() < c.offset.abs()) {
-                self.protection = Some(candidate);
-            }
+            self.protection.push(candidate);
         } else if candidate.key < self.closest.map_or(self.ceiling, |c| c.key) {
             self.closest = Some(candidate);
         }
     }
 
-    fn finish(self) -> Option<MatchCandidate> {
-        if let Some(protection) = self.protection {
+    fn finish(mut self) -> Option<MatchCandidate> {
+        // A later special within 10ms replaces the previous one even if its
+        // absolute offset is larger. Resolve in chart-time order across lines.
+        self.protection.sort_by(|a, b| b.offset.total_cmp(&a.offset).then(a.target.cmp(&b.target)));
+        let mut protection: Option<MatchCandidate> = None;
+        for candidate in self.protection {
+            if protection.is_none_or(|best| -candidate.offset + 1e-12 < best.offset.abs() + CLICK_PROTECTION_GAP) {
+                protection = Some(candidate);
+            }
+        }
+        if let Some(protection) = protection {
             let intercepts = self.closest.is_none_or(|head| {
                 head.head && head.offset < 0.
                     // Only absorb round-off from subtracting chart timestamps;
@@ -319,11 +326,10 @@ impl TouchMatcher {
     }
 }
 
-fn consume_click_protection(kind: &NoteKind, status: &mut JudgeStatus) {
+fn consume_click_protection(kind: &NoteKind, matched: &mut HashSet<(usize, u32)>, target: (usize, u32)) {
     if matches!(kind, NoteKind::Drag) {
-        // PreJudge arms its normal on-time judgement and skips later clicks.
-        // A mere tap never arms Flick: it can intercept again until flicked.
-        *status = JudgeStatus::PreJudge;
+        // Click matching is independent of Drag's held-finger score arming.
+        matched.insert(target);
     }
 }
 
@@ -646,28 +652,43 @@ mod tests {
     }
 
     #[test]
+    fn nearby_protectors_follow_chronology_instead_of_nearest_absolute_offset() {
+        use super::{JudgeStatus, TouchMatcher};
+        use crate::core::NoteKind;
+        for reverse in [false, true] {
+            for (head, protected) in [(0.010, false), (0.015, true)] {
+                let mut matcher = TouchMatcher::new(true, true, true, super::LIMIT_BAD);
+                let mut notes = [(0, 0., NoteKind::Flick), (1, 0.005, NoteKind::Drag), (2, head, NoteKind::Click)];
+                if reverse { notes.reverse(); }
+                for (id, time, kind) in notes {
+                    let offset = -0.1 - time;
+                    matcher.consider((id, 0), &kind, &JudgeStatus::NotJudged, offset, offset.abs(), 0., super::LIMIT_GOOD);
+                }
+                let selected = matcher.finish().unwrap();
+                assert_eq!(selected.protected, protected);
+                assert_eq!(selected.target.0, if protected { 1 } else { 2 });
+            }
+        }
+    }
+
+    #[test]
     fn yellow_consumes_one_click_but_red_can_intercept_repeated_clicks() {
         use super::{consume_click_protection, JudgeStatus};
         use crate::core::NoteKind::{Drag, Flick};
         for kind in [Drag, Flick] {
-            let mut status = JudgeStatus::NotJudged;
-            for click in 0..3 {
-                let selected = match_pair(&kind, &status, -0.100, 0., true, click % 2 == 0);
-                let intercept = matches!(kind, Flick) || click == 0;
-                assert_eq!(selected.protected, intercept, "{kind:?} click {click}");
-                if selected.protected {
-                    consume_click_protection(&kind, &mut status);
+            for status in [JudgeStatus::NotJudged, JudgeStatus::PreJudge] {
+                let mut matched = std::collections::HashSet::new();
+                for click in 0..3 {
+                    let selected = match_pair(&kind, &status, -0.100, 0., !matched.contains(&(1, 0)), click % 2 == 0);
+                    let intercept = matches!(kind, Flick) || click == 0;
+                    assert_eq!(selected.protected, intercept, "{kind:?} click {click}");
+                    if selected.protected {
+                        consume_click_protection(&kind, &mut matched, (1, 0));
+                    }
                 }
+                assert!(matches!(status, JudgeStatus::NotJudged | JudgeStatus::PreJudge));
+                assert_eq!(matched.contains(&(1, 0)), matches!(kind, Drag));
             }
-            assert!(match kind {
-                Drag => matches!(status, JudgeStatus::PreJudge),
-                Flick => matches!(status, JudgeStatus::NotJudged),
-                _ => unreachable!(),
-            });
-            assert!(
-                !match_pair(&kind, &JudgeStatus::PreJudge, -0.100, 0., true, false).protected,
-                "a genuinely armed flick must also leave click matching"
-            );
         }
     }
 
@@ -1007,6 +1028,7 @@ pub struct ReplayJudgeState(JudgeInner);
 #[repr(C)]
 pub struct Judge {
     phigros: Option<phigros::Engine>,
+    click_protected: HashSet<(usize, u32)>,
     // notes of each line in order
     // LinkedList::drain_filter is unstable...
     pub notes: Vec<(Vec<u32>, usize)>,
@@ -1081,6 +1103,7 @@ impl Judge {
         }
         Self {
             phigros: None,
+            click_protected: HashSet::new(),
             notes,
             trackers: HashMap::new(),
             last_time: 0.,
@@ -1098,6 +1121,7 @@ impl Judge {
 
     pub fn reset(&mut self) {
         self.phigros = None;
+        self.click_protected.clear();
         self.notes.iter_mut().for_each(|it| it.1 = 0);
         self.trackers.clear();
         self.infected.clear();
@@ -1519,6 +1543,9 @@ impl Judge {
                 };
                 for id in &idx[*st..] {
                     let note = &mut line.notes[*id as usize];
+                    if click && self.click_protected.contains(&(line_id, *id)) {
+                        continue;
+                    }
                     if !matches!(note.judge, JudgeStatus::NotJudged | JudgeStatus::PreJudge) {
                         continue;
                     }
@@ -1560,7 +1587,7 @@ impl Judge {
                 let line = &mut chart.lines[line_id];
                 if candidate.protected {
                     let note = &mut line.notes[id as usize];
-                    consume_click_protection(&note.kind, &mut note.judge);
+                    consume_click_protection(&note.kind, &mut self.click_protected, (line_id, id));
                     continue;
                 }
                 if matches!(line.notes[id as usize].kind, NoteKind::Drag) {

@@ -8,6 +8,7 @@ mod rpe_block;
 // Supply just the production renderer's model stack and optional chart target.
 // No audio or resource pack; render targets below exercise the existing MSAA path.
 struct Resource {
+    time: f64,
     config: prpr::config::Config,
     camera: Camera2D,
     chart_target: Option<MSRenderTarget>,
@@ -43,6 +44,7 @@ fn conf() -> Conf {
 async fn main() {
     let aspect = 16. / 9.;
     let mut res = Resource {
+        time: 0.,
         config: Default::default(),
         camera: Camera2D {
             zoom: vec2(1., aspect),
@@ -141,6 +143,15 @@ async fn main() {
     native_reference(&[ready_zone.clone()], &ready, 12., &[]);
     let ready_later = overlay_probe(&mut res, aspect, &[ready_zone.clone()], 12.05, &[], "ready-pulse");
     assert_ne!(ready.bytes, ready_later.bytes, "Ready must pulse at native shine speed");
+    let mut recorder_ready = ready_zone.clone();
+    recorder_ready.line2area = true;
+    for time in [2.5_f32, 2.6, 2.7, 2.8, 2.9] {
+        let image = render(&mut res, aspect, &[recorder_ready.clone()], "line2area-ready", time, false);
+        let baseline = render(&mut res, aspect, &[zone(0., 0., 0.5, 0.25, false, false)], "line2area-disabled", time, false);
+        let actual = pixel(&image, 480, 270)[0] as f32 - pixel(&baseline, 480, 270)[0] as f32;
+        let expected = 255. * 0.24 * ((time * 37.9).sin() * 0.5 + 1.);
+        assert!((actual - expected).abs() <= 2., "Line2Area two-pass Ready pulse: {actual} vs {expected}");
+    }
     ready_zone.invert = true;
     let ready_subtract = overlay_probe(&mut res, aspect, &[ready_zone.clone()], 12.1, &[], "ready-subtract");
     native_reference(&[ready_zone], &ready_subtract, 12.1, &[]);
@@ -261,6 +272,8 @@ async fn main() {
                 }
                 let tr = b.transform(t, aspect);
                 Some(block_shader::Zone {
+                    line2area: false,
+                    y_scale: 1.,
                     color: block_shader::DEFAULT_BLOCK_COLOR,
                     center: tr.center,
                     half: tr.size.map(|v| v.abs() * 0.5),
@@ -297,7 +310,10 @@ fn viewport_matrix_probe(res: &mut Resource) {
     let from_rpe = |x: f32, y: f32, width: f32, height: f32, invert, active| {
         let tr = marker.transform(Vector::new(x * 2. / 1350., y * 2. / 900. / aspect),
             Vector::new(width / 900., height / 900.) * (2. / 1350.), Vector::repeat(900.), 0., aspect);
-        zone(tr.center.x, tr.center.y, tr.size.x / 2., tr.size.y / 2., invert, active)
+        let mut zone = zone(tr.center.x, tr.center.y, tr.size.x / 2., tr.size.y / 2., invert, active);
+        zone.line2area = true;
+        zone.y_scale = tr.y_scale;
+        zone
     };
     let mut full = from_rpe(0., 0., 1350., 900., false, true);
     full.color = [1.; 3];
@@ -336,6 +352,8 @@ fn viewport_matrix_probe(res: &mut Resource) {
 
 fn zone(x: f32, y: f32, hx: f32, hy: f32, invert: bool, active: bool) -> block_shader::Zone {
     block_shader::Zone {
+        line2area: false,
+        y_scale: 1.,
         color: block_shader::DEFAULT_BLOCK_COLOR,
         center: Vector::new(x, y),
         half: Vector::new(hx, hy),

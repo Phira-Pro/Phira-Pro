@@ -263,6 +263,22 @@ mod tests {
     use super::*;
     use glyph_brush::{GlyphBrush, GlyphBrushBuilder};
 
+    #[test]
+    fn every_language_label_has_visible_glyphs_with_the_script_fallback() {
+        let primary = FontArc::try_from_slice(include_bytes!("../../../../assets/harmonyos.ttf")).unwrap();
+        let fallback = FontArc::try_from_slice(include_bytes!("../../../../assets/font.ttf")).unwrap();
+        assert_eq!(primary.glyph_id('한').0, 0);
+        assert_eq!(primary.glyph_id('ไ').0, 0);
+        let fonts = [primary, fallback];
+        for name in prpr_l10n::LANG_NAMES {
+            for c in name.chars().filter(|c| !c.is_whitespace()) {
+                let font = &fonts[font_id(&fonts, c)];
+                assert_ne!(font.glyph_id(c).0, 0, "missing {name}: {c}");
+                assert!(font.outline(font.glyph_id(c)).is_some(), "empty {name}: {c}");
+            }
+        }
+    }
+
     fn setup() -> (GlyphBrush<()>, InkCache, LayoutOptions) {
         let primary = FontArc::try_from_slice(include_bytes!("../../../../assets/phigros.ttf")).unwrap();
         let fallback = FontArc::try_from_slice(include_bytes!("../../../../assets/harmonyos.ttf")).unwrap();

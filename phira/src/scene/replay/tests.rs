@@ -97,6 +97,7 @@ fn production_replay_transport_import_and_aspects() {
             let isolated = tempfile::tempdir_in("target/replay-qa").unwrap();
             let old_root = DATA_PATH.lock().unwrap().replace(isolated.path().to_string_lossy().into_owned());
             macroquad::file::set_pc_assets_folder("assets");
+            prpr::ui::set_multilingual_fallback(FontArc::try_from_vec(std::fs::read("assets/font.ttf").unwrap()).unwrap());
             let font = FontArc::try_from_vec(std::fs::read("assets/harmonyos.ttf").unwrap()).unwrap();
             let mut painter = TextPainter::new(font.clone(), None);
             PGR_FONT.with(|v| *v.borrow_mut() = Some(TextPainter::new(font.clone(), None)));
@@ -305,7 +306,8 @@ fn production_replay_transport_import_and_aspects() {
                 tape.meta.fingerprint.clone().unwrap()
             );
             assert!(crate::get_data().charts[0].record.is_none());
-            crate::page::replays::render_regression(&mut painter, &path);
+            let mut state = local(crate::page::SharedState::new(FontArc::try_from_vec(std::fs::read("assets/harmonyos.ttf").unwrap()).unwrap())).await.unwrap();
+            crate::page::replays::render_regression(&mut painter, &path, &mut state);
             // Content drift cannot silently bind to the same location.
             std::fs::OpenOptions::new()
                 .append(true)

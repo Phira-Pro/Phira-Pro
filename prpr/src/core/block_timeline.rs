@@ -61,6 +61,7 @@ mod tests {
     fn sweep_matches_visibility_at_boundaries_and_after_seeks() {
         let areas: Vec<_> = (0..1000)
             .map(|id| BlockArea {
+                rpe_canvas: false,
                 top_right: Vector::new(1., 1.),
                 bottom_left: Vector::zeros(),
                 appear_time: (id % 53) as f64 / 4. - 3.,

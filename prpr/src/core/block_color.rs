@@ -146,6 +146,8 @@ mod tests {
 
     fn zone(x: f32, color: [f32; 3], active: bool, invert: bool) -> Zone {
         Zone {
+            line2area: false,
+            y_scale: 1.,
             center: Vector::new(x, 0.),
             half: Vector::new(0.2, 0.2),
             angle: 0.,

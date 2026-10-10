@@ -110,11 +110,11 @@ pub(super) struct Masks {
     base_rgba: Vec<u8>,
     coverage_diff: [Vec<i32>; 8],
     blend_steps: HashMap<u32, Option<u8>>,
-    prepared_rows: HashMap<[u32; 5], Box<[(u16, u16, u16)]>>,
+    prepared_rows: HashMap<[u32; 6], Box<[(u16, u16, u16)]>>,
     prepared_dim: (usize, usize, f32),
     prepared_bytes: usize,
     source_bounds: Option<(usize, usize, usize, usize)>,
-    group_index: HashMap<[u32; 5], usize>,
+    group_index: HashMap<[u32; 6], usize>,
     groups: Vec<(Zone, [i32; 8])>,
 }
 
@@ -651,8 +651,9 @@ fn noise(uv: [f32; 2]) -> f32 {
     DISPLACE.get_pixel(noise_index(uv[0], DISPLACE.width()), noise_index(uv[1], DISPLACE.height()))[0] as f32 / 255.
 }
 
-fn geometry_key(zone: &Zone) -> [u32; 5] {
+fn geometry_key(zone: &Zone) -> [u32; 6] {
     [
+        zone.y_scale.to_bits(),
         zone.center.x.to_bits(),
         zone.center.y.to_bits(),
         zone.half.x.to_bits(),
@@ -684,13 +685,13 @@ pub(super) fn raster_rows(width: usize, height: usize, aspect: f32, zone: &Zone,
         return;
     }
     let (s, c) = zone.angle.sin_cos();
-    let y_half = s.abs() * zone.half.x + c.abs() * zone.half.y;
+    let y_half = (s.abs() * zone.half.x + c.abs() * zone.half.y) * zone.y_scale;
     let start = (((zone.center.y - y_half) * aspect + 1.) * height as f32 * 0.5 - 0.5)
         .ceil()
         .clamp(0., height as f32) as usize;
     let end = ((((zone.center.y + y_half) * aspect + 1.) * height as f32 * 0.5 - 0.5).floor() + 1.).clamp(0., height as f32) as usize;
     for y in start..end {
-        let dy = ((y as f32 + 0.5) * 2. / height as f32 - 1.) / aspect - zone.center.y;
+        let dy = (((y as f32 + 0.5) * 2. / height as f32 - 1.) / aspect - zone.center.y) / zone.y_scale;
         let (mut lo, mut hi) = (-1.0_f32, 1.0_f32);
         for (a, b, half) in [(c, s * dy, zone.half.x), (-s, c * dy, zone.half.y)] {
             if a.abs() < 1e-7 {
@@ -902,6 +903,7 @@ mod tests {
     #[test]
     fn prepared_geometry_is_exact_and_invalidates_on_resolution_change() {
         let area = super::super::BlockArea {
+            rpe_canvas: false,
             top_right: Vector::new(0.8, 0.7),
             bottom_left: Vector::new(0.2, 0.3),
             appear_time: 0.,
@@ -940,6 +942,8 @@ mod tests {
 
     fn zone(x: f32, y: f32, half_x: f32, half_y: f32, angle: f32, invert: bool) -> Zone {
         Zone {
+            line2area: false,
+            y_scale: 1.,
             color: super::super::DEFAULT_BLOCK_COLOR,
             center: Vector::new(x, y),
             half: Vector::new(half_x, half_y),

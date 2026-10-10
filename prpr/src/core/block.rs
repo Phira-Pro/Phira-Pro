@@ -52,6 +52,9 @@ pub enum BlockPhase {
 
 /// A block area plus its animated transform, resolved at a given time.
 pub struct BlockArea {
+    /// Line2Area rotates in the 1350x900 authoring canvas before viewport stretch.
+    /// Native BlockAreaList rotates in screen/world space instead.
+    pub rpe_canvas: bool,
     pub top_right: Vector,
     pub bottom_left: Vector,
     pub appear_time: f64,
@@ -66,10 +69,18 @@ pub struct BlockArea {
 
 #[derive(Debug, Clone, Copy)]
 pub struct BlockTransform {
+    pub y_scale: f32,
     pub center: Vector,
     pub size: Vector,
     /// Degrees, counter-clockwise.
     pub rotation: f32,
+}
+
+impl BlockTransform {
+    pub fn point(&self, local: Vector) -> Vector {
+        self.center + (Rotation2::new(self.rotation.to_radians()) * local.component_mul(&self.size))
+            .component_mul(&Vector::new(1., self.y_scale))
+    }
 }
 
 /// Progress of the official block easing enum (0..=14):
@@ -235,8 +246,9 @@ impl BlockArea {
         }
 
         BlockTransform {
+            y_scale: if self.rpe_canvas { 1.5 / aspect } else { 1. },
             center,
-            size: Vector::new((base_size.x * scale.x).abs(), (base_size.y * scale.y).abs()),
+            size: Vector::new((base_size.x * scale.x).abs(), (base_size.y * scale.y).abs() / if self.rpe_canvas { 1.5 / aspect } else { 1. }),
             rotation,
         }
     }
@@ -260,8 +272,9 @@ impl BlockArea {
         };
         let lp: Point = inv.transform_point(&Point::new(p.x, p.y));
         let sign = if self.is_subtract { 1. } else { -1. };
-        let hx = 0.5 + sign * inset_local(tr.size.x.abs(), inset_world);
-        let hy = 0.5 + sign * inset_local(tr.size.y.abs(), inset_world);
+        let (s, c) = tr.rotation.to_radians().sin_cos();
+        let hx = 0.5 + sign * inset_local(tr.size.x * c.hypot(s * tr.y_scale), inset_world);
+        let hy = 0.5 + sign * inset_local(tr.size.y * s.hypot(c * tr.y_scale), inset_world);
         lp.x.abs() <= hx && lp.y.abs() <= hy
     }
 }
@@ -279,6 +292,7 @@ fn rotate_center(center: Vector, anchor: Vector, delta: f32) -> Vector {
 
 fn matrix_of(tr: &BlockTransform) -> Matrix {
     Matrix::new_translation(&tr.center)
+        * Matrix::identity().append_nonuniform_scaling(&Vector::new(1., tr.y_scale))
         * Rotation2::new(tr.rotation.to_radians()).to_homogeneous()
         * Matrix::identity().append_nonuniform_scaling(&tr.size)
 }
@@ -362,6 +376,7 @@ mod tests {
         rotate_events: Vec<BlockRotateEvent>,
     ) -> BlockArea {
         BlockArea {
+            rpe_canvas: false,
             top_right: Vector::new(tr.0, tr.1),
             bottom_left: Vector::new(bl.0, bl.1),
             appear_time: 0.,
@@ -385,6 +400,7 @@ mod tests {
     fn matches_official_move_scale_rotate() {
         let aspect = 16.0f32 / 9.0;
         let b = BlockArea {
+            rpe_canvas: false,
             top_right: Vector::new(0.6, 0.7),
             bottom_left: Vector::new(0.4, 0.3),
             appear_time: 0.,

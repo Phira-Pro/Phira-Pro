@@ -130,6 +130,8 @@ fn compare(a: impl Iterator<Item = u8>, b: impl Iterator<Item = u8>, label: &str
 }
 fn zone(x: f32, y: f32, inv: bool, active: bool) -> Zone {
     Zone {
+        line2area: false,
+        y_scale: 1.,
         color: [1., 84. / 255., 84. / 255.],
         center: Vector::new(x, y),
         half: Vector::new(0.29, 0.15),
@@ -145,8 +147,11 @@ fn zone(x: f32, y: f32, inv: bool, active: bool) -> Zone {
 async fn main() {
     next_frame().await;
     let aspect = 16. / 9.;
-    let (bw, bh) = (120, 67);
-    let (ew, eh) = (bw * 2, bh * 2);
+    // Production refines Compose onto the effect grid (1/4 viewport). Run
+    // the exported shaders on that same grid; comparing a 1/8 source against
+    // a linear prefix of a 1/4 CPU buffer compares unrelated texels.
+    let (bw, bh) = (240, 134);
+    let (ew, eh) = (bw, bh);
     let additive = miniquad::BlendState::new(
         miniquad::Equation::Add,
         miniquad::BlendFactor::Value(miniquad::BlendValue::SourceAlpha),
@@ -265,7 +270,9 @@ async fn main() {
     let mut cases = vec![
         vec![zone(0.11, -0.09, false, true)],
         vec![zone(0., 0., true, true); 3],
-        vec![zone(-0.05, 0.1, false, true), zone(0.14, 0.03, true, false)],
+        // Avoid a rotated edge exactly on a sample centre; GL's triangle
+        // top-left tie rule is not a closed mathematical rectangle boundary.
+        vec![zone(-0.0501, 0.1001, false, true), zone(0.1401, 0.0301, true, false)],
     ];
     let mut partial = zone(0.05, 0.0, false, true);
     partial.opacity = 0.23;
@@ -285,8 +292,8 @@ async fn main() {
                 for z in zones.iter().filter(|z| usize::from(!z.active) * 2 + usize::from(z.invert) == li) {
                     let (s, c) = z.angle.sin_cos();
                     let m = Mat4::from_cols(
-                        vec4(c, s * aspect, 0., 0.),
-                        vec4(-s, c * aspect, 0., 0.),
+                        vec4(c, s * aspect * z.y_scale, 0., 0.),
+                        vec4(-s, c * aspect * z.y_scale, 0., 0.),
                         vec4(0., 0., 1., 0.),
                         vec4(z.center.x, z.center.y * aspect, 0., 1.),
                     );
@@ -362,7 +369,7 @@ async fn main() {
             dcompose.set_texture("_DisabledNormalBlockRT", layers[2].texture);
             dcompose.set_texture("_DisabledSubtractBlockRT", dsub.texture);
             blit(dc, dcompose);
-            let reference: Vec<_> = (0..bh).flat_map(|y| (0..bw).map(move |x| (y * 2 * ew + x * 2) * 4)).collect();
+            let reference: Vec<_> = (0..bh).flat_map(|y| (0..bw).map(move |x| (y * ew + x) * 4)).collect();
             compare(bytes(cm).into_iter().step_by(4), reference.iter().map(|&i| cpu.rgba[i]), &format!("case {ci} compose {time}s"));
             compare(bytes(dc).into_iter().step_by(4), reference.iter().map(|&i| cpu.rgba[i + 3]), &format!("case {ci} disabled compose"));
             let er = target(ew, eh);

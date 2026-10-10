@@ -223,16 +223,14 @@ impl Marker {
 
     /// RPE move events position the image's anchor, not its centre. Preserve
     /// signed scale for the anchor offset (mirrored images swap their edges),
-    /// then rotate in chart space, after the RPE Y/aspect conversion.
+    /// then rotate in the RPE canvas, before the viewport Y/aspect conversion.
     pub fn transform(&self, position: Vector, scale: Vector, pixels: Vector, rotation: f32, aspect: f32) -> BlockTransform {
-        // The parser scales both texture axes by 2/1350. Recorder marker
-        // dimensions instead use the full 1350x900 RPE canvas. Convert height
-        // to the current chart viewport before applying rotation/anchor offsets.
-        let mut signed_size = pixels.component_mul(&scale);
-        signed_size.y *= (1350. / 900.) / aspect;
+        let signed_size = pixels.component_mul(&scale);
+        let y_scale = (1350. / 900.) / aspect;
         let local_center = (Vector::new(0.5, 0.5) - self.anchor).component_mul(&signed_size);
         BlockTransform {
-            center: position + Rotation2::new(rotation.to_radians()) * local_center,
+            y_scale,
+            center: position + (Rotation2::new(rotation.to_radians()) * local_center).component_mul(&Vector::new(1., y_scale)),
             size: signed_size.map(f32::abs),
             rotation,
         }
@@ -255,15 +253,47 @@ mod tests {
     use crate::core::{BlockArea, Keyframe, Vector, Zone};
 
     #[test]
+    fn rotated_line2area_tiles_meet_and_canvas_gaps_survive_every_aspect() {
+        let marker = Marker::new(0, false, &AnimFloat::fixed(1.));
+        for aspect in [3. / 4., 4. / 3., 1.5, 16. / 9., 20. / 9.] {
+            for rotation in [0_f32, 30., 45., 90., 120.] {
+                let rot = Rotation2::new(rotation.to_radians());
+                let size = Vector::new(300., 150.);
+                let first = marker.transform(Vector::zeros(), size / 900. * (2. / 1350.), Vector::repeat(900.), rotation, aspect);
+                for gap in [0., 25.] {
+                    let delta = (rot * Vector::new(0., size.y + gap)).component_mul(&Vector::new(2. / 1350., 2. / 900. / aspect));
+                    let second = marker.transform(delta, size / 900. * (2. / 1350.), Vector::repeat(900.), rotation, aspect);
+                    let actual = second.point(Vector::new(0., -0.5)) - first.point(Vector::new(0., 0.5));
+                    let expected = (rot * Vector::new(0., gap)).component_mul(&Vector::new(2. / 1350., 2. / 900. / aspect));
+                    assert!((actual - expected).norm() < 1e-6, "rotation={rotation}, aspect={aspect}, gap={gap}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn line2area_preview_is_immediate_ready_then_active_then_dim() {
+        let mut marker = Marker::new(0, false, &AnimFloat::fixed(0.));
+        marker.set_lifecycle(&[(1., 1.), (3., 2.), (5., 3.), (7., 4.)]);
+        for (time, active, ready) in [(1., false, false), (2.49, false, false), (2.5, false, true), (2.99, false, true), (3., true, false), (5., false, false)] {
+            let mut area = area(&marker, time).unwrap();
+            area.rpe_canvas = true;
+            let zone = Zone::from_area(&area, time, 16. / 9.).unwrap();
+            assert_eq!((zone.active, zone.ready, zone.opacity), (active, ready, 1.));
+        }
+        assert!(area(&marker, 7.).is_none());
+    }
+
+    #[test]
     fn recorder_full_screen_rectangle_covers_every_viewport_and_blocks_its_corners() {
         let marker = Marker::new(0, false, &AnimFloat::fixed(1.));
         for aspect in [3. / 4., 1., 4. / 3., 3. / 2., 16. / 9., 20. / 9.] {
             let tr = marker.transform(Vector::zeros(), Vector::new(1.5, 1.) * (2. / 1350.), Vector::repeat(900.), 0., aspect);
             assert!((tr.size.x - 2.).abs() < 1e-6);
-            assert!((tr.size.y * aspect - 2.).abs() < 1e-6, "1350x900 must fill the RPE viewport at aspect {aspect}");
+            assert!((tr.size.y * tr.y_scale * aspect - 2.).abs() < 1e-6, "1350x900 must fill the RPE viewport at aspect {aspect}");
             let mut rect = area(&marker, 1.).unwrap();
             rect.bottom_left = Vector::zeros();
-            rect.top_right = Vector::new(tr.size.x / 2., tr.size.y * aspect / 2.);
+            rect.top_right = Vector::new(tr.size.x / 2., tr.size.y * tr.y_scale * aspect / 2.);
             // Input intentionally leaves a native safety inset at the rim.
             for x in [-0.8, 0.8] {
                 for y in [-0.8 / aspect, 0.8 / aspect] {
@@ -307,6 +337,7 @@ mod tests {
     fn area(marker: &Marker, time: f64) -> Option<BlockArea> {
         let [appear_time, enable_time, disable_time, disappear_time] = marker.timings(time)?;
         Some(BlockArea {
+            rpe_canvas: false,
             top_right: Vector::new(0.75, 0.75),
             bottom_left: Vector::new(0.25, 0.25),
             appear_time,
@@ -353,10 +384,10 @@ mod tests {
         marker.anchor.y = 0.;
         let upper = marker.transform(Vector::new(0., -175. * 2. / 900. / aspect), scale, pixels, 0., aspect);
         let flick_y = -300. * 2. / 900. / aspect;
-        assert!(lower.center.y + lower.size.y / 2. < flick_y);
-        assert!(upper.center.y - upper.size.y / 2. > flick_y);
-        assert!((lower.center.y + lower.size.y / 2. + 0.53125).abs() < 1e-6);
-        assert!((upper.center.y - upper.size.y / 2. + 0.21875).abs() < 1e-6);
+        assert!(lower.center.y + lower.size.y * lower.y_scale / 2. < flick_y);
+        assert!(upper.center.y - upper.size.y * upper.y_scale / 2. > flick_y);
+        assert!((lower.center.y + lower.size.y * lower.y_scale / 2. + 0.53125).abs() < 1e-6);
+        assert!((upper.center.y - upper.size.y * upper.y_scale / 2. + 0.21875).abs() < 1e-6);
     }
 
     #[test]
@@ -366,7 +397,7 @@ mod tests {
         for aspect in [4. / 3., 16. / 9., 20. / 9.] {
             let position = Vector::new(-630. * 2. / 1350., -225. * 2. / 900. / aspect);
             let tr = marker.transform(position, Vector::new(0.22222222, 1.) * (2. / 1350.), Vector::new(900., 900.), 2.5, aspect);
-            let edge = tr.center + Rotation2::new(tr.rotation.to_radians()) * Vector::new(0., tr.size.y / 2.);
+            let edge = tr.point(Vector::new(0., 0.5));
             assert!((edge - position).norm() < 1e-6, "top anchor must remain at move-event position");
             assert!((edge.y * aspect * 0.5 + 0.5 - 0.25).abs() < 1e-6);
         }
@@ -398,12 +429,12 @@ mod tests {
             marker.anchor = anchor;
             let tip = Vector::new(x * 2. / 1350., 0.);
             let tr = marker.transform(tip, scale, size, -45., 16. / 9.);
-            let corner = tr.center + Rotation2::new(-45_f32.to_radians()) * (anchor - Vector::repeat(0.5)).component_mul(&tr.size);
+            let corner = tr.point(anchor - Vector::repeat(0.5));
             assert!((corner - tip).norm() < 1e-6);
-            // At 16:9 the 300x300 RPE rectangle is 0.444444 x 0.375 chart
-            // units. Its rotated corner offset preserves the intended opening.
-            assert!(((tr.center.x - tip.x).abs() - 0.2897167).abs() < 1e-6);
-            assert!((tr.center.y.abs() - 0.02455232).abs() < 1e-6);
+            // Rotate the authored square first; its inner tip stays on the
+            // canvas horizontal axis at every viewport aspect.
+            assert!(((tr.center.x - tip.x).abs() - 0.31426968).abs() < 1e-6);
+            assert!(tr.center.y.abs() < 1e-6);
         }
     }
 

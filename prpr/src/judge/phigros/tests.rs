@@ -123,6 +123,23 @@ fn sparse_late_bad_and_dense_range() {
 }
 
 #[test]
+fn multiple_protectors_and_same_frame_clicks_follow_the_article_sequence() {
+    for kind in [Kind::Drag, Kind::Flick] {
+        for (head, protected) in [(0.010, false), (0.015, true)] {
+            let mut e = Engine::new(vec![spec(2, head, Kind::Tap), spec(1, 0.005, kind), spec(0, 0., Kind::Flick)]);
+            step(&mut e, &config(), -0.1, &[finger(true, 0.)]);
+            assert_eq!(e.controls[2].click, !protected);
+            assert_eq!(e.controls[1].click, protected && kind == Kind::Drag);
+        }
+        let mut e = Engine::new(vec![spec(0, 0., kind), spec(1, 0.05, Kind::Tap)]);
+        let mut second = finger(true, 0.); second.id = 18;
+        step(&mut e, &config(), -0.15, &[finger(true, 0.), second]);
+        assert_eq!(e.controls[1].click, kind == Kind::Drag);
+        assert!(!e.controls[0].special, "two clicks outside Drag's held window cannot arm it");
+    }
+}
+
+#[test]
 fn chronological_protection_gap_and_independent_drag_marks() {
     for kind in [Kind::Drag, Kind::Flick] {
         let mut e = Engine::new(vec![spec(1, 0.05, Kind::Tap), spec(0, 0., kind)]);

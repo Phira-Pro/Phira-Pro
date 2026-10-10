@@ -92,7 +92,7 @@ Rust 工具链镜像不替代 Cargo 的 crate 和 Git 依赖下载。使用代�
 **Build Release Assets**（`.github/workflows/release.yml`）监听 `release.published`，正式版和预发布版均触发；创建草稿或日常 push 不触发构建。工作流不代替维护者创建或发布 Release，也不修改 Release 正文。
 
 1. 修改 `version.json` 中的 Pro 版本并提升 `build_number`，执行 `python scripts/version.py sync` 和 `python scripts/version.py check`，提交版本文件与同步结果。
-2. 将包含发版工作流和版本更新的提交推送到 GitHub，再为该提交创建 Tag，例如 `v0.8.2-pro.12`。Tag 必须与该提交的 `pro_version` 一致；也接受不带 `v` 的 `0.8.2-pro.12`。
+2. 将包含发版工作流和版本更新的提交推送到 GitHub，再为该提交创建 Tag，例如 `v0.8.2-pro.13`。Tag 必须与该提交的 `pro_version` 一致；也接受不带 `v` 的 `0.8.2-pro.13`。
 3. 在 Releases 页面选择这个 Tag，填写更新说明并发布 Release；标记为预发布版也会构建。
 4. 工作流检查版本、Release 状态和 Tag 提交，随后并行调用桌面、Android 和 iOS 工作流。各平台固定构建同一个提交 SHA。全部成功后才开始向该 Release 上传完整附件集。
 
@@ -100,12 +100,13 @@ Rust 工具链镜像不替代 Cargo 的 crate 和 Git 依赖下载。使用代�
 
 | 平台 | 附件 |
 |---|---|
-| Windows x64 | `PhiraPro-v0.8.2-pro.12-win64.zip` |
-| Linux x86_64 | `PhiraPro-v0.8.2-pro.12-linux-x86_64.zip` |
-| macOS arm64 | `PhiraPro-v0.8.2-pro.12-macos-aarch64.zip` |
-| Android arm64-v8a | `PhiraPro-v0.8.2-pro.12-android-arm64-v8a.apk`，使用现有密钥签名 |
-| iOS arm64 | `PhiraPro-v0.8.2-pro.12-ios-arm64-unsigned.ipa`，安装前自行签名 |
-| 校验清单 | `SHA256SUMS`，包含上述五个文件的 SHA-256 |
+| Windows x64 | `PhiraPro-v0.8.2-pro.13-win64.zip` |
+| Linux x86_64 | `PhiraPro-v0.8.2-pro.13-linux-x86_64.zip` |
+| macOS arm64 | `PhiraPro-v0.8.2-pro.13-macos-aarch64.zip` |
+| Android arm64-v8a | `PhiraPro-v0.8.2-pro.13-android-arm64-v8a.apk`，使用现有密钥签名 |
+| iOS arm64 | `PhiraPro-v0.8.2-pro.13-ios-arm64-unsigned.ipa`，安装前自行签名 |
+
+Release 只附上述五个包；文件大小与 SHA-256 用于上传完整性及重试校验，不额外上传校验清单。
 
 发布前需允许 GitHub 官方 Actions 和标准托管 runner，四项 Android 签名 Secrets 对本仓库可用。仓库默认 `GITHUB_TOKEN` 权限可以保持只读，只有最终上传 job 声明 `contents: write`，无需额外 PAT。仓库的 **Settings → General → Releases → Enable release immutability** 必须关闭；已发布的不可变 Release 会在构建前被拒绝，因为它无法追加附件。详见 [Release 触发规则](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release) 和 [不可变 Release 设置](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/establish-provenance-and-integrity/prevent-release-changes)。
 

@@ -67,3 +67,5 @@ practice-debug-performance = 幀率設定
 practice-debug-input = 觸點視覺化
 
 practice-title = 練習
+
+practice-settings = 練習設定

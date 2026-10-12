@@ -69,3 +69,5 @@ practice-debug-performance = 帧率设置
 practice-debug-input = 触点可视化
 
 practice-title = 练习
+
+practice-settings = 练习设置

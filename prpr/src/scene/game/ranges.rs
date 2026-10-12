@@ -1,5 +1,12 @@
 use super::*;
 
+pub(super) fn visible_frame(res: &Resource, ui: &mut Ui) {
+    let rect = res.config.practice.view.visible_frame(res.aspect_ratio);
+    // Constant screen-space strokes remain legible when the chart is tiny.
+    ui.stroke_path(&rect.rounded(0.), 0.007, Color::new(0., 0., 0., 0.8));
+    ui.stroke_path(&rect.rounded(0.), 0.003, Color::new(1., 0.88, 0.3, 0.95));
+}
+
 /// A diagram of timing and horizontal gates at each note's judgement line.
 /// It samples the actual scroll animation, not a constant-speed approximation.
 pub(super) fn draw(res: &Resource, chart: &Chart, ui: &mut Ui) {

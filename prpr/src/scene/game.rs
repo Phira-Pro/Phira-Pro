@@ -606,6 +606,7 @@ pub struct GameScene {
     entered: bool,
     rendered_first_frame: bool,
     exercise_range: Range<f64>,
+    practice_base: practice::base::Base,
     practice_panel: PracticePanel,
     practice_key: String,
     practice_bookmarks: Vec<Bookmark>,
@@ -952,6 +953,7 @@ impl GameScene {
             entered: false,
             rendered_first_frame: false,
             exercise_range,
+            practice_base: Default::default(),
             practice_panel: PracticePanel::default(),
             practice_key,
             practice_bookmarks,
@@ -1223,6 +1225,9 @@ impl GameScene {
             if res.config.practice_active && res.config.practice.ranges {
                 practice_ranges::draw(res, &self.chart, ui);
             }
+            if res.config.practice_active && res.config.practice.view.scale < 1. {
+                practice_ranges::visible_frame(res, ui);
+            }
             // magic to make score visible, refer to phira/src/rate.rs#L219
             ui.text("").draw_using(&PGR_FONT);
             let lf = -1. + margin;
@@ -1277,7 +1282,7 @@ impl GameScene {
         if tm.paused() {
             let h = 1. / res.aspect_ratio;
             draw_rectangle(-1., -h, 2., h * 2., Color::new(0., 0., 0., 0.6 * fade));
-            let o = if self.mode == GameMode::Exercise { -h + 0.105 } else { 0. };
+            let o = if self.mode == GameMode::Exercise { -0.3 } else { 0. };
             let s = 0.06;
             let w = 0.05;
             let no_retry = self.mode == GameMode::NoRetry;
@@ -1304,7 +1309,7 @@ impl GameScene {
                     ..Default::default()
                 },
             );
-            if res.config.interactive {
+            if res.config.interactive && !(self.mode == GameMode::Exercise && self.practice_panel.modal(tm.real_time() as f32)) {
                 let mut clicked = None;
                 for touch in Judge::get_touches() {
                     if touch.phase != TouchPhase::Started {
@@ -1391,10 +1396,13 @@ impl GameScene {
             if self.mode == GameMode::Exercise {
                 let old_top = ui.top;
                 ui.top = 1. / self.res.aspect_ratio;
-                self.practice_panel.render(
+                let interactive = !self.practice_panel.modal(tm.real_time() as f32);
+                let scale = self.touch_scale();
+                for touch in ui.ensure_touches() {
+                    touch.position *= scale;
+                }
+                let action = self.practice_base.render(
                     ui,
-                    tm.real_time() as f32,
-                    &self.res.config,
                     self.practice_target_speed,
                     self.exercise_range.start,
                     self.exercise_range.end,
@@ -1403,9 +1411,17 @@ impl GameScene {
                     self.res.track_length,
                     self.practice_combo.unwrap_or((1, self.practice_notes.len())),
                     self.practice_auto,
-                    &self.practice_bookmarks,
-                    &self.practice_statistics,
+                    self.last_practice_accuracy.map(|acc| (self.practice_loops, acc)),
+                    interactive,
                 );
+                for touch in ui.ensure_touches() {
+                    touch.position /= scale;
+                }
+                if let Some(action) = action {
+                    self.practice_action(tm, action)?;
+                }
+                self.practice_panel
+                    .render(ui, tm.real_time() as f32, &self.res.config, &self.practice_bookmarks, &self.practice_statistics);
                 ui.top = old_top;
             }
         }
@@ -1542,6 +1558,8 @@ impl Scene for GameScene {
 
     fn pause(&mut self, tm: &mut TimeManager) -> Result<()> {
         if !tm.paused() {
+            self.practice_panel.hide();
+            self.practice_base.cancel();
             self.pause_rewind = None;
             self.music.pause()?;
             tm.pause();
@@ -1991,7 +2009,11 @@ impl Scene for GameScene {
                 position: touch.position * self.touch_scale(),
                 ..touch.clone()
             };
-            if let Some(action) = self.practice_panel.touch(&touch, tm.real_time() as f32) {
+            let (consumed, action) = self.practice_panel.touch(&touch, tm.real_time() as f32);
+            if consumed {
+                self.practice_base.cancel();
+            }
+            if let Some(action) = action.or_else(|| if consumed { None } else { self.practice_base.touch(&touch) }) {
                 self.practice_action(tm, action)?;
             }
             return Ok(true);

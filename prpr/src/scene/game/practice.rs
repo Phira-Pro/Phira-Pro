@@ -307,7 +307,10 @@ impl GameScene {
 
     #[cfg(record)]
     pub fn practice_control_point(&self, key: &str) -> Option<Vec2> {
-        self.practice_panel.control_point(key).map(|p| p / self.touch_scale())
+        self.practice_panel
+            .control_point(key)
+            .or_else(|| self.practice_base.control_point(key))
+            .map(|p| p / self.touch_scale())
     }
     #[cfg(record)]
     pub fn practice_scroll_to(&mut self, offset: f32) {

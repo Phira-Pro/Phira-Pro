@@ -128,7 +128,9 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
     ))
     .await
     .unwrap();
-    let mut tm = TimeManager::manual(Box::new(|| 10.));
+    let real_clock = std::rc::Rc::new(std::cell::Cell::new(10.));
+    let clock = real_clock.clone();
+    let mut tm = TimeManager::manual(Box::new(move || clock.get()));
     game.enter(&mut tm, None).unwrap();
     tm.seek_to(GameScene::BEFORE_TIME + 0.1);
     game.update(&mut tm).unwrap();
@@ -171,6 +173,27 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
     let mut ui = Ui::new(painter, Some((0, 0, w, h)));
     game.render(&mut tm, &mut ui).unwrap();
     drop(ui);
+    let start_marker = game.practice_control_point("marker:-1").unwrap();
+    for (phase, position) in [
+        (TouchPhase::Started, start_marker),
+        (TouchPhase::Moved, start_marker + vec2(0.03, 0.)),
+        (TouchPhase::Ended, start_marker + vec2(0.03, 0.)),
+    ] {
+        Scene::touch(
+            &mut game,
+            &mut tm,
+            &Touch {
+                id: 776,
+                phase,
+                position,
+                time: 0.,
+            },
+        )
+        .unwrap();
+    }
+    assert!(tm.now() > 1.75, "the original blue marker must adjust the range");
+    prpr::scene::return_input("exercise_combo".into(), "2-2".into());
+    game.update(&mut tm).unwrap();
     let loop_point = game.practice_control_point("practice_loop").unwrap();
     for phase in [TouchPhase::Started, TouchPhase::Ended] {
         let activated = Scene::touch(
@@ -246,6 +269,22 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
     let mut scroll = 0.;
     input(&mut game, &mut tm, "practice_speed", "1.25");
     assert_eq!(game.practice_round_count(), 0, "changing conditions starts a new statistics group");
+    render(&mut game, &mut tm, painter);
+    let drawer = game.practice_control_point("drawer").unwrap();
+    for phase in [TouchPhase::Started, TouchPhase::Ended] {
+        Scene::touch(
+            &mut game,
+            &mut tm,
+            &Touch {
+                id: 780,
+                phase,
+                position: drawer,
+                time: 0.,
+            },
+        )
+        .unwrap();
+    }
+    real_clock.set(10.6);
     click(&mut game, &mut tm, painter, "audio", &mut scroll);
     click(&mut game, &mut tm, painter, "practice_pitch", &mut scroll);
     click(&mut game, &mut tm, painter, "practice_correct", &mut scroll);
@@ -346,6 +385,67 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
         }
         .export_png(&format!("target/replay-qa/practice-advanced-{ratio}.png"));
     }
+    // Collapse the drawer through its real edge button, then verify the normal
+    // chart bounds while the reveal camera is zoomed out and panned.
+    render(&mut game, &mut tm, painter);
+    let drawer = game.practice_control_point("drawer").unwrap();
+    for phase in [TouchPhase::Started, TouchPhase::Ended] {
+        Scene::touch(
+            &mut game,
+            &mut tm,
+            &Touch {
+                id: 781,
+                phase,
+                position: drawer,
+                time: 0.,
+            },
+        )
+        .unwrap();
+    }
+    real_clock.set(11.2);
+    tm.resume();
+    for (w, h, ratio) in [(960, 720, "4x3"), (1280, 720, "16x9"), (1280, 548, "21x9")] {
+        let mut ui = Ui::new(painter, Some((0, 0, w, h)));
+        game.render(&mut tm, &mut ui).unwrap();
+        unsafe { get_internal_gl() }.flush();
+        let mut bytes = vec![0; (w * h * 4) as usize];
+        unsafe {
+            use miniquad::gl::*;
+            glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
+        }
+        let frame = game.res.config.practice.view.visible_frame(game.res.aspect_ratio);
+        let (vx, vy, vw, vh) = game.res.camera.viewport.unwrap();
+        let x = (vx as f32 + (frame.center().x + 1.) * vw as f32 / 2.).round() as i32;
+        let y = (vy as f32 + vh as f32 / 2. - frame.y * vw as f32 / 2.).round() as i32;
+        let highlighted = (-3..=3).any(|dy| {
+            let i = (((y + dy).clamp(0, h - 1) * w + x.clamp(0, w - 1)) * 4) as usize;
+            bytes[i] > 150 && bytes[i + 1] > 120 && bytes[i + 2] < 120
+        });
+        assert!(highlighted, "normal visible area must have a highlighted frame at {ratio}");
+        Image {
+            width: w as u16,
+            height: h as u16,
+            bytes,
+        }
+        .export_png(&format!("target/replay-qa/practice-frame-{ratio}.png"));
+    }
+    game.pause(&mut tm).unwrap();
+    render(&mut game, &mut tm, painter);
+    let drawer = game.practice_control_point("drawer").unwrap();
+    for phase in [TouchPhase::Started, TouchPhase::Ended] {
+        Scene::touch(
+            &mut game,
+            &mut tm,
+            &Touch {
+                id: 782,
+                phase,
+                position: drawer,
+                time: 0.,
+            },
+        )
+        .unwrap();
+    }
+    real_clock.set(11.8);
     game.practice_scroll_to(scroll);
     click(&mut game, &mut tm, painter, "delete:0", &mut scroll);
     let library: serde_json::Value =

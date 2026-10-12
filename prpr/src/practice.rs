@@ -1,6 +1,7 @@
 //! Practice-only state. None of these controls changes a saved judgement preset
 //! or the chart on disk.
 pub mod audio;
+pub mod base;
 pub mod panel;
 pub fn format_time(time: f64) -> String {
     let t = time.abs();
@@ -40,6 +41,11 @@ impl View {
     }
     pub fn active(self) -> bool {
         self != Self::default()
+    }
+    pub fn visible_frame(self, aspect: f32) -> macroquad::prelude::Rect {
+        use macroquad::prelude::*;
+        let a = self.chart_to_screen(vec2(-1., -1. / aspect));
+        Rect::new(a.x, a.y, 2. * self.scale, 2. * self.scale / aspect)
     }
 }
 
@@ -268,6 +274,24 @@ pub fn combo_range(notes: &[(f64, f64)], first: usize, last: usize, offset: f64,
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn normal_view_frame_tracks_reveal_zoom_pan_and_aspect() {
+        use macroquad::prelude::*;
+        for aspect in [4. / 3., 16. / 9., 21. / 9.] {
+            for scale in [0.1, 0.5, 0.99] {
+                let view = View { scale, x: 0.3, y: -0.15 };
+                let r = view.visible_frame(aspect);
+                assert!((r.w - 2. * scale).abs() < 1e-6);
+                assert!((r.h - 2. * scale / aspect).abs() < 1e-6);
+                for (point, expected) in [
+                    (vec2(r.x, r.y), vec2(-1., -1. / aspect)),
+                    (vec2(r.right(), r.bottom()), vec2(1., 1. / aspect)),
+                ] {
+                    assert!((view.screen_to_chart(point) - expected).length() < 1e-5);
+                }
+            }
+        }
+    }
     #[test]
     fn view_roundtrips_across_zoom_pan_and_aspect() {
         use macroquad::prelude::*;

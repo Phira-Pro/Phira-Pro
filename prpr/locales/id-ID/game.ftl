@@ -67,3 +67,5 @@ practice-debug-performance = Frame rate
 practice-debug-input = Touch visualization
 
 practice-title = Practice
+
+practice-settings = Practice settings

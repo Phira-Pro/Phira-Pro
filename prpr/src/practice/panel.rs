@@ -4,8 +4,9 @@ use super::{Bookmark, NoteBehavior, Statistics};
 use crate::{
     config::Config,
     ext::RectExt,
-    ui::{DRectButton, Scroll, Ui},
+    ui::{DRectButton, RectButton, Scroll, Ui},
 };
+use lyon::{math::point, path::Path};
 use macroquad::prelude::*;
 fn fmt_time(t: f32) -> String {
     super::format_time(t as f64)
@@ -54,7 +55,7 @@ pub struct Panel {
     drawer_open: bool,
     slide_from: f32,
     slide_started: f32,
-    toggle: DRectButton,
+    toggle: RectButton,
     toggle_rect: Rect,
     outside_id: Option<u64>,
 }
@@ -69,7 +70,7 @@ impl Default for Panel {
             drawer_open: false,
             slide_from: 0.,
             slide_started: f32::NEG_INFINITY,
-            toggle: DRectButton::new(),
+            toggle: RectButton::default(),
             toggle_rect: Rect::default(),
             outside_id: None,
         }
@@ -192,7 +193,7 @@ impl Panel {
         self.outside_id = None;
         self.scroll.x_scroller.halt();
         self.scroll.y_scroller.halt();
-        self.toggle.cancel(0.);
+        self.toggle.cancel();
     }
     pub fn touch(&mut self, touch: &Touch, t: f32) -> (bool, Option<Action>) {
         if self.outside_id == Some(touch.id) {
@@ -202,7 +203,7 @@ impl Panel {
             return (true, None);
         }
         let on_toggle = self.toggle_rect.contains(touch.position);
-        if self.toggle.touch(touch, t) {
+        if self.toggle.touch(touch) {
             self.set_open(!self.drawer_open, t);
             return (true, None);
         }
@@ -262,7 +263,7 @@ impl Panel {
     pub fn control_point(&self, key: &str) -> Option<Vec2> {
         self.points.get(key).copied()
     }
-    pub fn render(&mut self, ui: &mut Ui, t: f32, config: &Config, bookmarks: &[Bookmark], stats: &Statistics) {
+    pub fn render(&mut self, ui: &mut Ui, t: f32, config: &Config, combo: (usize, usize), bookmarks: &[Bookmark], stats: &Statistics) {
         self.actions.clear();
         self.points.clear();
         for button in self.buttons.values_mut() {
@@ -287,6 +288,28 @@ impl Panel {
                     scroll.render(ui, |ui| {
                         let mut y = 0.015;
                         let p = &config.practice;
+                        ui.text(tl!("practice-combo-range")).pos(0.02, y).size(0.46).draw();
+                        y += 0.075;
+                        self.button(
+                            ui,
+                            t,
+                            "exercise_combo_start",
+                            combo.0.to_string(),
+                            Rect::new(0., y, 0.72, 0.084),
+                            false,
+                            Action::Input("exercise_combo_start".into(), combo.0.to_string()),
+                        );
+                        ui.text(tl!("to")).pos(0.82, y + 0.042).anchor(0.5, 0.5).size(0.4).draw();
+                        self.button(
+                            ui,
+                            t,
+                            "exercise_combo_end",
+                            combo.1.to_string(),
+                            Rect::new(0.92, y, 0.72, 0.084),
+                            false,
+                            Action::Input("exercise_combo_end".into(), combo.1.to_string()),
+                        );
+                        y += 0.105;
                         if self.section(ui, t, "audio", tl!("practice-audio"), &mut y) {
                             self.switch(ui, t, "practice_pitch", tl!("practice-pitch"), p.preserve_pitch, &mut y);
                             self.switch(ui, t, "practice_correct", tl!("practice-correct"), p.correct_sound, &mut y);
@@ -523,10 +546,21 @@ impl Panel {
             });
             self.scroll = scroll;
         }
-        let x = -0.985 + Self::WIDTH * progress;
-        self.toggle_rect = Rect::new(x, -0.06, 0.10, 0.12);
-        self.toggle
-            .render_text(ui, self.toggle_rect, t, if self.drawer_open { "‹" } else { "›" }, 0.65, false);
-        self.points.insert("drawer".into(), self.toggle_rect.center());
+        // Same opaque fill and overlapping flat edge join the tab to the body
+        // throughout the slide. Only the two outer corners remain rounded.
+        let x = -1.02 + Self::WIDTH * progress;
+        self.toggle_rect = Rect::new(x, -0.16, 0.14, 0.32);
+        self.toggle.set(ui, self.toggle_rect);
+        ui.fill_path(&self.toggle_rect.rounded(0.065), ui.background());
+        ui.fill_rect(Rect::new(x - 0.005, -0.16, 0.07, 0.32), ui.background());
+        let center = self.toggle_rect.center();
+        let direction = if self.drawer_open { -1. } else { 1. };
+        let mut arrow = Path::builder();
+        arrow.begin(point(center.x - 0.025 * direction, -0.065));
+        arrow.line_to(point(center.x + 0.025 * direction, 0.));
+        arrow.line_to(point(center.x - 0.025 * direction, 0.065));
+        arrow.end(false);
+        ui.stroke_path(&arrow.build(), 0.017, Color::new(1., 1., 1., if self.toggle.touching() { 0.6 } else { 1. }));
+        self.points.insert("drawer".into(), ui.rect_to_global(self.toggle_rect).center());
     }
 }

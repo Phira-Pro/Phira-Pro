@@ -1409,7 +1409,6 @@ impl GameScene {
                     tm.now(),
                     self.offset().min(0.) as f64,
                     self.res.track_length,
-                    self.practice_combo.unwrap_or((1, self.practice_notes.len())),
                     self.practice_auto,
                     self.last_practice_accuracy.map(|acc| (self.practice_loops, acc)),
                     interactive,
@@ -1420,8 +1419,14 @@ impl GameScene {
                 if let Some(action) = action {
                     self.practice_action(tm, action)?;
                 }
-                self.practice_panel
-                    .render(ui, tm.real_time() as f32, &self.res.config, &self.practice_bookmarks, &self.practice_statistics);
+                self.practice_panel.render(
+                    ui,
+                    tm.real_time() as f32,
+                    &self.res.config,
+                    self.practice_combo.unwrap_or((1, self.practice_notes.len())),
+                    &self.practice_bookmarks,
+                    &self.practice_statistics,
+                );
                 ui.top = old_top;
             }
         }

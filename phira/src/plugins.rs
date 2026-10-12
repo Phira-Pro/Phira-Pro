@@ -12,6 +12,10 @@ use std::{
 };
 
 const MAX_PACKAGE: u64 = 2 << 20;
+/// Public interface name; the numeric manifest field is its compatibility version.
+pub const API_NAME: &str = "Phira Pro Plugin API";
+pub const API_VERSION: u32 = 1;
+pub const API_LABEL: &str = "Phira Pro Plugin API v1";
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Manifest {
     pub api: u32,
@@ -92,7 +96,7 @@ fn write_index_at(path: &Path, plugins: &[Installed]) -> Result<()> {
     crate::transfer::write_atomic(&path, &bytes)
 }
 fn verify(m: &Manifest, script: &str) -> Result<()> {
-    anyhow::ensure!(m.api == 1, "不支持此插件 API：{}", m.api);
+    anyhow::ensure!(m.api == API_VERSION, "不支持 {} v{}；当前支持 {}", API_NAME, m.api, API_LABEL);
     anyhow::ensure!(!m.id.is_empty() && m.id.len() <= 80 && m.id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)), "插件 ID 无效");
     anyhow::ensure!(!m.name.trim().is_empty() && m.name.len() <= 160 && m.version.len() <= 80 && m.description.len() <= 2048, "插件名称或描述无效");
     anyhow::ensure!(m.settings.is_object() && serde_json::to_vec(&m.settings)?.len() <= 16 << 10, "插件 settings 必须是小于 16KiB 的 JSON 对象");
@@ -228,7 +232,7 @@ fn chart_loaded(chart: &prpr::core::Chart, info: &prpr::info::ChartInfo, config:
         }}
         notes.sort_by(|a,b| a["time"].as_f64().unwrap().total_cmp(&b["time"].as_f64().unwrap()));
         let raw: Value = if raw.len() <= 4 << 20 { serde_json::from_slice(raw).unwrap_or(Value::Null) } else { Value::Null };
-        let ctx = json!({"api":1,"name":info.name,"level":info.level,"difficulty":info.difficulty,"note_count":count,"truncated":count>notes.len(),"notes":notes,"raw":raw,"speed":config.speed,"flow_speed":config.flow_speed});
+        let ctx = json!({"api":API_VERSION,"name":info.name,"level":info.level,"difficulty":info.difficulty,"note_count":count,"truncated":count>notes.len(),"notes":notes,"raw":raw,"speed":config.speed,"flow_speed":config.flow_speed});
         for r in runtime.iter_mut() { if let Some(v) = invoke(r,"on_chart", &ctx,"chart.read") { r.report=v; } }
     });
 }

@@ -285,6 +285,19 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
         .unwrap();
     }
     real_clock.set(10.6);
+    // Check both drawer fields, then feed the platform input response without
+    // opening native dialogs during unattended graphics regression.
+    render(&mut game, &mut tm, painter);
+    let first_combo = game.practice_control_point("exercise_combo_start").unwrap();
+    let last_combo = game.practice_control_point("exercise_combo_end").unwrap();
+    assert!(first_combo.x < last_combo.x && (first_combo.y - last_combo.y).abs() < 1e-6);
+    assert!(game.practice_control_point("exercise_combo").is_none(), "Combo must not remain on the base screen");
+    input(&mut game, &mut tm, "exercise_combo_end", "3");
+    assert!((tm.now() - 1.75).abs() < 1e-6, "changing the end Combo must retain the segment start");
+    input(&mut game, &mut tm, "exercise_combo_start", "3");
+    assert!((tm.now() - 5.75).abs() < 1e-6, "start Combo must move the segment to the third note");
+    input(&mut game, &mut tm, "exercise_combo_start", "2");
+    input(&mut game, &mut tm, "exercise_combo_end", "2");
     click(&mut game, &mut tm, painter, "audio", &mut scroll);
     click(&mut game, &mut tm, painter, "practice_pitch", &mut scroll);
     click(&mut game, &mut tm, painter, "practice_correct", &mut scroll);

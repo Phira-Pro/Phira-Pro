@@ -1,3 +1,4 @@
+// Phira Pro Plugin API v1; manifest.json selects compatibility version "api": 1.
 fn on_chart(ctx, settings) {
     let left = 0;
     let peak = 0;

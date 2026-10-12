@@ -12,20 +12,17 @@ prpr_l10n::tl_file!("game");
 pub struct Base {
     start: RectButton,
     end: RectButton,
-    combo: RectButton,
     auto_loop: RectButton,
     markers: [(Rect, i8); 3],
     drag: Option<(u64, i8)>,
     bounds: (f64, f64),
     range: (f64, f64),
-    combo_text: String,
     points: BTreeMap<String, Vec2>,
 }
 impl Base {
     pub fn cancel(&mut self) {
         self.start.cancel();
         self.end.cancel();
-        self.combo.cancel();
         self.auto_loop.cancel();
         self.drag = None;
     }
@@ -59,9 +56,6 @@ impl Base {
         if self.end.touch(touch) {
             return Some(Action::Input("exercise_end".into(), format_time(self.range.1)));
         }
-        if self.combo.touch(touch) {
-            return Some(Action::Input("exercise_combo".into(), self.combo_text.clone()));
-        }
         if self.auto_loop.touch(touch) {
             return Some(Action::Toggle("practice_loop".into()));
         }
@@ -76,7 +70,6 @@ impl Base {
         current: f64,
         earliest: f64,
         length: f64,
-        combo: (usize, usize),
         auto: bool,
         last: Option<(u32, f64)>,
         interactive: bool,
@@ -84,7 +77,6 @@ impl Base {
         self.points.clear();
         self.range = (start, end);
         self.bounds = (earliest, length);
-        self.combo_text = format!("{}-{}", combo.0, combo.1);
         let hidden_touches = if interactive { None } else { Some(std::mem::take(ui.ensure_touches())) };
         let mut next_speed = speed;
         ui.scope(|ui| {
@@ -120,23 +112,15 @@ impl Base {
                 self.points.insert(key.into(), text.ui.rect_to_global(rect).center());
                 text.draw();
             }
-            let cr = Rect::new(-0.65, 0.105, 0.72, 0.065);
-            let ar = Rect::new(0.10, 0.105, 0.55, 0.065);
-            self.combo.set(ui, cr);
+            let ar = Rect::new(-0.275, 0.105, 0.55, 0.065);
             self.auto_loop.set(ui, ar);
-            for (rect, text) in [
-                (cr, format!("COMBO {}–{}", combo.0, combo.1)),
-                (ar, if auto { tl!("ex-auto-on") } else { tl!("ex-auto-off") }.into_owned()),
-            ] {
-                ui.fill_rect(rect, Color::new(1., 1., 1., 0.12));
-                ui.text(text)
-                    .pos(rect.center().x, rect.center().y)
-                    .anchor(0.5, 0.5)
-                    .size(if rect == cr { 0.4 } else { 0.36 })
-                    .draw();
-            }
+            ui.fill_rect(ar, Color::new(1., 1., 1., 0.12));
+            ui.text(if auto { tl!("ex-auto-on") } else { tl!("ex-auto-off") })
+                .pos(ar.center().x, ar.center().y)
+                .anchor(0.5, 0.5)
+                .size(0.36)
+                .draw();
             self.points.insert("practice_loop".into(), ui.rect_to_global(ar).center());
-            self.points.insert("exercise_combo".into(), ui.rect_to_global(cr).center());
             if let Some((round, accuracy)) = last {
                 ui.text(tl!("ex-loop-accuracy", "loop" => round, "accuracy" => format!("{:.2}", accuracy*100.)))
                     .pos(0., 0.18)

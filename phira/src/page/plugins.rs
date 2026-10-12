@@ -46,9 +46,10 @@ impl PluginManager {
             .render_text(ui, Rect::new(a.right() - 0.40, a.y, 0.19, 0.075), t, "导入", 0.42, false);
         self.refresh
             .render_text(ui, Rect::new(a.right() - 0.19, a.y, 0.19, 0.075), t, "刷新", 0.42, false);
-        ui.text("导入 .zip 插件包；首次安装默认关闭")
+        ui.text(format!("{} · 导入 .zip 插件包；首次安装默认关闭", crate::plugins::API_LABEL))
             .pos(a.x, a.y + 0.09)
             .size(0.34)
+            .max_width(a.w)
             .color(semi_white(0.7))
             .draw();
         self.scroll.size((a.w, (a.h - 0.15).max(0.1)));

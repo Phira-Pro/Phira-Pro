@@ -26,7 +26,7 @@
 
 新增「设置 → 谱面 → 插件管理」，导入 `.ppp` Rhai 插件，默认关闭，支持启停、JSON 设置、删除和分析详情。提供谱面数据、结算数据和文字覆盖层接口。PPSR 等算法可由作者自行接入，当前没有内置 PPSR 或替换官服定数／RKS 的接口。
 
-详见 [API 1 开发说明与可运行示例](../plugins/README.md)。
+详见 [Phira Pro Plugin API v1 开发说明与可运行示例](../plugins/README.md)。
 
 ## 验证边界
 

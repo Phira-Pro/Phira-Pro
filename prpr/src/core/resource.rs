@@ -561,7 +561,7 @@ impl Resource {
             mod_icons: Self::load_mod_icons().await?,
             res_pack,
             player: if let Some(player) = player { player } else { load_tex!("player.jpg") },
-            icon_back: load_tex!("back.png"),
+            icon_back: load_tex!("back.png").with_mipmap(),
             icon_retry: load_tex!("retry.png").with_mipmap(),
             icon_resume: load_tex!("resume.png"),
             icon_proceed: load_tex!("proceed.png").with_mipmap(),

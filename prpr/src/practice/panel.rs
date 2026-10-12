@@ -3,10 +3,10 @@ prpr_l10n::tl_file!("game");
 use super::{Bookmark, NoteBehavior, Statistics};
 use crate::{
     config::Config,
-    ext::RectExt,
+    core::Matrix,
+    ext::{RectExt, ScaleType},
     ui::{DRectButton, RectButton, Scroll, Ui},
 };
-use lyon::{math::point, path::Path};
 use macroquad::prelude::*;
 fn fmt_time(t: f32) -> String {
     super::format_time(t as f64)
@@ -202,7 +202,7 @@ impl Panel {
             }
             return (true, None);
         }
-        let on_toggle = self.toggle_rect.contains(touch.position);
+        let on_toggle = self.toggle.contains(touch.position);
         if self.toggle.touch(touch) {
             self.set_open(!self.drawer_open, t);
             return (true, None);
@@ -263,7 +263,16 @@ impl Panel {
     pub fn control_point(&self, key: &str) -> Option<Vec2> {
         self.points.get(key).copied()
     }
-    pub fn render(&mut self, ui: &mut Ui, t: f32, config: &Config, combo: (usize, usize), bookmarks: &[Bookmark], stats: &Statistics) {
+    pub fn render(
+        &mut self,
+        ui: &mut Ui,
+        t: f32,
+        config: &Config,
+        combo: (usize, usize),
+        bookmarks: &[Bookmark],
+        stats: &Statistics,
+        back: Texture2D,
+    ) {
         self.actions.clear();
         self.points.clear();
         for button in self.buttons.values_mut() {
@@ -549,18 +558,21 @@ impl Panel {
         // Same opaque fill and overlapping flat edge join the tab to the body
         // throughout the slide. Only the two outer corners remain rounded.
         let x = -1.02 + Self::WIDTH * progress;
-        self.toggle_rect = Rect::new(x, -0.16, 0.14, 0.32);
-        self.toggle.set(ui, self.toggle_rect);
-        ui.fill_path(&self.toggle_rect.rounded(0.065), ui.background());
-        ui.fill_rect(Rect::new(x - 0.005, -0.16, 0.07, 0.32), ui.background());
-        let center = self.toggle_rect.center();
-        let direction = if self.drawer_open { -1. } else { 1. };
-        let mut arrow = Path::builder();
-        arrow.begin(point(center.x - 0.025 * direction, -0.065));
-        arrow.line_to(point(center.x + 0.025 * direction, 0.));
-        arrow.line_to(point(center.x - 0.025 * direction, 0.065));
-        arrow.end(false);
-        ui.stroke_path(&arrow.build(), 0.017, Color::new(1., 1., 1., if self.toggle.touching() { 0.6 } else { 1. }));
+        self.toggle_rect = Rect::new(x, -0.10, 0.09, 0.20);
+        self.toggle.set(ui, self.toggle_rect.feather(0.01));
+        ui.fill_path(&self.toggle_rect.rounded(0.04), ui.background());
+        ui.fill_rect(Rect::new(x - 0.005, -0.10, 0.045, 0.20), ui.background());
+        let visible_left = self.toggle_rect.x.max(-1.);
+        let center = vec2((visible_left + self.toggle_rect.right()) * 0.5, 0.);
+        // Reuse the stock arrow's alpha edge with trilinear minification instead
+        // of a hard, non-antialiased polygon stroke in the UI pass.
+        ui.scope(|ui| {
+            ui.dx(center.x);
+            ui.with(Matrix::new_rotation(if self.drawer_open { 0. } else { std::f32::consts::PI }), |ui| {
+                let r = Rect::new(-0.05, -0.05, 0.10, 0.10);
+                ui.fill_rect(r, (back, r, ScaleType::Fit, Color::new(1., 1., 1., if self.toggle.touching() { 0.6 } else { 1. })));
+            });
+        });
         self.points.insert("drawer".into(), ui.rect_to_global(self.toggle_rect).center());
     }
 }

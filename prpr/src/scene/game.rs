@@ -1426,6 +1426,7 @@ impl GameScene {
                     self.practice_combo.unwrap_or((1, self.practice_notes.len())),
                     &self.practice_bookmarks,
                     &self.practice_statistics,
+                    *self.res.icon_back,
                 );
                 ui.top = old_top;
             }

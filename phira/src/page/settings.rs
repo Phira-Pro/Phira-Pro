@@ -1879,8 +1879,8 @@ impl DebugList {
         #[cfg(target_os = "android")]
         item! {
             let max_rate = f32::from_bits(prpr::ui::MAX_DEVICE_REFRESH_RATE.load(Ordering::Relaxed));
-            let subtitle = if max_rate.is_finite() && max_rate > 0.0 {
-                tl!("item-refresh-rate-max", "rate" => format!("{max_rate:.0}"))
+            let subtitle: Cow<'_, str> = if max_rate.is_finite() && max_rate > 0.0 {
+                Cow::Owned(tl!("item-refresh-rate-max", "rate" => format!("{max_rate:.0}")))
             } else {
                 tl!("item-refresh-rate-sub")
             };

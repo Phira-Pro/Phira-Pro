@@ -203,7 +203,7 @@ item-status-url-sub = 설정의 '서버 상태' 버튼이 여는 주소. 비우�
 item-web-url = 웹 주소
 
 item-touch-color = 터치 지점 색상
-item-touch-color-sub = 탭하여 디버그 터치 지점 색상을 전환합니다
+item-touch-color-sub = Open the palette to choose any touch color
 item-touch-alpha = 터치 지점 불투명도
 item-touch-size = 터치 지점 크기
 item-reset-settings = 모든 설정 초기화
@@ -313,9 +313,17 @@ fps-bottom-right = Bottom right
 plugins-settings = Plugins
 plugins-settings-sub = Import, enable and configure plugins
 preset-colors = Judgement colors
-preset-colors-sub = Enter #RRGGBB; empty restores resource-pack colors
+preset-colors-sub = Choose any color with the palette; reset follows resource-pack colors
 preset-color-default = Resource pack
 
 item-desktop-fps = Frame rate limit
 item-desktop-fps-sub = Applies immediately; follows display refresh rate by default
 item-desktop-fps-auto = Follow display
+
+color-original = Original
+color-current = Current
+color-reset = Reset
+color-reset-all = Reset all
+color-invalid = Enter six hexadecimal digits, e.g. #12AB34
+color-rgb-invalid = Enter an integer from 0 to 255
+color-current-default = Current (default)

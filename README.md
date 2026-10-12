@@ -11,7 +11,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows 压缩包或 Linux 压缩包或 Android arm64 APK。Windows 解压后运行 `phira-main.exe` (Linux为`phira-main`)；Android 安装 APK，更新时保留应用数据。
 
-已发布版本为 **0.8.2-pro.14**（build 55）；当前源码为同版本的 build 57，追加修复见 [build 57 说明](docs/development/pro-14-build-57.md)和 [build 56 说明](docs/development/pro-14-build-56.md)，更新内容见 [pro.14 更新说明](docs/development/pro-14.md)，安装包见 [pro.14 Release](https://github.com/Phira-Pro/Phira-Pro/releases/tag/v0.8.2-pro.14)。本版包括 [rpe-next 噪域兼容](docs/development/rpe-next-noise.md)、[回放录制修复](docs/development/replays.md)与 Android 刷新率设置。历史更新见 [pro.13 更新与验证说明](docs/development/pro-13.md)和 [pro.12 更新说明](docs/development/pro-12.md)。版本维护、五个平台的构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
+已发布版本为 **0.8.2-pro.14**（build 55）；当前源码为同版本的 build 58，新增统一调色盘见 [build 58 说明](docs/development/pro-14-build-58.md)，追加修复见 [build 57 说明](docs/development/pro-14-build-57.md)和 [build 56 说明](docs/development/pro-14-build-56.md)，更新内容见 [pro.14 更新说明](docs/development/pro-14.md)，安装包见 [pro.14 Release](https://github.com/Phira-Pro/Phira-Pro/releases/tag/v0.8.2-pro.14)。本版包括 [rpe-next 噪域兼容](docs/development/rpe-next-noise.md)、[回放录制修复](docs/development/replays.md)与 Android 刷新率设置。历史更新见 [pro.13 更新与验证说明](docs/development/pro-13.md)和 [pro.12 更新说明](docs/development/pro-12.md)。版本维护、五个平台的构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
 
 ## 相对官方版新增的功能
 

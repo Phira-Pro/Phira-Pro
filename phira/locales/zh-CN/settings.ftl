@@ -96,7 +96,7 @@ item-show-fps-sub = 显示当前帧率，可选择显示位置
 item-touch-debug = 触摸调试
 item-touch-debug-sub = 游玩过程中显示触摸点
 item-touch-color = 触点颜色
-item-touch-color-sub = 点击循环切换调试触点的颜色
+item-touch-color-sub = 点击调色盘自由选择触点颜色
 item-touch-alpha = 触点透明度
 item-touch-size = 触点大小
 item-reset-settings = 恢复默认设置
@@ -409,9 +409,17 @@ fps-bottom-right = 右下
 plugins-settings = 插件管理
 plugins-settings-sub = 导入、启停和配置个性化插件
 preset-colors = 判定颜色
-preset-colors-sub = 输入 #RRGGBB，留空恢复资源包颜色
+preset-colors-sub = 点击调色盘自由选色；恢复默认使用资源包颜色
 preset-color-default = 资源包默认
 
 item-desktop-fps = 帧率上限
 item-desktop-fps-sub = 选择后立即生效；默认跟随屏幕刷新率
 item-desktop-fps-auto = 跟随屏幕
+
+color-original = 原始颜色
+color-current = 当前颜色
+color-reset = 恢复默认
+color-reset-all = 恢复全部默认
+color-invalid = 请输入有效的六位颜色值，例如 #12AB34
+color-rgb-invalid = 请输入 0～255 的整数
+color-current-default = 当前（默认）

@@ -195,7 +195,7 @@ item-status-url-sub = Ayarlardaki "Sunucu durumu" düğmesinin açtığı adres.
 item-web-url = Web adresi
 
 item-touch-color = Dokunma Noktası Rengi
-item-touch-color-sub = Hata ayıklama dokunma noktalarının rengini değiştirmek için dokunun
+item-touch-color-sub = Open the palette to choose any touch color
 item-touch-alpha = Dokunma Noktası Opaklığı
 item-touch-size = Dokunma Noktası Boyutu
 item-reset-settings = Tüm Ayarları Sıfırla
@@ -305,9 +305,17 @@ fps-bottom-right = Bottom right
 plugins-settings = Plugins
 plugins-settings-sub = Import, enable and configure plugins
 preset-colors = Judgement colors
-preset-colors-sub = Enter #RRGGBB; empty restores resource-pack colors
+preset-colors-sub = Choose any color with the palette; reset follows resource-pack colors
 preset-color-default = Resource pack
 
 item-desktop-fps = Frame rate limit
 item-desktop-fps-sub = Applies immediately; follows display refresh rate by default
 item-desktop-fps-auto = Follow display
+
+color-original = Original
+color-current = Current
+color-reset = Reset
+color-reset-all = Reset all
+color-invalid = Enter six hexadecimal digits, e.g. #12AB34
+color-rgb-invalid = Enter an integer from 0 to 255
+color-current-default = Current (default)

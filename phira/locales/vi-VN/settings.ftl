@@ -208,7 +208,7 @@ item-status-url-sub = Địa chỉ mở bởi nút "Trạng thái máy chủ". �
 item-web-url = Địa chỉ web
 
 item-touch-color = Màu điểm chạm
-item-touch-color-sub = Nhấn để đổi màu điểm chạm gỡ lỗi
+item-touch-color-sub = Open the palette to choose any touch color
 item-touch-alpha = Độ mờ điểm chạm
 item-touch-size = Kích thước điểm chạm
 item-reset-settings = Đặt lại tất cả cài đặt
@@ -318,9 +318,17 @@ fps-bottom-right = Bottom right
 plugins-settings = Plugins
 plugins-settings-sub = Import, enable and configure plugins
 preset-colors = Judgement colors
-preset-colors-sub = Enter #RRGGBB; empty restores resource-pack colors
+preset-colors-sub = Choose any color with the palette; reset follows resource-pack colors
 preset-color-default = Resource pack
 
 item-desktop-fps = Frame rate limit
 item-desktop-fps-sub = Applies immediately; follows display refresh rate by default
 item-desktop-fps-auto = Follow display
+
+color-original = Original
+color-current = Current
+color-reset = Reset
+color-reset-all = Reset all
+color-invalid = Enter six hexadecimal digits, e.g. #12AB34
+color-rgb-invalid = Enter an integer from 0 to 255
+color-current-default = Current (default)

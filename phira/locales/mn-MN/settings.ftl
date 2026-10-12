@@ -161,7 +161,7 @@ item-status-url-sub = Тохиргооны «Серверийн төлөв» т�
 item-web-url = Вэб хаяг
 
 item-touch-color = Хүрэлтийн цэгийн өнгө
-item-touch-color-sub = Дибаг хүрэлтийн цэгийн өнгийг солихын тулд дарна уу
+item-touch-color-sub = Open the palette to choose any touch color
 item-touch-alpha = Хүрэлтийн цэгийн тунгалаг байдал
 item-touch-size = Хүрэлтийн цэгийн хэмжээ
 item-reset-settings = Бүх тохиргоог анхны утгад буцаах
@@ -271,9 +271,17 @@ fps-bottom-right = Bottom right
 plugins-settings = Plugins
 plugins-settings-sub = Import, enable and configure plugins
 preset-colors = Judgement colors
-preset-colors-sub = Enter #RRGGBB; empty restores resource-pack colors
+preset-colors-sub = Choose any color with the palette; reset follows resource-pack colors
 preset-color-default = Resource pack
 
 item-desktop-fps = Frame rate limit
 item-desktop-fps-sub = Applies immediately; follows display refresh rate by default
 item-desktop-fps-auto = Follow display
+
+color-original = Original
+color-current = Current
+color-reset = Reset
+color-reset-all = Reset all
+color-invalid = Enter six hexadecimal digits, e.g. #12AB34
+color-rgb-invalid = Enter an integer from 0 to 255
+color-current-default = Current (default)

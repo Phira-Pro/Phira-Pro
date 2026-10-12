@@ -212,6 +212,75 @@ fn production_panel_save_cancel_reload_and_aspects() {
             return_input("preset-color-0".into(), "".into());
             list.update(2.).unwrap();
             assert_eq!(get_data().config.judge_grading.colors[0], None);
+            // The palette edits either current settings or a preset draft, never both.
+            let total = render(&mut list, &mut painter, 1280, 720, 0., "before-palette");
+            let scroll = total - 9. * item_row_h() - 0.15;
+            render(&mut list, &mut painter, 1280, 720, scroll, "palette-grade-entries");
+            let p = center(&list.colors[4]);
+            click(&mut list, p);
+            assert!(list.picker.is_some());
+            render(&mut list, &mut painter, 1280, 720, scroll, "grade-palette");
+            list.picker.as_ref().unwrap().1.test_input("#32A1F4");
+            list.update(2.).unwrap();
+            assert_eq!(get_data().config.judge_grading.colors[4], Some(0x12ab34));
+            let p = list.picker.as_ref().unwrap().1.test_button("apply");
+            for phase in [TouchPhase::Started, TouchPhase::Ended] {
+                assert!(list.top_touch(
+                    &Touch {
+                        id: 920,
+                        phase,
+                        position: p,
+                        time: 0.
+                    },
+                    2.
+                ));
+            }
+            assert_eq!(get_data().config.judge_grading.colors[4], Some(0x32a1f4));
+            list.draft = Some(Draft {
+                id: None,
+                name: "Palette Draft".into(),
+                settings: JudgeSettings::capture(&get_data().config),
+            });
+            let total = render(&mut list, &mut painter, 1280, 720, 0., "palette-draft-before");
+            let scroll = total - 11. * item_row_h() - 0.15;
+            render(&mut list, &mut painter, 1280, 720, scroll, "palette-draft-colors");
+            let p = center(&list.colors[4]);
+            click(&mut list, p);
+            render(&mut list, &mut painter, 1280, 720, scroll, "palette-draft-dialog");
+            let p = list.picker.as_ref().unwrap().1.test_button("reset");
+            for phase in [TouchPhase::Started, TouchPhase::Ended] {
+                list.top_touch(
+                    &Touch {
+                        id: 921,
+                        phase,
+                        position: p,
+                        time: 0.,
+                    },
+                    2.,
+                );
+            }
+            let p = list.picker.as_ref().unwrap().1.test_button("apply");
+            for phase in [TouchPhase::Started, TouchPhase::Ended] {
+                list.top_touch(
+                    &Touch {
+                        id: 922,
+                        phase,
+                        position: p,
+                        time: 0.,
+                    },
+                    2.,
+                );
+            }
+            assert_eq!(list.draft.as_ref().unwrap().settings.grading.colors[4], None);
+            assert_eq!(get_data().config.judge_grading.colors[4], Some(0x32a1f4));
+            list.draft = None; // Cancelling the parent editor discards its reset too.
+            let total = render(&mut list, &mut painter, 1280, 720, 0., "palette-reset-before");
+            render(&mut list, &mut painter, 1280, 720, total - 9. * item_row_h() - 0.15, "palette-reset-all");
+            let p = center(&list.colors_reset);
+            click(&mut list, p);
+            assert_eq!(get_data().config.judge_grading.colors, [None; 8]);
+            let reloaded: Data = serde_json::from_str(&std::fs::read_to_string("target/judgement-panel-qa/data/data.json").unwrap()).unwrap();
+            assert_eq!(reloaded.config.judge_grading.colors, [None; 8]);
             list.selector.set_selected(2);
             list.activate();
             list.update(2.).unwrap();
@@ -300,10 +369,10 @@ fn production_panel_save_cancel_reload_and_aspects() {
                 assert_eq!(JudgeSettings::capture(&get_data().config).selected_osu_mania_od(), Some(-15));
                 assert!(get_data().judge_presets.is_empty());
             }
-            for (w,h,suffix) in [(960,720,"4x3"),(1280,720,"16x9"),(1280,548,"21x9")] {
-                let height=render(&mut list,&mut painter,w,h,0.,"color-height");
-                let visible=h as f32/w as f32*2.-0.20;
-                render(&mut list,&mut painter,w,h,height-visible,&format!("colors-{suffix}"));
+            for (w, h, suffix) in [(960, 720, "4x3"), (1280, 720, "16x9"), (1280, 548, "21x9")] {
+                let height = render(&mut list, &mut painter, w, h, 0., "color-height");
+                let visible = h as f32 / w as f32 * 2. - 0.20;
+                render(&mut list, &mut painter, w, h, height - visible, &format!("colors-{suffix}"));
             }
             // Use the production result grid and inspect its GPU-rendered pixels at phone/tablet ratios.
             let mut result = prpr::judge::PlayResult::default();

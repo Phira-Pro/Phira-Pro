@@ -1,6 +1,8 @@
 prpr_l10n::tl_file!("settings");
+mod color;
 mod experience;
 mod judgement;
+use color::{ColorAction, ColorPicker};
 use experience::ExperienceList;
 use judgement::JudgementPage;
 
@@ -24,7 +26,7 @@ use prpr::{
     ext::{open_url, poll_future, semi_white, LocalTask, RectExt, SafeTexture},
     scene::{request_input, return_input, show_error, show_message, take_input},
     task::Task,
-    ui::{DRectButton, RectButton, Scroll, Slider, Ui, PREFER_REDUCED_MOTION, UI_SFX_VOLUME},
+    ui::{DRectButton, Scroll, Slider, Ui, PREFER_REDUCED_MOTION, UI_SFX_VOLUME},
 };
 use prpr_l10n::{LanguageIdentifier, LANG_IDENTS, LANG_NAMES};
 use reqwest::Url;
@@ -46,8 +48,6 @@ const UI_PRESETS: [(u32, u32); 6] = [
     (0xf06292, 0x3a2833),
     (0xb0bec5, 0x263238),
 ];
-/// 调试触点可选颜色（0xRRGGBB）。点一次循环切到下一个。
-const TOUCH_POINT_COLORS: [u32; 8] = [0xff3b30, 0x34c759, 0x0a84ff, 0xffd60a, 0xff2d55, 0x5ac8fa, 0xffffff, 0x8e8e93];
 #[cfg(target_os = "android")]
 const REFRESH_RATES: [u16; 7] = [60, 120, 144, 165, 185, 200, 240];
 #[cfg(target_os = "ios")]
@@ -329,11 +329,22 @@ impl Page for SettingsPage {
             })
         })?;
 
+        if *self.tabs.selected() == SettingListType::Debug {
+            self.list_debug.render_top(ui, t);
+        }
         if *self.tabs.selected() == SettingListType::Experience {
             self.list_experience.render_top(ui, t);
         }
 
         Ok(())
+    }
+
+    fn on_back_pressed(&mut self, _s: &mut SharedState) -> bool {
+        match self.tabs.selected() {
+            SettingListType::Debug => self.list_debug.picker.take().is_some(),
+            SettingListType::Experience => self.list_experience.close_editor(),
+            _ => false,
+        }
     }
 
     fn next_page(&mut self) -> NextPage {
@@ -1790,7 +1801,10 @@ struct DebugList {
     chart_debug_line_btn: DRectButton,
     chart_debug_note_btn: DRectButton,
     touch_debug_btn: DRectButton,
-    touch_color_btn: RectButton,
+    touch_color_btn: DRectButton,
+    touch_color_reset: DRectButton,
+    picker: Option<ColorPicker>,
+    dirty: bool,
     touch_alpha_slider: Slider,
     touch_size_slider: Slider,
     show_fps_btn: DRectButton,
@@ -1815,7 +1829,10 @@ impl DebugList {
             chart_debug_line_btn: DRectButton::new(),
             chart_debug_note_btn: DRectButton::new(),
             touch_debug_btn: DRectButton::new(),
-            touch_color_btn: RectButton::new(),
+            touch_color_btn: DRectButton::new(),
+            touch_color_reset: DRectButton::new(),
+            picker: None,
+            dirty: false,
             touch_alpha_slider: Slider::new(0.05..1.0, 0.05),
             touch_size_slider: Slider::new(0.01..0.15, 0.005),
             show_fps_btn: DRectButton::new(),
@@ -1826,6 +1843,16 @@ impl DebugList {
     }
 
     pub fn top_touch(&mut self, _touch: &Touch, _t: f32) -> bool {
+        if let Some(picker) = &mut self.picker {
+            if let Some(action) = picker.touch(_touch, _t) {
+                if let ColorAction::Apply(Some(color)) = action {
+                    get_data_mut().config.touch_point_color = color;
+                    self.dirty = true;
+                }
+                self.picker = None;
+            }
+            return true;
+        }
         #[cfg(target_os = "windows")]
         if self.desktop_fps_btn.top_touch(_touch, _t) {
             return true;
@@ -1888,9 +1915,17 @@ impl DebugList {
             config.touch_debug ^= true;
             return Ok(Some(true));
         }
-        if self.touch_color_btn.touch(touch) {
-            let idx = TOUCH_POINT_COLORS.iter().position(|it| *it == config.touch_point_color).unwrap_or(0);
-            config.touch_point_color = TOUCH_POINT_COLORS[(idx + 1) % TOUCH_POINT_COLORS.len()];
+        if self.touch_color_btn.touch(touch, t) {
+            self.picker = Some(ColorPicker::new(
+                tl!("item-touch-color").into_owned(),
+                Some(config.touch_point_color),
+                Some(prpr::config::Config::default().touch_point_color),
+                0,
+            ));
+            return Ok(Some(false));
+        }
+        if self.touch_color_reset.touch(touch, t) {
+            config.touch_point_color = prpr::config::Config::default().touch_point_color;
             return Ok(Some(true));
         }
         if let wt @ Some(_) = self.touch_alpha_slider.touch(touch, t, &mut config.touch_point_alpha) {
@@ -1903,6 +1938,12 @@ impl DebugList {
     }
 
     pub fn update(&mut self, _t: f32) -> Result<bool> {
+        if let Some(picker) = &mut self.picker {
+            picker.update();
+        }
+        if std::mem::take(&mut self.dirty) {
+            return Ok(true);
+        }
         #[cfg(target_os = "windows")]
         {
             let language = get_data().language.clone();
@@ -1923,6 +1964,12 @@ impl DebugList {
             );
         }
         Ok(false)
+    }
+
+    pub fn render_top(&mut self, ui: &mut Ui, t: f32) {
+        if let Some(picker) = &mut self.picker {
+            picker.render(ui, t);
+        }
     }
 
     pub fn render(&mut self, ui: &mut Ui, r: Rect, t: f32) -> (f32, f32) {
@@ -1982,18 +2029,10 @@ impl DebugList {
         }
         item! {
             render_title(ui, tl!("item-touch-color"), Some(tl!("item-touch-color-sub")));
-            let r = rr.feather(-0.01);
-            self.touch_color_btn.set(ui, r);
-            let c = Color::from_hex_rgb(config.touch_point_color);
-            ui.fill_path(&r.rounded(0.01), c);
-            let lum = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
-            ui.text(format!("#{:06X}", config.touch_point_color))
-                .pos(r.center().x, r.center().y)
-                .anchor(0.5, 0.5)
-                .no_baseline()
-                .size(0.45)
-                .color(if lum > 0.55 { BLACK } else { WHITE })
-                .draw();
+            let swatch = Rect::new(rr.x - 0.29, rr.y, 0.26, rr.h);
+            self.touch_color_btn.render_text(ui, swatch, t, format!("#{:06X}", config.touch_point_color), 0.36, false);
+            ui.fill_path(&Rect::new(swatch.x - 0.045, swatch.y + 0.025, 0.03, 0.05).rounded(0.005), Color::from_hex_rgb(config.touch_point_color));
+            self.touch_color_reset.render_text(ui, rr, t, tl!("color-reset"), 0.34, false);
         }
         item! {
             render_title(ui, tl!("item-touch-alpha"), None);

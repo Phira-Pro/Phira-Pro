@@ -3,7 +3,7 @@ use super::*;
 use prpr::ext::BLACK_TEXTURE;
 use prpr::ui::TextPainter;
 
-fn center(button: &DRectButton) -> Vec2 {
+pub(super) fn center(button: &DRectButton) -> Vec2 {
     let mut sum = Vec2::ZERO;
     let mut count = 0;
     for y in -100..=100 {
@@ -18,7 +18,7 @@ fn center(button: &DRectButton) -> Vec2 {
     assert!(count > 0, "settings entry must be visible");
     sum / count as f32
 }
-fn capture(ui: &mut Ui, name: &str) {
+pub(super) fn capture(ui: &mut Ui, name: &str) {
     unsafe { get_internal_gl() }.flush();
     let (_, _, w, h) = ui.viewport;
     let mut bytes = vec![0; (w * h * 4) as usize];
@@ -45,6 +45,8 @@ fn render_debug(list: &mut DebugList, ui: &mut Ui, t: f32) {
 }
 
 pub(super) fn render_regression(painter: &mut TextPainter) {
+    super::color::render_regression(painter);
+    super::experience::render_regression(painter);
     for (w, h, ratio) in [(960, 720, "4x3"), (1280, 720, "16x9"), (1280, 548, "21x9")] {
         get_data_mut().config.desktop_fps_limit = 0;
         let mut debug = DebugList::new();
@@ -91,6 +93,65 @@ pub(super) fn render_regression(painter: &mut TextPainter) {
         get_data_mut().config.desktop_fps_limit = 0; // A settings reset must update the label too.
         debug.update(2.7).unwrap();
         assert_eq!(debug.desktop_fps_btn.selected(), 0);
+
+        let original = get_data().config.touch_point_color;
+        let alpha = get_data().config.touch_point_alpha;
+        let size = get_data().config.touch_point_size;
+        let p = center(&debug.touch_color_btn);
+        for phase in [TouchPhase::Started, TouchPhase::Ended] {
+            debug
+                .touch(
+                    &Touch {
+                        id: 804,
+                        phase,
+                        position: p,
+                        time: 0.,
+                    },
+                    3.,
+                )
+                .unwrap();
+        }
+        debug.render_top(&mut ui, 3.);
+        debug.picker.as_ref().unwrap().test_input("#1948C9");
+        debug.update(3.).unwrap();
+        assert_eq!(get_data().config.touch_point_color, original, "editing a palette must not apply prematurely");
+        let p = debug.picker.as_ref().unwrap().test_button("apply");
+        for phase in [TouchPhase::Started, TouchPhase::Ended] {
+            assert!(debug.top_touch(
+                &Touch {
+                    id: 805,
+                    phase,
+                    position: p,
+                    time: 0.
+                },
+                3.
+            ));
+        }
+        assert!(debug.update(3.1).unwrap());
+        assert_eq!(get_data().config.touch_point_color, 0x1948c9);
+        save_data().unwrap();
+        let reloaded: crate::data::Data =
+            serde_json::from_str(&std::fs::read_to_string("target/judgement-panel-qa/data/data.json").unwrap()).unwrap();
+        assert_eq!(reloaded.config.touch_point_color, 0x1948c9);
+        render_debug(&mut debug, &mut ui, 3.);
+        capture(&mut ui, &format!("touch-color-row-{ratio}"));
+        let p = center(&debug.touch_color_reset);
+        for phase in [TouchPhase::Started, TouchPhase::Ended] {
+            debug
+                .touch(
+                    &Touch {
+                        id: 806,
+                        phase,
+                        position: p,
+                        time: 0.,
+                    },
+                    3.,
+                )
+                .unwrap();
+        }
+        assert_eq!(get_data().config.touch_point_color, prpr::config::Config::default().touch_point_color);
+        assert_eq!(get_data().config.touch_point_alpha, alpha);
+        assert_eq!(get_data().config.touch_point_size, size);
 
         let mut general = GeneralList::new(BLACK_TEXTURE.clone());
         let height = ui.scope(|ui| general.render(ui, Rect::new(0., 0., 1.6, 8.), 2.).1);

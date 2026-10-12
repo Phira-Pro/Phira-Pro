@@ -107,10 +107,12 @@ fn pixel(image: &Image, x: i32, y: i32) -> &[u8] {
 }
 
 async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
+    prpr::practice::set_storage(std::path::PathBuf::from(crate::dir::root().unwrap()).join("practice-bookmarks.json"));
     let mut config = Config::default();
     config.volume_music = 0.;
     config.volume_sfx = 0.;
     config.sample_count = 1;
+    config.fxaa = true;
     config.adjust_time = false;
     let mut game = local(GameScene::new(
         GameMode::Exercise,
@@ -146,6 +148,16 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
             glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
             assert_eq!(glGetError(), 0);
         }
+        let text_pixels = bytes
+            .chunks_exact(4)
+            .enumerate()
+            .filter(|(i, p)| {
+                let x = *i as i32 % w;
+                let y = *i as i32 / w;
+                x > w / 5 && x < w * 4 / 5 && y > h / 5 && y < h * 4 / 5 && p[..3].iter().all(|&v| v > 180)
+            })
+            .count();
+        assert!(text_pixels > 300, "practice controls must remain visible under FXAA at {ratio}: {text_pixels}");
         Image {
             width: w as u16,
             height: h as u16,
@@ -158,7 +170,8 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
     let h = screen_height() as i32;
     let mut ui = Ui::new(painter, Some((0, 0, w, h)));
     game.render(&mut tm, &mut ui).unwrap();
-    let scale = (w as f32 / h as f32) / game.res.aspect_ratio;
+    drop(ui);
+    let loop_point = game.practice_control_point("practice_loop").unwrap();
     for phase in [TouchPhase::Started, TouchPhase::Ended] {
         let activated = Scene::touch(
             &mut game,
@@ -166,7 +179,7 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
             &Touch {
                 id: 777,
                 phase,
-                position: vec2(0.375, 0.3475) / scale,
+                position: loop_point,
                 time: 0.,
             },
         )
@@ -182,12 +195,176 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
     assert!((tm.now() - 1.75).abs() < 0.02, "combo loop must include the selected Hold tail");
     for note in &game.chart.lines[0].notes {
         if note.time < 1.75 {
-            assert!(matches!(note.judge, JudgeStatus::Judged), "notes before the combo range must be skipped: time={}, state={:?}", note.time, note.judge);
+            assert!(
+                matches!(note.judge, JudgeStatus::Judged),
+                "notes before the combo range must be skipped: time={}, state={:?}",
+                note.time,
+                note.judge
+            );
         }
-        if (note.time-2.).abs()<0.01 {
+        if (note.time - 2.).abs() < 0.01 {
             assert!(!matches!(note.judge, JudgeStatus::Judged), "the selected Hold must remain playable");
         }
     }
+    assert_eq!(game.practice_round_count(), 1, "the last Hold miss must be captured before looping");
+    game.pause(&mut tm).unwrap();
+    fn input(game: &mut GameScene, tm: &mut TimeManager, id: &str, text: &str) {
+        prpr::scene::return_input(id.into(), text.into());
+        game.update(tm).unwrap();
+    }
+    fn render(game: &mut GameScene, tm: &mut TimeManager, painter: &mut TextPainter) {
+        let mut ui = Ui::new(painter, None);
+        game.render(tm, &mut ui).unwrap();
+    }
+    fn click(game: &mut GameScene, tm: &mut TimeManager, painter: &mut TextPainter, key: &str, scroll: &mut f32) {
+        render(game, tm, painter);
+        let point = game
+            .practice_control_point(key)
+            .unwrap_or_else(|| panic!("missing practice control: {key}"));
+        *scroll += point.y * scale_for(game);
+        game.practice_scroll_to(*scroll);
+        render(game, tm, painter);
+        let point = game.practice_control_point(key).unwrap();
+        assert!(point.x.abs() < 0.95 && point.y.abs() < 0.2, "control must be on screen: {key}: {point:?}");
+        for phase in [TouchPhase::Started, TouchPhase::Ended] {
+            Scene::touch(
+                game,
+                tm,
+                &Touch {
+                    id: 779,
+                    phase,
+                    position: point,
+                    time: 0.,
+                },
+            )
+            .unwrap();
+        }
+    }
+    fn scale_for(game: &GameScene) -> f32 {
+        (screen_width() / screen_height()) / game.res.aspect_ratio
+    }
+    let mut scroll = 0.;
+    input(&mut game, &mut tm, "practice_speed", "1.25");
+    assert_eq!(game.practice_round_count(), 0, "changing conditions starts a new statistics group");
+    click(&mut game, &mut tm, painter, "audio", &mut scroll);
+    click(&mut game, &mut tm, painter, "practice_pitch", &mut scroll);
+    click(&mut game, &mut tm, painter, "practice_correct", &mut scroll);
+    assert!(game.res.config.practice.preserve_pitch && game.res.config.practice.correct_sound);
+    let normal_windows = Config::default().judge_windows();
+    input(&mut game, &mut tm, "practice_multiplier", "150");
+    assert!((game.res.windows.perfect - normal_windows.perfect * 1.5).abs() < 1e-6);
+    let originals: Vec<_> = game
+        .chart
+        .lines
+        .iter()
+        .flat_map(|l| &l.notes)
+        .map(|n| (n.time, format!("{:?}", n.kind), format!("{:?}", n.hitsound)))
+        .collect();
+    click(&mut game, &mut tm, painter, "behavior", &mut scroll);
+    for behavior in [
+        prpr::practice::NoteBehavior::Tap,
+        prpr::practice::NoteBehavior::Drag,
+        prpr::practice::NoteBehavior::Flick,
+        prpr::practice::NoteBehavior::Original,
+    ] {
+        click(&mut game, &mut tm, painter, "practice_behavior", &mut scroll);
+        assert_eq!(game.res.config.practice.behavior, behavior);
+        if behavior != prpr::practice::NoteBehavior::Original {
+            assert!(game
+                .chart
+                .lines
+                .iter()
+                .flat_map(|l| &l.notes)
+                .all(|n| !matches!(n.kind, prpr::core::NoteKind::Hold { .. })));
+        }
+    }
+    let restored: Vec<_> = game
+        .chart
+        .lines
+        .iter()
+        .flat_map(|l| &l.notes)
+        .map(|n| (n.time, format!("{:?}", n.kind), format!("{:?}", n.hitsound)))
+        .collect();
+    for n in &originals {
+        assert!(restored.contains(n), "restoring note behavior must retain each original Hold tail and hitsound");
+    }
+    input(&mut game, &mut tm, "practice_bookmark", "Hold 区间");
+    input(&mut game, &mut tm, "practice_speed", "0.85");
+    click(&mut game, &mut tm, painter, "bookmarks", &mut scroll);
+    click(&mut game, &mut tm, painter, "load:0", &mut scroll);
+    assert_eq!(game.res.config.speed, 1.25);
+    assert!(game.res.config.practice.preserve_pitch);
+    input(&mut game, &mut tm, "practice_scale", "60");
+    input(&mut game, &mut tm, "practice_x", "0.3");
+    input(&mut game, &mut tm, "practice_y", "-0.15");
+    // A pass-through postprocess must not apply the reveal camera a second
+    // time, nor mirror its already transformed framebuffer.
+    fn pixels(game: &mut GameScene, tm: &mut TimeManager, painter: &mut TextPainter) -> Vec<u8> {
+        render(game, tm, painter);
+        unsafe { get_internal_gl() }.flush();
+        let mut bytes = vec![0; (screen_width() * screen_height()) as usize * 4];
+        unsafe {
+            use miniquad::gl::*;
+            glReadPixels(0, 0, screen_width() as i32, screen_height() as i32, GL_RGBA, GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
+            assert_eq!(glGetError(), 0);
+        }
+        bytes
+    }
+    game.practice_scroll_to(0.);
+    let before = pixels(&mut game, &mut tm, painter);
+    let mut identity = prpr::core::Effect::new(
+        -100. ..100.,
+        "#version 100\nprecision mediump float; varying lowp vec2 uv; uniform sampler2D screenTexture; void main(){gl_FragColor=texture2D(screenTexture,uv);}",
+        vec![],
+        false,
+    )
+    .unwrap();
+    identity.update(&game.res);
+    game.chart.extra.effects.push(identity);
+    let after = pixels(&mut game, &mut tm, painter);
+    let differences = before.iter().zip(&after).filter(|(a, b)| a.abs_diff(**b) > 2).count();
+    assert!(differences < before.len() / 1000, "pass-through effect changed the reveal transform: {differences} channels");
+    game.chart.extra.effects.clear();
+    game.res.config.practice.ranges = true;
+    game.res.config.judge_grading.detailed = true;
+    game.res.windows = game.res.config.judge_windows();
+    for (w, h, ratio) in [(960, 720, "4x3"), (1280, 720, "16x9"), (1280, 548, "21x9")] {
+        game.practice_scroll_to(0.);
+        let mut ui = Ui::new(painter, Some((0, 0, w, h)));
+        game.render(&mut tm, &mut ui).unwrap();
+        unsafe { get_internal_gl() }.flush();
+        let mut bytes = vec![0; (w * h * 4) as usize];
+        unsafe {
+            use miniquad::gl::*;
+            glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
+            assert_eq!(glGetError(), 0);
+        }
+        Image {
+            width: w as u16,
+            height: h as u16,
+            bytes,
+        }
+        .export_png(&format!("target/replay-qa/practice-advanced-{ratio}.png"));
+    }
+    game.practice_scroll_to(scroll);
+    click(&mut game, &mut tm, painter, "delete:0", &mut scroll);
+    let library: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(std::path::PathBuf::from(crate::dir::root().unwrap()).join("practice-bookmarks.json")).unwrap())
+            .unwrap();
+    assert!(library.as_object().unwrap().values().all(|list| list.as_array().unwrap().is_empty()), "bookmark deletion must persist");
+    input(&mut game, &mut tm, "practice_ramp_start", "0.50");
+    input(&mut game, &mut tm, "practice_ramp_step", "0.02");
+    click(&mut game, &mut tm, painter, "ramp", &mut scroll);
+    click(&mut game, &mut tm, painter, "practice_ramp", &mut scroll);
+    click(&mut game, &mut tm, painter, "judgement", &mut scroll);
+    click(&mut game, &mut tm, painter, "practice_inverse", &mut scroll);
+    assert!((tm.speed - 0.5).abs() < 1e-6);
+    tm.resume();
+    tm.seek_to(5.3);
+    game.update(&mut tm).unwrap();
+    assert!((tm.speed - 0.52).abs() < 1e-6);
+    assert!((game.res.config.speed - 0.52).abs() < 1e-6);
+    assert!((game.res.windows.perfect - normal_windows.perfect / 0.52).abs() < 1e-6);
     println!("Practice: combo input, Hold tail, auto-loop touch and three aspect ratios passed");
 }
 

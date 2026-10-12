@@ -1389,11 +1389,6 @@ struct ChartList {
     aspect_btn: DRectButton,
     /// 局内判定偏移条开关。
     offset_indicator_btn: DRectButton,
-    auto_retry_slider: Slider,
-    retry_lead_slider: Slider,
-    practice_ramp_btn: DRectButton,
-    practice_speed_slider: Slider,
-    practice_step_slider: Slider,
     hp_mode_btn: DRectButton,
     hp_amount_slider: Slider,
     hp_width_slider: Slider,
@@ -1427,11 +1422,6 @@ impl ChartList {
             custom_aspect_btn: DRectButton::new(),
             aspect_btn: DRectButton::new(),
             offset_indicator_btn: DRectButton::new(),
-            auto_retry_slider: Slider::new(0.0..10.0, 1.0),
-            retry_lead_slider: Slider::new(0.0..10.0, 0.5),
-            practice_ramp_btn: DRectButton::new(),
-            practice_speed_slider: Slider::new(0.3..1.0, 0.01),
-            practice_step_slider: Slider::new(0.01..0.5, 0.01),
             hp_mode_btn: DRectButton::new(),
             hp_amount_slider: Slider::new(0.2..3.0, 0.1),
             hp_width_slider: Slider::new(0.1..1.0, 0.01),
@@ -1517,25 +1507,6 @@ impl ChartList {
         }
         if let wt @ Some(_) = self.size_slider.touch(touch, t, &mut config.note_scale) {
             return Ok(wt);
-        }
-        if let wt @ Some(_) = self.auto_retry_slider.touch(touch, t, &mut config.auto_retry) {
-            return Ok(wt);
-        }
-        if let wt @ Some(_) = self.retry_lead_slider.touch(touch, t, &mut config.retry_lead) {
-            return Ok(wt);
-        }
-        // Phira Pro Flash（轻量版）：不提供变速练习。
-        if !cfg!(flash) {
-            if let wt @ Some(_) = self.practice_speed_slider.touch(touch, t, &mut config.practice_speed_start) {
-                return Ok(wt);
-            }
-            if let wt @ Some(_) = self.practice_step_slider.touch(touch, t, &mut config.practice_speed_step) {
-                return Ok(wt);
-            }
-            if self.practice_ramp_btn.touch(touch, t) {
-                config.practice_ramp ^= true;
-                return Ok(Some(true));
-            }
         }
         if !cfg!(flash) && self.judgement_btn.touch(touch, t) {
             self.next_page = Some(NextPage::Overlay(Box::new(JudgementPage::new())));
@@ -1711,29 +1682,6 @@ impl ChartList {
             render_title(ui, tl!("replays-settings"), Some(tl!("replays-settings-sub")));
             self.replays_btn.render_text(ui, rr, t, tl!("judgement-open"), 0.42, false);
         }
-        item! {
-            render_title(ui, tl!("item-auto-retry"), Some(tl!("item-auto-retry-sub")));
-            self.auto_retry_slider.render(ui, rr, t, config.auto_retry, format!("{}", config.auto_retry.round() as u32));
-        }
-        item! {
-            render_title(ui, tl!("item-retry-lead"), Some(tl!("item-retry-lead-sub")));
-            self.retry_lead_slider.render(ui, rr, t, config.retry_lead, format!("{:.1}s", config.retry_lead));
-        }
-        // Phira Pro Flash（轻量版）：不提供变速练习。
-        if !cfg!(flash) {
-            item! {
-                render_title(ui, tl!("item-practice-ramp"), Some(tl!("item-practice-ramp-sub")));
-                render_switch(ui, rr, t, &mut self.practice_ramp_btn, config.practice_ramp);
-            }
-            item! {
-                render_title(ui, tl!("item-practice-speed"), None);
-                self.practice_speed_slider.render(ui, rr, t, config.practice_speed_start, format!("{:.2}x", config.practice_speed_start));
-            }
-            item! {
-                render_title(ui, tl!("item-practice-step"), None);
-                self.practice_step_slider.render(ui, rr, t, config.practice_speed_step, format!("+{:.2}x", config.practice_speed_step));
-            }
-        }
         h += 0.04;
         item! {
             render_title(ui, tl!("item-hp-mode"), Some(tl!("item-hp-mode-sub")));
@@ -1793,6 +1741,8 @@ impl ChartList {
 }
 
 struct DebugList {
+    sections: [DRectButton; 3],
+    section_open: [bool; 3],
     #[cfg(target_os = "windows")]
     desktop_fps_btn: ChooseButton,
     #[cfg(target_os = "windows")]
@@ -1816,6 +1766,8 @@ struct DebugList {
 impl DebugList {
     pub fn new() -> Self {
         Self {
+            sections: std::array::from_fn(|_| DRectButton::new()),
+            section_open: [true; 3],
             #[cfg(target_os = "windows")]
             desktop_fps_btn: ChooseButton::new().with_compact_popup().with_options(Self::fps_options()).with_selected(
                 DESKTOP_FPS_LIMITS
@@ -1875,47 +1827,53 @@ impl DebugList {
     }
 
     pub fn touch(&mut self, touch: &Touch, t: f32) -> Result<Option<bool>> {
+        for (index, button) in self.sections.iter_mut().enumerate() {
+            if button.touch(touch, t) {
+                self.section_open[index] ^= true;
+                return Ok(Some(false));
+            }
+        }
         let data = get_data_mut();
         let config = &mut data.config;
         #[cfg(target_os = "windows")]
-        if self.desktop_fps_btn.touch(touch, t) {
+        if self.section_open[1] && self.desktop_fps_btn.touch(touch, t) {
             return Ok(Some(false));
         }
-        if self.chart_debug_btn.touch(touch, t) {
+        if self.section_open[0] && self.chart_debug_btn.touch(touch, t) {
             config.chart_debug ^= true;
             return Ok(Some(true));
         }
-        if self.chart_debug_line_btn.touch(touch, t) {
+        if self.section_open[0] && self.chart_debug_line_btn.touch(touch, t) {
             config.chart_debug_line ^= true;
             return Ok(Some(true));
         }
-        if self.chart_debug_note_btn.touch(touch, t) {
+        if self.section_open[0] && self.chart_debug_note_btn.touch(touch, t) {
             config.chart_debug_note ^= true;
             return Ok(Some(true));
         }
-        if self.fps_position_btn.touch(touch, t) {
+        if self.section_open[1] && self.fps_position_btn.touch(touch, t) {
             config.fps_position = (config.fps_position.min(5) + 1) % 6;
             prpr::ui::FPS_POSITION.store(config.fps_position as u32, Ordering::Relaxed);
             return Ok(Some(true));
         }
-        if self.show_fps_btn.touch(touch, t) {
+        if self.section_open[1] && self.show_fps_btn.touch(touch, t) {
             config.show_fps ^= true;
             // 帧率由 prpr 的全局覆盖层绘制，这里同步开关。
             prpr::ui::SHOW_FPS.store(config.show_fps, Ordering::Relaxed);
             return Ok(Some(true));
         }
         #[cfg(any(target_os = "android", target_os = "ios"))]
-        if self.refresh_rate_btn.touch(touch, t) {
+        if self.section_open[1] && self.refresh_rate_btn.touch(touch, t) {
             let selected = REFRESH_RATES.iter().position(|rate| *rate == config.preferred_refresh_rate).unwrap_or(0);
             config.preferred_refresh_rate = REFRESH_RATES[(selected + 1) % REFRESH_RATES.len()];
             crate::set_refresh_rate(config.preferred_refresh_rate)?;
             return Ok(Some(true));
         }
-        if self.touch_debug_btn.touch(touch, t) {
+        if self.section_open[2] && self.touch_debug_btn.touch(touch, t) {
             config.touch_debug ^= true;
             return Ok(Some(true));
         }
-        if self.touch_color_btn.touch(touch, t) {
+        if self.section_open[2] && self.touch_color_btn.touch(touch, t) {
             self.picker = Some(ColorPicker::new(
                 tl!("item-touch-color").into_owned(),
                 Some(config.touch_point_color),
@@ -1924,14 +1882,20 @@ impl DebugList {
             ));
             return Ok(Some(false));
         }
-        if self.touch_color_reset.touch(touch, t) {
+        if self.section_open[2] && self.touch_color_reset.touch(touch, t) {
             config.touch_point_color = prpr::config::Config::default().touch_point_color;
             return Ok(Some(true));
         }
-        if let wt @ Some(_) = self.touch_alpha_slider.touch(touch, t, &mut config.touch_point_alpha) {
+        if let wt @ Some(_) = self.section_open[2]
+            .then(|| self.touch_alpha_slider.touch(touch, t, &mut config.touch_point_alpha))
+            .flatten()
+        {
             return Ok(wt);
         }
-        if let wt @ Some(_) = self.touch_size_slider.touch(touch, t, &mut config.touch_point_size) {
+        if let wt @ Some(_) = self.section_open[2]
+            .then(|| self.touch_size_slider.touch(touch, t, &mut config.touch_point_size))
+            .flatten()
+        {
             return Ok(wt);
         }
         Ok(None)
@@ -1986,63 +1950,99 @@ impl DebugList {
 
         let data = get_data();
         let config = &data.config;
-        item! {
-            render_title(ui, tl!("item-chart-debug"), Some(tl!("item-chart-debug-sub")));
-            render_switch(ui, rr, t, &mut self.chart_debug_btn, config.chart_debug);
+        self.sections[0].render_text(
+            ui,
+            Rect::new(0.04, 0.005, w - 0.08, 0.085),
+            t,
+            format!("{}  {}", if self.section_open[0] { "−" } else { "+" }, tl!("practice-debug-display")),
+            0.4,
+            false,
+        );
+        ui.dy(0.11);
+        h += 0.11;
+        if self.section_open[0] {
+            item! {
+                render_title(ui, tl!("item-chart-debug"), Some(tl!("item-chart-debug-sub")));
+                render_switch(ui, rr, t, &mut self.chart_debug_btn, config.chart_debug);
+            }
+            item! {
+                render_title(ui, tl!("item-debug-line"), Some(tl!("item-debug-line-sub")));
+                render_switch(ui, rr, t, &mut self.chart_debug_line_btn, config.chart_debug_line);
+            }
+            item! {
+                render_title(ui, tl!("item-debug-note"), Some(tl!("item-debug-note-sub")));
+                render_switch(ui, rr, t, &mut self.chart_debug_note_btn, config.chart_debug_note);
+            }
         }
-        item! {
-            render_title(ui, tl!("item-debug-line"), Some(tl!("item-debug-line-sub")));
-            render_switch(ui, rr, t, &mut self.chart_debug_line_btn, config.chart_debug_line);
+        self.sections[1].render_text(
+            ui,
+            Rect::new(0.04, 0.005, w - 0.08, 0.085),
+            t,
+            format!("{}  {}", if self.section_open[1] { "−" } else { "+" }, tl!("practice-debug-performance")),
+            0.4,
+            false,
+        );
+        ui.dy(0.11);
+        h += 0.11;
+        if self.section_open[1] {
+            item! {
+                render_title(ui, tl!("item-show-fps"), Some(tl!("item-show-fps-sub")));
+                render_switch(ui, rr, t, &mut self.show_fps_btn, config.show_fps);
+            }
+            item! {
+                render_title(ui, tl!("item-fps-position"), None);
+                let names = ["fps-top-center", "fps-bottom-center", "fps-top-left", "fps-top-right", "fps-bottom-left", "fps-bottom-right"];
+                self.fps_position_btn.render_text(ui, rr, t, tl!(names[config.fps_position.min(5) as usize]), 0.4, false);
+            }
+            #[cfg(target_os = "windows")]
+            item! {
+                render_title(ui, tl!("item-desktop-fps"), Some(tl!("item-desktop-fps-sub")));
+                self.desktop_fps_btn.render(ui, rr, t);
+            }
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            item! {
+                let max_rate = f32::from_bits(prpr::ui::MAX_DEVICE_REFRESH_RATE.load(Ordering::Relaxed));
+                let subtitle: Cow<'_, str> = if max_rate.is_finite() && max_rate > 0.0 {
+                    Cow::Owned(tl!("item-refresh-rate-max", "rate" => format!("{max_rate:.0}")))
+                } else {
+                    tl!("item-refresh-rate-sub")
+                };
+                render_title(ui, tl!("item-refresh-rate"), Some(subtitle));
+                self.refresh_rate_btn.render_text(ui, rr, t, format!("{} Hz", config.preferred_refresh_rate), 0.5, false);
+            }
         }
-        item! {
-            render_title(ui, tl!("item-debug-note"), Some(tl!("item-debug-note-sub")));
-            render_switch(ui, rr, t, &mut self.chart_debug_note_btn, config.chart_debug_note);
-        }
-        item! {
-            render_title(ui, tl!("item-show-fps"), Some(tl!("item-show-fps-sub")));
-            render_switch(ui, rr, t, &mut self.show_fps_btn, config.show_fps);
-        }
-        item! {
-            render_title(ui, tl!("item-fps-position"), None);
-            let names = ["fps-top-center", "fps-bottom-center", "fps-top-left", "fps-top-right", "fps-bottom-left", "fps-bottom-right"];
-            self.fps_position_btn.render_text(ui, rr, t, tl!(names[config.fps_position.min(5) as usize]), 0.4, false);
-        }
-        #[cfg(target_os = "windows")]
-        item! {
-            render_title(ui, tl!("item-desktop-fps"), Some(tl!("item-desktop-fps-sub")));
-            self.desktop_fps_btn.render(ui, rr, t);
-        }
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        item! {
-            let max_rate = f32::from_bits(prpr::ui::MAX_DEVICE_REFRESH_RATE.load(Ordering::Relaxed));
-            let subtitle: Cow<'_, str> = if max_rate.is_finite() && max_rate > 0.0 {
-                Cow::Owned(tl!("item-refresh-rate-max", "rate" => format!("{max_rate:.0}")))
-            } else {
-                tl!("item-refresh-rate-sub")
-            };
-            render_title(ui, tl!("item-refresh-rate"), Some(subtitle));
-            self.refresh_rate_btn.render_text(ui, rr, t, format!("{} Hz", config.preferred_refresh_rate), 0.5, false);
-        }
-        item! {
-            render_title(ui, tl!("item-touch-debug"), Some(tl!("item-touch-debug-sub")));
-            render_switch(ui, rr, t, &mut self.touch_debug_btn, config.touch_debug);
-        }
-        item! {
-            render_title(ui, tl!("item-touch-color"), Some(tl!("item-touch-color-sub")));
-            let swatch = Rect::new(rr.x - 0.29, rr.y, 0.26, rr.h);
-            self.touch_color_btn.render_text(ui, swatch, t, format!("#{:06X}", config.touch_point_color), 0.36, false);
-            ui.fill_path(&Rect::new(swatch.x - 0.045, swatch.y + 0.025, 0.03, 0.05).rounded(0.005), Color::from_hex_rgb(config.touch_point_color));
-            self.touch_color_reset.render_text(ui, rr, t, tl!("color-reset"), 0.34, false);
-        }
-        item! {
-            render_title(ui, tl!("item-touch-alpha"), None);
-            self.touch_alpha_slider
-                .render(ui, rr, t, config.touch_point_alpha, format!("{:.2}", config.touch_point_alpha));
-        }
-        item! {
-            render_title(ui, tl!("item-touch-size"), None);
-            self.touch_size_slider
-                .render(ui, rr, t, config.touch_point_size, format!("{:.3}", config.touch_point_size));
+        self.sections[2].render_text(
+            ui,
+            Rect::new(0.04, 0.005, w - 0.08, 0.085),
+            t,
+            format!("{}  {}", if self.section_open[2] { "−" } else { "+" }, tl!("practice-debug-input")),
+            0.4,
+            false,
+        );
+        ui.dy(0.11);
+        h += 0.11;
+        if self.section_open[2] {
+            item! {
+                render_title(ui, tl!("item-touch-debug"), Some(tl!("item-touch-debug-sub")));
+                render_switch(ui, rr, t, &mut self.touch_debug_btn, config.touch_debug);
+            }
+            item! {
+                render_title(ui, tl!("item-touch-color"), Some(tl!("item-touch-color-sub")));
+                let swatch = Rect::new(rr.x - 0.29, rr.y, 0.26, rr.h);
+                self.touch_color_btn.render_text(ui, swatch, t, format!("#{:06X}", config.touch_point_color), 0.36, false);
+                ui.fill_path(&Rect::new(swatch.x - 0.045, swatch.y + 0.025, 0.03, 0.05).rounded(0.005), Color::from_hex_rgb(config.touch_point_color));
+                self.touch_color_reset.render_text(ui, rr, t, tl!("color-reset"), 0.34, false);
+            }
+            item! {
+                render_title(ui, tl!("item-touch-alpha"), None);
+                self.touch_alpha_slider
+                    .render(ui, rr, t, config.touch_point_alpha, format!("{:.2}", config.touch_point_alpha));
+            }
+            item! {
+                render_title(ui, tl!("item-touch-size"), None);
+                self.touch_size_slider
+                    .render(ui, rr, t, config.touch_point_size, format!("{:.3}", config.touch_point_size));
+            }
         }
         #[cfg(target_os = "windows")]
         self.desktop_fps_btn.render_top(ui, t, 1.);

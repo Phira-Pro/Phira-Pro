@@ -50,7 +50,7 @@ pub enum HitSound {
 
 impl HitSound {
     pub fn play(&self, res: &mut Resource) {
-        if res.config.has_mod(Mods::PERFECT_SOUND) {
+        if res.config.has_mod(Mods::PERFECT_SOUND) || (res.config.practice_active && res.config.practice.correct_sound) {
             return;
         }
         self.play_chart_cue(res);
@@ -1190,6 +1190,23 @@ pub fn take_wheel() -> (f32, f32) {
 }
 
 impl Judge {
+    /// A selected time segment may end before a Hold's natural judgement.
+    /// Count its outstanding result once instead of silently losing it.
+    pub fn finish_practice_round(&mut self, chart: &mut Chart, time: f64, tail_judge: bool) {
+        for (line_id, line) in chart.lines.iter_mut().enumerate() {
+            for (id, note) in line.notes.iter_mut().enumerate() {
+                if note.fake || note.time > time || matches!(note.judge, JudgeStatus::Judged) {
+                    continue;
+                }
+                let held = matches!(note.judge, JudgeStatus::Hold(..));
+                self.commit(time, Judgement::Miss, line_id as u32, id as u32, 0.);
+                if tail_judge && !held && matches!(note.kind, NoteKind::Hold { .. }) {
+                    self.commit(time, Judgement::Miss, line_id as u32, id as u32, 0.);
+                }
+                note.judge = JudgeStatus::Judged;
+            }
+        }
+    }
     #[cfg(not(closed))]
     pub fn replay_snapshot(&self) -> ReplayJudgeState {
         ReplayJudgeState(self.inner.clone())
@@ -1404,7 +1421,7 @@ impl Judge {
 
     pub fn update(&mut self, res: &mut Resource, chart: &mut Chart, bad_notes: &mut Vec<BadNote>) {
         chart.blocked_touches.clear();
-        if res.config.has_mod(Mods::PERFECT_SOUND) {
+        if res.config.has_mod(Mods::PERFECT_SOUND) && !res.config.practice_active {
             while let Some((time, sound)) = self.sound_schedule.get(self.sound_cursor) {
                 if *time > res.time {
                     break;
@@ -1556,6 +1573,17 @@ impl Judge {
             .collect();
         if res.config.judge_algorithm == JudgeAlgorithm::Phigros {
             touches.sort_by_key(|touch| (event_order.get(&touch.id).copied().unwrap_or(usize::MAX), touch.id));
+        }
+        if res.config.practice_active {
+            // Held touches stay in screen space. Transform the frame-local copy
+            // exactly once, before both zone infection and note matching.
+            let mut view = res.config.practice.view;
+            if res.config.flip_x() {
+                view.x = -view.x;
+            }
+            for touch in &mut touches {
+                touch.position = view.screen_to_chart(touch.position);
+            }
         }
         // Phigros 9th-chapter block areas: a touch that lands inside an active
         // zone (`enableTime <= t < disableTime`) is removed from the touch list,

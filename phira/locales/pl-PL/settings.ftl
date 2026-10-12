@@ -311,3 +311,7 @@ color-reset-all = Reset all
 color-invalid = Enter six hexadecimal digits, e.g. #12AB34
 color-rgb-invalid = Enter an integer from 0 to 255
 color-current-default = Current (default)
+
+practice-debug-display = Diagnostic display
+practice-debug-performance = Frame rate
+practice-debug-input = Touch visualization

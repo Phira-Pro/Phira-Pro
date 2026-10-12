@@ -201,10 +201,27 @@ impl Effect {
         let vp = get_viewport();
         self.material.set_uniform("UVScale", vec2(vp.2 as _, vp.3 as _) / screen_dim);
 
+        // The captured chart already contains the practice view transform.
+        // Postprocessing must cover the viewport once, rather than zoom/pan
+        // the captured image a second time. Keep the chart's model reflection.
+        let practice_view = !self.global && res.config.practice_active && res.config.practice.view.active();
+        if practice_view {
+            push_camera_state();
+            set_camera(&Camera2D {
+                zoom: vec2(1., -res.aspect_ratio),
+                viewport: Some(vp),
+                render_target: Some(target.output()),
+                ..Default::default()
+            });
+        }
         gl_use_material(self.material);
         let top = 1. / if self.global { screen_aspect() } else { res.aspect_ratio };
         draw_rectangle(-1., -top, 2., top * 2., WHITE);
         gl_use_default_material();
+        if practice_view {
+            gl.flush();
+            pop_camera_state();
+        }
     }
 }
 

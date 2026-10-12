@@ -423,3 +423,7 @@ color-reset-all = 恢复全部默认
 color-invalid = 请输入有效的六位颜色值，例如 #12AB34
 color-rgb-invalid = 请输入 0～255 的整数
 color-current-default = 当前（默认）
+
+practice-debug-display = 调试显示
+practice-debug-performance = 帧率设置
+practice-debug-input = 触点可视化

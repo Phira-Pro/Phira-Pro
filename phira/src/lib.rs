@@ -405,6 +405,7 @@ async fn the_main() -> Result<()> {
     data.init().await?;
     set_data(data);
     plugins::init();
+    prpr::practice::set_storage(std::path::PathBuf::from(&dir).join("practice-bookmarks.json"));
     #[cfg(any(target_os = "android", target_os = "ios"))]
     set_refresh_rate(get_data().config.preferred_refresh_rate)?;
     startup::stage("network clients");
@@ -582,6 +583,9 @@ async fn the_main() -> Result<()> {
             if let Some(delta) = prpr::config::take_offset_delta() {
                 let config = &mut get_data_mut().config;
                 config.offset = (config.offset + delta).clamp(-0.5, 0.5);
+                save_data()?;
+            }
+            if prpr::practice::take_preferences(&mut get_data_mut().config) {
                 save_data()?;
             }
             let render_start = frame_profile.as_ref().map(|_| std::time::Instant::now());

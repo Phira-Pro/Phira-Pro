@@ -32,7 +32,10 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 - **自动重试**：失败后自动重开本局，可设置次数（0 为关闭）。
 - **续练提前量**：重开时从失败前若干秒处开始，而不是从头开始。
 - **变速练习**：练习时每完成一圈自动提速，可设置起始速度与每圈增幅；倍速、流速和提速步长精细到 0.01x。
-- **分段练习**：按时间或起止 combo 指定区间，同刻双押一起练、保留 Hold 尾部；支持自动循环和上一圈准度。
+- **分段练习**：按时间或起止 Combo 指定区间，同刻双押一起练、保留 Hold 尾部；时间轴可定位，支持自动循环。起始速度、每轮增速、失败重试次数与回退时长统一放在练习面板。
+- **音频辅助与练习判定**：变速不变调、按音频时钟播放正解音、临时判定区间倍率及速度反向联动；不修改保存的判定预设。
+- **谱面揭秘与音符行为**：缩放／平移谱面视角并同步触点坐标；临时转换为 Tap、Drag 或 Flick，随时恢复原谱。判定范围可按音符类型和透明度显示。
+- **片段书签与多轮统计**：按谱面保存命名片段及练习参数；记录每轮速度、准度、判定数和最佳准度。详见 [build 59 说明](docs/development/pro-14-build-59.md)。
 
 ### 血条
 
@@ -100,4 +103,5 @@ Windows、Linux、macOS 在各自系统上使用 `python scripts/build.py --pack
 本项目以 **GNU GPL-3.0** 授权（与上游一致），见 [LICENSE](LICENSE)。
 
 - 基于 [TeamFlos/Phira](https://github.com/TeamFlos/phira) 开发，感谢 Phira 及其贡献者；
+- 特别感谢 [Phira Mod++](https://github.com/YiyiMo-git/Phira-Mod-New) 与 [Phira ad](https://github.com/Adai-add/PhiraiAd) 的功能探索及公开资料；
 - 内置字体 HarmonyOS Sans。

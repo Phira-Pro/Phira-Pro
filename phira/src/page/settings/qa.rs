@@ -39,7 +39,7 @@ fn render_debug(list: &mut DebugList, ui: &mut Ui, t: f32) {
     clear_background(Color::new(0.10, 0.13, 0.18, 1.));
     ui.scope(|ui| {
         ui.dx(-0.8);
-        ui.dy(-item_row_h() * 5. - 0.15);
+        ui.dy(if list.section_open == [false, false, true] { -0.3 } else { -0.4 });
         list.render(ui, Rect::new(0., 0., 1.6, 5.), t);
     });
 }
@@ -50,6 +50,7 @@ pub(super) fn render_regression(painter: &mut TextPainter) {
     for (w, h, ratio) in [(960, 720, "4x3"), (1280, 720, "16x9"), (1280, 548, "21x9")] {
         get_data_mut().config.desktop_fps_limit = 0;
         let mut debug = DebugList::new();
+        debug.section_open = [false, true, false];
         let mut ui = Ui::new(painter, Some((0, 0, w, h)));
         render_debug(&mut debug, &mut ui, 2.);
         let p = center(debug.desktop_fps_btn.control_for_test());
@@ -94,6 +95,8 @@ pub(super) fn render_regression(painter: &mut TextPainter) {
         debug.update(2.7).unwrap();
         assert_eq!(debug.desktop_fps_btn.selected(), 0);
 
+        debug.section_open = [false, false, true];
+        render_debug(&mut debug, &mut ui, 3.);
         let original = get_data().config.touch_point_color;
         let alpha = get_data().config.touch_point_alpha;
         let size = get_data().config.touch_point_size;

@@ -641,6 +641,13 @@ impl Resource {
         true
     }
 
+    pub(crate) fn refresh_chart_render_policy(&mut self, policy: super::render_lifetime::Policy) {
+        if self.chart_render_policy != policy {
+            self.chart_render_policy = policy;
+            self.last_vp = (-1, -1, -1, -1);
+        }
+    }
+
     pub fn world_to_screen(&self, pt: Point) -> Point {
         self.model_stack.last().unwrap().transform_point(&pt)
     }

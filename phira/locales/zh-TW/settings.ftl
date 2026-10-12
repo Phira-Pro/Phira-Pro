@@ -332,3 +332,7 @@ color-reset-all = 恢復全部預設
 color-invalid = 請輸入有效的六位顏色值，例如 #12AB34
 color-rgb-invalid = 請輸入 0～255 的整數
 color-current-default = 目前（預設）
+
+practice-debug-display = 除錯顯示
+practice-debug-performance = 幀率設定
+practice-debug-input = 觸點視覺化

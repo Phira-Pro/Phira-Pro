@@ -15,13 +15,11 @@ impl BlockAudio {
         *self = Self::default();
     }
 
-    pub(crate) fn sync(&mut self, music: &mut sasa::Music, touching: bool) {
-        self.sync_with(touching, |cutoff, seconds| {
-            music.try_set_low_pass_filter(cutoff, std::f32::consts::FRAC_1_SQRT_2, seconds)
-        });
+    pub(crate) fn sync(&mut self, music: &mut crate::practice::audio::Player, touching: bool) {
+        self.sync_with(touching, |cutoff, seconds| music.try_set_low_pass_filter(cutoff, std::f32::consts::FRAC_1_SQRT_2, seconds));
     }
 
-    pub(crate) fn suspend(&mut self, music: &mut sasa::Music) {
+    pub(crate) fn suspend(&mut self, music: &mut crate::practice::audio::Player) {
         if self.used {
             self.reset();
         }

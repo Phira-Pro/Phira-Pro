@@ -99,10 +99,22 @@ fn draw_tex(res: &Resource, texture: Texture2D, order: i8, x: f32, y: f32, color
 }
 fn draw_tex_pts(res: &Resource, texture: Texture2D, order: i8, p: [Point; 4], color: Color, params: DrawTextureParams) {
     let mut p = p.map(|it| res.world_to_screen(it));
-    if p[0].x.min(p[1].x.min(p[2].x.min(p[3].x))) > 1.
-        || p[0].x.max(p[1].x.max(p[2].x.max(p[3].x))) < -1.
-        || p[0].y.min(p[1].y.min(p[2].y.min(p[3].y))) > 1.
-        || p[0].y.max(p[1].y.max(p[2].y.max(p[3].y))) < -1.
+    let visible = p.map(|point| {
+        if res.config.practice_active {
+            let ui = res
+                .config
+                .practice
+                .view
+                .chart_to_screen(vec2(if res.config.flip_x() { -point.x } else { point.x }, -point.y));
+            Point::new(ui.x, ui.y)
+        } else {
+            point
+        }
+    });
+    if visible[0].x.min(visible[1].x.min(visible[2].x.min(visible[3].x))) > 1.
+        || visible[0].x.max(visible[1].x.max(visible[2].x.max(visible[3].x))) < -1.
+        || visible[0].y.min(visible[1].y.min(visible[2].y.min(visible[3].y))) > 1.
+        || visible[0].y.max(visible[1].y.max(visible[2].y.max(visible[3].y))) < -1.
     {
         return;
     }

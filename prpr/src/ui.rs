@@ -730,6 +730,16 @@ pub struct Ui<'a> {
     pub alpha: f32,
 }
 
+// Scissor coordinates are relative to the active framebuffer, whose height
+// can differ from the window (chart postprocess targets and scene previews).
+fn render_surface_height() -> f32 {
+    let gl = unsafe { get_internal_gl() };
+    gl.quad_gl
+        .get_active_render_pass()
+        .map(|pass| pass.texture(gl.quad_context).height as f32)
+        .unwrap_or_else(screen_height)
+}
+
 struct UiScratch {
     vertex_buffers: VertexBuffers<Vertex, u16>,
     fill_tess: FillTessellator,
@@ -927,6 +937,7 @@ impl<'a> Ui<'a> {
             return true;
         }
         let vp = get_viewport();
+        let surface_height = render_surface_height();
         let mut min = vec2(f32::INFINITY, f32::INFINITY);
         let mut max = vec2(f32::NEG_INFINITY, f32::NEG_INFINITY);
         for (x, y) in [
@@ -937,11 +948,11 @@ impl<'a> Ui<'a> {
         ] {
             let p = self.to_global((x, y));
             let p =
-                vec2(vp.0 as f32 + (p.0 + 1.) * vp.2 as f32 * 0.5, screen_height() - (vp.1 + vp.3) as f32 + (p.1 * vp.2 as f32 + vp.3 as f32) * 0.5);
+                vec2(vp.0 as f32 + (p.0 + 1.) * vp.2 as f32 * 0.5, surface_height - (vp.1 + vp.3) as f32 + (p.1 * vp.2 as f32 + vp.3 as f32) * 0.5);
             min = min.min(p);
             max = max.max(p);
         }
-        let (x, y, w, h) = self.scissor.unwrap_or((vp.0, screen_height() as i32 - vp.1 - vp.3, vp.2, vp.3));
+        let (x, y, w, h) = self.scissor.unwrap_or((vp.0, surface_height as i32 - vp.1 - vp.3, vp.2, vp.3));
         max.x >= x as f32 - 2. && max.y >= y as f32 - 2. && min.x <= (x + w) as f32 + 2. && min.y <= (y + h) as f32 + 2.
     }
 
@@ -1027,13 +1038,14 @@ impl<'a> Ui<'a> {
     }
 
     pub fn scissor<R>(&mut self, rect: Rect, f: impl FnOnce(&mut Ui) -> R) -> R {
+        let surface_height = render_surface_height();
         let igl = unsafe { get_internal_gl() };
         let gl = igl.quad_gl;
         let rect = self.rect_to_global(rect);
         let vp = get_viewport();
         let pt = (
             vp.0 as f32 + (rect.x + 1.) / 2. * vp.2 as f32,
-            (screen_height() - (vp.1 + vp.3) as f32) + (rect.y * vp.2 as f32 / vp.3 as f32 + 1.) / 2. * vp.3 as f32,
+            (surface_height - (vp.1 + vp.3) as f32) + (rect.y * vp.2 as f32 / vp.3 as f32 + 1.) / 2. * vp.3 as f32,
         );
 
         let old = self.scissor;

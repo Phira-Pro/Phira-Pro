@@ -234,6 +234,12 @@ pub struct Config {
     pub retry_lead: f32,
     /// 变速练习：练习模式每完成一圈就提速一档。
     pub practice_ramp: bool,
+    #[serde(default)]
+    pub practice: crate::practice::Options,
+    #[serde(skip)]
+    pub practice_active: bool,
+    #[serde(skip)]
+    pub practice_multiplier: f64,
     /// 变速练习的起始速度。
     pub practice_speed_start: f32,
     /// 变速练习每圈提升的速度。
@@ -403,6 +409,9 @@ impl Default for Config {
             auto_retry: 0.,
             retry_lead: 0.,
             practice_ramp: false,
+            practice: Default::default(),
+            practice_active: false,
+            practice_multiplier: 1.,
             practice_speed_start: 0.7,
             practice_speed_step: 0.1,
             interactive: true,
@@ -590,6 +599,23 @@ impl Config {
             ext[0] = ext[0].clamp(base[1], base[2]);
             ext[1] = ext[1].clamp(base[2], base[3]);
             ext[2] = ext[2].clamp(ext[1], base[3]);
+        }
+        if self.practice_active {
+            let multiplier = if self.practice_multiplier.is_finite() {
+                self.practice_multiplier.clamp(0.1, 10.)
+            } else {
+                1.
+            };
+            for side in [&mut windows.early, &mut windows.late] {
+                for value in side {
+                    *value *= multiplier;
+                }
+            }
+            for side in [&mut windows.extended_early, &mut windows.extended_late] {
+                for value in side {
+                    *value *= multiplier;
+                }
+            }
         }
         windows.refresh_maxima();
         windows

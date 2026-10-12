@@ -80,6 +80,10 @@ item-show-fps-sub = Hiện FPS hiện tại ở góc dưới bên trái
 item-touch-debug = Hiển thị điểm chạm
 item-touch-debug-sub = Hiển thị điểm chạm khi bạn chạm vào màn hình
 load-cali-failed = Không thể tải âm thanh hiệu chỉnh
+item-refresh-rate = Tần số quét
+item-refresh-rate-sub = Chọn tần số quét màn hình mong muốn
+item-refresh-rate-max = Tối đa: { $rate } Hz
+
 about-content =
     Phira Pro v{ $version }
 

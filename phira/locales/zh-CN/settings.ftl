@@ -110,6 +110,10 @@ reset-settings-confirm = 确定
 
 load-cali-failed = 加载音频失败
 
+item-refresh-rate = 刷新率
+item-refresh-rate-sub = 选择目标刷新率
+item-refresh-rate-max = 设备最高：{ $rate } Hz
+
 about-content =
   Phira Pro v{ $version }
 

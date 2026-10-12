@@ -81,6 +81,10 @@ item-show-fps-sub = Показывать текущий FPS в левом ниж
 item-touch-debug = Отладка касаний
 item-touch-debug-sub = Точки нажатия отображаются
 load-cali-failed = Ошибка загрузки аудио
+item-refresh-rate = Частота обновления
+item-refresh-rate-sub = Выберите желаемую частоту обновления экрана
+item-refresh-rate-max = Макс.: { $rate } Гц
+
 about-content =
     Phira Pro v{ $version }
 

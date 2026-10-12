@@ -75,6 +75,10 @@ item-touch-debug-sub = Irá exibir toques na tela
 
 load-cali-failed = Falha ao carregar áudio
 
+item-refresh-rate = Taxa de atualização
+item-refresh-rate-sub = Escolha a taxa de atualização desejada
+item-refresh-rate-max = Máx.: { $rate } Hz
+
 about-content =
   Phira Pro v{ $version }
 

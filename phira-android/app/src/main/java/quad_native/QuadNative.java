@@ -53,6 +53,8 @@ public abstract class QuadNative {
 
     public static native void setDpi(int dpi);
 
+    public static native void setMaxRefreshRate(float refreshRate);
+
     /** @param file 可直接读取的本地路径 */
     public static native void setChosenFile(String file);
 

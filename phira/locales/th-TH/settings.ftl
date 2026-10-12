@@ -80,6 +80,10 @@ item-show-fps-sub = แสดง FPS ปัจจุบันที่มุม�
 item-touch-debug = Touch debug mode
 item-touch-debug-sub = แสดงจุดที่สัมผัส
 load-cali-failed = ไม่สามารถโหลดเสียงได้
+item-refresh-rate = อัตรารีเฟรชหน้าจอ
+item-refresh-rate-sub = เลือกอัตรารีเฟรชหน้าจอที่ต้องการ
+item-refresh-rate-max = สูงสุด: { $rate } Hz
+
 about-content =
     Phira Pro v{ $version }
 

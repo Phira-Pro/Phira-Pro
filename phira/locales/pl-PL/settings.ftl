@@ -67,6 +67,10 @@ item-show-fps = Pokaż FPS
 item-show-fps-sub = Pokazuj aktualny FPS w lewym dolnym rogu
 item-touch-debug-sub = Pokazuje dotknięcia
 
+item-refresh-rate = Częstotliwość odświeżania
+item-refresh-rate-sub = Wybierz żądaną częstotliwość odświeżania ekranu
+item-refresh-rate-max = Maks.: { $rate } Hz
+
 about-content =
   Phira Pro v{ $version }
 

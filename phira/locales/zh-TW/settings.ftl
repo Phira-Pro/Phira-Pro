@@ -88,6 +88,10 @@ item-show-fps-sub = 在左下角顯示目前幀率
 item-touch-debug = 觸摸除錯
 item-touch-debug-sub = 遊玩過程中顯示觸摸點
 load-cali-failed = 載入音訊失敗
+item-refresh-rate = 更新率
+item-refresh-rate-sub = 選擇目標更新率
+item-refresh-rate-max = 裝置最高：{ $rate } Hz
+
 about-content =
     Phira Pro v{ $version }
 

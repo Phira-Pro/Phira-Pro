@@ -70,6 +70,21 @@ static DATA_PATH: Mutex<Option<String>> = Mutex::new(None);
 static CACHE_DIR: Mutex<Option<String>> = Mutex::new(None);
 pub static mut DATA: Option<Data> = None;
 
+#[cfg(target_os = "android")]
+pub(crate) fn set_android_refresh_rate(refresh_rate: u16) -> Result<()> {
+    use anyhow::Context;
+    use jni::{jni_sig, objects::JObject, vm::JavaVM};
+
+    JavaVM::singleton()
+        .context("Android Java VM is unavailable")?
+        .attach_current_thread(|env| -> jni::errors::Result<()> {
+            let activity = unsafe { JObject::from_raw(env, ndk_context::android_context().context() as _) };
+            env.call_method(activity, "setRequestedFrameRate", jni_sig!("(I)V"), &[i32::from(refresh_rate).into()])?;
+            Ok(())
+        })
+        .map_err(anyhow::Error::from)
+}
+
 #[cfg(target_env = "ohos")]
 use napi_derive_ohos::napi;
 
@@ -377,6 +392,8 @@ async fn the_main() -> Result<()> {
         .unwrap_or_default();
     data.init().await?;
     set_data(data);
+    #[cfg(target_os = "android")]
+    set_android_refresh_rate(get_data().config.preferred_refresh_rate)?;
     startup::stage("network clients");
     sync_data();
     save_data()?;
@@ -745,6 +762,18 @@ pub extern "C" fn Java_quad_1native_QuadNative_setTempDir(mut env: EnvUnowned, _
 #[no_mangle]
 pub extern "C" fn Java_quad_1native_QuadNative_setDpi(_env: EnvUnowned, _class: JClass, dpi: jint) {
     prpr::core::DPI_VALUE.store(dpi as _, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn Java_quad_1native_QuadNative_setMaxRefreshRate(
+    _env: EnvUnowned,
+    _class: JClass,
+    refresh_rate: jni::sys::jfloat,
+) {
+    if refresh_rate.is_finite() && refresh_rate > 0.0 {
+        prpr::ui::MAX_DEVICE_REFRESH_RATE.store(refresh_rate.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 #[cfg(target_os = "android")]

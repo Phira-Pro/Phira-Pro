@@ -75,6 +75,10 @@ item-touch-debug-sub = Dokunulan noktaları göster.
 
 load-cali-failed = Ses yüklenemedi
 
+item-refresh-rate = Ekran yenileme hızı
+item-refresh-rate-sub = İstenen ekran yenileme hızını seçin
+item-refresh-rate-max = Maks.: { $rate } Hz
+
 about-content =
   Phira Pro v{ $version }
 

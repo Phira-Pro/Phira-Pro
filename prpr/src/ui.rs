@@ -75,6 +75,8 @@ pub static UI_SURFACE: AtomicU32 = AtomicU32::new(0x2a323c);
 pub static CURRENT_FPS: AtomicU32 = AtomicU32::new(0);
 /// 是否在左下角显示帧率数字（由配置同步）。
 pub static SHOW_FPS: AtomicBool = AtomicBool::new(false);
+/// Android display's highest supported refresh rate, stored as `f32::to_bits`.
+pub static MAX_DEVICE_REFRESH_RATE: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Default, Clone, Copy)]
 pub struct Gravity(u8);

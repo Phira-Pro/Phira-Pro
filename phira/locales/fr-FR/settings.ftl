@@ -88,6 +88,10 @@ item-touch-debug-sub = Afficher les points de contact
 
 load-cali-failed = Échec du chargement de l'audio
 
+item-refresh-rate = Fréquence de rafraîchissement
+item-refresh-rate-sub = Choisir la fréquence d’affichage souhaitée
+item-refresh-rate-max = Max. : { $rate } Hz
+
 about-content =
   Phira Pro v{ $version }
 

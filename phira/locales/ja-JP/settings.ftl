@@ -72,6 +72,10 @@ item-touch-debug-sub = タップした点を表示します
 
 load-cali-failed = オーディオの読み込みに失敗しました
 
+item-refresh-rate = リフレッシュレート
+item-refresh-rate-sub = 希望する画面のリフレッシュレートを選択
+item-refresh-rate-max = 最大：{ $rate } Hz
+
 about-content =
   Phira Pro v{ $version }
 

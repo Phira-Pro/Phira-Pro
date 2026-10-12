@@ -110,6 +110,10 @@ reset-settings-confirm = Confirm
 
 load-cali-failed = Failed to load calibration audio.
 
+item-refresh-rate = Refresh Rate
+item-refresh-rate-sub = Choose the requested display refresh rate
+item-refresh-rate-max = Max: { $rate } Hz
+
 about-content =
   Phira Pro v{ $version }
 

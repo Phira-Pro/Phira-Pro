@@ -66,6 +66,10 @@ item-show-fps-sub = Зүүн доод буланд одоогийн FPS-ийг �
 item-touch-debug = Хүрэхийн дибаг горим
 item-touch-debug-sub = Хүрэлцэх цэгүүдийг харуулна
 load-cali-failed = Дууг ачаалахад амжилтгүй боллоо
+item-refresh-rate = Дэлгэцийн сэргээх хурд
+item-refresh-rate-sub = Хүссэн дэлгэцийн сэргээх хурдыг сонгоно
+item-refresh-rate-max = Дээд: { $rate } Hz
+
 about-content =
      Phira Pro v{ $version }
 

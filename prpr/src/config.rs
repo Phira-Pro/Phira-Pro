@@ -222,6 +222,8 @@ pub struct Config {
     pub ui_surface: String,
     /// 是否在左下角显示当前帧率数字。
     pub show_fps: bool,
+    /// Android requested display refresh rate, in Hz.
+    pub preferred_refresh_rate: u16,
     /// 失败后自动重试的次数上限（0 表示关闭）。
     pub auto_retry: f32,
     /// 自动重试/续练的提前量（秒）：从「失败时刻 − 提前量」处重开，0 表示从头开始。
@@ -366,6 +368,7 @@ impl Default for Config {
             ui_accent: "2196f3".to_owned(),
             ui_surface: "2a323c".to_owned(),
             show_fps: false,
+            preferred_refresh_rate: 120,
             auto_retry: 0.,
             retry_lead: 0.,
             practice_ramp: false,
@@ -786,6 +789,19 @@ mod tests {
         assert!((w.perfect - 0.08).abs() < 1e-12);
         assert!((w.good - 0.16).abs() < 1e-12);
         assert!((w.bad - 0.22).abs() < 1e-12);
+    }
+
+    #[test]
+    fn preferred_refresh_rate_persists_and_defaults_for_legacy_config() {
+        let mut conf = Config::default();
+        assert_eq!(conf.preferred_refresh_rate, 120);
+        conf.preferred_refresh_rate = 240;
+
+        let mut saved = serde_json::to_value(conf).unwrap();
+        assert_eq!(saved["preferredRefreshRate"], 240);
+        saved.as_object_mut().unwrap().remove("preferredRefreshRate");
+        let restored: Config = serde_json::from_value(saved).unwrap();
+        assert_eq!(restored.preferred_refresh_rate, 120);
     }
 
     /// 严格判定 Mod 在各档基础上整体减半。

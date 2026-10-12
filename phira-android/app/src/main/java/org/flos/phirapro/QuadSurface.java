@@ -55,7 +55,9 @@ public class QuadSurface extends SurfaceView
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
-        QuadNative.surfaceOnSurfaceCreated(holder.getSurface());
+        Surface surface = holder.getSurface();
+        QuadNative.surfaceOnSurfaceCreated(surface);
+        applyFrameRate(surface);
     }
 
     @Override

@@ -80,6 +80,10 @@ item-show-fps-sub = Aktuelle Bildrate unten links anzeigen
 item-touch-debug = Berührungspunkte anzeigen
 item-touch-debug-sub = Zeigt die Nutzer-Touchpunkte an
 load-cali-failed = Kalibrierungs-Audio konnte nicht geladen werden
+item-refresh-rate = Bildwiederholrate
+item-refresh-rate-sub = Gewünschte Bildwiederholrate auswählen
+item-refresh-rate-max = Max.: { $rate } Hz
+
 about-content =
     Phira Pro v{ $version }
 

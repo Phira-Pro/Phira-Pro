@@ -70,6 +70,10 @@ item-note-size = Ukuran note
 
 load-cali-failed = Gagal memuat audio
 
+item-refresh-rate = Refresh rate
+item-refresh-rate-sub = Pilih refresh rate layar yang diinginkan
+item-refresh-rate-max = Maks.: { $rate } Hz
+
 about-content =
   Phira Pro v{ $version }
 

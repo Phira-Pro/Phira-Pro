@@ -83,6 +83,10 @@ item-touch-debug-sub = 터치 지점 표시
 
 load-cali-failed = 오디오를 로드하는데 실패했습니다.
 
+item-refresh-rate = 화면 주사율
+item-refresh-rate-sub = 원하는 화면 주사율 선택
+item-refresh-rate-max = 최대: { $rate } Hz
+
 about-content =
   Phira Pro v{ $version }
 

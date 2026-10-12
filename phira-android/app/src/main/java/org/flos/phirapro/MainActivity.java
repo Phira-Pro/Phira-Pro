@@ -27,7 +27,7 @@ import quad_native.QuadNative;
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "PhiraPro";
-    private static final float MAX_GAME_REFRESH_RATE = 120f;
+    private static final int[] SUPPORTED_GAME_REFRESH_RATES = {60, 120, 144, 165, 185, 200, 240};
 
     private static final int REQ_CHOOSE_FILE = 1001;
     private static final int REQ_CHOOSE_PHOTO = 1002;
@@ -35,13 +35,14 @@ public class MainActivity extends AppCompatActivity {
 
     private QuadSurface view;
     private DisplayManager displayManager;
-    private float requestedFrameRate = 60f;
+    private float requestedFrameRate = 120f;
+    private float reportedMaxRefreshRate;
     private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
         @Override public void onDisplayAdded(int displayId) {}
         @Override public void onDisplayRemoved(int displayId) {}
         @Override public void onDisplayChanged(int displayId) {
             if (displayId == getWindowManager().getDefaultDisplay().getDisplayId()) {
-                requestHighRefreshRate();
+                applyRequestedFrameRate();
             }
         }
     };
@@ -59,7 +60,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(view);
         displayManager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
         displayManager.registerDisplayListener(displayListener, new Handler(getMainLooper()));
-        requestHighRefreshRate();
+        applyRequestedFrameRate();
 
         WindowInsetsControllerCompat insets = WindowCompat.getInsetsController(getWindow(), view);
         insets.hide(WindowInsetsCompat.Type.statusBars());
@@ -82,7 +83,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         enforceLandscape();
-        requestHighRefreshRate();
+        applyRequestedFrameRate();
         Log.i(TAG, "Activity onResume");
         QuadNative.activityOnResume();
         QuadNative.prprActivityOnResume();
@@ -115,36 +116,73 @@ public class MainActivity extends AppCompatActivity {
         QuadNative.prprActivityOnDestroy();
     }
 
-    private void requestHighRefreshRate() {
+    public void setRequestedFrameRate(int frameRate) {
+        boolean supported = false;
+        for (int rate : SUPPORTED_GAME_REFRESH_RATES) {
+            supported |= frameRate == rate;
+        }
+        if (!supported) {
+            throw new IllegalArgumentException("Unsupported requested frame rate: " + frameRate);
+        }
+        runOnUiThread(() -> {
+            requestedFrameRate = frameRate;
+            applyRequestedFrameRate();
+        });
+    }
+
+    private void applyRequestedFrameRate() {
         Display display = getWindowManager().getDefaultDisplay();
-        float selectedRate = Math.min(display.getRefreshRate(), MAX_GAME_REFRESH_RATE);
+        float maxRefreshRate = display.getRefreshRate();
+        float selectedRate = -1f;
+        Display.Mode selectedMode = null;
         int selectedModeId = 0;
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Display.Mode selectedMode = display.getMode();
-            float bestRate = -1f;
+            Display.Mode currentMode = display.getMode();
+            Display.Mode lowestMode = null;
             for (Display.Mode mode : display.getSupportedModes()) {
-                if (mode.getPhysicalWidth() != selectedMode.getPhysicalWidth()
-                        || mode.getPhysicalHeight() != selectedMode.getPhysicalHeight()) {
+                float rate = mode.getRefreshRate();
+                maxRefreshRate = Math.max(maxRefreshRate, rate);
+                if (mode.getPhysicalWidth() != currentMode.getPhysicalWidth()
+                        || mode.getPhysicalHeight() != currentMode.getPhysicalHeight()) {
                     continue;
                 }
-                float rate = mode.getRefreshRate();
-                if (rate <= MAX_GAME_REFRESH_RATE && rate > bestRate) {
-                    selectedMode = mode;
-                    bestRate = rate;
+                if (lowestMode == null || rate < lowestMode.getRefreshRate()) {
+                    lowestMode = mode;
                 }
-            }
-            if (bestRate > 0f) selectedRate = bestRate;
-            selectedModeId = selectedMode.getModeId();
-        } else {
-            for (float rate : display.getSupportedRefreshRates()) {
-                if (rate <= MAX_GAME_REFRESH_RATE && rate > selectedRate) {
+                if (rate <= requestedFrameRate && rate > selectedRate) {
+                    selectedMode = mode;
                     selectedRate = rate;
                 }
             }
+            if (selectedMode == null) {
+                selectedMode = lowestMode;
+                if (selectedMode != null) selectedRate = selectedMode.getRefreshRate();
+            }
+            if (selectedMode == null) {
+                selectedMode = currentMode;
+                selectedRate = currentMode.getRefreshRate();
+            }
+            selectedModeId = selectedMode.getModeId();
+        } else {
+            for (float rate : display.getSupportedRefreshRates()) {
+                maxRefreshRate = Math.max(maxRefreshRate, rate);
+                if (rate <= requestedFrameRate && rate > selectedRate) {
+                    selectedRate = rate;
+                }
+            }
+            if (selectedRate < 0f) {
+                for (float rate : display.getSupportedRefreshRates()) {
+                    if (selectedRate < 0f || rate < selectedRate) selectedRate = rate;
+                }
+            }
+            if (selectedRate < 0f) selectedRate = display.getRefreshRate();
         }
 
-        requestedFrameRate = selectedRate;
+        if (Math.abs(reportedMaxRefreshRate - maxRefreshRate) > 0.01f) {
+            reportedMaxRefreshRate = maxRefreshRate;
+            QuadNative.setMaxRefreshRate(maxRefreshRate);
+        }
         Window window = getWindow();
         WindowManager.LayoutParams attributes = window.getAttributes();
         boolean changed = Math.abs(attributes.preferredRefreshRate - selectedRate) > 0.01f;
@@ -155,9 +193,9 @@ public class MainActivity extends AppCompatActivity {
         }
         if (changed) {
             window.setAttributes(attributes);
-            Log.i(TAG, "Requested display mode: " + selectedRate + " Hz");
+            Log.i(TAG, "Requested display mode: " + selectedRate + " Hz (target " + requestedFrameRate + " Hz)");
         }
-        if (view != null) view.setTargetFrameRate(requestedFrameRate);
+        if (view != null) view.setTargetFrameRate(selectedRate);
     }
 
     /** miniquad 回调。setDecorFitsSystemWindows 是 API 30 才有的，低版本走旧的 setSystemUiVisibility。 */

@@ -180,6 +180,8 @@ pub fn import(scan: &Scan, import_config: bool) -> Result<Imported> {
             }
             data.config = serde_json::from_value(cur)?;
             data.config.apply_ui_colors();
+            #[cfg(target_os = "android")]
+            crate::set_android_refresh_rate(data.config.preferred_refresh_rate)?;
         }
         out.config = true;
     }

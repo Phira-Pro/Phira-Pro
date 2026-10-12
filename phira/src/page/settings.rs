@@ -48,6 +48,8 @@ const UI_PRESETS: [(u32, u32); 6] = [
 ];
 /// 调试触点可选颜色（0xRRGGBB）。点一次循环切到下一个。
 const TOUCH_POINT_COLORS: [u32; 8] = [0xff3b30, 0x34c759, 0x0a84ff, 0xffd60a, 0xff2d55, 0x5ac8fa, 0xffffff, 0x8e8e93];
+#[cfg(target_os = "android")]
+const REFRESH_RATES: [u16; 7] = [60, 120, 144, 165, 185, 200, 240];
 
 /// 主题预设的显示名。
 fn ui_preset_name(i: usize) -> String {
@@ -484,6 +486,10 @@ fn reset_all_settings() {
         prpr::ui::SHOW_FPS.store(data.config.show_fps, Ordering::Relaxed);
         UI_SFX_VOLUME.store(data.config.volume_sfx.to_bits(), Ordering::Relaxed);
         data.config.apply_ui_colors();
+    }
+    #[cfg(target_os = "android")]
+    if let Err(err) = crate::set_android_refresh_rate(get_data().config.preferred_refresh_rate) {
+        show_error(err);
     }
     BGM_VOLUME_UPDATED.store(true, Ordering::Relaxed);
     sync_data();
@@ -1763,6 +1769,8 @@ struct DebugList {
     touch_alpha_slider: Slider,
     touch_size_slider: Slider,
     show_fps_btn: DRectButton,
+    #[cfg(target_os = "android")]
+    refresh_rate_btn: DRectButton,
 }
 
 impl DebugList {
@@ -1776,6 +1784,8 @@ impl DebugList {
             touch_alpha_slider: Slider::new(0.05..1.0, 0.05),
             touch_size_slider: Slider::new(0.01..0.15, 0.005),
             show_fps_btn: DRectButton::new(),
+            #[cfg(target_os = "android")]
+            refresh_rate_btn: DRectButton::new(),
         }
     }
 
@@ -1802,6 +1812,16 @@ impl DebugList {
             config.show_fps ^= true;
             // 左下角帧率由 prpr 的全局覆盖层绘制，这里同步开关。
             prpr::ui::SHOW_FPS.store(config.show_fps, Ordering::Relaxed);
+            return Ok(Some(true));
+        }
+        #[cfg(target_os = "android")]
+        if self.refresh_rate_btn.touch(touch, t) {
+            let selected = REFRESH_RATES
+                .iter()
+                .position(|rate| *rate == config.preferred_refresh_rate)
+                .unwrap_or(0);
+            config.preferred_refresh_rate = REFRESH_RATES[(selected + 1) % REFRESH_RATES.len()];
+            crate::set_android_refresh_rate(config.preferred_refresh_rate)?;
             return Ok(Some(true));
         }
         if self.touch_debug_btn.touch(touch, t) {
@@ -1855,6 +1875,17 @@ impl DebugList {
         item! {
             render_title(ui, tl!("item-show-fps"), Some(tl!("item-show-fps-sub")));
             render_switch(ui, rr, t, &mut self.show_fps_btn, config.show_fps);
+        }
+        #[cfg(target_os = "android")]
+        item! {
+            let max_rate = f32::from_bits(prpr::ui::MAX_DEVICE_REFRESH_RATE.load(Ordering::Relaxed));
+            let subtitle = if max_rate.is_finite() && max_rate > 0.0 {
+                tl!("item-refresh-rate-max", "rate" => format!("{max_rate:.0}"))
+            } else {
+                tl!("item-refresh-rate-sub")
+            };
+            render_title(ui, tl!("item-refresh-rate"), Some(subtitle));
+            self.refresh_rate_btn.render_text(ui, rr, t, format!("{} Hz", config.preferred_refresh_rate), 0.5, false);
         }
         item! {
             render_title(ui, tl!("item-touch-debug"), Some(tl!("item-touch-debug-sub")));

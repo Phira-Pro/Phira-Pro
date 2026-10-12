@@ -1,5 +1,7 @@
 //! UI utilities.
+mod fps;
 mod judgement_grid;
+pub use fps::draw_fps_overlay;
 pub use judgement_grid::{draw_judgement_grid, grade_cells, judgement_grid_area, judgement_grid_layout, judgement_panel_left, GradeLayout};
 
 /// The existing gameplay pause mark, sized to an icon rectangle.

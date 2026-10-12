@@ -299,3 +299,7 @@ plugins-settings-sub = Import, enable and configure plugins
 preset-colors = Judgement colors
 preset-colors-sub = Enter #RRGGBB; empty restores resource-pack colors
 preset-color-default = Resource pack
+
+item-desktop-fps = Frame rate limit
+item-desktop-fps-sub = Applies immediately; follows display refresh rate by default
+item-desktop-fps-auto = Follow display

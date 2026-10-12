@@ -411,3 +411,7 @@ plugins-settings-sub = 导入、启停和配置个性化插件
 preset-colors = 判定颜色
 preset-colors-sub = 输入 #RRGGBB，留空恢复资源包颜色
 preset-color-default = 资源包默认
+
+item-desktop-fps = 帧率上限
+item-desktop-fps-sub = 选择后立即生效；默认跟随屏幕刷新率
+item-desktop-fps-auto = 跟随屏幕

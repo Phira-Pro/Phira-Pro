@@ -555,6 +555,7 @@ fn production_panel_save_cancel_reload_and_aspects() {
             }
             println!("Production panel: add / save / reload / edit / cancel / rename / delete passed; rendered 16:9, 4:3, 21:9.");
             drop(ui);
+            super::super::qa::render_regression(&mut painter);
             crate::page::home::music_panel::render_regression(&mut painter).await;
             crate::menu_music::playback_regression().await;
             prpr::ui::cleanup_audio();

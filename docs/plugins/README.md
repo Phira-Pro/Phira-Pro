@@ -1,11 +1,11 @@
 # 插件开发说明（API 1）
 
 源码：`phira/src/plugins.rs`、`phira/src/page/plugins.rs`、`prpr/src/extensions.rs`。
-此版本运行 Rhai 1.26.1 脚本，Windows、Android 和 iOS 使用同一套接口。插件入口为「设置 → 谱面 → 插件管理」，支持导入、启停、编辑 JSON 设置、查看结果和删除。首次安装默认关闭；启用后打开谱面才产生谱面分析结果。
+此版本运行 Rhai 1.26.1 脚本，Windows、Android 和 iOS 使用同一套接口。插件入口为「设置 → 通用 → 插件管理」，支持导入、启停、编辑 JSON 设置、查看结果和删除。首次安装默认关闭；启用后打开谱面才产生谱面分析结果。
 
 ## 文件与安装
 
-`.ppp` 是 ZIP，根目录必须恰好包含两个 UTF-8 文件：`manifest.json`、`main.rhai`。禁止额外目录和文件。包不超过 2MiB，每个解压条目不超过 2MiB；安装数最多 64，插件库总大小最多 16MiB。同一 ID 更新时先删除旧版本，再导入新包（删除会清除该插件设置）。脚本和设置保存在用户数据目录的 `plugins/index.json`，不是原 ZIP。
+插件包使用普通 `.zip`，根目录必须恰好包含两个 UTF-8 文件：`manifest.json`、`main.rhai`。禁止额外目录和文件。包不超过 2MiB，每个解压条目不超过 2MiB；安装数最多 64，插件库总大小最多 16MiB。同一 ID 更新时先删除旧版本，再导入新包（删除会清除该插件设置）。脚本和设置保存在用户数据目录的 `plugins/index.json`，不是原 ZIP。
 
 Manifest 示例见 [density/manifest.json](examples/density/manifest.json)。必填 `api`（当前为 1）、`id`、`name`、`version`；可选 `author`、`description`、`permissions`、`settings`。ID 仅允许 ASCII 字母、数字、点、下划线、连字符，最多 80 字节；名称非空、最多 160 字节；版本最多 80 字节，说明最多 2048 字节。`settings` 必须是 JSON 对象；管理页编辑保存的设置上限为 16KiB。未知 API 或权限拒绝安装。声明权限不会获得文件或网络访问能力。
 
@@ -15,7 +15,7 @@ Manifest 示例见 [density/manifest.json](examples/density/manifest.json)。必
 from pathlib import Path
 from zipfile import ZipFile, ZIP_DEFLATED
 source = Path("docs/plugins/examples/density")
-with ZipFile("density.ppp", "w", ZIP_DEFLATED) as archive:
+with ZipFile("density.zip", "w", ZIP_DEFLATED) as archive:
     for name in ("manifest.json", "main.rhai"):
         archive.write(source / name, name)
 ```

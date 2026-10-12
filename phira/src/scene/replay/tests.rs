@@ -666,7 +666,7 @@ fn production_replay_transport_import_and_aspects() {
             let retried = replay::load(&replay::save_recording("retry", 123458).unwrap()).unwrap();
             assert_eq!(retried.judges.len(), 1);
             assert_eq!(retried.judges[0].note, 3);
-            let plugin_package = isolated.path().join("density.ppp");
+            let plugin_package = isolated.path().join("density.zip");
             let mut archive = zip::ZipWriter::new(std::fs::File::create(&plugin_package).unwrap());
             for (name, body) in [
                 ("manifest.json", include_str!("../../../../docs/plugins/examples/density/manifest.json")),

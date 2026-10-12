@@ -509,7 +509,7 @@ async fn the_main() -> Result<()> {
         prpr::frame_pacing::install();
         let profile_start = frame_profile.as_ref().map(|_| std::time::Instant::now());
         #[cfg(target_os = "windows")]
-        frame_pacer.wait();
+        frame_pacer.wait(get_data().config.desktop_fps_limit);
         let profile_work = frame_profile.as_ref().map(|_| std::time::Instant::now());
         // 处理积压的暂停 / 恢复消息（以最后一条为准）。日志保留：暂停 / 恢复一旦不成对，
         // 就会出现「画面卡死、切后台也救不回来」，需要靠日志定位。

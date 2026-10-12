@@ -11,7 +11,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows 压缩包或 Linux 压缩包或 Android arm64 APK。Windows 解压后运行 `phira-main.exe` (Linux为`phira-main`)；Android 安装 APK，更新时保留应用数据。
 
-已发布版本为 **0.8.2-pro.14**（build 55）；当前源码为同版本的 build 56，追加修复见 [build 56 说明](docs/development/pro-14-build-56.md)，更新内容见 [pro.14 更新说明](docs/development/pro-14.md)，安装包见 [pro.14 Release](https://github.com/Phira-Pro/Phira-Pro/releases/tag/v0.8.2-pro.14)。本版包括 [rpe-next 噪域兼容](docs/development/rpe-next-noise.md)、[回放录制修复](docs/development/replays.md)与 Android 刷新率设置。历史更新见 [pro.13 更新与验证说明](docs/development/pro-13.md)和 [pro.12 更新说明](docs/development/pro-12.md)。版本维护、五个平台的构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
+已发布版本为 **0.8.2-pro.14**（build 55）；当前源码为同版本的 build 57，追加修复见 [build 57 说明](docs/development/pro-14-build-57.md)和 [build 56 说明](docs/development/pro-14-build-56.md)，更新内容见 [pro.14 更新说明](docs/development/pro-14.md)，安装包见 [pro.14 Release](https://github.com/Phira-Pro/Phira-Pro/releases/tag/v0.8.2-pro.14)。本版包括 [rpe-next 噪域兼容](docs/development/rpe-next-noise.md)、[回放录制修复](docs/development/replays.md)与 Android 刷新率设置。历史更新见 [pro.13 更新与验证说明](docs/development/pro-13.md)和 [pro.12 更新说明](docs/development/pro-12.md)。版本维护、五个平台的构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
 
 ## 相对官方版新增的功能
 
@@ -46,6 +46,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 - **界面主题**：自定义软件界面的强调色与表面色。
 - **自定义字体**：导入 ttf/otf 作为界面字体，可一键恢复默认（重启后生效）。
 - **显示帧率**：默认居中顶部，带背景衬底，可选择顶部／底部居中及四角；iOS 避让安全区域。
+- **Windows 帧率上限**：在「设置 → 调试」选择跟随屏幕或 60～480 FPS 的固定档位，立即生效并保存；实际帧率受设备性能与驱动影响。
 
 ### 谱面协议与调试
 
@@ -70,7 +71,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 ### 插件
 
-- 从「设置 → 谱面 → 插件管理」导入 `.ppp` Rhai 脚本插件，支持启停、JSON 设置、谱面／结算分析结果与文字覆盖层。提供 PPSR 等算法读取谱面的接口，实际算法由作者实现。见 [插件开发说明与可运行示例](docs/plugins/README.md)。
+- 从「设置 → 通用 → 插件管理」导入 `.zip` Rhai 脚本插件，支持启停、JSON 设置、谱面／结算分析结果与文字覆盖层。提供 PPSR 等算法读取谱面的接口，实际算法由作者实现。见 [插件开发说明与可运行示例](docs/plugins/README.md)。
 
 ### 其他
 

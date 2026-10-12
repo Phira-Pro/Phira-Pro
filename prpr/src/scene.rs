@@ -13,7 +13,7 @@ mod loading;
 pub use loading::{BasicPlayer, LoadingScene, SaveFn, UpdateFn, UploadFn};
 
 use crate::{
-    ext::{draw_image, screen_aspect, LocalTask, RectExt, SafeTexture, ScaleType},
+    ext::{draw_image, screen_aspect, LocalTask, SafeTexture, ScaleType},
     judge::Judge,
     time::TimeManager,
     ui::{BillBoard, Dialog, Message, MessageHandle, MessageKind, TextPainter, Ui},
@@ -687,37 +687,12 @@ impl Main {
                 let fps = f32::from_bits(crate::ui::CURRENT_FPS.load(std::sync::atomic::Ordering::Relaxed));
                 if fps > 0. {
                     // 由视口直接推算屏幕范围：覆盖层阶段 ui.top 与 screen_rect 都不可靠。
-                    let vp = crate::ext::get_viewport();
-                    let half_h = vp.3 as f32 / vp.2 as f32;
                     let place = crate::ui::FPS_POSITION.load(std::sync::atomic::Ordering::Relaxed).min(5);
-                    let bottom = matches!(place, 1 | 4 | 5);
                     #[cfg(target_os = "ios")]
                     let safe = crate::frame_pacing::safe_margins();
                     #[cfg(not(target_os = "ios"))]
                     let safe = [0f32; 4];
-                    let (x, ax) = match place {
-                        2 | 4 => (-1. + safe[0].max(0.12), 0.),
-                        3 | 5 => (1. - safe[2].max(0.12), 1.),
-                        _ => (0., 0.5),
-                    };
-                    let y = if bottom {
-                        half_h - safe[3].max(0.065)
-                    } else {
-                        -half_h + safe[1].max(0.065)
-                    };
-                    let r = ui
-                        .text(format!("{fps:.0} FPS"))
-                        .pos(x, y)
-                        .anchor(ax, if bottom { 1. } else { 0. })
-                        .size(0.42)
-                        .measure();
-                    ui.fill_rect(r.feather(0.008), Color::new(0., 0., 0., 0.55));
-                    ui.text(format!("{fps:.0} FPS"))
-                        .pos(x, y)
-                        .anchor(ax, if bottom { 1. } else { 0. })
-                        .size(0.42)
-                        .color(WHITE)
-                        .draw();
+                    crate::ui::draw_fps_overlay(&mut ui, fps, place, safe);
                 }
             }
             pop_camera_state();

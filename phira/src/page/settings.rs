@@ -52,6 +52,10 @@ const TOUCH_POINT_COLORS: [u32; 8] = [0xff3b30, 0x34c759, 0x0a84ff, 0xffd60a, 0x
 const REFRESH_RATES: [u16; 7] = [60, 120, 144, 165, 185, 200, 240];
 #[cfg(target_os = "ios")]
 const REFRESH_RATES: [u16; 2] = [60, 120];
+#[cfg(target_os = "windows")]
+const DESKTOP_FPS_LIMITS: [u16; 10] = [0, 60, 120, 144, 165, 185, 200, 240, 360, 480];
+#[cfg(all(test, target_os = "windows"))]
+mod qa;
 
 /// 主题预设的显示名。
 fn ui_preset_name(i: usize) -> String {
@@ -585,6 +589,7 @@ struct GeneralList {
     transfer_btn: DRectButton,
     /// 打开「备份与还原」页。
     backup_btn: DRectButton,
+    plugins_btn: DRectButton,
     /// 一键把设置恢复为默认值。
     reset_settings_btn: DRectButton,
     next_page: Option<NextPage>,
@@ -648,6 +653,7 @@ impl GeneralList {
             hud_btn: DRectButton::new(),
             transfer_btn: DRectButton::new(),
             backup_btn: DRectButton::new(),
+            plugins_btn: DRectButton::new(),
             reset_settings_btn: DRectButton::new(),
             next_page: None,
 
@@ -909,6 +915,10 @@ impl GeneralList {
         if self.backup_btn.touch(touch, t) {
             self.next_page = Some(NextPage::Overlay(Box::new(TransferPage::new())));
             return Ok(Some(true));
+        }
+        if self.plugins_btn.touch(touch, t) {
+            self.next_page = Some(NextPage::Overlay(Box::new(super::plugins::PluginManager::new())));
+            return Ok(Some(false));
         }
         if self.reset_settings_btn.touch(touch, t) {
             confirm_reset_settings();
@@ -1180,6 +1190,10 @@ impl GeneralList {
             self.backup_btn.render_text(ui, rr, t, tl!("backup-open"), 0.5, false);
         }
         item! {
+            render_title(ui, tl!("plugins-settings"), Some(tl!("plugins-settings-sub")));
+            self.plugins_btn.render_text(ui, rr, t, tl!("judgement-open"), 0.42, false);
+        }
+        item! {
             render_title(ui, tl!("item-reset-settings"), Some(tl!("item-reset-settings-sub")));
             self.reset_settings_btn.render_text(ui, rr, t, tl!("item-reset-settings-btn"), 0.5, false);
         }
@@ -1379,7 +1393,6 @@ struct ChartList {
     judge_chart_btn: DRectButton,
     judgement_btn: DRectButton,
     replays_btn: DRectButton,
-    plugins_btn: DRectButton,
     history_btn: DRectButton,
     next_page: Option<NextPage>,
 }
@@ -1418,7 +1431,6 @@ impl ChartList {
             judge_chart_btn: DRectButton::new(),
             judgement_btn: DRectButton::new(),
             replays_btn: DRectButton::new(),
-            plugins_btn: DRectButton::new(),
             history_btn: DRectButton::new(),
             next_page: None,
         }
@@ -1516,10 +1528,6 @@ impl ChartList {
         }
         if !cfg!(flash) && self.judgement_btn.touch(touch, t) {
             self.next_page = Some(NextPage::Overlay(Box::new(JudgementPage::new())));
-            return Ok(Some(false));
-        }
-        if self.plugins_btn.touch(touch, t) {
-            self.next_page = Some(NextPage::Overlay(Box::new(super::plugins::PluginManager::new())));
             return Ok(Some(false));
         }
         if self.replays_btn.touch(touch, t) {
@@ -1693,10 +1701,6 @@ impl ChartList {
             self.replays_btn.render_text(ui, rr, t, tl!("judgement-open"), 0.42, false);
         }
         item! {
-            render_title(ui, tl!("plugins-settings"), Some(tl!("plugins-settings-sub")));
-            self.plugins_btn.render_text(ui, rr, t, tl!("judgement-open"), 0.42, false);
-        }
-        item! {
             render_title(ui, tl!("item-auto-retry"), Some(tl!("item-auto-retry-sub")));
             self.auto_retry_slider.render(ui, rr, t, config.auto_retry, format!("{}", config.auto_retry.round() as u32));
         }
@@ -1778,6 +1782,10 @@ impl ChartList {
 }
 
 struct DebugList {
+    #[cfg(target_os = "windows")]
+    desktop_fps_btn: ChooseButton,
+    #[cfg(target_os = "windows")]
+    desktop_fps_lang: Option<String>,
     chart_debug_btn: DRectButton,
     chart_debug_line_btn: DRectButton,
     chart_debug_note_btn: DRectButton,
@@ -1794,6 +1802,15 @@ struct DebugList {
 impl DebugList {
     pub fn new() -> Self {
         Self {
+            #[cfg(target_os = "windows")]
+            desktop_fps_btn: ChooseButton::new().with_compact_popup().with_options(Self::fps_options()).with_selected(
+                DESKTOP_FPS_LIMITS
+                    .iter()
+                    .position(|rate| *rate == get_data().config.desktop_fps_limit)
+                    .unwrap_or(0),
+            ),
+            #[cfg(target_os = "windows")]
+            desktop_fps_lang: get_data().language.clone(),
             chart_debug_btn: DRectButton::new(),
             chart_debug_line_btn: DRectButton::new(),
             chart_debug_note_btn: DRectButton::new(),
@@ -1809,12 +1826,34 @@ impl DebugList {
     }
 
     pub fn top_touch(&mut self, _touch: &Touch, _t: f32) -> bool {
+        #[cfg(target_os = "windows")]
+        if self.desktop_fps_btn.top_touch(_touch, _t) {
+            return true;
+        }
         false
+    }
+
+    #[cfg(target_os = "windows")]
+    fn fps_options() -> Vec<String> {
+        DESKTOP_FPS_LIMITS
+            .iter()
+            .map(|rate| {
+                if *rate == 0 {
+                    tl!("item-desktop-fps-auto").into_owned()
+                } else {
+                    format!("{rate} FPS")
+                }
+            })
+            .collect()
     }
 
     pub fn touch(&mut self, touch: &Touch, t: f32) -> Result<Option<bool>> {
         let data = get_data_mut();
         let config = &mut data.config;
+        #[cfg(target_os = "windows")]
+        if self.desktop_fps_btn.touch(touch, t) {
+            return Ok(Some(false));
+        }
         if self.chart_debug_btn.touch(touch, t) {
             config.chart_debug ^= true;
             return Ok(Some(true));
@@ -1864,6 +1903,25 @@ impl DebugList {
     }
 
     pub fn update(&mut self, _t: f32) -> Result<bool> {
+        #[cfg(target_os = "windows")]
+        {
+            let language = get_data().language.clone();
+            if self.desktop_fps_lang != language {
+                self.desktop_fps_lang = language;
+                self.desktop_fps_btn.set_options(Self::fps_options());
+            }
+            self.desktop_fps_btn.update(_t);
+            if self.desktop_fps_btn.changed() {
+                get_data_mut().config.desktop_fps_limit = DESKTOP_FPS_LIMITS[self.desktop_fps_btn.selected()];
+                return Ok(true);
+            }
+            self.desktop_fps_btn.set_selected(
+                DESKTOP_FPS_LIMITS
+                    .iter()
+                    .position(|rate| *rate == get_data().config.desktop_fps_limit)
+                    .unwrap_or(0),
+            );
+        }
         Ok(false)
     }
 
@@ -1901,6 +1959,11 @@ impl DebugList {
             render_title(ui, tl!("item-fps-position"), None);
             let names = ["fps-top-center", "fps-bottom-center", "fps-top-left", "fps-top-right", "fps-bottom-left", "fps-bottom-right"];
             self.fps_position_btn.render_text(ui, rr, t, tl!(names[config.fps_position.min(5) as usize]), 0.4, false);
+        }
+        #[cfg(target_os = "windows")]
+        item! {
+            render_title(ui, tl!("item-desktop-fps"), Some(tl!("item-desktop-fps-sub")));
+            self.desktop_fps_btn.render(ui, rr, t);
         }
         #[cfg(any(target_os = "android", target_os = "ios"))]
         item! {
@@ -1942,6 +2005,8 @@ impl DebugList {
             self.touch_size_slider
                 .render(ui, rr, t, config.touch_point_size, format!("{:.3}", config.touch_point_size));
         }
+        #[cfg(target_os = "windows")]
+        self.desktop_fps_btn.render_top(ui, t, 1.);
         (w, h)
     }
 }

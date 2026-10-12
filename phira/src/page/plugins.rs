@@ -46,7 +46,7 @@ impl PluginManager {
             .render_text(ui, Rect::new(a.right() - 0.40, a.y, 0.19, 0.075), t, "导入", 0.42, false);
         self.refresh
             .render_text(ui, Rect::new(a.right() - 0.19, a.y, 0.19, 0.075), t, "刷新", 0.42, false);
-        ui.text("导入 .ppp 插件包；首次安装默认关闭")
+        ui.text("导入 .zip 插件包；首次安装默认关闭")
             .pos(a.x, a.y + 0.09)
             .size(0.34)
             .color(semi_white(0.7))

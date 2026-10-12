@@ -370,7 +370,7 @@ mod tests {
         use std::io::Write;
         let dir = tempfile::tempdir().unwrap();
         let index = dir.path().join("plugins/index.json");
-        let package = dir.path().join("density.ppp");
+        let package = dir.path().join("density.zip");
         let pack = |extra: bool| {
             let mut zip = zip::ZipWriter::new(std::fs::File::create(&package).unwrap());
             let options = zip::write::SimpleFileOptions::default();

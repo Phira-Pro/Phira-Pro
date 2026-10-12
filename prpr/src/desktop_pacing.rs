@@ -47,6 +47,7 @@ fn refresh_rate(monitor: usize) -> Option<u32> {
 
 pub struct Pacer {
     timer: HANDLE,
+    monitor_rate: u32,
     period: Duration,
     next: Instant,
     next_refresh_check: Instant,
@@ -86,6 +87,7 @@ impl Pacer {
         tracing::info!("Windows frame pacing: {initial_rate} Hz");
         Self {
             timer,
+            monitor_rate: initial_rate,
             period: Duration::from_secs_f64(1. / initial_rate as f64),
             next: now,
             next_refresh_check: now,
@@ -93,19 +95,14 @@ impl Pacer {
         }
     }
 
-    pub fn wait(&mut self) {
+    pub fn wait(&mut self, limit: u16) {
         let now = Instant::now();
         if let Some((_, results)) = &self.refresh_worker {
             while let Ok((monitor, rate)) = results.try_recv() {
                 if monitor != current_monitor() {
                     continue;
                 }
-                let period = Duration::from_secs_f64(1. / rate as f64);
-                if self.period != period {
-                    self.period = period;
-                    self.next = now;
-                    tracing::info!("Windows frame pacing: {rate} Hz");
-                }
+                self.monitor_rate = rate;
             }
         }
         if now >= self.next_refresh_check {
@@ -113,6 +110,13 @@ impl Pacer {
                 let _ = requests.try_send(current_monitor());
             }
             self.next_refresh_check = now + Duration::from_secs(1);
+        }
+        let rate = frame_rate(limit, self.monitor_rate);
+        let period = Duration::from_secs_f64(1. / rate as f64);
+        if self.period != period {
+            self.period = period;
+            self.next = now;
+            tracing::info!("Windows frame pacing: {rate} FPS");
         }
         let now = Instant::now();
         if let Some(remaining) = self.next.checked_duration_since(now) {
@@ -138,6 +142,14 @@ impl Pacer {
             }
         }
         self.next = next_deadline(self.next, Instant::now(), self.period);
+    }
+}
+
+fn frame_rate(limit: u16, monitor_rate: u32) -> u32 {
+    if limit == 0 {
+        monitor_rate.clamp(10, 1000)
+    } else {
+        u32::from(limit).clamp(30, 1000)
     }
 }
 
@@ -169,6 +181,15 @@ impl Drop for Pacer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explicit_limit_is_independent_of_monitor_changes_and_auto_follows_them() {
+        assert_eq!(frame_rate(0, 60), 60);
+        assert_eq!(frame_rate(0, 165), 165);
+        assert_eq!(frame_rate(60, 165), 60);
+        assert_eq!(frame_rate(240, 60), 240);
+        assert_eq!(frame_rate(240, 165), 240);
+        assert_eq!(frame_rate(u16::MAX, 60), 1000);
+    }
     #[test]
     fn jitter_and_missed_frames_do_not_halve_the_target_or_create_bursts() {
         for rate in [60, 80, 120, 165, 240] {

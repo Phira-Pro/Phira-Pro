@@ -224,6 +224,8 @@ pub struct Config {
     pub show_fps: bool,
     /// 0 top center, 1 bottom center, 2 top left, 3 top right, 4 bottom left, 5 bottom right.
     pub fps_position: u8,
+    /// Windows software frame limit. 0 follows this window's monitor refresh rate.
+    pub desktop_fps_limit: u16,
     /// Android / iOS requested display refresh rate, in Hz.
     pub preferred_refresh_rate: u16,
     /// 失败后自动重试的次数上限（0 表示关闭）。
@@ -396,6 +398,7 @@ impl Default for Config {
             ui_surface: "2a323c".to_owned(),
             show_fps: false,
             fps_position: 0,
+            desktop_fps_limit: 0,
             preferred_refresh_rate: 120,
             auto_retry: 0.,
             retry_lead: 0.,
@@ -841,6 +844,17 @@ mod tests {
         assert_eq!(saved["preferredRefreshRate"], 240);
         saved.as_object_mut().unwrap().remove("preferredRefreshRate");
         let restored: Config = serde_json::from_value(saved).unwrap();
+        assert_eq!(restored.preferred_refresh_rate, 120);
+    }
+
+    #[test]
+    fn desktop_limit_defaults_to_monitor_and_persists_independently_of_mobile_rate() {
+        let mut conf: Config = serde_json::from_str("{}").unwrap();
+        assert_eq!(conf.desktop_fps_limit, 0);
+        conf.desktop_fps_limit = 240;
+        let saved = serde_json::to_string(&conf).unwrap();
+        let restored: Config = serde_json::from_str(&saved).unwrap();
+        assert_eq!(restored.desktop_fps_limit, 240);
         assert_eq!(restored.preferred_refresh_rate, 120);
     }
 

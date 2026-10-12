@@ -73,13 +73,13 @@ pub static mut DATA: Option<Data> = None;
 #[cfg(target_os = "android")]
 pub(crate) fn set_android_refresh_rate(refresh_rate: u16) -> Result<()> {
     use anyhow::Context;
-    use jni::{jni_sig, objects::JObject, vm::JavaVM};
+    use jni::{jni_sig, jni_str, objects::JObject, vm::JavaVM};
 
     JavaVM::singleton()
         .context("Android Java VM is unavailable")?
         .attach_current_thread(|env| -> jni::errors::Result<()> {
             let activity = unsafe { JObject::from_raw(env, ndk_context::android_context().context() as _) };
-            env.call_method(activity, "setRequestedFrameRate", jni_sig!("(I)V"), &[i32::from(refresh_rate).into()])?;
+            env.call_method(activity, jni_str!("setRequestedFrameRate"), jni_sig!("(I)V"), &[i32::from(refresh_rate).into()])?;
             Ok(())
         })
         .map_err(anyhow::Error::from)

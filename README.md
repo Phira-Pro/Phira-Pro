@@ -11,7 +11,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows 压缩包或 Linux 压缩包或 Android arm64 APK。Windows 解压后运行 `phira-main.exe` (Linux为`phira-main`)；Android 安装 APK，更新时保留应用数据。
 
-已发布版本为 **0.8.2-pro.14**（build 55）；当前源码为同版本的 build 61，练习侧栏与插件接口命名见 [build 61 说明](docs/development/pro-14-build-61.md)，新增统一调色盘见 [build 58 说明](docs/development/pro-14-build-58.md)，追加修复见 [build 57 说明](docs/development/pro-14-build-57.md)和 [build 56 说明](docs/development/pro-14-build-56.md)，更新内容见 [pro.14 更新说明](docs/development/pro-14.md)，安装包见 [pro.14 Release](https://github.com/Phira-Pro/Phira-Pro/releases/tag/v0.8.2-pro.14)。本版包括 [rpe-next 噪域兼容](docs/development/rpe-next-noise.md)、[回放录制修复](docs/development/replays.md)与 Android 刷新率设置。历史更新见 [pro.13 更新与验证说明](docs/development/pro-13.md)和 [pro.12 更新说明](docs/development/pro-12.md)。版本维护、五个平台的构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
+已发布版本为 **0.8.2-pro.14**（build 55）；当前源码为同版本的 build 62，原版练习界面恢复与 Phira ad 判定范围效果适配见 [build 62 说明](docs/development/pro-14-build-62.md)，侧栏与插件接口命名见 [build 61 说明](docs/development/pro-14-build-61.md)，新增统一调色盘见 [build 58 说明](docs/development/pro-14-build-58.md)，追加修复见 [build 57 说明](docs/development/pro-14-build-57.md)和 [build 56 说明](docs/development/pro-14-build-56.md)，更新内容见 [pro.14 更新说明](docs/development/pro-14.md)，安装包见 [pro.14 Release](https://github.com/Phira-Pro/Phira-Pro/releases/tag/v0.8.2-pro.14)。本版包括 [rpe-next 噪域兼容](docs/development/rpe-next-noise.md)、[回放录制修复](docs/development/replays.md)与 Android 刷新率设置。历史更新见 [pro.13 更新与验证说明](docs/development/pro-13.md)和 [pro.12 更新说明](docs/development/pro-12.md)。版本维护、五个平台的构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
 
 ## 相对官方版新增的功能
 
@@ -32,9 +32,9 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 - **自动重试**：失败后自动重开本局，可设置次数（0 为关闭）。
 - **续练提前量**：重开时从失败前若干秒处开始，而不是从头开始。
 - **变速练习**：练习时每完成一圈自动提速，可设置起始速度与每圈增幅；倍速、流速和提速步长精细到 0.01x。
-- **分段练习**：保留原版速度滑条、区间时间轴与白底时间输入框；按时间或起止 Combo 指定区间，保留同刻音符与 Hold 尾部，支持自动循环。新增配置从左侧圆角菜单展开，起始速度、每轮增速、失败重试次数与回退时长集中在菜单内。
+- **分段练习**：保留原版速度滑条、区间时间轴与白底时间输入框；按时间或起止 Combo 指定区间，保留同刻音符与 Hold 尾部，支持自动循环。新增配置从左侧圆角菜单展开，Combo、自动循环、起始速度、每轮增速、失败重试次数、回退时长及多轮统计均收进菜单。
 - **音频辅助与练习判定**：变速不变调、按音频时钟播放正解音、临时判定区间倍率及速度反向联动；不修改保存的判定预设。
-- **谱面揭秘与音符行为**：缩放／平移谱面视角并同步触点坐标，缩小时高亮标出原始可见范围；临时转换为 Tap、Drag 或 Flick，随时恢复原谱。判定范围可按音符类型和透明度显示。
+- **谱面揭秘与音符行为**：缩放／平移谱面视角并同步触点坐标，缩小时高亮标出原始可见范围；临时转换为 Tap、Drag 或 Flick，随时恢复原谱。判定范围采用 Phira ad 的独立透明色带和描边，可显示在判定线／音符／两处，支持按音符类型、Tap／Hold 判定档位、Hold 尾部及透明度调整。
 - **片段书签与多轮统计**：按谱面保存命名片段及练习参数；记录每轮速度、准度、判定数和最佳准度。详见 [练习功能说明](docs/development/pro-14-build-59.md)、[build 60 界面调整](docs/development/pro-14-build-60.md)及 [build 61 侧栏调整](docs/development/pro-14-build-61.md)。
 
 ### 血条

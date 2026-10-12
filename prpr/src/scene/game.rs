@@ -1223,7 +1223,7 @@ impl GameScene {
                 debug_overlay(res, &self.chart, ui);
             }
             if res.config.practice_active && res.config.practice.ranges {
-                practice_ranges::draw(res, &self.chart, ui);
+                practice_ranges::draw(res, &self.chart, ui, &self.judge.notes);
             }
             if res.config.practice_active && res.config.practice.view.scale < 1. {
                 practice_ranges::visible_frame(res, ui);
@@ -1409,8 +1409,6 @@ impl GameScene {
                     tm.now(),
                     self.offset().min(0.) as f64,
                     self.res.track_length,
-                    self.practice_auto,
-                    self.last_practice_accuracy.map(|acc| (self.practice_loops, acc)),
                     interactive,
                 );
                 for touch in ui.ensure_touches() {
@@ -1424,6 +1422,7 @@ impl GameScene {
                     tm.real_time() as f32,
                     &self.res.config,
                     self.practice_combo.unwrap_or((1, self.practice_notes.len())),
+                    self.practice_auto,
                     &self.practice_bookmarks,
                     &self.practice_statistics,
                     *self.res.icon_back,

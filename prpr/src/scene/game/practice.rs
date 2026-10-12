@@ -76,6 +76,30 @@ impl GameScene {
                         p.ranges ^= true;
                         restart = false;
                     }
+                    "practice_range_anchor" => {
+                        p.range_anchor = match p.range_anchor {
+                            practice::RangeAnchor::JudgeLine => practice::RangeAnchor::Note,
+                            practice::RangeAnchor::Note => practice::RangeAnchor::Both,
+                            practice::RangeAnchor::Both => practice::RangeAnchor::JudgeLine,
+                        };
+                        restart = false;
+                    }
+                    _ if id.starts_with("practice_tap_range_") => {
+                        if let Ok(i) = id[19..].parse::<usize>() {
+                            if let Some(value) = p.range_tap.get_mut(i) {
+                                *value ^= true;
+                            }
+                        }
+                        restart = false;
+                    }
+                    _ if id.starts_with("practice_hold_range_") => {
+                        if let Ok(i) = id[20..].parse::<usize>() {
+                            if let Some(value) = p.range_hold.get_mut(i) {
+                                *value ^= true;
+                            }
+                        }
+                        restart = false;
+                    }
                     "practice_debug" => {
                         cfg.chart_debug ^= true;
                         restart = false;
@@ -319,5 +343,21 @@ impl GameScene {
     #[cfg(record)]
     pub fn practice_round_count(&self) -> u32 {
         self.practice_statistics.total
+    }
+    #[cfg(record)]
+    pub fn practice_draw_ranges_for_qa(&self, ui: &mut Ui) {
+        // QA replaces note data in-place; build fresh ordering for that fixture
+        // instead of carrying the previous practice loop's consumed indices.
+        let indices: Vec<_> = self
+            .chart
+            .lines
+            .iter()
+            .map(|line| {
+                let mut ids: Vec<_> = (0..line.notes.len() as u32).collect();
+                ids.sort_by(|a, b| line.notes[*a as usize].time.total_cmp(&line.notes[*b as usize].time));
+                (ids, 0)
+            })
+            .collect();
+        super::practice_ranges::draw(&self.res, &self.chart, ui, &indices);
     }
 }

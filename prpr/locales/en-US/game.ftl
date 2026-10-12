@@ -71,3 +71,10 @@ practice-debug-input = Touch visualization
 practice-title = Practice
 
 practice-settings = Practice settings
+practice-range-anchor = Display anchor
+practice-range-line = Judge line
+practice-range-note = Note
+practice-range-both = Line and note
+practice-range-tap = Tap judgement bands
+practice-range-hold = Hold judgement bands
+practice-range-tail = Hold tail window

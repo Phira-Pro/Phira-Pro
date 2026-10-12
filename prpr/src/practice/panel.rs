@@ -1,6 +1,6 @@
 //! Shared Phira rectangular controls, with a single clipped scroll surface.
 prpr_l10n::tl_file!("game");
-use super::{Bookmark, NoteBehavior, Statistics};
+use super::{Bookmark, NoteBehavior, RangeAnchor, Statistics};
 use crate::{
     config::Config,
     core::Matrix,
@@ -269,6 +269,7 @@ impl Panel {
         t: f32,
         config: &Config,
         combo: (usize, usize),
+        auto: bool,
         bookmarks: &[Bookmark],
         stats: &Statistics,
         back: Texture2D,
@@ -319,6 +320,7 @@ impl Panel {
                             Action::Input("exercise_combo_end".into(), combo.1.to_string()),
                         );
                         y += 0.105;
+                        self.switch(ui, t, "practice_loop", tl!("practice-loop"), auto, &mut y);
                         if self.section(ui, t, "audio", tl!("practice-audio"), &mut y) {
                             self.switch(ui, t, "practice_pitch", tl!("practice-pitch"), p.preserve_pitch, &mut y);
                             self.switch(ui, t, "practice_correct", tl!("practice-correct"), p.correct_sound, &mut y);
@@ -424,8 +426,40 @@ impl Panel {
                         }
                         if self.section(ui, t, "debug", tl!("practice-ranges"), &mut y) {
                             self.switch(ui, t, "practice_ranges", tl!("practice-ranges"), p.ranges, &mut y);
+                            ui.text(tl!("practice-range-anchor"))
+                                .pos(0.02, y + 0.042)
+                                .anchor(0., 0.5)
+                                .size(0.42)
+                                .max_width(0.8)
+                                .draw();
+                            let label = match p.range_anchor {
+                                RangeAnchor::JudgeLine => tl!("practice-range-line"),
+                                RangeAnchor::Note => tl!("practice-range-note"),
+                                RangeAnchor::Both => tl!("practice-range-both"),
+                            };
+                            self.button(
+                                ui,
+                                t,
+                                "practice_range_anchor",
+                                label.into_owned(),
+                                Rect::new(0.85, y, 0.79, 0.084),
+                                false,
+                                Action::Toggle("practice_range_anchor".into()),
+                            );
+                            y += 0.105;
                             for (i, label) in ["Tap", "Hold", "Drag", "Flick"].iter().enumerate() {
                                 self.switch(ui, t, &format!("practice_kind_{i}"), label, p.range_kinds[i], &mut y);
+                            }
+                            if self.section(ui, t, "range_tap", tl!("practice-range-tap"), &mut y) {
+                                for (i, label) in ["PERFECT", "GOOD", "BAD", "MISS"].iter().enumerate() {
+                                    self.switch(ui, t, &format!("practice_tap_range_{i}"), label, p.range_tap[i], &mut y);
+                                }
+                            }
+                            if self.section(ui, t, "range_hold", tl!("practice-range-hold"), &mut y) {
+                                for (i, label) in ["PERFECT", "GOOD", "MISS"].iter().enumerate() {
+                                    self.switch(ui, t, &format!("practice_hold_range_{i}"), label, p.range_hold[i], &mut y);
+                                }
+                                self.switch(ui, t, "practice_hold_range_3", tl!("practice-range-tail"), p.range_hold[3], &mut y);
                             }
                             self.number(
                                 ui,

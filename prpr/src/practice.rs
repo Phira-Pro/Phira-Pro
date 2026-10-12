@@ -81,6 +81,18 @@ pub struct Options {
     pub range_kinds: [bool; 4],
     pub range_alpha: f32,
     pub range_horizon: f32,
+    pub range_anchor: RangeAnchor,
+    /// Perfect / Good / Bad / Miss; extended scoring bands follow Good.
+    pub range_tap: [bool; 4],
+    /// Head Perfect / head Good / head Miss / tail.
+    pub range_hold: [bool; 4],
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RangeAnchor {
+    #[default]
+    JudgeLine,
+    Note,
+    Both,
 }
 impl Default for Options {
     fn default() -> Self {
@@ -93,8 +105,11 @@ impl Default for Options {
             behavior: NoteBehavior::Original,
             ranges: false,
             range_kinds: [true; 4],
-            range_alpha: 0.22,
-            range_horizon: 3.,
+            range_alpha: 0.12,
+            range_horizon: 2.,
+            range_anchor: RangeAnchor::JudgeLine,
+            range_tap: [true; 4],
+            range_hold: [true; 4],
         }
     }
 }
@@ -107,8 +122,8 @@ impl Options {
         bound(&mut self.view.scale, 0.1, 5., 1.);
         bound(&mut self.view.x, -4., 4., 0.);
         bound(&mut self.view.y, -4., 4., 0.);
-        bound(&mut self.range_alpha, 0.02, 0.6, 0.22);
-        bound(&mut self.range_horizon, 0.1, 10., 3.);
+        bound(&mut self.range_alpha, 0.02, 0.6, 0.12);
+        bound(&mut self.range_horizon, 0.1, 10., 2.);
     }
     pub fn multiplier(&self, speed: f32) -> f64 {
         if self.inverse_speed {
@@ -274,6 +289,25 @@ pub fn combo_range(notes: &[(f64, f64)], first: usize, last: usize, offset: f64,
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn saved_ranges_accept_old_options_and_preserve_new_controls() {
+        let mut old: Options = serde_json::from_value(serde_json::json!({
+            "ranges": true, "rangeAlpha": 0.22, "rangeHorizon": 3.,
+            "rangeKinds": [true, false, true, false]
+        }))
+        .unwrap();
+        assert_eq!(old.range_anchor, RangeAnchor::JudgeLine);
+        assert_eq!(old.range_tap, [true; 4]);
+        assert_eq!(old.range_hold, [true; 4]);
+        assert_eq!(old.range_alpha, 0.22, "keep an existing user's opacity");
+        assert_eq!(old.range_horizon, 3.);
+        old.range_anchor = RangeAnchor::Both;
+        old.range_tap[2] = false;
+        old.range_hold[3] = false;
+        let saved = serde_json::to_value(&old).unwrap();
+        let restored: Options = serde_json::from_value(saved.clone()).unwrap();
+        assert_eq!(serde_json::to_value(restored).unwrap(), saved);
+    }
     #[test]
     fn normal_view_frame_tracks_reveal_zoom_pan_and_aspect() {
         use macroquad::prelude::*;

@@ -12,7 +12,6 @@ prpr_l10n::tl_file!("game");
 pub struct Base {
     start: RectButton,
     end: RectButton,
-    auto_loop: RectButton,
     markers: [(Rect, i8); 3],
     drag: Option<(u64, i8)>,
     bounds: (f64, f64),
@@ -23,7 +22,6 @@ impl Base {
     pub fn cancel(&mut self) {
         self.start.cancel();
         self.end.cancel();
-        self.auto_loop.cancel();
         self.drag = None;
     }
     pub fn touch(&mut self, touch: &Touch) -> Option<Action> {
@@ -56,9 +54,6 @@ impl Base {
         if self.end.touch(touch) {
             return Some(Action::Input("exercise_end".into(), format_time(self.range.1)));
         }
-        if self.auto_loop.touch(touch) {
-            return Some(Action::Toggle("practice_loop".into()));
-        }
         None
     }
     pub fn render(
@@ -70,8 +65,6 @@ impl Base {
         current: f64,
         earliest: f64,
         length: f64,
-        auto: bool,
-        last: Option<(u32, f64)>,
         interactive: bool,
     ) -> Option<Action> {
         self.points.clear();
@@ -98,7 +91,7 @@ impl Base {
                 self.points.insert(format!("marker:{kind}"), self.markers[i].0.center());
             }
             ui.text(format_time(current)).pos(0., -0.23).anchor(0.5, 0.).size(0.8).draw();
-            ui.dy(0.15);
+            ui.dy(0.2);
             let r = ui.text(tl!("to")).size(0.8).anchor(0.5, 0.).draw();
             for (key, value, x, anchor, button) in [
                 ("exercise_start", start, r.x - 0.02, 1., &mut self.start),
@@ -111,22 +104,6 @@ impl Base {
                     .fill_rect(rect.feather(0.01), Color::new(1., 1., 1., if button.touching() { 0.5 } else { 1. }));
                 self.points.insert(key.into(), text.ui.rect_to_global(rect).center());
                 text.draw();
-            }
-            let ar = Rect::new(-0.275, 0.105, 0.55, 0.065);
-            self.auto_loop.set(ui, ar);
-            ui.fill_rect(ar, Color::new(1., 1., 1., 0.12));
-            ui.text(if auto { tl!("ex-auto-on") } else { tl!("ex-auto-off") })
-                .pos(ar.center().x, ar.center().y)
-                .anchor(0.5, 0.5)
-                .size(0.36)
-                .draw();
-            self.points.insert("practice_loop".into(), ui.rect_to_global(ar).center());
-            if let Some((round, accuracy)) = last {
-                ui.text(tl!("ex-loop-accuracy", "loop" => round, "accuracy" => format!("{:.2}", accuracy*100.)))
-                    .pos(0., 0.18)
-                    .anchor(0.5, 0.)
-                    .size(0.34)
-                    .draw();
             }
         });
         if let Some(touches) = hidden_touches {

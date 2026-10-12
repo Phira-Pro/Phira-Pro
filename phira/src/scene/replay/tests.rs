@@ -194,6 +194,11 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
     assert!(tm.now() > 1.75, "the original blue marker must adjust the range");
     prpr::scene::return_input("exercise_combo".into(), "2-2".into());
     game.update(&mut tm).unwrap();
+    render(&mut game, &mut tm, painter);
+    assert!(game.practice_control_point("practice_loop").is_none(), "automatic loop belongs in the drawer");
+    toggle_drawer(&mut game, &mut tm, painter);
+    real_clock.set(10.6);
+    render(&mut game, &mut tm, painter);
     let loop_point = game.practice_control_point("practice_loop").unwrap();
     for phase in [TouchPhase::Started, TouchPhase::Ended] {
         let activated = Scene::touch(
@@ -211,6 +216,8 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
             assert!(activated, "auto-loop must be reachable");
         }
     }
+    toggle_drawer(&mut game, &mut tm, painter);
+    real_clock.set(11.2);
     tm.resume();
     tm.seek_to(5.3);
     game.update(&mut tm).unwrap();
@@ -239,12 +246,29 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
         let mut ui = Ui::new(painter, None);
         game.render(tm, &mut ui).unwrap();
     }
+    fn toggle_drawer(game: &mut GameScene, tm: &mut TimeManager, painter: &mut TextPainter) {
+        render(game, tm, painter);
+        let position = game.practice_control_point("drawer").unwrap();
+        for phase in [TouchPhase::Started, TouchPhase::Ended] {
+            Scene::touch(
+                game,
+                tm,
+                &Touch {
+                    id: 778,
+                    phase,
+                    position,
+                    time: 0.,
+                },
+            )
+            .unwrap();
+        }
+    }
     fn click(game: &mut GameScene, tm: &mut TimeManager, painter: &mut TextPainter, key: &str, scroll: &mut f32) {
         render(game, tm, painter);
         let point = game
             .practice_control_point(key)
             .unwrap_or_else(|| panic!("missing practice control: {key}"));
-        *scroll += point.y * scale_for(game);
+        *scroll += point.y * scale_for(game) / ((1.6 - 0.12) / 1.64);
         game.practice_scroll_to(*scroll);
         render(game, tm, painter);
         let point = game.practice_control_point(key).unwrap();
@@ -284,7 +308,7 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
         )
         .unwrap();
     }
-    real_clock.set(10.6);
+    real_clock.set(11.8);
     // Check both drawer fields, then feed the platform input response without
     // opening native dialogs during unattended graphics regression.
     render(&mut game, &mut tm, painter);
@@ -349,6 +373,25 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
     input(&mut game, &mut tm, "practice_scale", "60");
     input(&mut game, &mut tm, "practice_x", "0.3");
     input(&mut game, &mut tm, "practice_y", "-0.15");
+    click(&mut game, &mut tm, painter, "debug", &mut scroll);
+    for anchor in [
+        prpr::practice::RangeAnchor::Note,
+        prpr::practice::RangeAnchor::Both,
+        prpr::practice::RangeAnchor::JudgeLine,
+    ] {
+        click(&mut game, &mut tm, painter, "practice_range_anchor", &mut scroll);
+        assert_eq!(game.res.config.practice.range_anchor, anchor);
+    }
+    click(&mut game, &mut tm, painter, "range_tap", &mut scroll);
+    for value in [false, true] {
+        click(&mut game, &mut tm, painter, "practice_tap_range_0", &mut scroll);
+        assert_eq!(game.res.config.practice.range_tap[0], value);
+    }
+    click(&mut game, &mut tm, painter, "range_hold", &mut scroll);
+    for value in [false, true] {
+        click(&mut game, &mut tm, painter, "practice_hold_range_3", &mut scroll);
+        assert_eq!(game.res.config.practice.range_hold[3], value);
+    }
     // A pass-through postprocess must not apply the reveal camera a second
     // time, nor mirror its already transformed framebuffer.
     fn pixels(game: &mut GameScene, tm: &mut TimeManager, painter: &mut TextPainter) -> Vec<u8> {
@@ -415,7 +458,7 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
         )
         .unwrap();
     }
-    real_clock.set(11.2);
+    real_clock.set(12.4);
     tm.resume();
     for (w, h, ratio) in [(960, 720, "4x3"), (1280, 720, "16x9"), (1280, 548, "21x9")] {
         let mut ui = Ui::new(painter, Some((0, 0, w, h)));
@@ -458,7 +501,7 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
         )
         .unwrap();
     }
-    real_clock.set(11.8);
+    real_clock.set(13.0);
     game.practice_scroll_to(scroll);
     click(&mut game, &mut tm, painter, "delete:0", &mut scroll);
     let library: serde_json::Value =
@@ -479,7 +522,11 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
     assert!((game.res.config.speed - 0.52).abs() < 1e-6);
     assert!((game.res.windows.perfect - normal_windows.perfect / 0.52).abs() < 1e-6);
     println!("Practice: combo input, Hold tail, auto-loop touch and three aspect ratios passed");
+    practice_range_qa::run(&mut game, painter);
 }
+
+#[path = "range_render.rs"]
+mod practice_range_qa;
 
 // Exercise the recorder through the real GameScene state machine. Constructed
 // replay tapes cannot catch a fade-out clearing the live recording.

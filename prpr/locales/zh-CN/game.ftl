@@ -71,3 +71,10 @@ practice-debug-input = 触点可视化
 practice-title = 练习
 
 practice-settings = 练习设置
+practice-range-anchor = 显示位置
+practice-range-line = 判定线
+practice-range-note = 音符
+practice-range-both = 判定线与音符
+practice-range-tap = Tap 判定档位
+practice-range-hold = Hold 判定档位
+practice-range-tail = Hold 尾部范围

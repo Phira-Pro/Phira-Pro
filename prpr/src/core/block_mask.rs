@@ -4,6 +4,9 @@ use super::Zone;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
+#[path = "block_next_mask.rs"]
+mod next;
+
 #[cfg(any(target_os = "windows", target_os = "ios"))]
 static MASK_WORKERS: Lazy<Option<rayon::ThreadPool>> = Lazy::new(|| {
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(2));
@@ -116,6 +119,8 @@ pub(super) struct Masks {
     source_bounds: Option<(usize, usize, usize, usize)>,
     group_index: HashMap<[u32; 6], usize>,
     groups: Vec<(Zone, [i32; 8])>,
+    next_single: Option<bool>,
+    next_coverage: next::Coverage,
 }
 
 impl Masks {
@@ -131,8 +136,13 @@ impl Masks {
             let d = 0.70703125;
             [(d * a - d * b) * 0.1 + u, (d * a + d * b) * 0.1 + v]
         } else {
-            compose_uv([((pixel % self.width) as f32 + 0.5) / self.width as f32,
-                ((pixel / self.width) as f32 + 0.5) / self.height as f32], time)
+            compose_uv(
+                [
+                    ((pixel % self.width) as f32 + 0.5) / self.width as f32,
+                    ((pixel / self.width) as f32 + 0.5) / self.height as f32,
+                ],
+                time,
+            )
         };
         let x = (uv[0] * self.width as f32).clamp(0., (self.width - 1) as f32) as usize;
         let y = (uv[1] * self.height as f32).clamp(0., (self.height - 1) as f32) as usize;
@@ -145,7 +155,11 @@ impl Masks {
         let normal = self.layers[layer * 2][pixel];
         let subtract = self.layers[layer * 2 + 1][pixel];
         let inverse = if layer == 0 {
-            if (23..=30).contains(&subtract) { 255 } else { 0 }
+            if (23..=30).contains(&subtract) {
+                255
+            } else {
+                0
+            }
         } else {
             let (r, g) = subtract_disabled(subtract, self.raw_disabled_green[pixel]);
             unorm(r * g)
@@ -194,6 +208,9 @@ impl Masks {
     }
 
     pub fn render_displaced(&mut self, width: usize, height: usize, aspect: f32, zones: &[Zone], time: f32) {
+        if self.next_single.take().is_some() {
+            self.last_dim = (0, 0, 0.);
+        }
         // Refine Compose to the existing EffectRT grid: half-sized boundary
         // cells without larger effect textures, more shader work or narrower
         // edge/glow rings. Native geometry and displacement math stay intact.
@@ -414,6 +431,57 @@ impl Masks {
                 .filter(|v| self.enabled_compose.iter().all(|p| p == v));
             self.aux_revision = self.aux_revision.wrapping_add(1);
         }
+        self.render_effect(bw, bh, time);
+    }
+
+    /// Compose Next's independent state groups, then run the very same native
+    /// displacement and edge/glow construction as percentage blocks.
+    pub fn render_next(&mut self, width: usize, height: usize, aspect: f32, zones: &[Zone], time: f32, single: bool) {
+        let (bw, bh) = ((width / 8).max(1) * 2, (height / 8).max(1) * 2);
+        let same = self.next_single == Some(single)
+            && self.last_dim == (bw, bh, aspect)
+            && self.last_zones.len() == zones.len()
+            && self.last_zones.iter().zip(zones).all(|(a, b)| a.same_mask(b));
+        if same && (self.last_time == Some(time) || self.uniform_compose.is_some()) {
+            return;
+        }
+        if !same {
+            self.next_single = Some(single);
+            self.last_dim = (bw, bh, aspect);
+            self.last_zones.clear();
+            self.last_zones.extend_from_slice(zones);
+            self.next_coverage.raster(bw, bh, aspect, zones, single);
+            self.enabled_compose.clone_from(&self.next_coverage.active);
+            self.base_rgba.resize(bw * bh * 4, 0);
+            self.base_rgba.fill(0);
+            self.aux_rgba.resize(bw * bh * 4, 0);
+            self.aux_rgba.fill(0);
+            let mut bounds = (bw, bh, 0, 0);
+            for i in 0..bw * bh {
+                let disabled = self.next_coverage.disabled[i];
+                self.base_rgba[i * 4 + 3] = disabled;
+                self.aux_rgba[i * 4] = self.next_coverage.ready[i];
+                self.aux_rgba[i * 4 + 2] = disabled;
+                if self.enabled_compose[i] != 0 {
+                    bounds.0 = bounds.0.min(i % bw);
+                    bounds.1 = bounds.1.min(i / bw);
+                    bounds.2 = bounds.2.max(i % bw + 1);
+                    bounds.3 = bounds.3.max(i / bw + 1);
+                }
+            }
+            self.source_bounds = (bounds.0 < bounds.2 && bounds.1 < bounds.3).then_some(bounds);
+            self.uniform_compose = self
+                .enabled_compose
+                .first()
+                .copied()
+                .filter(|v| self.enabled_compose.iter().all(|p| p == v));
+            self.aux_revision = self.aux_revision.wrapping_add(1);
+        }
+        self.render_effect(bw, bh, time);
+    }
+
+    fn render_effect(&mut self, bw: usize, bh: usize, time: f32) {
+        let (ew, eh) = (bw, bh);
         self.width = ew;
         self.height = eh;
         // Only Compose/Edge/Glow evolve with noise time. Ready/Disabled camera
@@ -737,6 +805,50 @@ fn dilate(source: &[u64], dest: &mut [u64], width: usize, height: usize) {
 mod tests {
     use super::*;
     use crate::core::Vector;
+
+    #[test]
+    fn next_official_effect_masks_equal_native_masks_for_each_single_area_phase() {
+        let mut next = Masks::default();
+        for (w, h) in [(320, 192), (512, 384), (192, 320), (320, 192)] {
+            let aspect = w as f32 / h as f32;
+            for state in 0..3 {
+                for invert in [false, true] {
+                    for time in [0., 0.008, 1., 9., 0.1] {
+                        let mut z = zone(0.1, -0.1, 0.35, 0.2, 0.47, invert);
+                        z.active = state == 2;
+                        z.ready = state == 1;
+                        z.y_scale = 1.5 / aspect;
+                        z.line2area = true;
+                        let mut native = Masks::default();
+                        native.render_displaced(w, h, aspect, &[z.clone()], time);
+                        next.render_next(w, h, aspect, &[z], time, false);
+                        assert!(
+                            next.rgba == native.rgba,
+                            "{w}x{h} state={state} invert={invert} t={time}: effect mismatch {:?}",
+                            next.rgba.iter().zip(&native.rgba).position(|(a, b)| a != b)
+                        );
+                        // Inverted Ready may be encoded in either R or G; the
+                        // official shader samples abs(R-G), rather than either alone.
+                        assert!(
+                            next.aux_rgba
+                                .chunks_exact(4)
+                                .zip(native.aux_rgba.chunks_exact(4))
+                                .all(|(a, b)| a[0].abs_diff(a[1]) == b[0].abs_diff(b[1]) && a[2..] == b[2..]),
+                            "{w}x{h} state={state} invert={invert} t={time}: Ready/Disabled mismatch"
+                        );
+                        let revision = next.revision;
+                        let zones = next.last_zones.clone();
+                        next.render_next(w, h, aspect, &zones, time, false);
+                        assert_eq!(revision, next.revision, "paused frame must reuse masks");
+                        // Reusing a builder across format families must not poison its
+                        // phase cache, even when pose and time remain identical.
+                        next.render_displaced(w, h, aspect, &zones, time);
+                        assert!(next.rgba == native.rgba, "native cache changed");
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn color_changes_reuse_identical_coverage_and_subtraction_masks() {

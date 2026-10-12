@@ -60,6 +60,11 @@ async fn main() {
     assert!(block_shader::prepare_block_effects(), "full shader must compile; simple fallback cannot pass this regression");
     assert!(screen_pixels().bytes.chunks_exact(4).all(|p| p == [25, 25, 25, 255]), "shader warmup must leave the loading frame intact");
 
+    if std::env::var_os("BLOCK_GPU_NEXT").is_some() {
+        next_native_material_probe(&mut res);
+        return;
+    }
+
     if std::env::var_os("BLOCK_GPU_MATRIX").is_some() {
         viewport_matrix_probe(&mut res);
         return;
@@ -131,7 +136,11 @@ async fn main() {
         for time in [1., 9., 32.] {
             let name = format!("white-inverted-holes-{}-{time}", if disabled { "disabled" } else { "active" });
             let image = render(&mut res, aspect, &white_holes, &name, time, false);
-            let tinted = image.bytes.chunks_exact(4).filter(|p| p[..3].iter().max().unwrap() - p[..3].iter().min().unwrap() > 1).count();
+            let tinted = image
+                .bytes
+                .chunks_exact(4)
+                .filter(|p| p[..3].iter().max().unwrap() - p[..3].iter().min().unwrap() > 1)
+                .count();
             assert_eq!(tinted, 0, "{name}: white inner and outer rims must stay neutral over gray, including displaced pixels");
         }
     }
@@ -297,6 +306,48 @@ async fn main() {
     println!("All native GPU checks passed.");
 }
 
+fn next_native_material_probe(res: &mut Resource) {
+    let next = block_shader::BlockRenderer::default();
+    for aspect in [4. / 3., 16. / 9., 22. / 9.] {
+        res.camera.zoom.y = aspect;
+        set_camera(&res.camera);
+        for state in 0..3 {
+            for time in [0.1, 1., 9., 0.1] {
+                let mut z = zone(0., 0., 0.4, 0.2, false, state == 2);
+                z.ready = state == 1;
+                z.y_scale = 1.5 / aspect;
+                z.angle = 0.25;
+                let name = format!("next-ref-{aspect:.3}-{state}-{time:.2}");
+                let expected = render(res, aspect, &[z.clone()], &name, time, false);
+                // Next deliberately does not become a flat rectangle even when
+                // the legacy/simple option is enabled.
+                res.config.block_area_simple = true;
+                clear_background(Color::new(0.1, 0.1, 0.1, 1.));
+                res.time = time as f64;
+                next.draw_next(res, aspect, &[z.clone()], false, true, &[], false);
+                next.draw_next(res, aspect, &[z.clone()], false, false, &[], false);
+                let actual = screen_pixels();
+                assert!(
+                    expected.bytes == actual.bytes,
+                    "Next must use the official material, aspect={aspect} state={state} t={time}, first mismatch {:?}",
+                    expected.bytes.iter().zip(&actual.bytes).position(|(a, b)| a != b)
+                );
+                res.config.block_area_simple = false;
+                if state == 2 {
+                    // The existing extracted-shader oracle uses a fixed 960x540
+                    // viewport and 16:9 projection. Other aspects are compared
+                    // against the production native renderer above.
+                    if aspect == 16. / 9. {
+                        native_reference(&[z], &actual, time, &[]);
+                    }
+                    assert!(actual.bytes.chunks_exact(4).any(|p| p[0] > 180 && p[0] as u16 > p[1] as u16 * 2), "official bright ring absent");
+                }
+            }
+        }
+    }
+    println!("rpe-next official material: all phases/aspects/reverse times matched native renderer");
+}
+
 // Recorder dimensions exercise the production marker adapter, then the real
 // renderer. Gray input isolates forbidden red tint from colored scene pixels.
 fn viewport_matrix_probe(res: &mut Resource) {
@@ -308,8 +359,13 @@ fn viewport_matrix_probe(res: &mut Resource) {
     set_camera(&res.camera);
     let marker = rpe_block::Marker::new(0, false, &AnimFloat::fixed(1.));
     let from_rpe = |x: f32, y: f32, width: f32, height: f32, invert, active| {
-        let tr = marker.transform(Vector::new(x * 2. / 1350., y * 2. / 900. / aspect),
-            Vector::new(width / 900., height / 900.) * (2. / 1350.), Vector::repeat(900.), 0., aspect);
+        let tr = marker.transform(
+            Vector::new(x * 2. / 1350., y * 2. / 900. / aspect),
+            Vector::new(width / 900., height / 900.) * (2. / 1350.),
+            Vector::repeat(900.),
+            0.,
+            aspect,
+        );
         let mut zone = zone(tr.center.x, tr.center.y, tr.size.x / 2., tr.size.y / 2., invert, active);
         zone.line2area = true;
         zone.y_scale = tr.y_scale;
@@ -335,14 +391,20 @@ fn viewport_matrix_probe(res: &mut Resource) {
         for active in [false, true] {
             let mut field = from_rpe(0., 0., 1250., 800., true, active);
             field.color = [1.; 3];
-            let holes = [field,
+            let holes = [
+                field,
                 from_rpe(-385., 250., 300., 300., false, active),
                 from_rpe(-15., 50., 300., 300., false, active),
-                from_rpe(355., 250., 300., 300., false, active)];
+                from_rpe(355., 250., 300., 300., false, active),
+            ];
             for time in [1., 9., 32., 32.125, 1000.] {
                 let name = format!("matrix-white-{simple}-{active}-{time}");
                 let image = render(res, aspect, &holes, &name, time, false);
-                let tinted = image.bytes.chunks_exact(4).filter(|p| p[..3].iter().max().unwrap() - p[..3].iter().min().unwrap() > 1).count();
+                let tinted = image
+                    .bytes
+                    .chunks_exact(4)
+                    .filter(|p| p[..3].iter().max().unwrap() - p[..3].iter().min().unwrap() > 1)
+                    .count();
                 assert_eq!(tinted, 0, "{name}: red residue on white rims");
             }
         }

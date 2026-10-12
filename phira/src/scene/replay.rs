@@ -73,6 +73,7 @@ pub struct ReplayScene {
 impl ReplayScene {
     pub async fn new(path: PathBuf) -> Result<Self> {
         let replay = replay::load(&path).context("读取回放失败")?;
+        replay.ensure_playable()?;
         let binding = replay::library::all()?
             .into_iter()
             .find(|i| i.path == path)
@@ -89,6 +90,7 @@ impl ReplayScene {
     }
     pub async fn new_bound(path: PathBuf, local_path: String, verified: bool) -> Result<Self> {
         let replay = replay::load(&path).context("读取回放失败")?;
+        replay.ensure_playable()?;
         let mut fs = fs_from_path(&local_path)?;
         let mut info = prpr::fs::load_info(fs.as_mut()).await?;
         if let Some(expected) = &replay.meta.fingerprint {
@@ -557,6 +559,7 @@ impl ReplayScene {
             }
             15 => self.finger_ids = !self.finger_ids,
             16 => {
+                self.fingers = true;
                 self.game_scene.res.config.touch_point_size = if self.game_scene.res.config.touch_point_size > 0.035 {
                     0.012
                 } else {
@@ -564,6 +567,7 @@ impl ReplayScene {
                 }
             }
             17 => {
+                self.fingers = true;
                 self.game_scene.res.config.touch_point_alpha = if self.game_scene.res.config.touch_point_alpha >= 0.9 {
                     0.25
                 } else {
@@ -887,11 +891,13 @@ impl Scene for ReplayScene {
                 );
             }
             let y = y + 0.08;
+            let size_label = format!("大小 {:.0}", self.game_scene.res.config.touch_point_size * 1000.);
+            let alpha_label = format!("透明度 {:.0}%", self.game_scene.res.config.touch_point_alpha * 100.);
             for (n, (index, label, active)) in [
                 (10, if self.replay.touches.is_empty() { "触点未记录" } else { "触点" }, self.fingers),
                 (15, "触点ID", self.finger_ids),
-                (16, "触点大小", false),
-                (17, "触点透明度", false),
+                (16, size_label.as_str(), false),
+                (17, alpha_label.as_str(), false),
                 (
                     14,
                     if self.replay.settings.is_some() {
@@ -1071,6 +1077,7 @@ fn recording_info(replay: &Replay, config: &Config) -> Vec<String> {
             }
         ),
         format!("录制偏移：{:+.2}ms · Mods：{:?}", replay.offset * 1000., config.mods),
+        format!("数据：{} 条判定 · {} 条触点 · {} 个录制帧", replay.judges.len(), replay.touches.len(), replay.frames.len()),
     ];
     if let Some(result) = &replay.meta.result {
         lines.push(format!("原成绩：{:07} · {:.2}% · MAX COMBO {}", result.score, result.accuracy * 100., result.max_combo));

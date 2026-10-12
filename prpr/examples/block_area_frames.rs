@@ -239,12 +239,32 @@ async fn main() {
             image::save_buffer(&file, &bytes, width as u32, height as u32, image::ColorType::Rgba8).unwrap();
             println!("{file}: combo={}, aspect={}, shader clock={:.6}s", scene.judge.combo(), scene.res.aspect_ratio, get_time());
             manifest.push(serde_json::json!({"requested_video_seconds":requested,"chart_seconds":t,"file":file,"width":width,"height":height,"combo":scene.judge.combo(),"background_brightness":1.0-scene.res.info.background_dim,"shader_clock_seconds_approx":get_time()}));
-            let zones: Vec<_> = scene.chart.block_zones(&scene.res).iter().map(|z| serde_json::json!({
-                "center": [z.center.x, z.center.y], "half": [z.half.x, z.half.y], "angle": z.angle,
-                "y_scale": z.y_scale, "color": z.color, "active": z.active, "ready": z.ready,
-                "opacity": z.opacity, "line2area": z.line2area,
-            })).collect();
+            let zones: Vec<_> = scene
+                .chart
+                .block_zones(&scene.res)
+                .iter()
+                .map(|z| {
+                    serde_json::json!({
+                        "center": [z.center.x, z.center.y], "half": [z.half.x, z.half.y], "angle": z.angle,
+                        "y_scale": z.y_scale, "color": z.color, "active": z.active, "ready": z.ready,
+                        "opacity": z.opacity, "line2area": z.line2area,
+                    })
+                })
+                .collect();
             manifest.last_mut().unwrap()["zones"] = zones.into();
+            let next: Vec<_> = scene
+                .chart
+                .next_block_samples(t, scene.res.aspect_ratio)
+                .iter()
+                .map(|s| {
+                    let z = &s.zone;
+                    serde_json::json!({"center":[z.center.x,z.center.y],"half":[z.half.x,z.half.y],"angle":z.angle,
+                    "y_scale":z.y_scale,"state":s.state,"mix":s.mix,"invert":z.invert})
+                })
+                .collect();
+            manifest.last_mut().unwrap()["next_zones"] = next.into();
+            manifest.last_mut().unwrap()["aspect"] = scene.res.aspect_ratio.into();
+            manifest.last_mut().unwrap()["viewport"] = serde_json::json!(scene.res.camera.viewport);
             if std::env::var_os("BLOCK_CAPTURE_WHITE").is_some() {
                 // Keep the evaluated chart pose, but isolate its postprocess
                 // over gray so colored notes/background cannot hide red rims.
@@ -263,7 +283,10 @@ async fn main() {
                     glBindFramebuffer(GL_READ_FRAMEBUFFER, read as u32);
                     assert_eq!(glGetError(), 0);
                 }
-                let tinted = gray_bytes.chunks_exact(4).filter(|p| p[..3].iter().max().unwrap() - p[..3].iter().min().unwrap() > 1).count();
+                let tinted = gray_bytes
+                    .chunks_exact(4)
+                    .filter(|p| p[..3].iter().max().unwrap() - p[..3].iter().min().unwrap() > 1)
+                    .count();
                 let gray_file = format!("{folder}/{name}-{requested:.5}-gray.png");
                 for y in 0..height / 2 {
                     let (a, b) = gray_bytes.split_at_mut((height - y - 1) * width * 4);

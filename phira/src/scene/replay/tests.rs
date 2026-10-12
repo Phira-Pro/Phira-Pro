@@ -96,6 +96,92 @@ fn pixel(image: &Image, x: i32, y: i32) -> &[u8] {
     &image.bytes[i..i+3]
 }
 
+// Exercise the recorder through the real GameScene state machine. Constructed
+// replay tapes cannot catch a fade-out clearing the live recording.
+async fn record_through_ending(info: ChartInfo, local_path: &str, recorded_config: Option<&Replay>) {
+    let mut config = Config::default();
+    if let Some(recorded) = recorded_config {
+        if let Some(settings) = &recorded.settings {
+            settings.apply(&mut config);
+        }
+    }
+    config.mods = Mods::AUTOPLAY; // deterministic live hits, not a fabricated tape
+    config.volume_music = 0.;
+    config.volume_sfx = 0.;
+    config.sample_count = 1;
+    config.adjust_time = false;
+    let hook = replay::recorder(Some(ChartRef::Local(local_path.into())), 0., 1., 0);
+    let mut game = local(GameScene::new(
+        GameMode::Normal,
+        info,
+        config,
+        fs_from_path(local_path).unwrap(),
+        None,
+        BLACK_TEXTURE.clone(),
+        BLACK_TEXTURE.clone(),
+        None,
+        Some(hook),
+        None,
+    ))
+    .await
+    .unwrap();
+    let note_count = game.judge.result(false).num_of_notes as usize;
+    let mut tm = TimeManager::manual(Box::new(|| 10.));
+    game.enter(&mut tm, None).unwrap();
+    tm.seek_to(GameScene::BEFORE_TIME + 0.1);
+    game.update(&mut tm).unwrap();
+    tm.seek_to(0.);
+    game.update(&mut tm).unwrap();
+    tm.seek_to(1.1);
+    game.update(&mut tm).unwrap();
+    // A real retry must replace the partial first attempt, including its hit.
+    game.enter(&mut tm, None).unwrap();
+    tm.seek_to(GameScene::BEFORE_TIME + 0.1);
+    game.update(&mut tm).unwrap();
+    tm.seek_to(0.);
+    game.update(&mut tm).unwrap();
+    let end = game.res.track_length;
+    for frame in 1..=((end + 1.4) * 120.) as usize {
+        tm.seek_to(frame as f64 / 120.);
+        game.update(&mut tm).unwrap();
+        if frame == 180 {
+            game.pause(&mut tm).unwrap();
+            game.update(&mut tm).unwrap();
+            tm.resume();
+            game.resume(&mut tm).unwrap();
+        }
+    }
+    assert!(game.res.time < end + 0.01, "fixture must have reached the ending clock clamp");
+    let expected = game.judge.counts();
+    let score = game.judge.score(false);
+    assert_eq!(score, 1_000_000);
+    let path = replay::save_recording(&format!("local:{local_path}"), 123457).unwrap();
+    let recorded = replay::load(&path).unwrap();
+    recorded.ensure_playable().unwrap();
+    assert!(
+        recorded.frames[0] < 0.01 && *recorded.frames.last().unwrap() > end,
+        "ending must retain the complete attempt, including the final Playing frame"
+    );
+    assert_eq!(
+        recorded.judges.iter().filter(|e| !matches!(e.kind, 5 | 6)).count(),
+        note_count,
+        "retry must not concatenate old hits and ending must not erase new hits"
+    );
+    let export = path.with_file_name("complete-export.phirar");
+    replay::save(&recorded, &export).unwrap();
+    let (imported, _) = replay::library::import(&export).unwrap();
+    let mut player = local(ReplayScene::new_bound(imported, local_path.into(), false)).await.unwrap();
+    player.seek(end);
+    assert_eq!(player.game_scene.judge.counts(), expected);
+    assert_eq!(player.game_scene.judge.score(false), score);
+    assert_eq!(player.game_scene.judge.real_time_accuracy(), 1.);
+    player.seek(0.);
+    assert_eq!(player.game_scene.judge.score(false), 0);
+    player.seek(end);
+    assert_eq!(player.game_scene.judge.score(false), score);
+    println!("Live GameScene {local_path}: {note_count} notes, {} judge events, {} frames; retry, pause, ending clamp, export/import and playback score/counts matched",recorded.judges.len(),recorded.frames.len());
+}
+
 #[test]
 #[ignore = "requires desktop OpenGL and audio; run separately with --ignored --test-threads=1"]
 fn production_replay_transport_import_and_aspects() {
@@ -327,11 +413,21 @@ fn production_replay_transport_import_and_aspects() {
                 .filter(|&(x,y)| pixel(&on,x,y) != pixel(&ids,x,y)).count();
             assert!(changed_chart_pixels > 20, "finger IDs must be visible in the chart");
             let size = scene.game_scene.res.config.touch_point_size;
+            scene.finger_ids = false;
+            let before_size = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-size-before");
+            scene.fingers = false;
             click_analysis(&mut scene, &mut tm, 16, 2, true);
             assert_ne!(scene.game_scene.res.config.touch_point_size, size);
+            assert!(scene.fingers, "size adjustment must show the touch being adjusted");
+            let after_size = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-size-after");
+            let blue_pixels = |image: &Image| (y-40..y+40).flat_map(|y| (x-40..x+40).map(move |x| (x,y)))
+                .filter(|&(x,y)| {let p=pixel(image,x,y);p[2] as u16>p[0] as u16+20&&p[2] as u16>p[1] as u16+20}).count();
+            assert_ne!(blue_pixels(&before_size), blue_pixels(&after_size), "size must change the rendered touch area");
             let alpha = scene.game_scene.res.config.touch_point_alpha;
             click_analysis(&mut scene, &mut tm, 17, 3, true);
             assert_ne!(scene.game_scene.res.config.touch_point_alpha, alpha);
+            let after_alpha = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-alpha-after");
+            assert_ne!(pixel(&after_size,x,y), pixel(&after_alpha,x,y), "opacity must change actual touch pixels");
             scene.seek(1.03);
             assert!(scene.visible_touches().iter().any(|p| p.0 == 900 && p.2 > 0.));
             scene.seek(1.2);
@@ -423,12 +519,37 @@ fn production_replay_transport_import_and_aspects() {
             live.commit(1., TJ::Perfect, 0, 0, -0.019);
             hook(1., &mut scene.game_scene.res, &mut live);
             hook(1.017, &mut scene.game_scene.res, &mut live);
+            hook(0.999, &mut scene.game_scene.res, &mut live);
             let recorded_path = replay::save_recording("local:renamed-chart", 123456).unwrap();
             let recorded = replay::load(&recorded_path).unwrap();
             assert!(recorded.has_diffs && recorded.has_speed);
             assert_eq!(recorded.judges[0].diff, -0.019);
-            assert_eq!(recorded.frames, [1., 1.017]);
+            assert_eq!(recorded.frames, [1., 1.017, 1.017]);
             assert_eq!(recorded.settings, Some(crate::judgement_presets::JudgeSettings::capture(&scene.game_scene.res.config)));
+            // Reset is authoritative even if its new clock is later than the
+            // prior attempt (for example retry-from-here).
+            live.reset();live.commit(2.,TJ::Good,0,2,0.05);
+            let mut hook=replay::recorder(None,0.,1.,0);
+            hook(1.,&mut scene.game_scene.res,&mut live);
+            live.reset();live.commit(2.,TJ::Perfect,0,3,0.);
+            hook(2.,&mut scene.game_scene.res,&mut live);
+            let retried=replay::load(&replay::save_recording("retry",123458).unwrap()).unwrap();
+            assert_eq!(retried.judges.len(),1);assert_eq!(retried.judges[0].note,3);
+            record_through_ending(info.clone(),"renamed-chart",None).await;
+            if let (Ok(tape_path),Ok(chart_path))=(std::env::var("REPLAY_QA_TAPE"),std::env::var("REPLAY_QA_CHART")) {
+                let provided=replay::load(std::path::Path::new(&tape_path)).unwrap();
+                println!("Provided replay: {} judges, {} touches, {} frames; original score {:?}",provided.judges.len(),provided.touches.len(),provided.frames.len(),provided.meta.result.as_ref().map(|r|r.score));
+                let (imported_chart,_)=local(crate::scene::import_chart(std::fs::File::open(chart_path).unwrap())).await.unwrap();
+                let local_path=imported_chart.local_path.as_str();
+                let mut fs=fs_from_path(local_path).unwrap();
+                let info=local(prpr::fs::load_info(fs.as_mut())).await.unwrap();
+                if let Some(expected)=&provided.meta.fingerprint {assert_eq!(&local(replay::library::fingerprint(fs.as_mut(),&info)).await.unwrap(),expected);}
+                if let Some(expected)=&provided.meta.audio_fingerprint {assert_eq!(&local(replay::library::audio_fingerprint(fs.as_mut(),&info)).await.unwrap(),expected);}
+                if provided.judges.is_empty() {
+                    assert!(local(ReplayScene::new_bound(PathBuf::from(tape_path),local_path.into(),true)).await.err().unwrap().to_string().contains("判定事件"));
+                }
+                record_through_ending(info,local_path,Some(&provided)).await;
+            }
             // Historical packages are verified before registration; source chart and PB stay untouched.
             let mut package = std::io::Cursor::new(Vec::new());
             crate::scene::compress_folder(&isolated.path().join("data/charts/renamed-chart"), &mut package).unwrap();

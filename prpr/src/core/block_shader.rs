@@ -204,6 +204,28 @@ struct FrameTextures {
 
 thread_local! {
     static FRAME: RefCell<FrameTextures> = RefCell::new(FrameTextures::default());
+    static NEXT_FRAME: RefCell<FrameTextures> = RefCell::new(FrameTextures::default());
+}
+
+/// Independent texture/cache state, sharing the original native materials.
+#[derive(Default)]
+pub(crate) struct BlockRenderer;
+impl BlockRenderer {
+    pub fn reset(&mut self) {
+        NEXT_FRAME.with(|frame| frame.borrow_mut().touch.reset());
+    }
+    pub fn draw_next(&self, res: &mut Resource, aspect: f32, zones: &[Zone], single: bool, disabled: bool, touches: &[(u64, Vector)], flip_x: bool) {
+        let projection = unsafe { get_internal_gl() }.quad_gl.get_projection_matrix();
+        let mut touches: Vec<_> = touches
+            .iter()
+            .map(|&(id, p)| {
+                let p = projection * vec4(if flip_x { -p.x } else { p.x }, -p.y, 0., 1.);
+                (id, vec2(p.x / p.w, p.y / p.w) * 0.5 + vec2(0.5, 0.5))
+            })
+            .collect();
+        touches.sort_by_key(|(id, _)| *id);
+        NEXT_FRAME.with(|frame| draw_layer_frame(res, aspect, zones, res.time as f32, disabled, &touches, frame, Some(single)));
+    }
 }
 
 fn support_scissor(uv: [f32; 4], aspect: f32, viewport: (i32, i32, i32, i32), target_height: f32) -> Option<(i32, i32, i32, i32)> {
@@ -409,7 +431,11 @@ pub fn draw_disabled_zones(res: &mut Resource, aspect: f32, zones: &[Zone]) {
     // before notes even when the disabled layer happens to be empty.
     // Drive Line2Area materials with chart seconds, matching the measured
     // Recorder pulse; pauses/seeks and captures then reproduce the same phase.
-    let time = if zones.iter().any(|z| z.line2area) { res.time as f32 } else { shader_time() };
+    let time = if zones.iter().any(|z| z.line2area) {
+        res.time as f32
+    } else {
+        shader_time()
+    };
     FRAME.with(|frame| {
         let mut frame = frame.borrow_mut();
         frame.clock = Some(time);
@@ -455,20 +481,35 @@ pub(crate) fn draw_zones_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
 }
 
 pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], time: f32, disabled: bool, touches: &[(u64, Vec2)]) {
-    if res.config.block_area_simple {
+    FRAME.with(|frame| draw_layer_frame(res, aspect, zones, time, disabled, touches, frame, None));
+}
+
+fn draw_layer_frame(
+    res: &mut Resource,
+    aspect: f32,
+    zones: &[Zone],
+    time: f32,
+    disabled: bool,
+    touches: &[(u64, Vec2)],
+    cell: &RefCell<FrameTextures>,
+    next: Option<bool>,
+) {
+    if next.is_none() && res.config.block_area_simple {
         simple::draw(aspect, zones, disabled);
         return;
     }
     let needed = if disabled {
         zones.iter().any(|z| !z.active && z.opacity > 0.)
     } else {
-        zones.iter().any(|z| z.active || z.ready) || !touches.is_empty() || FRAME.with(|frame| frame.borrow().touch.visible())
+        zones.iter().any(|z| z.active || z.ready) || !touches.is_empty() || cell.borrow().touch.visible()
     };
     if !needed {
         return;
     }
     let Some(m) = MATERIAL.as_ref() else {
-        simple::draw(aspect, zones, disabled);
+        if next.is_none() {
+            simple::draw(aspect, zones, disabled);
+        }
         return;
     };
     // ActiveBlock is postprocessing after sprites, notes and HUD; Disabled is
@@ -485,14 +526,18 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
 
     let target_height = height;
 
-    FRAME.with(|frame| {
-        let mut frame = frame.borrow_mut();
+    {
+        let mut frame = cell.borrow_mut();
         let (width, height) = (viewport.2.max(1) as usize, viewport.3.max(1) as usize);
 
         let mut profile_start = (*PROFILE_BLOCKS).then(std::time::Instant::now);
 
-        frame.masks.render_displaced(width, height, aspect, zones, time);
-        let colored = {
+        if let Some(single) = next {
+            frame.masks.render_next(width, height, aspect, zones, time, single);
+        } else {
+            frame.masks.render_displaced(width, height, aspect, zones, time);
+        }
+        let colored = next.is_none() && {
             let FrameTextures { masks, colors, .. } = &mut *frame;
             colors.update(masks, aspect, zones, time)
         };
@@ -702,7 +747,14 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         m.set_uniform("uColored", i32::from(colored));
         // Recorder beta3 draws both ReadyBlock (rd) and ActiveBlock's Ready
         // branch (rd squared). Keep each branch's native 0.12 brightness.
-        m.set_uniform("uReadyExtra", if zones.iter().any(|z| z.line2area) { 1_f32 } else { 0_f32 });
+        m.set_uniform(
+            "uReadyExtra",
+            if next.is_none() && zones.iter().any(|z| z.line2area) {
+                1_f32
+            } else {
+                0_f32
+            },
+        );
         m.set_texture("uActiveColors", if colored { frame.color_textures[0].unwrap() } else { *EMPTY_TEX });
         m.set_texture("uDisabledColors", if colored { frame.color_textures[1].unwrap() } else { *EMPTY_TEX });
         gl_use_material(m);
@@ -746,7 +798,7 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
                 }
             });
         }
-    });
+    }
 }
 
 fn snapshot_source_blit(res: &mut Resource, pass: Option<miniquad::RenderPass>) -> bool {

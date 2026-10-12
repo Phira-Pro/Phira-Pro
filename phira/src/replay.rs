@@ -75,6 +75,22 @@ pub struct Replay {
     pub chart_updated: Option<i64>,
 }
 
+impl Replay {
+    pub fn ensure_playable(&self) -> Result<()> {
+        let score = self
+            .meta
+            .result
+            .as_ref()
+            .map(|r| format!("原成绩 {} 分、准度 {:.4}% 仍已保存。", r.score, r.accuracy * 100.))
+            .unwrap_or_default();
+        anyhow::ensure!(
+            !self.judges.is_empty(),
+            "该回放缺少逐音符判定事件，无法还原打击和实时分数。{score}旧版录制故障丢失的数据无法恢复，请更新后重新录制；导出或导入不会补回这些数据。"
+        );
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Metadata {
@@ -207,7 +223,9 @@ impl JudgeEvent {
 }
 
 fn sanitize_key(key: &str) -> String {
-    key.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect()
+    key.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect()
 }
 
 /// 一条成绩记录对应的回放文件路径（不存在时也返回该路径，用于探测）。
@@ -294,10 +312,17 @@ fn parse_v3(bytes: &[u8]) -> Result<Replay> {
     let speed = r.f32()?;
     let mods = r.u32()?;
     let grading = if version >= 4 {
-        let p = r.u8()?; let d = r.u8()?;
+        let p = r.u8()?;
+        let d = r.u8()?;
         anyhow::ensure!(p <= 1 && d <= 1, "invalid replay grading flags");
-        prpr::config::JudgeGrading { perfect_plus: p != 0, detailed: d != 0, ..Default::default() }
-    } else { Default::default() };
+        prpr::config::JudgeGrading {
+            perfect_plus: p != 0,
+            detailed: d != 0,
+            ..Default::default()
+        }
+    } else {
+        Default::default()
+    };
     let cu = r.i64()?;
     let chart_updated = if cu == i64::MIN { None } else { Some(cu) };
     let flen = r.u32()? as usize;
@@ -465,6 +490,44 @@ fn parse_phirarec(bytes: &[u8], version: u32) -> Result<Replay> {
 mod tests {
     use super::*;
     #[test]
+    fn suspended_recording_closes_play_fingers_without_recording_menu_touches() {
+        let mut fingers = std::collections::HashSet::new();
+        assert!(accept_touch(&mut fingers, 71, PHASE_DOWN, true));
+        assert!(!accept_touch(&mut fingers, 99, PHASE_DOWN, false));
+        assert!(!accept_touch(&mut fingers, 99, PHASE_UP, false));
+        assert!(accept_touch(&mut fingers, 71, PHASE_UP, false));
+        assert!(fingers.is_empty());
+        assert!(!accept_touch(&mut fingers, 71, PHASE_MOVE, false));
+        assert!(accept_touch(&mut fingers, 71, PHASE_DOWN, true));
+    }
+    #[test]
+    fn empty_judgement_tape_keeps_original_result_but_cannot_play() {
+        let replay = Replay {
+            speed: 1.,
+            meta: Metadata {
+                result: Some(crate::history::Record {
+                    score: 895359,
+                    accuracy: 0.9621569514274596,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            touches: vec![TouchEvent {
+                t: 178.78204,
+                ..Default::default()
+            }],
+            frames: vec![178.78204081632654; 113],
+            ..Default::default()
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("empty.phirar");
+        save(&replay, &path).unwrap();
+        let loaded = load(&path).unwrap();
+        let message = loaded.ensure_playable().unwrap_err().to_string();
+        assert!(message.contains("895359") && message.contains("判定事件"));
+        assert_eq!(loaded.meta.result.unwrap().score, 895359);
+    }
+    #[test]
     fn v5_preserves_real_offsets_wide_ids_unicode_and_configuration() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("new.phirar");
@@ -598,8 +661,13 @@ mod tests {
     #[test]
     fn eight_grade_replay_roundtrip_and_v3_compatibility() {
         let file = std::env::temp_dir().join(format!("phira-grades-{}.phirar", uuid::Uuid::new_v4()));
-        let mut replay = super::Replay { chart: Some(super::ChartRef::Id(338)), speed: 1., ..Default::default() };
-        replay.grading.perfect_plus = false; replay.grading.detailed = true;
+        let mut replay = super::Replay {
+            chart: Some(super::ChartRef::Id(338)),
+            speed: 1.,
+            ..Default::default()
+        };
+        replay.grading.perfect_plus = false;
+        replay.grading.detailed = true;
         for id in [4, 0, 5, 1, 6, 7, 2, 3] {
             let grade = match id {
                 4 => prpr::judge::Judgement::PerfectPlus,
@@ -752,6 +820,18 @@ fn phase_of(p: macroquad::prelude::TouchPhase) -> u8 {
     }
 }
 
+fn accept_touch(fingers: &mut std::collections::HashSet<u64>, id: u64, phase: u8, active: bool) -> bool {
+    if !active && (phase != PHASE_UP || !fingers.contains(&id)) {
+        return false;
+    }
+    if phase == PHASE_UP {
+        fingers.remove(&id);
+    } else {
+        fingers.insert(id);
+    }
+    true
+}
+
 fn judge_kind(res: &Result<prpr::judge::Judgement, bool>) -> u8 {
     match res {
         Ok(prpr::judge::Judgement::Perfect) => 0,
@@ -769,6 +849,8 @@ fn judge_kind(res: &Result<prpr::judge::Judgement, bool>) -> u8 {
 
 /// 录制中的回放数据（主线程独占）。
 struct Pending {
+    attempt: Option<u64>,
+    fingers: std::collections::HashSet<u64>,
     chart: Option<ChartRef>,
     offset: f32,
     speed: f32,
@@ -805,6 +887,8 @@ pub fn recorder(chart: Option<ChartRef>, offset: f32, speed: f32, mods: u32) -> 
     let (chart_file, chart_updated) = NEXT_META.with(|it| it.borrow_mut().take()).unwrap_or((None, None));
     PENDING.with(|it| {
         *it.borrow_mut() = Some(Pending {
+            attempt: None,
+            fingers: Default::default(),
             chart,
             offset,
             speed,
@@ -826,13 +910,24 @@ pub fn recorder(chart: Option<ChartRef>, offset: f32, speed: f32, mods: u32) -> 
         PENDING.with(|it| {
             let mut g = it.borrow_mut();
             let Some(p) = g.as_mut() else { return };
-            // A retry starts a new tape; never concatenate two attempts.
-            if p.frames.last().is_some_and(|last| t < *last) {
+            // Only a real judgement reset starts a new attempt. A backwards
+            // clock correction (or the old ending clock clamp) is not a retry.
+            if p.attempt != Some(judge.recording_attempt()) {
+                p.attempt = Some(judge.recording_attempt());
                 p.frames.clear();
                 p.touches.clear();
                 p.judges.clear();
+                p.fingers.clear();
             }
-            p.frames.push(t);
+            let active = judge.recording_active();
+            let t = if active {
+                t.max(p.frames.last().copied().unwrap_or(t))
+            } else {
+                p.frames.last().copied().unwrap_or(t)
+            };
+            if active {
+                p.frames.push(t);
+            }
             p.aspect_ratio = Some(res.aspect_ratio);
             p.settings = Some(crate::judgement_presets::JudgeSettings::capture(&res.config));
             p.gameplay = Some(Gameplay::capture(&res.config));
@@ -845,12 +940,16 @@ pub fn recorder(chart: Option<ChartRef>, offset: f32, speed: f32, mods: u32) -> 
                 if matches!(touch.phase, macroquad::prelude::TouchPhase::Stationary) {
                     continue;
                 }
+                let phase = phase_of(touch.phase);
+                if !accept_touch(&mut p.fingers, touch.id, phase, active) {
+                    continue;
+                }
                 let (sx, sy, sw, sh) = prpr::ext::get_viewport();
                 let (vx, vy, vw, vh) = res.camera.viewport.unwrap_or((sx, sy, sw, sh));
                 let px = sx as f32 + (touch.position.x + 1.) * sw as f32 / 2.;
                 let py = sy as f32 + sh as f32 / 2. - touch.position.y * sw as f32 / 2.;
                 p.touches.push(TouchEvent {
-                    phase: phase_of(touch.phase),
+                    phase,
                     id: touch.id,
                     x: (px - vx as f32) * 2. / vw as f32 - 1.,
                     y: (vy as f32 + vh as f32 / 2. - py) * 2. / vw as f32,
@@ -900,6 +999,9 @@ pub fn save_recording(key: &str, time_ms: i64) -> Option<PathBuf> {
         chart_updated: p.chart_updated,
         ..Default::default()
     };
+    // Preserve the real event times, with stable ordering for multiple events
+    // in a frame. Clock correction can otherwise put a later frame first.
+    replay.judges.sort_by(|a, b| a.t.total_cmp(&b.t));
     replay.meta = NEXT_IDENTITY.with(|v| v.borrow_mut().take()).unwrap_or_default();
     replay.meta.id = uuid::Uuid::new_v4().to_string();
     replay.meta.recorded_at = Some(time_ms);

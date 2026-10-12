@@ -22,6 +22,9 @@ use std::{
 
 pub const FLICK_SPEED_THRESHOLD: f32 = 0.8;
 mod phigros;
+#[cfg(test)]
+#[path = "judge/rpe_next_tests.rs"]
+mod rpe_next_tests;
 /// Perfect+（Perfect+）的默认窗口。比 Perfect 更严格，且不参与准确率/分数计算。
 pub const LIMIT_PERFECT_PLUS: f64 = 0.016;
 pub const LIMIT_PERFECT: f64 = 0.08;
@@ -1043,6 +1046,8 @@ pub struct Judge {
 
     pub(crate) inner: JudgeInner,
     pub judgements: RefCell<Judgements>,
+    recording_attempt: u64,
+    recording_active: bool,
 }
 
 #[derive(Default)]
@@ -1102,6 +1107,8 @@ impl Judge {
                 .sum::<u32>();
         }
         Self {
+            recording_attempt: 0,
+            recording_active: true,
             phigros: None,
             click_protected: HashSet::new(),
             notes,
@@ -1120,6 +1127,8 @@ impl Judge {
     }
 
     pub fn reset(&mut self) {
+        self.recording_attempt = self.recording_attempt.wrapping_add(1);
+        self.recording_active = true;
         self.phigros = None;
         self.click_protected.clear();
         self.notes.iter_mut().for_each(|it| it.1 = 0);
@@ -1130,6 +1139,19 @@ impl Judge {
         self.key_down_count = 0;
         self.inner.reset();
         self.judgements.borrow_mut().clear();
+    }
+
+    /// Explicit attempt identity: clock correction, pause countdowns and the
+    /// ending animation are not retries and must never erase a replay tape.
+    pub fn recording_attempt(&self) -> u64 {
+        self.recording_attempt
+    }
+
+    pub fn recording_active(&self) -> bool {
+        self.recording_active
+    }
+    pub fn set_recording_active(&mut self, active: bool) {
+        self.recording_active = active;
     }
 
     /// Releases still arrive while gameplay judgement is paused. Consuming

@@ -310,7 +310,45 @@ struct RPEChart {
     bpm_list: Vec<RPEBpmItem>,
     judge_line_list: Vec<RPEJudgeLine>,
     #[serde(default, alias = "BlockAreaList")]
-    block_area_list: Option<Vec<PgrBlockArea>>,
+    block_area_list: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
+    noise_area_options: NextNoiseOptions,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NextNoiseOptions {
+    #[serde(default)]
+    ignore_triple_inversion: bool,
+}
+
+fn parse_embedded_blocks(
+    list: Vec<serde_json::Value>,
+    bpm: &[RPEBpmItem],
+) -> Result<(Vec<crate::core::BlockArea>, Vec<crate::core::rpe_next_block::Area>)> {
+    use crate::core::rpe_next_block::{Area, AreaData, Tempo};
+    let mut native = Vec::new();
+    let mut next = Vec::new();
+    let mut tempo = None;
+    for (index, value) in list.into_iter().enumerate() {
+        let parse = || -> Result<_> {
+            let is_next = value.get("bottomLeft").is_some() || value.get("topRight").is_some();
+            let is_native = value.get("bottomLeftPercentage").is_some() || value.get("topRightPercentage").is_some();
+            anyhow::ensure!(is_next != is_native, "unknown or ambiguous block-area schema");
+            if is_next {
+                if tempo.is_none() {
+                    tempo = Some(Tempo::new(bpm.iter().map(|b| (b.start_time.beats(), b.bpm)))?);
+                }
+                let data: AreaData = serde_json::from_value(value)?;
+                next.push(Area::new(data, tempo.as_ref().unwrap())?);
+            } else {
+                native.push(serde_json::from_value::<PgrBlockArea>(value)?);
+            }
+            Ok(())
+        };
+        parse().with_context(|| format!("blockAreaList[{index}]"))?;
+    }
+    Ok((parse_block_areas(native), next))
 }
 
 type BezierMap = HashMap<(u16, i16, i16), TweenRef>;
@@ -894,9 +932,9 @@ pub async fn parse_rpe_with_path(
         SpeedEasingMode::Legacy
     };
     let bezier_map = get_bezier_map(&rpe);
-    let block_areas = match rpe.block_area_list {
-        Some(list) => parse_block_areas(list),
-        None => super::block_area::load_external(fs, chart_path).await?,
+    let (block_areas, next_block_areas) = match rpe.block_area_list {
+        Some(list) => parse_embedded_blocks(list, &rpe.bpm_list)?,
+        None => (super::block_area::load_external(fs, chart_path).await?, Vec::new()),
     };
     let mut r = BpmList::new(rpe.bpm_list.into_iter().map(|it| (it.start_time.beats(), it.bpm)).collect());
     fn vec<T>(v: &Option<Vec<T>>) -> impl Iterator<Item = &T> {
@@ -981,11 +1019,16 @@ pub async fn parse_rpe_with_path(
     // Embedded official blocks keep seconds, screen percentages and native
     // easing IDs. RPE BPM conversion applies only to the RPE line events.
     chart.block_areas = block_areas;
+    chart.next_block_areas = next_block_areas;
+    chart.next_single_inversion = rpe.noise_area_options.ignore_triple_inversion;
     Ok(chart)
 }
 
 pub async fn lint(source: &str) -> Result<ParseWarnings> {
     let rpe: RPEChart = serde_json::from_str(source).with_context(|| ptl!("json-parse-failed"))?;
+    if let Some(list) = rpe.block_area_list {
+        parse_embedded_blocks(list, &rpe.bpm_list)?;
+    }
     let has_new_speed_events = rpe
         .judge_line_list
         .iter()
@@ -1053,6 +1096,31 @@ mod block_area_tests {
             .build()
             .unwrap()
             .block_on(parse_rpe(&source.to_string(), &mut fs, ChartExtra::default(), false))
+    }
+
+    #[test]
+    fn rpe_next_export_is_distinguished_from_native_blocks_and_plays_global_beats() {
+        let source: Value = serde_json::from_str(include_str!("../../tests/fixtures/rpe-next/chart.json")).unwrap();
+        let chart = read_chart(source.clone()).unwrap();
+        assert!(chart.block_areas.is_empty());
+        assert_eq!(chart.next_block_areas.len(), 61);
+        assert!((chart.offset - 0.32).abs() < 1e-6);
+        assert!(chart.has_block_areas());
+        assert!(chart.next_block_areas[0].sample(0.49, 1.5).is_none());
+        assert_eq!(chart.next_block_areas[0].sample(1.1, 1.5).unwrap().state, 2);
+        let p = chart.next_block_areas[0].sample(1.1, 1.5).unwrap().zone.center;
+        assert!(chart.touch_blocked(p, 1.1, 1.5));
+        // Shared cache must follow reverse replay seeking, not retain old poses.
+        let before = chart.next_block_samples(1.1, 1.5)[0].zone.center;
+        let _ = chart.next_block_samples(5., 1.5);
+        assert_eq!(chart.next_block_samples(1.1, 1.5)[0].zone.center, before);
+        let mut source = source;
+        source["noiseAreaOptions"] = json!({"ignoreTripleInversion":true});
+        assert!(read_chart(source).unwrap().next_single_inversion);
+        let mut source = chart_json(120.);
+        source["blockAreaList"] = json!([{"Name":"unknown"}]);
+        let err = read_chart(source).err().unwrap();
+        assert!(format!("{err:#}").contains("blockAreaList[0]"));
     }
 
     fn sidecar_blocks() -> Value {

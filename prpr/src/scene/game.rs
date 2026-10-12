@@ -686,8 +686,11 @@ impl GameScene {
         tracing::info!("game loading: parse chart begins");
         let (mut chart, chart_bytes, chart_format) = Self::load_chart(fs.deref_mut(), &info).await?;
         tracing::info!("game loading: chart parsed; preparing shaders and resources");
-        if chart.has_block_areas() && !config.block_area_simple {
-            crate::core::prepare_block_effects();
+        if chart.has_block_areas() && (!config.block_area_simple || !chart.next_block_areas.is_empty()) {
+            let prepared = crate::core::prepare_block_effects();
+            if !chart.next_block_areas.is_empty() && !prepared {
+                anyhow::bail!("Unable to prepare official noise-area materials for this rpe-next chart");
+            }
         }
         if config.mods.contains(Mods::NO_SHADER) {
             chart.extra.effects.clear();
@@ -1454,6 +1457,11 @@ impl Scene for GameScene {
         }
         let offset = self.offset();
         let time = tm.now();
+        // Capture the last Playing frame even when it transitions to Ending,
+        // but never record ending/UI touches or the clamped fade-out clock.
+        let capture_replay = !tm.paused()
+            && self.pause_rewind.is_none()
+            && matches!(self.state, State::BeforeMusic | State::Playing);
         let time = match self.state {
             State::Starting => {
                 if time >= Self::BEFORE_TIME {
@@ -1626,9 +1634,12 @@ impl Scene for GameScene {
         } else {
             self.block_audio.sync(
                 &mut self.music,
-                !self.res.config.block_area_simple && matches!(self.state, State::Playing) && !self.chart.blocked_touches.is_empty(),
+                (!self.res.config.block_area_simple || !self.chart.next_block_areas.is_empty()) && matches!(self.state, State::Playing) && !self.chart.blocked_touches.is_empty(),
             );
         }
+        self.judge.set_recording_active(capture_replay);
+        // The suspended hook may close already-recorded fingers released in
+        // a pause, but cannot add menu touches or clamped ending frames.
         if let Some(update) = &mut self.update_fn {
             update(self.res.time, &mut self.res, &mut self.judge);
         }

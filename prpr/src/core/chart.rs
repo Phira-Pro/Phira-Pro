@@ -1,5 +1,5 @@
 use super::{
-    draw_disabled_zones, draw_zones_with_touches, BlockArea, BlockRotateEvent, BpmList, Effect, JudgeLine, JudgeLineKind, Matrix, Point, Resource,
+    draw_disabled_zones, draw_zones_with_touches, BlockArea, BlockRotateEvent, BpmList, Effect, JudgeLine, JudgeLineKind, Matrix, Resource,
     UIElement, Vector, Zone,
 };
 use crate::{core::Object, fs::FileSystem, judge::JudgeStatus, ui::Ui};
@@ -54,6 +54,11 @@ pub struct Chart {
 
     /// Phigros 9th-chapter touch-blocking zones (`blockAreaList`).
     pub block_areas: Vec<BlockArea>,
+    /// rpe-next canvas/beat blocks; not native percentage/second blocks.
+    pub next_block_areas: Vec<super::rpe_next_block::Area>,
+    pub next_single_inversion: bool,
+    next_block_frame: RefCell<(Option<(f64, f32, usize)>, Vec<super::rpe_next_block::Sample>)>,
+    next_block_renderer: super::block_shader::BlockRenderer,
     /// Chart-space positions of touches blocked by the zones this frame.
     pub blocked_touches: Vec<(u64, Vector)>,
     block_frame: RefCell<BlockFrame>,
@@ -107,6 +112,10 @@ impl Chart {
 
             hitsounds,
             block_areas: Vec::new(),
+            next_block_areas: Vec::new(),
+            next_single_inversion: false,
+            next_block_frame: RefCell::default(),
+            next_block_renderer: Default::default(),
             blocked_touches: Vec::new(),
             block_frame: RefCell::default(),
             rpe_block_markers,
@@ -153,6 +162,8 @@ impl Chart {
     }
 
     pub fn reset(&mut self) {
+        self.next_block_frame.get_mut().0 = None;
+        self.next_block_renderer.reset();
         self.blocked_touches.clear();
         let cache = self.block_frame.get_mut();
         cache.key = None;
@@ -203,7 +214,7 @@ impl Chart {
     }
 
     pub(crate) fn has_block_areas(&self) -> bool {
-        !self.block_areas.is_empty() || !self.rpe_block_markers.is_empty()
+        !self.block_areas.is_empty() || !self.rpe_block_markers.is_empty() || !self.next_block_areas.is_empty()
     }
 
     pub(crate) fn set_rpe_block_anchors(&mut self, anchors: &[[f32; 2]]) {
@@ -273,6 +284,14 @@ impl Chart {
             // Native Background sorting layer order 2, judge lines order 3.
             let zones = self.block_zones(res);
             draw_disabled_zones(res, res.aspect_ratio, &zones);
+            // Use native Disabled below sprites; Active/Ready and touch effects
+            // use the existing postprocess after notes/HUD, not editor flat fill.
+            let next = self.next_block_samples(res.time, res.aspect_ratio);
+            if !next.is_empty() {
+                let zones: Vec<_> = next.iter().map(|s| s.zone.clone()).collect();
+                self.next_block_renderer
+                    .draw_next(res, res.aspect_ratio, &zones, self.next_single_inversion, true, &[], false);
+            }
             let mut guard = self.bpm_list.borrow_mut();
             for id in &self.order {
                 self.lines[*id].render(ui, res, &self.lines, &mut guard, &self.settings, *id);
@@ -308,7 +327,15 @@ impl Chart {
         let flip_x = res.config.flip_x();
         let zones = self.block_zones(res);
         res.apply_model_of(&Matrix::identity().append_nonuniform_scaling(&Vector::new(if flip_x { -1. } else { 1. }, -1.)), |res| {
-            draw_zones_with_touches(res, res.aspect_ratio, &zones, &self.blocked_touches, flip_x);
+            if !self.block_areas.is_empty() || !self.rpe_block_markers.is_empty() {
+                draw_zones_with_touches(res, res.aspect_ratio, &zones, &self.blocked_touches, flip_x);
+            }
+            if !self.next_block_areas.is_empty() {
+                let next = self.next_block_samples(res.time, res.aspect_ratio);
+                let zones: Vec<_> = next.iter().map(|s| s.zone.clone()).collect();
+                self.next_block_renderer
+                    .draw_next(res, res.aspect_ratio, &zones, self.next_single_inversion, false, &self.blocked_touches, flip_x);
+            }
         });
     }
 
@@ -353,6 +380,19 @@ impl Chart {
             .map(|&id| &self.block_areas[id])
             .chain(marker_areas.iter());
         super::block::block_touch_blocked_iter(areas, p, time, aspect)
+            || super::rpe_next_block::blocked(&self.next_block_samples(time, aspect), p, aspect, self.next_single_inversion)
+    }
+
+    pub fn next_block_samples(&self, time: f64, aspect: f32) -> std::cell::Ref<'_, [super::rpe_next_block::Sample]> {
+        let mut cache = self.next_block_frame.borrow_mut();
+        let key = (time, aspect, self.next_block_areas.len());
+        if cache.0 != Some(key) {
+            cache.1.clear();
+            cache.1.extend(self.next_block_areas.iter().filter_map(|area| area.sample(time, aspect)));
+            cache.0 = Some(key);
+        }
+        drop(cache);
+        std::cell::Ref::map(self.next_block_frame.borrow(), |cache| cache.1.as_slice())
     }
 
     fn update_marker_areas(&self, cache: &mut BlockFrame, time: f64, aspect: f32) {

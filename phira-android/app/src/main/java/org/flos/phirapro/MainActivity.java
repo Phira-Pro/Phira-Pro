@@ -2,12 +2,15 @@ package org.flos.phirapro;
 
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
+import android.hardware.display.DisplayManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.ParcelFileDescriptor;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.view.Display;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -24,12 +27,24 @@ import quad_native.QuadNative;
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "PhiraPro";
+    private static final float MAX_GAME_REFRESH_RATE = 120f;
 
     private static final int REQ_CHOOSE_FILE = 1001;
     private static final int REQ_CHOOSE_PHOTO = 1002;
     private static final int REQ_EXPORT = 1003;
 
     private QuadSurface view;
+    private DisplayManager displayManager;
+    private float requestedFrameRate = 60f;
+    private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
+        @Override public void onDisplayAdded(int displayId) {}
+        @Override public void onDisplayRemoved(int displayId) {}
+        @Override public void onDisplayChanged(int displayId) {
+            if (displayId == getWindowManager().getDefaultDisplay().getDisplayId()) {
+                requestHighRefreshRate();
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -42,6 +57,9 @@ public class MainActivity extends AppCompatActivity {
 
         view = new QuadSurface(this);
         setContentView(view);
+        displayManager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
+        displayManager.registerDisplayListener(displayListener, new Handler(getMainLooper()));
+        requestHighRefreshRate();
 
         WindowInsetsControllerCompat insets = WindowCompat.getInsetsController(getWindow(), view);
         insets.hide(WindowInsetsCompat.Type.statusBars());
@@ -64,6 +82,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         enforceLandscape();
+        requestHighRefreshRate();
         Log.i(TAG, "Activity onResume");
         QuadNative.activityOnResume();
         QuadNative.prprActivityOnResume();
@@ -87,10 +106,58 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         Log.i(TAG, "Activity onDestroy");
+        if (displayManager != null) {
+            displayManager.unregisterDisplayListener(displayListener);
+        }
         super.onDestroy();
         QuadNative.releaseContext();
         QuadNative.activityOnDestroy();
         QuadNative.prprActivityOnDestroy();
+    }
+
+    private void requestHighRefreshRate() {
+        Display display = getWindowManager().getDefaultDisplay();
+        float selectedRate = Math.min(display.getRefreshRate(), MAX_GAME_REFRESH_RATE);
+        int selectedModeId = 0;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Display.Mode selectedMode = display.getMode();
+            float bestRate = -1f;
+            for (Display.Mode mode : display.getSupportedModes()) {
+                if (mode.getPhysicalWidth() != selectedMode.getPhysicalWidth()
+                        || mode.getPhysicalHeight() != selectedMode.getPhysicalHeight()) {
+                    continue;
+                }
+                float rate = mode.getRefreshRate();
+                if (rate <= MAX_GAME_REFRESH_RATE && rate > bestRate) {
+                    selectedMode = mode;
+                    bestRate = rate;
+                }
+            }
+            if (bestRate > 0f) selectedRate = bestRate;
+            selectedModeId = selectedMode.getModeId();
+        } else {
+            for (float rate : display.getSupportedRefreshRates()) {
+                if (rate <= MAX_GAME_REFRESH_RATE && rate > selectedRate) {
+                    selectedRate = rate;
+                }
+            }
+        }
+
+        requestedFrameRate = selectedRate;
+        Window window = getWindow();
+        WindowManager.LayoutParams attributes = window.getAttributes();
+        boolean changed = Math.abs(attributes.preferredRefreshRate - selectedRate) > 0.01f;
+        attributes.preferredRefreshRate = selectedRate;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            changed |= attributes.preferredDisplayModeId != selectedModeId;
+            attributes.preferredDisplayModeId = selectedModeId;
+        }
+        if (changed) {
+            window.setAttributes(attributes);
+            Log.i(TAG, "Requested display mode: " + selectedRate + " Hz");
+        }
+        if (view != null) view.setTargetFrameRate(requestedFrameRate);
     }
 
     /** miniquad 回调。setDecorFitsSystemWindows 是 API 30 才有的，低版本走旧的 setSystemUiVisibility。 */

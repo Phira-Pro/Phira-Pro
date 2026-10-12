@@ -30,6 +30,7 @@ public class QuadSurface extends SurfaceView
     });
 
     private final MotionFrame motionFrame = new MotionFrame();
+    private float targetFrameRate = 60f;
 
     private static final class MotionFrame implements TouchEventRouter.Frame {
         MotionEvent event;
@@ -67,6 +68,22 @@ public class QuadSurface extends SurfaceView
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
         Surface surface = holder.getSurface();
         QuadNative.surfaceOnSurfaceChanged(surface, width, height);
+        applyFrameRate(surface);
+    }
+
+    void setTargetFrameRate(float frameRate) {
+        if (Float.isNaN(frameRate) || Float.isInfinite(frameRate) || frameRate <= 0f) {
+            throw new IllegalArgumentException("frame rate must be finite and positive");
+        }
+        targetFrameRate = frameRate;
+        Surface surface = getHolder().getSurface();
+        if (surface.isValid()) applyFrameRate(surface);
+    }
+
+    private void applyFrameRate(Surface surface) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && surface.isValid()) {
+            surface.setFrameRate(targetFrameRate, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
+        }
     }
 
     @Override

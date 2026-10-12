@@ -67,7 +67,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 ### 其他
 
-- 修正 Android 多指按下、移动、抬起及取消的触摸转发；修正 Windows / Linux 构建问题；内置 HarmonyOS Sans 及补充字体，覆盖语言菜单中的韩语、泰语等字符。
+- Android 按当前分辨率请求最高可用显示刷新率（最高 120Hz），并在恢复、显示模式变化和 Surface 重建后重新申请；实际帧率仍受系统省电、温控策略与设备性能影响。修正 Android 多指按下、移动、抬起及取消的触摸转发；修正 Windows / Linux 构建问题；内置 HarmonyOS Sans 及补充字体，覆盖语言菜单中的韩语、泰语等字符。
 
 ## 成绩与隐私
 

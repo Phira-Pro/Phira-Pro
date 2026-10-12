@@ -158,14 +158,14 @@ impl Note {
 
     pub fn update(&mut self, res: &mut Resource, parent_rot: f32, parent_tr: &Matrix, ctrl_obj: &mut CtrlObject, line_height: f64) {
         self.object.set_time(res.time);
-        if let Some(color) = if let JudgeStatus::Hold(perfect, at, ..) = &mut self.judge {
+        if let Some(color) = if let JudgeStatus::Hold(perfect, at, _, _, _, grade) = &mut self.judge {
             if res.time > *at {
                 *at += HOLD_PARTICLE_INTERVAL / res.config.speed as f64;
                 Some(self.fx_color.unwrap_or_else(|| {
                     if *perfect {
-                        res.res_pack.info.fx_perfect()
+                        res.config.judge_grading.color(*grade as usize, res.res_pack.info.fx_perfect())
                     } else {
-                        res.res_pack.info.fx_good()
+                        res.config.judge_grading.color(*grade as usize, res.res_pack.info.fx_good())
                     }
                 }))
             } else {
@@ -425,7 +425,10 @@ impl BadNote {
                 },
                 self.kind.order(),
                 res.note_width,
-                Color::new(0.423529, 0.262745, 0.262745, ((self.time - res.time).max(-1.) / BAD_TIME + 1.) as f32),
+                Color {
+                    a: ((self.time - res.time).max(-1.) / BAD_TIME + 1.) as f32,
+                    ..res.config.judge_grading.color(2, Color::new(0.423529, 0.262745, 0.262745, 1.))
+                },
             );
         });
         true

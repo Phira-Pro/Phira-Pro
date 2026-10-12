@@ -15,14 +15,24 @@ pub mod deeplink;
 mod font_store;
 mod frame_profile;
 mod history;
-mod judgement_presets;
 mod hud;
+mod judgement_presets;
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub(crate) fn set_refresh_rate(rate: u16) -> anyhow::Result<()> {
+    #[cfg(target_os = "android")]
+    set_android_refresh_rate(rate)?;
+    #[cfg(target_os = "ios")]
+    prpr::frame_pacing::set_requested(rate);
+    Ok(())
+}
 mod icons;
 mod images;
 mod login;
-mod migrate;
 mod menu_music;
+mod migrate;
 mod page;
+mod plugins;
 mod popup;
 mod rate;
 mod replay;
@@ -336,7 +346,9 @@ mod dir {
     /// 返回是否删除过至少一个文件。
     pub fn clear_appearance_audio(stem: &str) -> Result<bool> {
         let root = std::path::PathBuf::from(appearance()?);
-        if stem == "bgm" { let _ = std::fs::remove_file(root.join("bgm-title.txt")); }
+        if stem == "bgm" {
+            let _ = std::fs::remove_file(root.join("bgm-title.txt"));
+        }
         let mut removed = false;
         for ext in AUDIO_EXTS {
             let path = root.join(format!("{stem}.{ext}"));
@@ -392,8 +404,9 @@ async fn the_main() -> Result<()> {
         .unwrap_or_default();
     data.init().await?;
     set_data(data);
-    #[cfg(target_os = "android")]
-    set_android_refresh_rate(get_data().config.preferred_refresh_rate)?;
+    plugins::init();
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    set_refresh_rate(get_data().config.preferred_refresh_rate)?;
     startup::stage("network clients");
     sync_data();
     save_data()?;
@@ -492,6 +505,8 @@ async fn the_main() -> Result<()> {
     let mut profile_previous = std::time::Instant::now();
 
     'app: loop {
+        #[cfg(target_os = "ios")]
+        prpr::frame_pacing::install();
         let profile_start = frame_profile.as_ref().map(|_| std::time::Instant::now());
         #[cfg(target_os = "windows")]
         frame_pacer.wait();
@@ -574,8 +589,15 @@ async fn the_main() -> Result<()> {
                 profile_update = render.duration_since(work).as_secs_f64() * 1000.;
             }
             main.render(&mut painter)?;
+            {
+                let mut ui = prpr::ui::Ui::new(&mut painter, None);
+                macroquad::prelude::set_camera(&ui.camera());
+                plugins::render(&mut ui, tm.real_time());
+            }
             prpr::ext::flush_pending_texture_deletions();
-            if let Some(start) = render_start { profile_render = start.elapsed().as_secs_f64() * 1000.; }
+            if let Some(start) = render_start {
+                profile_render = start.elapsed().as_secs_f64() * 1000.;
+            }
             Ok(())
         }();
         if let Err(err) = res {
@@ -605,7 +627,14 @@ async fn the_main() -> Result<()> {
         if let (Some(profile), Some(start), Some(work), Some(present)) = (&mut frame_profile, profile_start, profile_work, present_start) {
             let interval = start.duration_since(profile_previous).as_secs_f64() * 1000.;
             profile_previous = start;
-            profile.record(start, interval, work.duration_since(start).as_secs_f64() * 1000., profile_update, profile_render, present.elapsed().as_secs_f64() * 1000.);
+            profile.record(
+                start,
+                interval,
+                work.duration_since(start).as_secs_f64() * 1000.,
+                profile_update,
+                profile_render,
+                present.elapsed().as_secs_f64() * 1000.,
+            );
         }
     }
     Ok(())
@@ -766,11 +795,7 @@ pub extern "C" fn Java_quad_1native_QuadNative_setDpi(_env: EnvUnowned, _class: 
 
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub extern "C" fn Java_quad_1native_QuadNative_setMaxRefreshRate(
-    _env: EnvUnowned,
-    _class: JClass,
-    refresh_rate: jni::sys::jfloat,
-) {
+pub extern "C" fn Java_quad_1native_QuadNative_setMaxRefreshRate(_env: EnvUnowned, _class: JClass, refresh_rate: jni::sys::jfloat) {
     if refresh_rate.is_finite() && refresh_rate > 0.0 {
         prpr::ui::MAX_DEVICE_REFRESH_RATE.store(refresh_rate.to_bits(), std::sync::atomic::Ordering::Relaxed);
     }

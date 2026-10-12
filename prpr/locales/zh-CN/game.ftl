@@ -13,3 +13,8 @@ game-over = 游戏失败
 ex-time-out-of-range = 时间不在范围内
 ex-invalid-format = 格式有误
 ex-time-set = 设置成功
+
+ex-combo-applied = 已应用 combo 区间
+ex-auto-on = 自动循环：开
+ex-auto-off = 自动循环：关
+ex-loop-accuracy = 第 { $loop } 圈 · { $accuracy }%

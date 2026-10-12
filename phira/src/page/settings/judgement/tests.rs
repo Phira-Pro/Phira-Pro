@@ -123,6 +123,8 @@ fn production_panel_save_cancel_reload_and_aspects() {
             list.update(2.).unwrap();
             return_input("preset-side-0-1".into(), "+20".into());
             list.update(2.).unwrap();
+            return_input("preset-color-4".into(), "#12AB34".into());
+            list.update(2.).unwrap();
             assert_eq!(JudgeSettings::capture(&get_data().config), before, "editing must not apply before saving");
             let height = render(&mut list, &mut painter, 1280, 720, 0., "editor-top");
             render(&mut list, &mut painter, 1280, 720, 0.5, "editor-sided");
@@ -144,6 +146,7 @@ fn production_panel_save_cancel_reload_and_aspects() {
             assert_eq!(get_data().config.judge_windows().late[2], 0.185);
             assert_eq!(get_data().config.judge_windows().early[0], 0.016);
             assert_eq!(get_data().config.judge_windows().late[0], 0.020);
+            assert_eq!(get_data().config.judge_grading.colors[4], Some(0x12ab34));
             let serialized = std::fs::read_to_string("target/judgement-panel-qa/data/data.json").unwrap();
             crate::set_data(serde_json::from_str(&serialized).unwrap());
             list.refresh();
@@ -200,6 +203,15 @@ fn production_panel_save_cancel_reload_and_aspects() {
             render(&mut list, &mut painter, 1280, 720, 3.0, "editor-en-flick");
             // Live controls work without adding any saved preset, including signed windows.
             list = JudgementList::new();
+            return_input("preset-color-0".into(), "#ABCDEF".into());
+            list.update(2.).unwrap();
+            assert_eq!(get_data().config.judge_grading.colors[0], Some(0xabcdef));
+            return_input("preset-color-0".into(), "invalid".into());
+            list.update(2.).unwrap();
+            assert_eq!(get_data().config.judge_grading.colors[0], Some(0xabcdef));
+            return_input("preset-color-0".into(), "".into());
+            list.update(2.).unwrap();
+            assert_eq!(get_data().config.judge_grading.colors[0], None);
             list.selector.set_selected(2);
             list.activate();
             list.update(2.).unwrap();
@@ -284,9 +296,14 @@ fn production_panel_save_cancel_reload_and_aspects() {
                     ));
                 }
                 list.update(2.).unwrap();
-                assert_eq!(get_data().config.judge_grading.early_ms, [109., 172., 196.]);
+                assert_eq!(get_data().config.judge_grading.early_ms, [109.5, 172.5, 196.5]);
                 assert_eq!(JudgeSettings::capture(&get_data().config).selected_osu_mania_od(), Some(-15));
                 assert!(get_data().judge_presets.is_empty());
+            }
+            for (w,h,suffix) in [(960,720,"4x3"),(1280,720,"16x9"),(1280,548,"21x9")] {
+                let height=render(&mut list,&mut painter,w,h,0.,"color-height");
+                let visible=h as f32/w as f32*2.-0.20;
+                render(&mut list,&mut painter,w,h,height-visible,&format!("colors-{suffix}"));
             }
             // Use the production result grid and inspect its GPU-rendered pixels at phone/tablet ratios.
             let mut result = prpr::judge::PlayResult::default();
@@ -461,8 +478,11 @@ fn production_panel_save_cancel_reload_and_aspects() {
                                     let rect = row.label;
                                     assert!(rect.x >= prpr::ui::judgement_panel_left(rect.y) + 0.005, "{label} must stay in score panel at {suffix}");
                                     assert!(row.cell.right() <= 0.43 + 1e-5);
-                                    if !details { assert!((row.label_size - 0.64).abs() < 1e-5, "normal phone labels retain original size"); }
-                                    else { assert!((row.label_size - row.count_size).abs() < 1e-5, "detail numbers share the label font size"); }
+                                    if !details {
+                                        assert!((row.label_size - 0.64).abs() < 1e-5, "normal phone labels retain original size");
+                                    } else {
+                                        assert!((row.label_size - row.count_size).abs() < 1e-5, "detail numbers share the label font size");
+                                    }
                                     let x0 = ((rect.x + 1.) * w as f32 / 2.).ceil() as usize;
                                     let x1 = ((rect.x + rect.w / 4. + 1.) * w as f32 / 2.).floor() as usize;
                                     let y0 = ((ui.top - rect.bottom()) * w as f32 / 2.).ceil() as usize;

@@ -133,11 +133,11 @@ mod tests {
         for od in -15..=15 {
             let mut s = JudgeSettings::detailed();
             s.apply_osu_mania_od(od);
-            let g = 64. - 3. * od as f32;
-            let o = 127. - 3. * od as f32;
-            let m = 151. - 3. * od as f32;
+            let g = 64.5 - 3. * od as f32;
+            let o = 127.5 - 3. * od as f32;
+            let m = 151.5 - 3. * od as f32;
             assert_eq!(s.grading.early_ms, [g, o, m]);
-            assert_eq!(s.windows_ms[2..], [97. - 3. * od as f32, 188. - 3. * od as f32]);
+            assert_eq!(s.windows_ms[2..], [97.5 - 3. * od as f32, 188.5 - 3. * od as f32]);
             assert!(!s.grading.perfect_plus);
             assert_eq!(s.grading.early_ms, s.grading.late_ms);
             assert_eq!(s.selected_osu_mania_od(), Some(od));
@@ -159,13 +159,13 @@ mod tests {
             assert_eq!(restored.selected_osu_mania_od(), Some(od));
         }
         let mut s = JudgeSettings::detailed();
-        for (od, perfect) in [(-15, 31.4), (0, 22.4), (5, 19.4), (10, 13.9), (15, 8.4)] {
+        for (od, perfect) in [(-15, 31.5), (0, 22.5), (5, 19.5), (10, 13.5), (15, 8.5)] {
             s.apply_osu_mania_od(od);
             assert_eq!(s.windows_ms[1], perfect);
         }
         s.apply_osu_mania_od(5);
-        assert_eq!(s.grading.early_ms, [49., 112., 136.]);
-        assert_eq!(s.windows_ms, [8., 19.4, 82., 173.]);
+        assert_eq!(s.grading.early_ms, [49.5, 112.5, 136.5]);
+        assert_eq!(s.windows_ms, [8., 19.5, 82.5, 173.5]);
         assert!(!s.grading.perfect_plus);
         s.grading.perfect_plus = true;
         assert_eq!(s.selected_osu_mania_od(), None);

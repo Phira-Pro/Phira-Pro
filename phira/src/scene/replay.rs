@@ -62,7 +62,7 @@ pub struct ReplayScene {
     b: Option<f64>,
     looping: bool,
     next_touch: Vec<Option<usize>>,
-    finger_numbers: HashMap<u64, usize>,
+    finger_numbers: Vec<usize>,
     errors: Vec<f64>,
     selected_error: Option<usize>,
     frame_fallback: bool,
@@ -166,11 +166,7 @@ impl ReplayScene {
         let _ = game_scene.music.seek_to(game_scene.offset() as f64);
 
         let mut next_touch = vec![None; replay.touches.len()];
-        let mut finger_numbers = HashMap::new();
-        for event in &replay.touches {
-            let n = finger_numbers.len() + 1;
-            finger_numbers.entry(event.id).or_insert(n);
-        }
+        let finger_numbers = replay::contact_numbers(&replay.touches);
         let mut next = HashMap::new();
         for (i, e) in replay.touches.iter().enumerate().rev() {
             next_touch[i] = next.insert(e.id, i);
@@ -296,7 +292,13 @@ impl ReplayScene {
                 break;
             }
             self.judge_idx += 1;
-            let GameScene { chart, judge, res, bad_notes, .. } = &mut self.game_scene;
+            let GameScene {
+                chart,
+                judge,
+                res,
+                bad_notes,
+                ..
+            } = &mut self.game_scene;
             let Some(line) = chart.lines.get_mut(ev.line as usize) else { continue };
             let Some(note) = line.notes.get_mut(ev.note as usize) else { continue };
             if self.replay.has_diffs && matches!(note.kind, prpr::core::NoteKind::Click | prpr::core::NoteKind::Hold { .. }) {
@@ -332,18 +334,26 @@ impl ReplayScene {
             }
             let hold_success = matches!(ev.kind, 0 | 1 | 4 | 7 | 8 | 9) && matches!(note.kind, prpr::core::NoteKind::Hold { .. });
             let hold_active = if hold_success {
-                let prpr::core::NoteKind::Hold { end_time, .. } = note.kind else { unreachable!() };
+                let prpr::core::NoteKind::Hold { end_time, .. } = note.kind else {
+                    unreachable!()
+                };
                 let active = note.judge.finish_hold_score(ev.t, end_time);
-                if active { self.finishing_holds.insert((ev.line, ev.note), end_time); }
+                if active {
+                    self.finishing_holds.insert((ev.line, ev.note), end_time);
+                }
                 active
-            } else { false };
+            } else {
+                false
+            };
             match ev.kind {
                 0 | 4 => {
-                    if !hold_active { note.judge = JudgeStatus::Judged; }
+                    if !hold_active {
+                        note.judge = JudgeStatus::Judged;
+                    }
                     let tj = if ev.kind == 4 { TJ::PerfectPlus } else { TJ::Perfect };
                     judge.commit(ev.t, tj, ev.line, ev.note, ev.diff as f64);
                     if !silent && !hold_success {
-                        let fx = res.res_pack.info.fx_perfect();
+                        let fx = res.config.judge_grading.color(tj as usize, res.res_pack.info.fx_perfect());
                         let (line_tr, obj, rot) = {
                             let line = &chart.lines[ev.line as usize];
                             let tr = line.now_transform(res, &chart.lines);
@@ -370,7 +380,13 @@ impl ReplayScene {
                         ev.diff as f64,
                     );
                     if !silent && !hold_success {
-                        let fx = res.res_pack.info.fx_good();
+                        let grade = match ev.kind {
+                            7 => TJ::Great,
+                            8 => TJ::Ok,
+                            9 => TJ::Meh,
+                            _ => TJ::Good,
+                        };
+                        let fx = res.config.judge_grading.color(grade as usize, res.res_pack.info.fx_good());
                         let (line_tr, obj, rot) = {
                             let line = &chart.lines[ev.line as usize];
                             let tr = line.now_transform(res, &chart.lines);
@@ -408,10 +424,32 @@ impl ReplayScene {
                     judge.commit(ev.t, TJ::Miss, ev.line, ev.note, ev.diff as f64);
                 }
                 5 => {
-                    note.judge = JudgeStatus::Hold(true, ev.t, 0., false, f64::INFINITY);
+                    note.judge = JudgeStatus::Hold(
+                        true,
+                        ev.t,
+                        0.,
+                        false,
+                        f64::INFINITY,
+                        match ev.head_grade {
+                            Some(4) => TJ::PerfectPlus,
+                            _ => TJ::Perfect,
+                        },
+                    );
                 }
                 6 => {
-                    note.judge = JudgeStatus::Hold(false, ev.t, 0., false, f64::INFINITY);
+                    note.judge = JudgeStatus::Hold(
+                        false,
+                        ev.t,
+                        0.,
+                        false,
+                        f64::INFINITY,
+                        match ev.head_grade {
+                            Some(7) => TJ::Great,
+                            Some(8) => TJ::Ok,
+                            Some(9) => TJ::Meh,
+                            _ => TJ::Good,
+                        },
+                    );
                 }
                 _ => {}
             }
@@ -422,7 +460,9 @@ impl ReplayScene {
         let chart = &mut self.game_scene.chart;
         self.finishing_holds.retain(|&(line, id), tail| {
             let note = &mut chart.lines[line as usize].notes[id as usize];
-            if t >= *tail { note.judge = JudgeStatus::Judged; }
+            if t >= *tail {
+                note.judge = JudgeStatus::Judged;
+            }
             !matches!(note.judge, JudgeStatus::Judged)
         });
     }
@@ -455,16 +495,23 @@ impl ReplayScene {
     /// playback update. This is a visual tail, never an active gameplay touch.
     fn visible_touches(&self) -> Vec<(u64, Vec2, f32)> {
         let mut points = HashMap::new();
-        for event in self.replay.touches[..self.touch_idx].iter().rev().take_while(|e| self.current - e.t as f64 <= 0.08) {
+        for (index, event) in self.replay.touches[..self.touch_idx]
+            .iter()
+            .enumerate()
+            .rev()
+            .take_while(|(_, e)| self.current - e.t as f64 <= 0.08)
+        {
             if event.phase == replay::PHASE_UP {
-                points.entry(event.id).or_insert((vec2(event.x, event.y), (1. - (self.current - event.t as f64) / 0.08) as f32));
+                points
+                    .entry(self.finger_numbers[index] as u64)
+                    .or_insert((vec2(event.x, event.y), (1. - (self.current - event.t as f64) / 0.08) as f32));
             }
         }
-        for (&id, &(pos, index)) in &self.current_touches {
-            points.insert(id, (self.touch_position(pos, index, self.current), 1.));
+        for &(pos, index) in self.current_touches.values() {
+            points.insert(self.finger_numbers[index] as u64, (self.touch_position(pos, index, self.current), 1.));
         }
         let mut points = points.into_iter().map(|(id, (pos, alpha))| (id, pos, alpha)).collect::<Vec<_>>();
-        points.sort_by_key(|p| self.finger_numbers[&p.0]);
+        points.sort_by_key(|p| p.0);
         points
     }
     fn queue_seek(&mut self, t: f64) {
@@ -510,7 +557,8 @@ impl ReplayScene {
             2 => self.queue_seek((self.pending_seek.unwrap_or(self.current) + 5.).min(self.end())),
             3..=6 => {
                 self.playing = false;
-                let (target, recorded) = frame_step(&self.replay.frames, self.pending_seek.unwrap_or(self.current), [-10, -1, 1, 10][i - 3], self.end());
+                let (target, recorded) =
+                    frame_step(&self.replay.frames, self.pending_seek.unwrap_or(self.current), [-10, -1, 1, 10][i - 3], self.end());
                 self.queue_seek(target);
                 self.frame_fallback = !recorded;
             }
@@ -547,7 +595,11 @@ impl ReplayScene {
                 } else {
                     prpr::scene::show_message(if self.errors.is_empty() {
                         "回放没有 BAD / MISS"
-                    } else if i == 13 { "已经是最后一处失误" } else { "没有更早的失误" });
+                    } else if i == 13 {
+                        "已经是最后一处失误"
+                    } else {
+                        "没有更早的失误"
+                    });
                 }
             }
             14 => {
@@ -755,7 +807,8 @@ impl Scene for ReplayScene {
                     let alpha = config.touch_point_alpha * fade;
                     touch_ui.fill_circle(pos.x, pos.y, config.touch_point_size, Color { a: alpha, ..BLUE });
                     if self.finger_ids {
-                        touch_ui.text(format!("F{}", self.finger_numbers[&id]))
+                        touch_ui
+                            .text(format!("F{}", id))
                             .pos(pos.x, pos.y - config.touch_point_size - 0.008)
                             .anchor(0.5, 1.)
                             .no_baseline()
@@ -807,7 +860,14 @@ impl Scene for ReplayScene {
         self.rate.render(ui, panel_cell(5, 1, cy, bh), t);
         self.controls[12].render_text(ui, panel_cell(6, 1, cy, bh), t, "上个失误", 0.33, false);
         self.controls[13].render_text(ui, panel_cell(7, 1, cy, bh), t, "下个失误", 0.33, false);
-        self.controls[11].render_text(ui, panel_cell(7, 1, cy + 0.09, bh), t, if self.expanded { "收起分析" } else { "展开分析" }, 0.33, self.expanded);
+        self.controls[11].render_text(
+            ui,
+            panel_cell(7, 1, cy + 0.09, bh),
+            t,
+            if self.expanded { "收起分析" } else { "展开分析" },
+            0.33,
+            self.expanded,
+        );
         ui.text(format!("{} / {}", clock(position), clock(self.end())))
             .pos(panel_cell(6, 1, cy, bh).right(), cy + 0.09 + bh / 2.)
             .anchor(1., 0.5)

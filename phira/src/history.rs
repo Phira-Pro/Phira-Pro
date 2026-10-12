@@ -139,8 +139,18 @@ pub fn push(record: Record) -> Result<()> {
 pub fn save() -> Result<()> {
     let text = with_records(|it| serde_json::to_string(it))?;
     let path = path()?;
-    std::fs::write(&path, text).with_context(|| format!("failed to write {path}"))?;
+    crate::transfer::write_atomic(std::path::Path::new(&path), text.as_bytes()).with_context(|| format!("failed to write {path}"))?;
     Ok(())
+}
+
+pub fn attach_replay(key: &str, time: i64, path: &std::path::Path) -> Result<()> {
+    with_records(|records| {
+        if let Some(record) = records.iter_mut().find(|r| r.key == key && r.time == time) {
+            record.replay_file = Some(path.to_string_lossy().into_owned());
+        }
+    });
+    REVISION.fetch_add(1, Ordering::Relaxed);
+    save()
 }
 
 /// 导出成 JSON 文本。
@@ -229,9 +239,15 @@ mod grade_tests {
         let old: Record = serde_json::from_str(r#"{"counts":[3,2,1,0],"numOfNotes":6}"#).unwrap();
         assert!(old.grade_counts.is_none() && old.grading.is_none());
         let detailed = Record {
-            counts: [2, 1, 1, 1], grade_counts: Some([1; 8]),
-            grading: Some(prpr::config::JudgeGrading { detailed: true, ..Default::default() }),
-            num_of_notes: 8, max_combo: 6, ..Default::default()
+            counts: [2, 1, 1, 1],
+            grade_counts: Some([1; 8]),
+            grading: Some(prpr::config::JudgeGrading {
+                detailed: true,
+                ..Default::default()
+            }),
+            num_of_notes: 8,
+            max_combo: 6,
+            ..Default::default()
         };
         let restored: Record = serde_json::from_str(&serde_json::to_string(&detailed).unwrap()).unwrap();
         assert_eq!(restored.grade_counts, Some([1; 8]));

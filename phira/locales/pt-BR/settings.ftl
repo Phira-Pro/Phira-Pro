@@ -69,7 +69,7 @@ item-note-size = Tamanho da nota
 item-chart-debug = Modo de depuração de Beatmap
 item-chart-debug-sub = Exibir número de linha e orientação
 item-show-fps = Mostrar FPS
-item-show-fps-sub = Mostrar a taxa de quadros atual no canto inferior esquerdo
+item-show-fps-sub = Show the current framerate at your chosen position
 item-touch-debug = Mostrar toques na tela
 item-touch-debug-sub = Irá exibir toques na tela
 
@@ -293,3 +293,17 @@ cover-apply = Apply
 
 item-shader-pre-render = Shader pre-rendering
 item-shader-pre-render-sub = Warms shaders and caches static block masks while loading. Slower loading; frame-rate gains vary with the chart.
+
+item-fps-position = FPS position
+fps-top-center = Top center
+fps-bottom-center = Bottom center
+fps-top-left = Top left
+fps-top-right = Top right
+fps-bottom-left = Bottom left
+fps-bottom-right = Bottom right
+
+plugins-settings = Plugins
+plugins-settings-sub = Import, enable and configure plugins
+preset-colors = Judgement colors
+preset-colors-sub = Enter #RRGGBB; empty restores resource-pack colors
+preset-color-default = Resource pack

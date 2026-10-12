@@ -79,7 +79,17 @@ fn screenshot(painter: &mut TextPainter, scene: &mut ReplayScene, tm: &mut TimeM
 
 fn click(scene: &mut ReplayScene, tm: &mut TimeManager, position: Vec2) {
     for phase in [TouchPhase::Started, TouchPhase::Ended] {
-        Scene::touch(scene, tm, &Touch { id: 99, phase, position, time: 0. }).unwrap();
+        Scene::touch(
+            scene,
+            tm,
+            &Touch {
+                id: 99,
+                phase,
+                position,
+                time: 0.,
+            },
+        )
+        .unwrap();
     }
     Scene::update(scene, tm).unwrap();
 }
@@ -93,7 +103,92 @@ fn click_analysis(scene: &mut ReplayScene, tm: &mut TimeManager, index: usize, c
 
 fn pixel(image: &Image, x: i32, y: i32) -> &[u8] {
     let i = ((y * image.width as i32 + x) * 4) as usize;
-    &image.bytes[i..i+3]
+    &image.bytes[i..i + 3]
+}
+
+async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
+    let mut config = Config::default();
+    config.volume_music = 0.;
+    config.volume_sfx = 0.;
+    config.sample_count = 1;
+    config.adjust_time = false;
+    let mut game = local(GameScene::new(
+        GameMode::Exercise,
+        info,
+        config,
+        fs_from_path("renamed-chart").unwrap(),
+        None,
+        BLACK_TEXTURE.clone(),
+        BLACK_TEXTURE.clone(),
+        None,
+        None,
+        None,
+    ))
+    .await
+    .unwrap();
+    let mut tm = TimeManager::manual(Box::new(|| 10.));
+    game.enter(&mut tm, None).unwrap();
+    tm.seek_to(GameScene::BEFORE_TIME + 0.1);
+    game.update(&mut tm).unwrap();
+    tm.seek_to(0.);
+    game.update(&mut tm).unwrap();
+    game.pause(&mut tm).unwrap();
+    prpr::scene::return_input("exercise_combo".into(), "2-2".into());
+    game.update(&mut tm).unwrap();
+    // The selected Hold starts at 2s and ends at 5s; both receive 250ms margin.
+    for (w, h, ratio) in [(960, 720, "4x3"), (1280, 720, "16x9"), (1280, 548, "21x9")] {
+        let mut ui = Ui::new(painter, Some((0, 0, w, h)));
+        game.render(&mut tm, &mut ui).unwrap();
+        unsafe { get_internal_gl() }.flush();
+        let mut bytes = vec![0; (w * h * 4) as usize];
+        unsafe {
+            use miniquad::gl::*;
+            glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
+            assert_eq!(glGetError(), 0);
+        }
+        Image {
+            width: w as u16,
+            height: h as u16,
+            bytes,
+        }
+        .export_png(&format!("target/replay-qa/practice-{ratio}.png"));
+    }
+    // Render again at the real window aspect so touch coordinates match it.
+    let w = screen_width() as i32;
+    let h = screen_height() as i32;
+    let mut ui = Ui::new(painter, Some((0, 0, w, h)));
+    game.render(&mut tm, &mut ui).unwrap();
+    let scale = (w as f32 / h as f32) / game.res.aspect_ratio;
+    for phase in [TouchPhase::Started, TouchPhase::Ended] {
+        let activated = Scene::touch(
+            &mut game,
+            &mut tm,
+            &Touch {
+                id: 777,
+                phase,
+                position: vec2(0.375, 0.3475) / scale,
+                time: 0.,
+            },
+        )
+        .unwrap();
+        if phase == TouchPhase::Ended {
+            assert!(activated, "auto-loop must be reachable");
+        }
+    }
+    tm.resume();
+    tm.seek_to(5.3);
+    game.update(&mut tm).unwrap();
+    assert!(!tm.paused(), "enabled auto-loop must continue playing");
+    assert!((tm.now() - 1.75).abs() < 0.02, "combo loop must include the selected Hold tail");
+    for note in &game.chart.lines[0].notes {
+        if note.time < 1.75 {
+            assert!(matches!(note.judge, JudgeStatus::Judged), "notes before the combo range must be skipped: time={}, state={:?}", note.time, note.judge);
+        }
+        if (note.time-2.).abs()<0.01 {
+            assert!(!matches!(note.judge, JudgeStatus::Judged), "the selected Hold must remain playable");
+        }
+    }
+    println!("Practice: combo input, Hold tail, auto-loop touch and three aspect ratios passed");
 }
 
 // Exercise the recorder through the real GameScene state machine. Constructed
@@ -126,6 +221,9 @@ async fn record_through_ending(info: ChartInfo, local_path: &str, recorded_confi
     .await
     .unwrap();
     let note_count = game.judge.result(false).num_of_notes as usize;
+    let report_text = crate::plugins::reports()["example.density"].clone();
+    let report: serde_json::Value = serde_json::from_str(&report_text).unwrap_or_else(|e| panic!("plugin report: {report_text}; {e}"));
+    assert!(report["difficulty"].as_f64().unwrap() > 0., "real GameScene must invoke the installed analysis plugin");
     let mut tm = TimeManager::manual(Box::new(|| 10.));
     game.enter(&mut tm, None).unwrap();
     tm.seek_to(GameScene::BEFORE_TIME + 0.1);
@@ -167,6 +265,27 @@ async fn record_through_ending(info: ChartInfo, local_path: &str, recorded_confi
         note_count,
         "retry must not concatenate old hits and ending must not erase new hits"
     );
+    // RETRY on the result page reuses this GameScene after save consumed PENDING.
+    // This differs from retrying a partial attempt before the first save.
+    for attempt in 0..2 {
+        game.enter(&mut tm, None).unwrap();
+        tm.seek_to(GameScene::BEFORE_TIME + 0.1);
+        game.update(&mut tm).unwrap();
+        tm.seek_to(0.);
+        game.update(&mut tm).unwrap();
+        for frame in 1..=((end + 1.4) * 120.) as usize {
+            tm.seek_to(frame as f64 / 120.);
+            game.update(&mut tm).unwrap();
+        }
+        let next =
+            replay::save_recording(&format!("local:{local_path}"), 123459 + attempt).expect("result-page retry must create a new recording buffer");
+        assert_eq!(next.extension().unwrap(), "ppr");
+        let next = replay::load(&next).unwrap();
+        assert_eq!(next.judges.len(), recorded.judges.len());
+        assert_eq!(game.judge.counts(), expected);
+        assert_eq!(next.meta.fingerprint, recorded.meta.fingerprint);
+        assert!(replay::save_recording(&format!("local:{local_path}"), 123470).is_none(), "one attempt must only be saved once");
+    }
     let export = path.with_file_name("complete-export.phirar");
     replay::save(&recorded, &export).unwrap();
     let (imported, _) = replay::library::import(&export).unwrap();
@@ -324,7 +443,7 @@ fn production_replay_transport_import_and_aspects() {
             }
             let original_frames = std::mem::replace(&mut scene.replay.frames, (0..=1440).map(|i| i as f64 / 120.).collect());
             scene.seek(3.);
-            for (index, column, frame) in [(3,0,350), (4,1,349), (5,2,350), (6,3,360)] {
+            for (index, column, frame) in [(3, 0, 350), (4, 1, 349), (5, 2, 350), (6, 3, 360)] {
                 click_analysis(&mut scene, &mut tm, index, column, false);
                 assert!((scene.current - frame as f64 / 120.).abs() < 1e-9);
                 assert!(!scene.playing && !scene.frame_fallback);
@@ -398,7 +517,7 @@ fn production_replay_transport_import_and_aspects() {
             screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-before");
             let on = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-on");
             let fitted = scene.game_scene.res.camera.viewport.unwrap();
-            let pos = scene.visible_touches().iter().find(|p| p.0 == u64::MAX).unwrap().1;
+            let pos = scene.visible_touches().iter().find(|p| p.0 == 1).unwrap().1;
             let x = (fitted.0 as f32 + (pos.x + 1.) * fitted.2 as f32 / 2.).round() as i32;
             let y = (fitted.1 as f32 + fitted.3 as f32 / 2. - pos.y * fitted.2 as f32 / 2.).round() as i32;
             click_analysis(&mut scene, &mut tm, 10, 0, true);
@@ -409,8 +528,10 @@ fn production_replay_transport_import_and_aspects() {
             click_analysis(&mut scene, &mut tm, 15, 1, true);
             assert!(scene.fingers && scene.finger_ids);
             let ids = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-ids");
-            let changed_chart_pixels = (fitted.1..fitted.1 + fitted.3).flat_map(|y| (fitted.0..fitted.0 + fitted.2).map(move |x| (x,y)))
-                .filter(|&(x,y)| pixel(&on,x,y) != pixel(&ids,x,y)).count();
+            let changed_chart_pixels = (fitted.1..fitted.1 + fitted.3)
+                .flat_map(|y| (fitted.0..fitted.0 + fitted.2).map(move |x| (x, y)))
+                .filter(|&(x, y)| pixel(&on, x, y) != pixel(&ids, x, y))
+                .count();
             assert!(changed_chart_pixels > 20, "finger IDs must be visible in the chart");
             let size = scene.game_scene.res.config.touch_point_size;
             scene.finger_ids = false;
@@ -420,18 +541,25 @@ fn production_replay_transport_import_and_aspects() {
             assert_ne!(scene.game_scene.res.config.touch_point_size, size);
             assert!(scene.fingers, "size adjustment must show the touch being adjusted");
             let after_size = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-size-after");
-            let blue_pixels = |image: &Image| (y-40..y+40).flat_map(|y| (x-40..x+40).map(move |x| (x,y)))
-                .filter(|&(x,y)| {let p=pixel(image,x,y);p[2] as u16>p[0] as u16+20&&p[2] as u16>p[1] as u16+20}).count();
+            let blue_pixels = |image: &Image| {
+                (y - 40..y + 40)
+                    .flat_map(|y| (x - 40..x + 40).map(move |x| (x, y)))
+                    .filter(|&(x, y)| {
+                        let p = pixel(image, x, y);
+                        p[2] as u16 > p[0] as u16 + 20 && p[2] as u16 > p[1] as u16 + 20
+                    })
+                    .count()
+            };
             assert_ne!(blue_pixels(&before_size), blue_pixels(&after_size), "size must change the rendered touch area");
             let alpha = scene.game_scene.res.config.touch_point_alpha;
             click_analysis(&mut scene, &mut tm, 17, 3, true);
             assert_ne!(scene.game_scene.res.config.touch_point_alpha, alpha);
             let after_alpha = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-alpha-after");
-            assert_ne!(pixel(&after_size,x,y), pixel(&after_alpha,x,y), "opacity must change actual touch pixels");
+            assert_ne!(pixel(&after_size, x, y), pixel(&after_alpha, x, y), "opacity must change actual touch pixels");
             scene.seek(1.03);
-            assert!(scene.visible_touches().iter().any(|p| p.0 == 900 && p.2 > 0.));
+            assert!(scene.visible_touches().iter().any(|p| p.0 == 3 && p.2 > 0.));
             scene.seek(1.2);
-            assert!(!scene.visible_touches().iter().any(|p| p.0 == 900));
+            assert!(!scene.visible_touches().iter().any(|p| p.0 == 3));
             scene.seek(1.5);
             assert_eq!(scene.game_scene.judge.counts()[4], 1);
             scene.apply_touches(2.);
@@ -528,27 +656,59 @@ fn production_replay_transport_import_and_aspects() {
             assert_eq!(recorded.settings, Some(crate::judgement_presets::JudgeSettings::capture(&scene.game_scene.res.config)));
             // Reset is authoritative even if its new clock is later than the
             // prior attempt (for example retry-from-here).
-            live.reset();live.commit(2.,TJ::Good,0,2,0.05);
-            let mut hook=replay::recorder(None,0.,1.,0);
-            hook(1.,&mut scene.game_scene.res,&mut live);
-            live.reset();live.commit(2.,TJ::Perfect,0,3,0.);
-            hook(2.,&mut scene.game_scene.res,&mut live);
-            let retried=replay::load(&replay::save_recording("retry",123458).unwrap()).unwrap();
-            assert_eq!(retried.judges.len(),1);assert_eq!(retried.judges[0].note,3);
-            record_through_ending(info.clone(),"renamed-chart",None).await;
-            if let (Ok(tape_path),Ok(chart_path))=(std::env::var("REPLAY_QA_TAPE"),std::env::var("REPLAY_QA_CHART")) {
-                let provided=replay::load(std::path::Path::new(&tape_path)).unwrap();
-                println!("Provided replay: {} judges, {} touches, {} frames; original score {:?}",provided.judges.len(),provided.touches.len(),provided.frames.len(),provided.meta.result.as_ref().map(|r|r.score));
-                let (imported_chart,_)=local(crate::scene::import_chart(std::fs::File::open(chart_path).unwrap())).await.unwrap();
-                let local_path=imported_chart.local_path.as_str();
-                let mut fs=fs_from_path(local_path).unwrap();
-                let info=local(prpr::fs::load_info(fs.as_mut())).await.unwrap();
-                if let Some(expected)=&provided.meta.fingerprint {assert_eq!(&local(replay::library::fingerprint(fs.as_mut(),&info)).await.unwrap(),expected);}
-                if let Some(expected)=&provided.meta.audio_fingerprint {assert_eq!(&local(replay::library::audio_fingerprint(fs.as_mut(),&info)).await.unwrap(),expected);}
-                if provided.judges.is_empty() {
-                    assert!(local(ReplayScene::new_bound(PathBuf::from(tape_path),local_path.into(),true)).await.err().unwrap().to_string().contains("判定事件"));
+            live.reset();
+            live.commit(2., TJ::Good, 0, 2, 0.05);
+            let mut hook = replay::recorder(None, 0., 1., 0);
+            hook(1., &mut scene.game_scene.res, &mut live);
+            live.reset();
+            live.commit(2., TJ::Perfect, 0, 3, 0.);
+            hook(2., &mut scene.game_scene.res, &mut live);
+            let retried = replay::load(&replay::save_recording("retry", 123458).unwrap()).unwrap();
+            assert_eq!(retried.judges.len(), 1);
+            assert_eq!(retried.judges[0].note, 3);
+            let plugin_package = isolated.path().join("density.ppp");
+            let mut archive = zip::ZipWriter::new(std::fs::File::create(&plugin_package).unwrap());
+            for (name, body) in [
+                ("manifest.json", include_str!("../../../../docs/plugins/examples/density/manifest.json")),
+                ("main.rhai", include_str!("../../../../docs/plugins/examples/density/main.rhai")),
+            ] {
+                archive.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+                archive.write_all(body.as_bytes()).unwrap();
+            }
+            archive.finish().unwrap();
+            crate::plugins::import(&plugin_package).unwrap();
+            crate::plugins::change("example.density", Some(true), None, false).unwrap();
+            crate::plugins::init();
+            record_through_ending(info.clone(), "renamed-chart", None).await;
+            practice_regression(info.clone(), &mut painter).await;
+            if let (Ok(tape_path), Ok(chart_path)) = (std::env::var("REPLAY_QA_TAPE"), std::env::var("REPLAY_QA_CHART")) {
+                let provided = replay::load(std::path::Path::new(&tape_path)).unwrap();
+                println!(
+                    "Provided replay: {} judges, {} touches, {} frames; original score {:?}",
+                    provided.judges.len(),
+                    provided.touches.len(),
+                    provided.frames.len(),
+                    provided.meta.result.as_ref().map(|r| r.score)
+                );
+                let (imported_chart, _) = local(crate::scene::import_chart(std::fs::File::open(chart_path).unwrap())).await.unwrap();
+                let local_path = imported_chart.local_path.as_str();
+                let mut fs = fs_from_path(local_path).unwrap();
+                let info = local(prpr::fs::load_info(fs.as_mut())).await.unwrap();
+                if let Some(expected) = &provided.meta.fingerprint {
+                    assert_eq!(&local(replay::library::fingerprint(fs.as_mut(), &info)).await.unwrap(), expected);
                 }
-                record_through_ending(info,local_path,Some(&provided)).await;
+                if let Some(expected) = &provided.meta.audio_fingerprint {
+                    assert_eq!(&local(replay::library::audio_fingerprint(fs.as_mut(), &info)).await.unwrap(), expected);
+                }
+                if provided.judges.is_empty() {
+                    assert!(local(ReplayScene::new_bound(PathBuf::from(tape_path), local_path.into(), true))
+                        .await
+                        .err()
+                        .unwrap()
+                        .to_string()
+                        .contains("判定事件"));
+                }
+                record_through_ending(info, local_path, Some(&provided)).await;
             }
             // Historical packages are verified before registration; source chart and PB stay untouched.
             let mut package = std::io::Cursor::new(Vec::new());
@@ -566,8 +726,11 @@ fn production_replay_transport_import_and_aspects() {
                 tape.meta.fingerprint.clone().unwrap()
             );
             assert!(crate::get_data().charts[0].record.is_none());
-            let mut state = local(crate::page::SharedState::new(FontArc::try_from_vec(std::fs::read("assets/harmonyos.ttf").unwrap()).unwrap())).await.unwrap();
+            let mut state = local(crate::page::SharedState::new(FontArc::try_from_vec(std::fs::read("assets/harmonyos.ttf").unwrap()).unwrap()))
+                .await
+                .unwrap();
             crate::page::replays::render_regression(&mut painter, &path, &mut state);
+            crate::page::plugins::render_regression(&mut painter, &mut state);
             // Content drift cannot silently bind to the same location.
             std::fs::OpenOptions::new()
                 .append(true)

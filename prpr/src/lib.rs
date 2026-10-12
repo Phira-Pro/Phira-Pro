@@ -4,12 +4,14 @@ pub mod config;
 pub mod core;
 pub mod dir;
 pub mod ext;
-pub mod fs;
+pub mod extensions;
 #[cfg(any(target_os = "ios", test))]
 mod file_import;
+pub mod fs;
 pub mod info;
 pub mod loading_cpu;
 pub mod loading_work;
+pub mod practice;
 
 #[cfg(target_os = "windows")]
 pub mod desktop_pacing;

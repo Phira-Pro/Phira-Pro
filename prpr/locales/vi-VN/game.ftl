@@ -11,3 +11,8 @@ analysis-prompt = Nhấn "Phân tích" để tự động phân tích
 analysis-computing = Đang tiến hành phân tích...
 auto-offset-btn = Phân tích
 game-over = Thất bại
+
+ex-combo-applied = Combo range applied
+ex-auto-on = AUTO LOOP ON
+ex-auto-off = AUTO LOOP OFF
+ex-loop-accuracy = LOOP { $loop } · { $accuracy }%

@@ -84,7 +84,7 @@ item-note-size = 音符大小
 item-chart-debug = 譜面除錯
 item-chart-debug-sub = 顯示判定線編號和朝向
 item-show-fps = 顯示幀率
-item-show-fps-sub = 在左下角顯示目前幀率
+item-show-fps-sub = 顯示目前幀率，可選擇顯示位置
 item-touch-debug = 觸摸除錯
 item-touch-debug-sub = 遊玩過程中顯示觸摸點
 load-cali-failed = 載入音訊失敗
@@ -306,3 +306,17 @@ cover-apply = 应用
 
 item-shader-pre-render = Shader 預渲染
 item-shader-pre-render-sub = 載入時預熱著色器並快取靜態噪域，載入會更慢；動態效果仍即時渲染，幀率提升因譜面而異
+
+item-fps-position = 帧率显示位置
+fps-top-center = 居中顶部
+fps-bottom-center = 居中底部
+fps-top-left = 左上
+fps-top-right = 右上
+fps-bottom-left = 左下
+fps-bottom-right = 右下
+
+plugins-settings = 插件管理
+plugins-settings-sub = 导入、启停和配置个性化插件
+preset-colors = 判定颜色
+preset-colors-sub = 输入 #RRGGBB，留空恢复资源包颜色
+preset-color-default = 资源包默认

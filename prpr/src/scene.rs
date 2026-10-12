@@ -13,7 +13,7 @@ mod loading;
 pub use loading::{BasicPlayer, LoadingScene, SaveFn, UpdateFn, UploadFn};
 
 use crate::{
-    ext::{draw_image, screen_aspect, LocalTask, SafeTexture, ScaleType},
+    ext::{draw_image, screen_aspect, LocalTask, RectExt, SafeTexture, ScaleType},
     judge::Judge,
     time::TimeManager,
     ui::{BillBoard, Dialog, Message, MessageHandle, MessageKind, TextPainter, Ui},
@@ -399,6 +399,7 @@ pub fn request_file(id: impl Into<String>) {
 
                     let ext = |e: &str| UTType::typeWithFilenameExtension(&NSString::from_str(e)).unwrap();
                     let types = NSArray::from_retained_slice(&[
+                        UTType::typeWithIdentifier(&NSString::from_str("public.data")).unwrap(),
                         ext("zip"),
                         ext("pez"),
                         ext("jpg"),
@@ -417,7 +418,7 @@ pub fn request_file(id: impl Into<String>) {
                         use objc2_ui_kit::UIDocumentPickerMode;
 
                         let ext = NSString::from_str;
-                        let types = NSArray::from_retained_slice(&[ext("public.image"), ext("public.archive")]);
+                        let types = NSArray::from_retained_slice(&[ext("public.data"), ext("public.image"), ext("public.archive")]);
                         UIDocumentPickerViewController::initWithDocumentTypes_inMode(picker, &types, UIDocumentPickerMode::Import)
                     }
                 };
@@ -681,17 +682,42 @@ impl Main {
             if remove {
                 FULL_LOADING.take();
             }
-            // 左下角帧率：只有一个数字，无文字、无背景。
+            // User-positioned FPS overlay, inset from rounded corners and safe areas.
             if crate::ui::SHOW_FPS.load(std::sync::atomic::Ordering::Relaxed) {
                 let fps = f32::from_bits(crate::ui::CURRENT_FPS.load(std::sync::atomic::Ordering::Relaxed));
                 if fps > 0. {
                     // 由视口直接推算屏幕范围：覆盖层阶段 ui.top 与 screen_rect 都不可靠。
-                    // 贴到左下角最边缘并减小字号，避开游玩界面左下角的曲名。
-                    // 用 anchor(0,1) 把整行字贴在 pos 上方；否则默认从 pos 往下排版，
-                    // 会被顶出屏幕底边而看不见。
                     let vp = crate::ext::get_viewport();
                     let half_h = vp.3 as f32 / vp.2 as f32;
-                    ui.text(format!("{fps:.0}")).pos(-0.99, half_h - 0.006).anchor(0., 1.).size(0.25).draw();
+                    let place = crate::ui::FPS_POSITION.load(std::sync::atomic::Ordering::Relaxed).min(5);
+                    let bottom = matches!(place, 1 | 4 | 5);
+                    #[cfg(target_os = "ios")]
+                    let safe = crate::frame_pacing::safe_margins();
+                    #[cfg(not(target_os = "ios"))]
+                    let safe = [0f32; 4];
+                    let (x, ax) = match place {
+                        2 | 4 => (-1. + safe[0].max(0.12), 0.),
+                        3 | 5 => (1. - safe[2].max(0.12), 1.),
+                        _ => (0., 0.5),
+                    };
+                    let y = if bottom {
+                        half_h - safe[3].max(0.065)
+                    } else {
+                        -half_h + safe[1].max(0.065)
+                    };
+                    let r = ui
+                        .text(format!("{fps:.0} FPS"))
+                        .pos(x, y)
+                        .anchor(ax, if bottom { 1. } else { 0. })
+                        .size(0.42)
+                        .measure();
+                    ui.fill_rect(r.feather(0.008), Color::new(0., 0., 0., 0.55));
+                    ui.text(format!("{fps:.0} FPS"))
+                        .pos(x, y)
+                        .anchor(ax, if bottom { 1. } else { 0. })
+                        .size(0.42)
+                        .color(WHITE)
+                        .draw();
                 }
             }
             pop_camera_state();

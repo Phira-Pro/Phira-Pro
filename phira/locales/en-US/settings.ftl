@@ -92,7 +92,7 @@ item-note-size = Note Size
 item-chart-debug = Show Line ID
 item-chart-debug-sub = Display the IDs and orientation of lines.
 item-show-fps = Show FPS
-item-show-fps-sub = Show the current framerate in the bottom-left corner
+item-show-fps-sub = Show the current framerate at your chosen position
 item-touch-debug = Show Touch Points
 item-touch-debug-sub = Display user touch points.
 item-touch-color = Touch Point Color
@@ -398,3 +398,17 @@ preset-od-sub = ScoreV2 symmetric windows, Perfect+ off; extended OD -15 to 15
 
 replays-settings = Replay files
 replays-settings-sub = Import, export, match charts and watch replays
+
+item-fps-position = FPS position
+fps-top-center = Top center
+fps-bottom-center = Bottom center
+fps-top-left = Top left
+fps-top-right = Top right
+fps-bottom-left = Bottom left
+fps-bottom-right = Bottom right
+
+plugins-settings = Plugins
+plugins-settings-sub = Import, enable and configure plugins
+preset-colors = Judgement colors
+preset-colors-sub = Enter #RRGGBB; empty restores resource-pack colors
+preset-color-default = Resource pack

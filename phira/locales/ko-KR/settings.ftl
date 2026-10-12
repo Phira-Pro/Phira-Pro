@@ -77,7 +77,7 @@ item-note-size = 노트 크기
 item-chart-debug = 비트맵 디버그 모드
 item-chart-debug-sub = 라인 번호 및 방향 표시
 item-show-fps = 프레임률 표시
-item-show-fps-sub = 화면 왼쪽 아래에 현재 프레임률을 표시합니다
+item-show-fps-sub = Show the current framerate at your chosen position
 item-touch-debug = 터치 디버그 모드
 item-touch-debug-sub = 터치 지점 표시
 
@@ -301,3 +301,17 @@ cover-apply = Apply
 
 item-shader-pre-render = Shader pre-rendering
 item-shader-pre-render-sub = Warms shaders and caches static block masks while loading. Slower loading; frame-rate gains vary with the chart.
+
+item-fps-position = FPS position
+fps-top-center = Top center
+fps-bottom-center = Bottom center
+fps-top-left = Top left
+fps-top-right = Top right
+fps-bottom-left = Bottom left
+fps-bottom-right = Bottom right
+
+plugins-settings = Plugins
+plugins-settings-sub = Import, enable and configure plugins
+preset-colors = Judgement colors
+preset-colors-sub = Enter #RRGGBB; empty restores resource-pack colors
+preset-color-default = Resource pack

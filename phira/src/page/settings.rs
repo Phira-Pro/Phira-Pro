@@ -50,6 +50,8 @@ const UI_PRESETS: [(u32, u32); 6] = [
 const TOUCH_POINT_COLORS: [u32; 8] = [0xff3b30, 0x34c759, 0x0a84ff, 0xffd60a, 0xff2d55, 0x5ac8fa, 0xffffff, 0x8e8e93];
 #[cfg(target_os = "android")]
 const REFRESH_RATES: [u16; 7] = [60, 120, 144, 165, 185, 200, 240];
+#[cfg(target_os = "ios")]
+const REFRESH_RATES: [u16; 2] = [60, 120];
 
 /// 主题预设的显示名。
 fn ui_preset_name(i: usize) -> String {
@@ -267,7 +269,9 @@ impl Page for SettingsPage {
 
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
         let t = s.t;
-        if self.tabs.changed() { self.scroll.y_scroller.reset(); }
+        if self.tabs.changed() {
+            self.scroll.y_scroller.reset();
+        }
         let changed = match self.tabs.selected() {
             SettingListType::General => self.list_general.update(t)?,
             SettingListType::Audio => self.list_audio.update(t)?,
@@ -402,7 +406,12 @@ fn render_title<'a>(ui: &mut Ui, title: impl Into<Cow<'a, str>>, subtitle: Optio
     const SUB_MAX_WIDTH: f32 = 1.2;
     if let Some(subtitle) = subtitle {
         let title = title.into();
-        let r1 = ui.text(Cow::clone(&title)).no_baseline().size(TITLE_SIZE).max_width(SUB_MAX_WIDTH).measure();
+        let r1 = ui
+            .text(Cow::clone(&title))
+            .no_baseline()
+            .size(TITLE_SIZE)
+            .max_width(SUB_MAX_WIDTH)
+            .measure();
         let r2 = ui
             .text(Cow::clone(&subtitle))
             .size(SUBTITLE_SIZE)
@@ -487,8 +496,8 @@ fn reset_all_settings() {
         UI_SFX_VOLUME.store(data.config.volume_sfx.to_bits(), Ordering::Relaxed);
         data.config.apply_ui_colors();
     }
-    #[cfg(target_os = "android")]
-    if let Err(err) = crate::set_android_refresh_rate(get_data().config.preferred_refresh_rate) {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    if let Err(err) = crate::set_refresh_rate(get_data().config.preferred_refresh_rate) {
         show_error(err);
     }
     BGM_VOLUME_UPDATED.store(true, Ordering::Relaxed);
@@ -515,7 +524,6 @@ fn pick_image(title: &str) -> Option<std::path::PathBuf> {
         .add_filter("image", &["png", "jpg", "jpeg", "webp", "bmp"])
         .pick_file()
 }
-
 
 /// 桌面端选音频（背景音乐）。
 #[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
@@ -978,8 +986,7 @@ impl GeneralList {
             if matches!(id.as_str(), "api_url" | "web_url" | "status_url") {
                 let text = text.trim().trim_end_matches('/').to_owned();
                 // 官服地址留空表示回退到官方地址；其余情况必须是合法的 http(s) URL。
-                let valid =
-                    text.is_empty() || ((text.starts_with("http://") || text.starts_with("https://")) && Url::parse(&text).is_ok());
+                let valid = text.is_empty() || ((text.starts_with("http://") || text.starts_with("https://")) && Url::parse(&text).is_ok());
                 if !valid {
                     show_error(anyhow::anyhow!("{}", tl!("item-url-invalid")));
                     return Ok(false);
@@ -1372,6 +1379,7 @@ struct ChartList {
     judge_chart_btn: DRectButton,
     judgement_btn: DRectButton,
     replays_btn: DRectButton,
+    plugins_btn: DRectButton,
     history_btn: DRectButton,
     next_page: Option<NextPage>,
 }
@@ -1388,9 +1396,9 @@ impl ChartList {
             block_simple_btn: DRectButton::new(),
             shader_pre_render_btn: DRectButton::new(),
             use_keyboard_btn: DRectButton::new(),
-            speed_slider: Slider::new(if cfg!(flash) { 1.0..2.0 } else { 0.5..2.0 }, 0.05),
+            speed_slider: Slider::new(if cfg!(flash) { 1.0..2.0 } else { 0.5..2.0 }, 0.01),
             size_slider: Slider::new(0.8..1.2, 0.005),
-            flow_speed_slider: Slider::new(0.5..4.0, 0.05),
+            flow_speed_slider: Slider::new(0.5..4.0, 0.01),
             fade_strength_slider: Slider::new(0.0..1.0, 0.05),
             custom_aspect_btn: DRectButton::new(),
             aspect_btn: DRectButton::new(),
@@ -1398,8 +1406,8 @@ impl ChartList {
             auto_retry_slider: Slider::new(0.0..10.0, 1.0),
             retry_lead_slider: Slider::new(0.0..10.0, 0.5),
             practice_ramp_btn: DRectButton::new(),
-            practice_speed_slider: Slider::new(0.3..1.0, 0.05),
-            practice_step_slider: Slider::new(0.05..0.5, 0.05),
+            practice_speed_slider: Slider::new(0.3..1.0, 0.01),
+            practice_step_slider: Slider::new(0.01..0.5, 0.01),
             hp_mode_btn: DRectButton::new(),
             hp_amount_slider: Slider::new(0.2..3.0, 0.1),
             hp_width_slider: Slider::new(0.1..1.0, 0.01),
@@ -1410,6 +1418,7 @@ impl ChartList {
             judge_chart_btn: DRectButton::new(),
             judgement_btn: DRectButton::new(),
             replays_btn: DRectButton::new(),
+            plugins_btn: DRectButton::new(),
             history_btn: DRectButton::new(),
             next_page: None,
         }
@@ -1507,6 +1516,10 @@ impl ChartList {
         }
         if !cfg!(flash) && self.judgement_btn.touch(touch, t) {
             self.next_page = Some(NextPage::Overlay(Box::new(JudgementPage::new())));
+            return Ok(Some(false));
+        }
+        if self.plugins_btn.touch(touch, t) {
+            self.next_page = Some(NextPage::Overlay(Box::new(super::plugins::PluginManager::new())));
             return Ok(Some(false));
         }
         if self.replays_btn.touch(touch, t) {
@@ -1680,6 +1693,10 @@ impl ChartList {
             self.replays_btn.render_text(ui, rr, t, tl!("judgement-open"), 0.42, false);
         }
         item! {
+            render_title(ui, tl!("plugins-settings"), Some(tl!("plugins-settings-sub")));
+            self.plugins_btn.render_text(ui, rr, t, tl!("judgement-open"), 0.42, false);
+        }
+        item! {
             render_title(ui, tl!("item-auto-retry"), Some(tl!("item-auto-retry-sub")));
             self.auto_retry_slider.render(ui, rr, t, config.auto_retry, format!("{}", config.auto_retry.round() as u32));
         }
@@ -1769,7 +1786,8 @@ struct DebugList {
     touch_alpha_slider: Slider,
     touch_size_slider: Slider,
     show_fps_btn: DRectButton,
-    #[cfg(target_os = "android")]
+    fps_position_btn: DRectButton,
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     refresh_rate_btn: DRectButton,
 }
 
@@ -1784,7 +1802,8 @@ impl DebugList {
             touch_alpha_slider: Slider::new(0.05..1.0, 0.05),
             touch_size_slider: Slider::new(0.01..0.15, 0.005),
             show_fps_btn: DRectButton::new(),
-            #[cfg(target_os = "android")]
+            fps_position_btn: DRectButton::new(),
+            #[cfg(any(target_os = "android", target_os = "ios"))]
             refresh_rate_btn: DRectButton::new(),
         }
     }
@@ -1808,20 +1827,22 @@ impl DebugList {
             config.chart_debug_note ^= true;
             return Ok(Some(true));
         }
+        if self.fps_position_btn.touch(touch, t) {
+            config.fps_position = (config.fps_position.min(5) + 1) % 6;
+            prpr::ui::FPS_POSITION.store(config.fps_position as u32, Ordering::Relaxed);
+            return Ok(Some(true));
+        }
         if self.show_fps_btn.touch(touch, t) {
             config.show_fps ^= true;
-            // 左下角帧率由 prpr 的全局覆盖层绘制，这里同步开关。
+            // 帧率由 prpr 的全局覆盖层绘制，这里同步开关。
             prpr::ui::SHOW_FPS.store(config.show_fps, Ordering::Relaxed);
             return Ok(Some(true));
         }
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         if self.refresh_rate_btn.touch(touch, t) {
-            let selected = REFRESH_RATES
-                .iter()
-                .position(|rate| *rate == config.preferred_refresh_rate)
-                .unwrap_or(0);
+            let selected = REFRESH_RATES.iter().position(|rate| *rate == config.preferred_refresh_rate).unwrap_or(0);
             config.preferred_refresh_rate = REFRESH_RATES[(selected + 1) % REFRESH_RATES.len()];
-            crate::set_android_refresh_rate(config.preferred_refresh_rate)?;
+            crate::set_refresh_rate(config.preferred_refresh_rate)?;
             return Ok(Some(true));
         }
         if self.touch_debug_btn.touch(touch, t) {
@@ -1876,7 +1897,12 @@ impl DebugList {
             render_title(ui, tl!("item-show-fps"), Some(tl!("item-show-fps-sub")));
             render_switch(ui, rr, t, &mut self.show_fps_btn, config.show_fps);
         }
-        #[cfg(target_os = "android")]
+        item! {
+            render_title(ui, tl!("item-fps-position"), None);
+            let names = ["fps-top-center", "fps-bottom-center", "fps-top-left", "fps-top-right", "fps-bottom-left", "fps-bottom-right"];
+            self.fps_position_btn.render_text(ui, rr, t, tl!(names[config.fps_position.min(5) as usize]), 0.4, false);
+        }
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         item! {
             let max_rate = f32::from_bits(prpr::ui::MAX_DEVICE_REFRESH_RATE.load(Ordering::Relaxed));
             let subtitle: Cow<'_, str> = if max_rate.is_finite() && max_rate > 0.0 {

@@ -46,6 +46,7 @@ impl RecordDetailScene {
                 .replay_file
                 .as_ref()
                 .map(std::path::PathBuf::from)
+                .filter(|p| p.is_file())
                 .unwrap_or_else(|| replay::path_for(&record.key, record.time));
             if p.is_file() {
                 Some(p)
@@ -111,7 +112,10 @@ impl RecordDetailScene {
             num_of_notes: r.num_of_notes,
             // 历史记录把 Perfect+ 并入 Perfect：counts[0]=Perfect(含 P+)，后面依次 Good/Bad/Miss。
             counts: r.grade_counts.unwrap_or([r.counts[0], r.counts[1], r.counts[2], r.counts[3], 0, 0, 0, 0]),
-            grading: r.grading.unwrap_or(prpr::config::JudgeGrading { perfect_plus: false, ..Default::default() }),
+            grading: r.grading.unwrap_or(prpr::config::JudgeGrading {
+                perfect_plus: false,
+                ..Default::default()
+            }),
             early: 0,
             late: 0,
             std: r.std,
@@ -322,7 +326,8 @@ impl Scene for RecordDetailScene {
 
             let r = ui.text("|").pos(r.right() + 0.03, r.y).color(cs).size(s).draw();
 
-            let r = ui.text(tl!("max-combo"))
+            let r = ui
+                .text(tl!("max-combo"))
                 .pos(r.right() + 0.03, r.y)
                 .color(cl)
                 .size(s)
@@ -435,7 +440,15 @@ impl Scene for RecordDetailScene {
                     let bh = h * (*count as f32 / max);
                     let off = (i as f32 + 0.5) * bucket_ms - HIST_MAX_MS as f32;
                     let a = off.abs();
-                    let color = if a <= 80. { gold } else if a <= 160. { blue } else if a <= 240. { red } else { grey };
+                    let color = if a <= 80. {
+                        gold
+                    } else if a <= 160. {
+                        blue
+                    } else if a <= 240. {
+                        red
+                    } else {
+                        grey
+                    };
                     ui.fill_rect(Rect::new(x0 + bw * i as f32 + bw * 0.1, base - bh, bw * 0.8, bh), color);
                 }
                 let zx = x0 + bw * mid;

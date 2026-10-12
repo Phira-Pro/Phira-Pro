@@ -1,6 +1,11 @@
 prpr_l10n::tl_file!("ending");
 
-use super::{draw_background, game::{SimpleRecord, UploadScore}, loading::UploadFn, NextScene, Scene};
+use super::{
+    draw_background,
+    game::{SimpleRecord, UploadScore},
+    loading::UploadFn,
+    NextScene, Scene,
+};
 use crate::{
     config::{Config, JudgeWindows, Mods},
     core::{BOLD_FONT, PGR_FONT},
@@ -436,7 +441,7 @@ impl Scene for EndingScene {
                     ui.text(title)
                         .pos(x, y)
                         .anchor(1., 0.)
-                        .color(semi_white(0.6))
+                        .color(res.grading.color(id, semi_white(0.6)))
                         .size(s)
                         .draw_using(&BOLD_FONT);
                     let r = if self.detail_mode && id != 3 {
@@ -607,7 +612,8 @@ impl Scene for EndingScene {
                     ui.fill_rect(icon_rect, (*self.mod_icons[mod_idx], icon_rect, ScaleType::Fit, semi_black(0.6)));
                     current_x = para_right + 0.02;
                 }
-                self.btn_status.set(ui, Rect::new(base_x, ty - para_h / 2., current_x - base_x, para_h).feather(0.008));
+                self.btn_status
+                    .set(ui, Rect::new(base_x, ty - para_h / 2., current_x - base_x, para_h).feather(0.008));
             }
 
             // 结算判定分布图（早 ← → 晚）：21 个桶、0ms 居中。

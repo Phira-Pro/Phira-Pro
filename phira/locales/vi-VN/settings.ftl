@@ -76,7 +76,7 @@ item-note-size = Kích thước Note
 item-chart-debug = Hiển thị line ID
 item-chart-debug-sub = Hiển thị ID và hướng của line
 item-show-fps = Hiện FPS
-item-show-fps-sub = Hiện FPS hiện tại ở góc dưới bên trái
+item-show-fps-sub = Show the current framerate at your chosen position
 item-touch-debug = Hiển thị điểm chạm
 item-touch-debug-sub = Hiển thị điểm chạm khi bạn chạm vào màn hình
 load-cali-failed = Không thể tải âm thanh hiệu chỉnh
@@ -306,3 +306,17 @@ cover-apply = Apply
 
 item-shader-pre-render = Shader pre-rendering
 item-shader-pre-render-sub = Warms shaders and caches static block masks while loading. Slower loading; frame-rate gains vary with the chart.
+
+item-fps-position = FPS position
+fps-top-center = Top center
+fps-bottom-center = Bottom center
+fps-top-left = Top left
+fps-top-right = Top right
+fps-bottom-left = Bottom left
+fps-bottom-right = Bottom right
+
+plugins-settings = Plugins
+plugins-settings-sub = Import, enable and configure plugins
+preset-colors = Judgement colors
+preset-colors-sub = Enter #RRGGBB; empty restores resource-pack colors
+preset-color-default = Resource pack

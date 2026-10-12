@@ -12,6 +12,7 @@ pub use favorites::FavoritesPage;
 
 mod history;
 pub use history::HistoryPage;
+pub mod plugins;
 pub mod replays;
 
 mod home;

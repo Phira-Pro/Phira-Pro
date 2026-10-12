@@ -129,7 +129,7 @@ pub fn draw_judgement_grid(ui: &mut Ui, result: &PlayResult, area: Rect, details
             .pos(row.label.right(), row.cell.y)
             .anchor(1., 0.)
             .size(row.label_size)
-            .color(semi_white(0.6))
+            .color(result.grading.color(row.id, semi_white(0.6)))
             .draw_using(&BOLD_FONT);
         if details && row.id != 3 {
             let r = ui

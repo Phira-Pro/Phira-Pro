@@ -73,9 +73,10 @@ pub static UI_ACCENT: AtomicU32 = AtomicU32::new(0x2196f3);
 pub static UI_SURFACE: AtomicU32 = AtomicU32::new(0x2a323c);
 /// 主循环写入的当前帧率（`f32::to_bits` 的位模式），供界面显示。
 pub static CURRENT_FPS: AtomicU32 = AtomicU32::new(0);
-/// 是否在左下角显示帧率数字（由配置同步）。
+/// 是否显示帧率数字（由配置同步）。
 pub static SHOW_FPS: AtomicBool = AtomicBool::new(false);
-/// Android display's highest supported refresh rate, stored as `f32::to_bits`.
+pub static FPS_POSITION: AtomicU32 = AtomicU32::new(0);
+/// Android / iOS display's highest supported refresh rate, stored as `f32::to_bits`.
 pub static MAX_DEVICE_REFRESH_RATE: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Default, Clone, Copy)]
@@ -735,7 +736,11 @@ struct UiScratch {
 
 impl Default for UiScratch {
     fn default() -> Self {
-        Self { vertex_buffers: VertexBuffers::new(), fill_tess: FillTessellator::new(), stroke_tess: StrokeTessellator::new() }
+        Self {
+            vertex_buffers: VertexBuffers::new(),
+            fill_tess: FillTessellator::new(),
+            stroke_tess: StrokeTessellator::new(),
+        }
     }
 }
 
@@ -754,7 +759,9 @@ impl Drop for Ui<'_> {
         };
         let _ = UI_SCRATCH.try_with(|pool| {
             let mut pool = pool.borrow_mut();
-            if pool.len() < 4 { pool.push(scratch); }
+            if pool.len() < 4 {
+                pool.push(scratch);
+            }
         });
     }
 }
@@ -821,9 +828,12 @@ impl<'a> Ui<'a> {
         }
         let shading = shading.into_shading();
         let vertices = [
-            Point::new(rect.x, rect.y), Point::new(rect.right(), rect.y),
-            Point::new(rect.x, rect.bottom()), Point::new(rect.right(), rect.bottom()),
-        ].map(|p| shading.new_vertex(&self.transform, &p, self.alpha));
+            Point::new(rect.x, rect.y),
+            Point::new(rect.right(), rect.y),
+            Point::new(rect.x, rect.bottom()),
+            Point::new(rect.right(), rect.bottom()),
+        ]
+        .map(|p| shading.new_vertex(&self.transform, &p, self.alpha));
         let gl = unsafe { get_internal_gl() }.quad_gl;
         gl.texture(shading.texture());
         gl.draw_mode(DrawMode::Triangles);

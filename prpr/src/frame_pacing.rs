@@ -5,6 +5,33 @@ use objc2_foundation::{NSObject, NSObjectProtocol, NSRunLoop, NSRunLoopCommonMod
 use objc2_quartz_core::{CADisplayLink, CAFrameRateRange};
 use objc2_ui_kit::{UIApplication, UIApplicationState, UIScreen, UIView, UIViewController};
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicU16, Ordering};
+static REQUESTED: AtomicU16 = AtomicU16::new(120);
+
+/// Left, top, right, bottom in the Ui coordinate system (screen width = 2).
+pub fn safe_margins() -> [f32; 4] {
+    let Some(mtm) = MainThreadMarker::new() else { return [0.; 4] };
+    #[allow(deprecated)]
+    let Some(window) = UIApplication::sharedApplication(mtm).keyWindow() else {
+        return [0.; 4];
+    };
+    let w = window.bounds().size.width.max(1.);
+    let i = window.safeAreaInsets();
+    [i.left, i.top, i.right, i.bottom].map(|v| (v * 2. / w) as f32)
+}
+
+pub fn set_requested(rate: u16) {
+    REQUESTED.store(rate.max(1), Ordering::Relaxed);
+    install();
+    set_paused(false);
+}
+
+fn requested(mtm: MainThreadMarker) -> isize {
+    #[allow(deprecated)]
+    let maximum = UIScreen::mainScreen(mtm).maximumFramesPerSecond().clamp(1, 120);
+    crate::ui::MAX_DEVICE_REFRESH_RATE.store((maximum as f32).to_bits(), Ordering::Relaxed);
+    (REQUESTED.load(Ordering::Relaxed) as isize).min(maximum).max(1)
+}
 
 struct Driver {
     link: Retained<CADisplayLink>,
@@ -85,7 +112,7 @@ pub fn install() {
         let target: Retained<FrameTarget> = unsafe { msg_send![super(target), init] };
         let link = unsafe { CADisplayLink::displayLinkWithTarget_selector(&target, sel!(renderFrame:)) };
         #[allow(deprecated)]
-        let maximum = UIScreen::mainScreen(mtm).maximumFramesPerSecond().clamp(1, 120);
+        let maximum = requested(mtm);
         if link.respondsToSelector(sel!(setPreferredFrameRateRange:)) {
             link.setPreferredFrameRateRange(CAFrameRateRange {
                 // An 80..120 range explicitly permits ProMotion to settle at
@@ -120,9 +147,13 @@ pub fn set_paused(paused: bool) {
     DRIVER.with(|driver| {
         if let Some(driver) = driver.borrow().as_ref() {
             if !paused {
-                let maximum = UIScreen::mainScreen(MainThreadMarker::new().unwrap()).maximumFramesPerSecond().clamp(1, 120);
+                let maximum = requested(MainThreadMarker::new().unwrap());
                 if driver.link.respondsToSelector(sel!(setPreferredFrameRateRange:)) {
-                    driver.link.setPreferredFrameRateRange(CAFrameRateRange { minimum: maximum as f32, maximum: maximum as f32, preferred: maximum as f32 });
+                    driver.link.setPreferredFrameRateRange(CAFrameRateRange {
+                        minimum: maximum as f32,
+                        maximum: maximum as f32,
+                        preferred: maximum as f32,
+                    });
                 } else {
                     driver.link.setPreferredFramesPerSecond(maximum);
                 }

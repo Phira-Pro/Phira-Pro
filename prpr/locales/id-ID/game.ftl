@@ -11,3 +11,8 @@ game-over = Game Over
 ex-time-out-of-range = Waktu diluar cakupan.
 ex-invalid-format = Format salah
 ex-time-set = Pengaturan berhasil
+
+ex-combo-applied = Combo range applied
+ex-auto-on = AUTO LOOP ON
+ex-auto-off = AUTO LOOP OFF
+ex-loop-accuracy = LOOP { $loop } · { $accuracy }%

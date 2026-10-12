@@ -76,7 +76,7 @@ item-note-size = Notengröße
 item-chart-debug = Linien-ID anzeigen
 item-chart-debug-sub = IDs und Ausrichtung der Linien anzeigen
 item-show-fps = FPS anzeigen
-item-show-fps-sub = Aktuelle Bildrate unten links anzeigen
+item-show-fps-sub = Show the current framerate at your chosen position
 item-touch-debug = Berührungspunkte anzeigen
 item-touch-debug-sub = Zeigt die Nutzer-Touchpunkte an
 load-cali-failed = Kalibrierungs-Audio konnte nicht geladen werden
@@ -305,3 +305,17 @@ cover-apply = Apply
 
 item-shader-pre-render = Shader pre-rendering
 item-shader-pre-render-sub = Warms shaders and caches static block masks while loading. Slower loading; frame-rate gains vary with the chart.
+
+item-fps-position = FPS position
+fps-top-center = Top center
+fps-bottom-center = Bottom center
+fps-top-left = Top left
+fps-top-right = Top right
+fps-bottom-left = Bottom left
+fps-bottom-right = Bottom right
+
+plugins-settings = Plugins
+plugins-settings-sub = Import, enable and configure plugins
+preset-colors = Judgement colors
+preset-colors-sub = Enter #RRGGBB; empty restores resource-pack colors
+preset-color-default = Resource pack

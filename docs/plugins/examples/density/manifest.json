@@ -1,0 +1,10 @@
+{
+  "api": 1,
+  "id": "example.density",
+  "name": "谱面密度示例",
+  "version": "1.0.0",
+  "author": "Phira Pro",
+  "description": "展示最高一秒音符密度和当前帧率。这不是 PPSR 算法。",
+  "permissions": ["chart.read", "result.read", "overlay.draw"],
+  "settings": {"factor": 1.0}
+}

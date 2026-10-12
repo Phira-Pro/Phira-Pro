@@ -19,6 +19,25 @@ pub const PHASE_DOWN: u8 = 0;
 pub const PHASE_MOVE: u8 = 1;
 pub const PHASE_UP: u8 = 2;
 
+pub fn contact_numbers(events: &[TouchEvent]) -> Vec<usize> {
+    let mut active = std::collections::HashMap::new();
+    let mut next = 0;
+    events
+        .iter()
+        .map(|e| {
+            if e.phase == PHASE_DOWN || !active.contains_key(&e.id) {
+                next += 1;
+                active.insert(e.id, next);
+            }
+            let number = active[&e.id];
+            if e.phase == PHASE_UP {
+                active.remove(&e.id);
+            }
+            number
+        })
+        .collect()
+}
+
 /// 一条触摸帧。
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct TouchEvent {
@@ -165,6 +184,28 @@ pub fn save(replay: &Replay, path: &PathBuf) -> Result<()> {
     crate::transfer::write_atomic(path, &bytes(replay)?)
 }
 fn validate(replay: &Replay) -> Result<()> {
+    validate_values(replay)?;
+    anyhow::ensure!(
+        replay.frames.windows(2).all(|w| w[0] <= w[1])
+            && replay.judges.windows(2).all(|w| w[0].t <= w[1].t)
+            && replay.touches.windows(2).all(|w| w[0].t <= w[1].t),
+        "回放时间顺序无效"
+    );
+    Ok(())
+}
+
+fn canonicalize(replay: &mut Replay) -> Result<()> {
+    // Old recorders appended judgements from independent lines and clock
+    // corrections in delivery order. Validate values before stable sorting;
+    // equal-time Hold head/tail and touch phases retain their original order.
+    validate_values(replay)?;
+    replay.frames.sort_by(f64::total_cmp);
+    replay.judges.sort_by(|a, b| a.t.total_cmp(&b.t));
+    replay.touches.sort_by(|a, b| a.t.total_cmp(&b.t));
+    validate(replay)
+}
+
+fn validate_values(replay: &Replay) -> Result<()> {
     anyhow::ensure!(replay.touches.len() <= MAX_EVENTS && replay.judges.len() <= MAX_EVENTS && replay.frames.len() <= MAX_EVENTS, "回放事件过多");
     anyhow::ensure!(replay.offset.is_finite() && replay.speed.is_finite() && replay.speed > 0. && replay.speed <= 16., "回放速度或偏移无效");
     anyhow::ensure!(replay.aspect_ratio.is_none_or(|v| v.is_finite() && v > 0. && v <= 10.), "回放比例无效");
@@ -188,12 +229,6 @@ fn validate(replay: &Replay) -> Result<()> {
                 .all(|e| time(e.t) && e.diff.is_finite() && e.kind <= 9 && e.head_grade.is_none_or(|g| matches!(g, 0 | 1 | 2 | 3 | 4 | 7 | 8 | 9)))
             && replay.frames.iter().all(|t| time(*t)),
         "回放含无效事件"
-    );
-    anyhow::ensure!(
-        replay.frames.windows(2).all(|w| w[0] <= w[1])
-            && replay.judges.windows(2).all(|w| w[0].t <= w[1].t)
-            && replay.touches.windows(2).all(|w| w[0].t <= w[1].t),
-        "回放时间顺序无效"
     );
     Ok(())
 }
@@ -230,7 +265,14 @@ fn sanitize_key(key: &str) -> String {
 
 /// 一条成绩记录对应的回放文件路径（不存在时也返回该路径，用于探测）。
 pub fn path_for(key: &str, time_ms: i64) -> PathBuf {
-    PathBuf::from(format!("{}/replays/{}_{}.phirar", dir::root().unwrap_or_default(), sanitize_key(key), time_ms))
+    use sha2::{Digest, Sha256};
+    let root = dir::root().unwrap_or_default();
+    let legacy = PathBuf::from(format!("{root}/replays/{}_{}.phirar", sanitize_key(key), time_ms));
+    if legacy.is_file() {
+        return legacy;
+    }
+    let hash = format!("{:x}", Sha256::digest(key.as_bytes()));
+    PathBuf::from(format!("{root}/replays/{}_{time_ms}.ppr", &hash[..24]))
 }
 
 #[cfg(test)]
@@ -283,13 +325,13 @@ pub fn load(path: &std::path::Path) -> Result<Replay> {
         anyhow::bail!("不是回放文件");
     }
     let version = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
-    let replay = match version {
+    let mut replay = match version {
         5 => serde_json::from_slice(&read_bounded(zstd::stream::read::Decoder::new(&bytes[12..])?)?).context("回放元数据无效"),
         3 | 4 => parse_v3(&bytes),
         0 | 1 => parse_phirarec(&bytes, version),
         _ => anyhow::bail!("不支持的版本号：{version}"),
     }?;
-    validate(&replay)?;
+    canonicalize(&mut replay)?;
     Ok(replay)
 }
 
@@ -489,6 +531,72 @@ fn parse_phirarec(bytes: &[u8], version: u32) -> Result<Replay> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_unsorted_tapes_are_stably_repaired_and_contact_lifetimes_are_numbered() {
+        let mut replay = Replay {
+            speed: 1.,
+            frames: vec![2., 1., 1., 3.],
+            judges: vec![
+                JudgeEvent {
+                    t: 2.,
+                    kind: 0,
+                    ..Default::default()
+                },
+                JudgeEvent {
+                    t: 1.,
+                    kind: 5,
+                    ..Default::default()
+                },
+                JudgeEvent {
+                    t: 1.,
+                    kind: 0,
+                    ..Default::default()
+                },
+            ],
+            touches: vec![
+                TouchEvent {
+                    t: 2.,
+                    id: 42,
+                    phase: PHASE_UP,
+                    ..Default::default()
+                },
+                TouchEvent {
+                    t: 1.,
+                    id: 42,
+                    phase: PHASE_DOWN,
+                    ..Default::default()
+                },
+                TouchEvent {
+                    t: 3.,
+                    id: 42,
+                    phase: PHASE_DOWN,
+                    ..Default::default()
+                },
+                TouchEvent {
+                    t: 3.,
+                    id: 42,
+                    phase: PHASE_MOVE,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("unordered.ppr");
+        let payload = serde_json::to_vec(&replay).unwrap();
+        let mut bytes = b"PHIRAREC".to_vec();
+        bytes.extend(5u32.to_le_bytes());
+        bytes.extend(zstd::stream::encode_all(payload.as_slice(), 1).unwrap());
+        std::fs::write(&path, &bytes).unwrap();
+        let fixed = load(&path).unwrap();
+        assert_eq!(fixed.frames, [1., 1., 2., 3.]);
+        assert_eq!(fixed.judges.iter().map(|j| j.kind).collect::<Vec<_>>(), [5, 0, 0]);
+        assert_eq!(contact_numbers(&fixed.touches), [1, 1, 2, 2]);
+        assert_eq!(std::fs::read(path).unwrap(), bytes, "reading must not rewrite the original file");
+        replay.frames.push(f64::NAN);
+        assert!(canonicalize(&mut replay).is_err(), "sorting must not hide invalid timestamps");
+    }
     #[test]
     fn suspended_recording_closes_play_fingers_without_recording_menu_touches() {
         let mut fingers = std::collections::HashSet::new();
@@ -848,6 +956,7 @@ fn judge_kind(res: &Result<prpr::judge::Judgement, bool>) -> u8 {
 }
 
 /// 录制中的回放数据（主线程独占）。
+#[derive(Clone)]
 struct Pending {
     attempt: Option<u64>,
     fingers: std::collections::HashSet<u64>,
@@ -885,30 +994,39 @@ pub fn set_next_chart_meta(file: Option<String>, chart_updated: Option<i64>) {
 /// [`save_recording`] 用与成绩历史**同一个时间戳**落盘，保证详情页能按 `key+time` 找到。
 pub fn recorder(chart: Option<ChartRef>, offset: f32, speed: f32, mods: u32) -> UpdateFn {
     let (chart_file, chart_updated) = NEXT_META.with(|it| it.borrow_mut().take()).unwrap_or((None, None));
-    PENDING.with(|it| {
-        *it.borrow_mut() = Some(Pending {
-            attempt: None,
-            fingers: Default::default(),
-            chart,
-            offset,
-            speed,
-            mods,
-            frames: Vec::new(),
-            aspect_ratio: None,
-            settings: None,
-            gameplay: None,
-            theoretical_score: false,
-            player: None,
-            grading: crate::get_data().config.judge_grading,
-            chart_file,
-            chart_updated,
-            touches: Vec::new(),
-            judges: Vec::new(),
-        })
-    });
+    let template = Pending {
+        attempt: None,
+        fingers: Default::default(),
+        chart,
+        offset,
+        speed,
+        mods,
+        frames: Vec::new(),
+        aspect_ratio: None,
+        settings: None,
+        gameplay: None,
+        theoretical_score: false,
+        player: None,
+        grading: crate::get_data().config.judge_grading,
+        chart_file,
+        chart_updated,
+        touches: Vec::new(),
+        judges: Vec::new(),
+    };
+    PENDING.with(|it| *it.borrow_mut() = Some(template.clone()));
+    let mut last_attempt = None;
     Box::new(move |t, res, judge| {
         PENDING.with(|it| {
             let mut g = it.borrow_mut();
+            // save_recording consumes one attempt. The same GameScene is
+            // reused by RETRY on the result page, so recreate the buffer only
+            // for the next explicit Judge reset, never for ending UI frames.
+            if last_attempt != Some(judge.recording_attempt()) {
+                if g.is_none() {
+                    *g = Some(template.clone());
+                }
+                last_attempt = Some(judge.recording_attempt());
+            }
             let Some(p) = g.as_mut() else { return };
             // Only a real judgement reset starts a new attempt. A backwards
             // clock correction (or the old ending clock clamp) is not a retry.
@@ -1001,8 +1119,11 @@ pub fn save_recording(key: &str, time_ms: i64) -> Option<PathBuf> {
     };
     // Preserve the real event times, with stable ordering for multiple events
     // in a frame. Clock correction can otherwise put a later frame first.
-    replay.judges.sort_by(|a, b| a.t.total_cmp(&b.t));
-    replay.meta = NEXT_IDENTITY.with(|v| v.borrow_mut().take()).unwrap_or_default();
+    if let Err(err) = canonicalize(&mut replay) {
+        tracing::error!(?err, "invalid recording");
+        return None;
+    }
+    replay.meta = NEXT_IDENTITY.with(|v| v.borrow().clone()).unwrap_or_default();
     replay.meta.id = uuid::Uuid::new_v4().to_string();
     replay.meta.recorded_at = Some(time_ms);
     replay.meta.player = p.player;
@@ -1053,7 +1174,7 @@ pub fn request_export(path: &std::path::Path) -> Result<()> {
         replay.meta.id = format!("legacy-{:x}", Sha256::digest(std::fs::read(path)?));
     }
     let bytes = bytes(&replay)?;
-    let name = format!("replay-{}.phirar", sanitize_key(&replay.meta.id).chars().take(64).collect::<String>());
+    let name = format!("replay-{}.ppr", sanitize_key(&replay.meta.id).chars().take(64).collect::<String>());
     EXPORT_BYTES.with(|v| *v.borrow_mut() = Some(bytes));
     crate::page::request_export(name);
     Ok(())

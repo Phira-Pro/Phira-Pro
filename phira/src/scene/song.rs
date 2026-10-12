@@ -904,7 +904,9 @@ impl SongScene {
                 new_rec.std,
             );
         }
-        if new_rec.grading.is_some_and(|g| g.detailed) { return Ok(()); }
+        if new_rec.grading.is_some_and(|g| g.detailed) {
+            return Ok(());
+        }
         let rec = get_data_mut()
             .charts
             .iter_mut()
@@ -1058,6 +1060,7 @@ impl SongScene {
             let local_path = local_path.to_string();
             let chart_id = id;
             move |new_rec| -> Result<()> {
+                crate::plugins::result(&new_rec);
                 // 本地成绩历史：每一局都记一条（与「最佳成绩」的更新互相独立）。
                 if new_rec.num_of_notes > 0 {
                     let (name, level, difficulty) = get_data()
@@ -1077,22 +1080,27 @@ impl SongScene {
                         new_rec.max_combo,
                         new_rec.num_of_notes,
                         new_rec.counts,
-                new_rec.grade_counts,
-                new_rec.grading,
+                        new_rec.grade_counts,
+                        new_rec.grading,
                         &new_rec.hist,
                         new_rec.std,
                     )
                     .ok();
                     // 回放落盘：与成绩历史用同一时间戳命名，详情页据此按 key+time 命中。
                     if let Some(time) = time {
-                        crate::replay::save_recording(&crate::replay::key_for(chart_id, Some(local_path.as_str())), time);
+                        let key = crate::replay::key_for(chart_id, Some(local_path.as_str()));
+                        if let Some(path) = crate::replay::save_recording(&key, time) {
+                            crate::history::attach_replay(&key, time, &path)?;
+                        }
                     } else {
                         crate::replay::discard_recording();
                     }
                 } else {
                     crate::replay::discard_recording();
                 }
-                if new_rec.grading.is_some_and(|g| g.detailed) { return Ok(()); }
+                if new_rec.grading.is_some_and(|g| g.detailed) {
+                    return Ok(());
+                }
                 let rec = get_data_mut()
                     .charts
                     .iter_mut()
@@ -1412,7 +1420,13 @@ impl SongScene {
                                         rt,
                                         leaderboard_view::Row {
                                             rank: None,
-                                            name: rec.replay_player.clone().unwrap_or_else(|| if rec.replay_imported { "未记录".into() } else { name }),
+                                            name: rec.replay_player.clone().unwrap_or_else(|| {
+                                                if rec.replay_imported {
+                                                    "未记录".into()
+                                                } else {
+                                                    name
+                                                }
+                                            }),
                                             name_color: if rec.replay_imported { WHITE } else { color },
                                             avatar: if rec.replay_imported {
                                                 Err(self.icons.user.clone())

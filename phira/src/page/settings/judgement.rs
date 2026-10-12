@@ -41,6 +41,7 @@ pub(super) struct JudgementList {
     name: DRectButton,
     algorithm: DRectButton,
     numbers: Vec<DRectButton>,
+    colors: Vec<DRectButton>,
     sides: Vec<DRectButton>,
     switches: Vec<DRectButton>,
     draft: Option<Draft>,
@@ -228,6 +229,7 @@ impl JudgementList {
             name: DRectButton::new(),
             algorithm: DRectButton::new(),
             sides: (0..58).map(|_| DRectButton::new()).collect(),
+            colors: (0..8).map(|_| DRectButton::new()).collect(),
             numbers: (0..29).map(|_| DRectButton::new()).collect(),
             switches: (0..10).map(|_| DRectButton::new()).collect(),
             draft: None,
@@ -413,6 +415,16 @@ impl JudgementList {
         self.refresh();
     }
     fn touch_controls(&mut self, touch: &Touch, t: f32, settings: &mut JudgeSettings) -> Result<Option<bool>> {
+        for (i, b) in self.colors.iter_mut().enumerate() {
+            if b.touch(touch, t) {
+                self.discard_input = false;
+                request_input(
+                    format!("preset-color-{i}"),
+                    InputBox::new().default_text(settings.grading.colors[i].map(|c| format!("#{c:06X}")).unwrap_or_default()),
+                );
+                return Ok(Some(false));
+            }
+        }
         if self.od.touch(touch, t) {
             return Ok(Some(false));
         }
@@ -448,6 +460,9 @@ impl JudgementList {
         for i in switch_indices(settings) {
             if self.switches[i].touch(touch, t) {
                 *switch(settings, i) ^= true;
+                if i == 9 && !settings.grading.detailed || i == 8 && settings.grading.perfect_plus {
+                    settings.grading.mania = false;
+                }
                 return Ok(Some(false));
             }
         }
@@ -494,6 +509,20 @@ impl JudgementList {
                 return Ok(false);
             }
             if let Some(draft) = &mut self.draft {
+                if let Some(id) = id.strip_prefix("preset-color-").and_then(|s| s.parse::<usize>().ok()).filter(|i| *i < 8) {
+                    let value = text.trim().trim_start_matches('#');
+                    if value.is_empty() {
+                        draft.settings.grading.colors[id] = None;
+                    } else if value.len() == 6 {
+                        match u32::from_str_radix(value, 16) {
+                            Ok(c) => draft.settings.grading.colors[id] = Some(c),
+                            Err(_) => show_error(anyhow::anyhow!("RGB: #RRGGBB")),
+                        }
+                    } else {
+                        show_error(anyhow::anyhow!("RGB: #RRGGBB"));
+                    }
+                    return Ok(false);
+                }
                 if id == "preset-name" {
                     draft.name = text.trim().to_owned();
                     return Ok(false);
@@ -619,6 +648,14 @@ impl JudgementList {
         }
         for i in switch_indices(settings).into_iter().filter(|i| *i < 8) {
             row! { render_title(ui, switch_label(i), None); let enabled = *switch(settings, i); render_switch(ui, rr, t, &mut self.switches[i], enabled); }
+        }
+        row! { render_title(ui, tl!("preset-colors"), Some(tl!("preset-colors-sub"))); }
+        for (id, name) in prpr::judge::GRADE_ORDER {
+            row! {
+                render_title(ui, name, None);
+                if let Some(c)=settings.grading.colors[id] { ui.fill_rect(Rect::new(rr.x-0.06,rr.y+0.02,0.035,0.035),Color::from_hex_rgb(c)); }
+                self.colors[id].render_text(ui,rr,t,settings.grading.colors[id].map(|c|format!("#{c:06X}")).unwrap_or_else(||tl!("preset-color-default").into_owned()),0.36,false);
+            }
         }
         h
     }

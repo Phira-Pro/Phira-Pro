@@ -39,7 +39,7 @@ item-practice-ramp-sub = Naikkan kecepatan setiap putaran latihan
 item-practice-speed = Kecepatan awal
 item-practice-step = Kenaikan per putaran
 item-show-fps = Tampilkan FPS
-item-show-fps-sub = Tampilkan FPS saat ini di kiri bawah
+item-show-fps-sub = Show the current framerate at your chosen position
 item-hp-height = Ketebalan bilah
 item-offline = Mode Offline
 item-offline-sub = Anda tidak bisa mengupload skor anda di Mode Offline.
@@ -288,3 +288,17 @@ cover-apply = Apply
 
 item-shader-pre-render = Shader pre-rendering
 item-shader-pre-render-sub = Warms shaders and caches static block masks while loading. Slower loading; frame-rate gains vary with the chart.
+
+item-fps-position = FPS position
+fps-top-center = Top center
+fps-bottom-center = Bottom center
+fps-top-left = Top left
+fps-top-right = Top right
+fps-bottom-left = Bottom left
+fps-bottom-right = Bottom right
+
+plugins-settings = Plugins
+plugins-settings-sub = Import, enable and configure plugins
+preset-colors = Judgement colors
+preset-colors-sub = Enter #RRGGBB; empty restores resource-pack colors
+preset-color-default = Resource pack

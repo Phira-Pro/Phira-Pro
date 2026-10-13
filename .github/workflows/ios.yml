@@ -104,4 +104,5 @@ jobs:
         with:
           name: PhiraPro-unsigned-ipa
           path: out/PhiraPro-v*-ios-arm64-unsigned.ipa
+          compression-level: 0
           if-no-files-found: error

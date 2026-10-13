@@ -133,4 +133,5 @@ jobs:
         with:
           name: PhiraPro-android-apk
           path: dist/android/*.apk
+          compression-level: 0
           if-no-files-found: error

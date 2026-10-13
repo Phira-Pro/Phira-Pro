@@ -85,7 +85,9 @@ Rust 工具链镜像不替代 Cargo 的 crate 和 Git 依赖下载。使用代�
 - **Build Android APK**：构建 arm64 APK、校验组织 Secret 注入的签名并上传 Artifact。
 - **Build iOS IPA**：在 macOS runner 上用 Xcode 构建并上传未签名 IPA，安装前需自行签名。
 
-桌面工作流运行普通库测试；Windows 另以 `RUSTFLAGS="--cfg record"` 编译完整 GameScene 图形回归套件，检查跨库测试辅助接口。该套件的实际 OpenGL 用例通过 `cargo test -p phira --lib --no-default-features production_replay_transport_import_and_aspects -- --ignored --test-threads=1 --nocapture` 单独运行，需要同样的编译标记。
+桌面出包默认只编译 Release，保留版本一致性、构建工具、包完整性及附件校验。完整 Rust 回归从发布主路径移出：手动运行 Desktop Packages 或 Build Release Assets 时勾选 `run-tests`，即可在打包前运行普通库测试，并在 Windows 以 `RUSTFLAGS="--cfg record"` 编译完整 GameScene 图形回归套件。该套件的实际 OpenGL 用例通过 `cargo test -p phira --lib --no-default-features production_replay_transport_import_and_aspects -- --ignored --test-threads=1 --nocapture` 单独运行，需要同样的编译标记。
+
+发布缓存仅保存 `target/release`、Cargo 下载和 FFmpeg 静态库；可选测试使用独立 `target/debug` 缓存。缓存键包含平台、依赖／工具链摘要及源码提交，后续提交优先恢复同依赖的最近缓存，构建成功后保存本提交的新缓存。避免一直命中同一个不可更新的旧缓存，也避免普通出包恢复多套图形测试的 Debug 产物。Windows／Linux／macOS ZIP、APK 和 IPA 已经压缩，上传 Actions Artifact 时使用 `compression-level: 0`，减少重复压缩。相关参数见 [actions/cache](https://github.com/actions/cache) 和 [actions/upload-artifact](https://github.com/actions/upload-artifact)。
 
 各工作流先执行版本一致性检查；桌面工作流还运行版本同步和打包工具的回归测试。桌面目标为 Windows x64、Linux x86_64、macOS arm64；macOS 和 iOS 使用 `macos-15` runner，Actions 使用 Node 24 运行时。当前 FFmpeg 发布包只提供 macOS arm64 静态库；Intel Mac 需自行准备对应 FFmpeg 库，并通过 `PRPR_AVC_LIBS` 指向含目标子目录的库根目录。Android CI 所需的组织 Secrets 为 `PHIRA_PRO_KEYSTORE_BASE64`、`PHIRA_PRO_KEYSTORE_PASSWORD`、`PHIRA_PRO_KEY_ALIAS`、`PHIRA_PRO_KEY_PASSWORD`。
 

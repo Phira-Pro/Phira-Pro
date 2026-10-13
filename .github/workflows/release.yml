@@ -13,6 +13,10 @@ on:
         description: Check tag and source versions only; no Release or packages are published
         type: boolean
         default: false
+      run-tests:
+        description: Run full desktop Rust and Windows graphics compilation checks (slower)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -83,6 +87,7 @@ jobs:
     uses: ./.github/workflows/desktop.yml
     with:
       source-ref: ${{ needs.prepare.outputs.sha }}
+      run-tests: ${{ inputs.run-tests == true }}
 
   android:
     name: Android APK

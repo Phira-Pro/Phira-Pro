@@ -95,10 +95,86 @@ fn next_export_filters_real_touches_in_both_judgement_engines() {
                         res.time = 2.01;
                         judge.update(&mut res, &mut chart, &mut bad);
                         TOUCHES.with(|s| s.borrow_mut().touches.clear());
+                        if state == 0 {
+                            let position = vec2(w as f32 / 2., screen_height() - h as f32 / 2.);
+                            for kind in [
+                                NoteKind::Click,
+                                NoteKind::Drag,
+                                NoteKind::Hold {
+                                    end_time: 4.,
+                                    end_height: 4.,
+                                },
+                            ] {
+                                for ending in [TouchPhase::Ended, TouchPhase::Cancelled] {
+                                    chart.lines[0].notes[0].kind = kind.clone();
+                                    chart.reset();
+                                    judge = Judge::new(&chart, false);
+                                    bad.clear();
+                                    res.time = 2.;
+                                    TOUCHES.with(|s| {
+                                        s.borrow_mut().touches = [TouchPhase::Started, ending]
+                                            .into_iter()
+                                            .map(|phase| Touch {
+                                                id: 81,
+                                                phase,
+                                                position,
+                                                time: f64::NEG_INFINITY,
+                                            })
+                                            .collect()
+                                    });
+                                    judge.update(&mut res, &mut chart, &mut bad);
+                                    let hold = matches!(kind, NoteKind::Hold { .. });
+                                    let cancelled = ending == TouchPhase::Cancelled;
+                                    if hold && !cancelled {
+                                        assert!(
+                                            matches!(chart.lines[0].notes[0].judge, JudgeStatus::Hold(..)),
+                                            "same-frame Hold head: {algorithm:?} {w}x{h}"
+                                        );
+                                    } else {
+                                        assert_eq!(judge.combo(), u32::from(!cancelled), "same-frame {kind:?}/{ending:?}: {algorithm:?} {w}x{h}");
+                                    }
+                                    TOUCHES.with(|s| s.borrow_mut().touches.clear());
+                                    // Phigros Hold grace counts frames, while
+                                    // Phira Pro uses elapsed time. Exercise both.
+                                    for frame in 1..=40 {
+                                        res.time = 2. + frame as f64 / 60.;
+                                        judge.update(&mut res, &mut chart, &mut bad);
+                                    }
+                                    if hold && !cancelled {
+                                        assert!(
+                                            matches!(chart.lines[0].notes[0].judge, JudgeStatus::Judged),
+                                            "released same-frame touch must not remain held: {algorithm:?}"
+                                        );
+                                        assert_eq!(judge.counts()[Judgement::Miss as usize], 1);
+                                    }
+                                }
+                            }
+                            // A real stationary finger still sustains a Hold.
+                            chart.lines[0].notes[0].kind = NoteKind::Hold {
+                                end_time: 4.,
+                                end_height: 4.,
+                            };
+                            chart.reset();
+                            judge = Judge::new(&chart, false);
+                            for (time, phase) in [(2., TouchPhase::Started), (2.1, TouchPhase::Stationary), (2.4, TouchPhase::Stationary)] {
+                                res.time = time;
+                                TOUCHES.with(|s| {
+                                    s.borrow_mut().touches = vec![Touch {
+                                        id: 82,
+                                        phase,
+                                        position,
+                                        time: f64::NEG_INFINITY,
+                                    }]
+                                });
+                                judge.update(&mut res, &mut chart, &mut bad);
+                                assert!(matches!(chart.lines[0].notes[0].judge, JudgeStatus::Hold(..)), "stationary Hold: {algorithm:?} {w}x{h}");
+                            }
+                            TOUCHES.with(|s| s.borrow_mut().touches.clear());
+                        }
                     }
                 }
             }
-            println!("rpe-next input: 2 engines × 3 aspects × disabled/ready/active passed");
+            println!("Input: 2 engines × 3 aspects × noise states; same-frame Tap/Drag/Hold, cancellation, no ghost hold and stationary Hold passed");
         },
     );
 }

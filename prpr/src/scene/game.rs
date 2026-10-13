@@ -1812,7 +1812,7 @@ impl Scene for GameScene {
         } else {
             self.judge.observe_paused_input();
             // Pause hides hover and suspends the filter, while release events
-            // still end the infected finger's lifetime.
+            // still clear the finger's blocked state.
             self.chart.blocked_touches.clear();
         }
         if tm.paused() || self.pause_rewind.is_some() {

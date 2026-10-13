@@ -358,17 +358,17 @@ fn consume_click_protection(kind: &NoteKind, matched: &mut HashSet<(usize, u32)>
     }
 }
 
-fn finger_blocked(infected: &mut HashSet<u64>, id: u64, phase: TouchPhase, inside: bool) -> bool {
+fn finger_blocked(blocked_finger_ids: &mut HashSet<u64>, id: u64, phase: TouchPhase, inside: bool) -> bool {
     if matches!(phase, TouchPhase::Started | TouchPhase::Ended | TouchPhase::Cancelled) {
-        infected.remove(&id);
+        blocked_finger_ids.remove(&id);
     }
     if matches!(phase, TouchPhase::Ended | TouchPhase::Cancelled) {
         return false;
     }
     if inside {
-        infected.insert(id);
+        blocked_finger_ids.insert(id);
     }
-    infected.contains(&id)
+    blocked_finger_ids.contains(&id)
 }
 
 /// 一次命中的真实时间偏移，供局内 early/late 判定条绘制。
@@ -799,17 +799,17 @@ mod tests {
     }
 
     #[test]
-    fn finger_infection_survives_field_disappearance_until_release() {
+    fn finger_blocking_survives_field_disappearance_until_release() {
         use macroquad::prelude::TouchPhase::*;
-        let mut infected = std::collections::HashSet::new();
-        assert!(super::finger_blocked(&mut infected, 7, Started, true));
-        assert!(super::finger_blocked(&mut infected, 7, Stationary, false));
-        assert!(super::finger_blocked(&mut infected, 7, Moved, false));
-        assert!(!super::finger_blocked(&mut infected, 8, Started, false));
-        assert!(!super::finger_blocked(&mut infected, 7, Ended, true));
-        assert!(!super::finger_blocked(&mut infected, 7, Started, false));
-        assert!(super::finger_blocked(&mut infected, 7, Moved, true));
-        assert!(!super::finger_blocked(&mut infected, 7, Cancelled, true));
+        let mut blocked_finger_ids = std::collections::HashSet::new();
+        assert!(super::finger_blocked(&mut blocked_finger_ids, 7, Started, true));
+        assert!(super::finger_blocked(&mut blocked_finger_ids, 7, Stationary, false));
+        assert!(super::finger_blocked(&mut blocked_finger_ids, 7, Moved, false));
+        assert!(!super::finger_blocked(&mut blocked_finger_ids, 8, Started, false));
+        assert!(!super::finger_blocked(&mut blocked_finger_ids, 7, Ended, true));
+        assert!(!super::finger_blocked(&mut blocked_finger_ids, 7, Started, false));
+        assert!(super::finger_blocked(&mut blocked_finger_ids, 7, Moved, true));
+        assert!(!super::finger_blocked(&mut blocked_finger_ids, 7, Cancelled, true));
     }
 
     #[test]
@@ -1160,7 +1160,7 @@ pub struct Judge {
     pub notes: Vec<(Vec<u32>, usize)>,
     pub trackers: HashMap<u64, FlickTracker>,
     pub last_time: f64,
-    pub infected: HashSet<u64>,
+    pub blocked_finger_ids: HashSet<u64>,
     sound_schedule: Vec<(f64, HitSound)>,
     sound_cursor: usize,
 
@@ -1253,7 +1253,7 @@ impl Judge {
             notes,
             trackers: HashMap::new(),
             last_time: 0.,
-            infected: HashSet::new(),
+            blocked_finger_ids: HashSet::new(),
             sound_schedule,
             sound_cursor: 0,
 
@@ -1271,7 +1271,7 @@ impl Judge {
         self.click_protected.clear();
         self.notes.iter_mut().for_each(|it| it.1 = 0);
         self.trackers.clear();
-        self.infected.clear();
+        self.blocked_finger_ids.clear();
         self.sound_cursor = 0;
         self.key_down_count = 0;
         self.inner.reset();
@@ -1292,7 +1292,7 @@ impl Judge {
     }
 
     /// Releases still arrive while gameplay judgement is paused. Consuming
-    /// their lifecycle prevents phantom infected fingers after resuming.
+    /// their lifecycle prevents fingers from remaining blocked after resuming.
     pub fn observe_paused_input(&mut self) {
         if let Some(engine) = &mut self.phigros {
             engine.clear_input();
@@ -1302,7 +1302,7 @@ impl Judge {
             self.key_down_count = self.key_down_count.saturating_add_signed(status.key_delta);
             for touch in &status.touches {
                 if matches!(touch.phase, TouchPhase::Started | TouchPhase::Ended | TouchPhase::Cancelled) {
-                    self.infected.remove(&touch.id);
+                    self.blocked_finger_ids.remove(&touch.id);
                     self.trackers.remove(&touch.id);
                 }
             }
@@ -1490,7 +1490,7 @@ impl Judge {
                 .collect()
         };
         // use native method of removing blocked id when absent in current snapshot
-        self.infected.retain(|id| touches.contains_key(id));
+        self.blocked_finger_ids.retain(|id| touches.contains_key(id));
         let (events, keys_down, key_delta) = TOUCHES.with(|it| {
             let guard = it.borrow();
             let events = guard.touches.clone();
@@ -1527,7 +1527,7 @@ impl Judge {
                     time,
                 };
                 Self::touch_transform(res.config.flip_x())(&mut event);
-                touch_frame::merge_event(&mut touches, &mut self.infected, event);
+                touch_frame::merge_event(&mut touches, &mut self.blocked_finger_ids, event);
                 let p = to_local(p);
                 match phase {
                     TouchPhase::Started => {
@@ -1565,7 +1565,7 @@ impl Judge {
         }
         if res.config.practice_active {
             // Held touches stay in screen space. Transform the frame-local copy
-            // exactly once, before both zone infection and note matching.
+            // exactly once, before both zone blocking and note matching.
             let mut view = res.config.practice.view;
             if res.config.flip_x() {
                 view.x = -view.x;
@@ -1583,19 +1583,19 @@ impl Judge {
                 chart.update_block_input(res, t);
             }
             let aspect = res.aspect_ratio;
-            let mut blocked = Vec::new();
+            let mut blocked_touch_positions = Vec::new();
             // blocking persists after leaving the region until the id disappears from the touches
             touches.retain(|touch| {
                 let p = Vector::new(touch.position.x, -touch.position.y);
-                let inside = !self.infected.contains(&touch.id) && chart.touch_blocked(p, t, aspect);
-                if finger_blocked(&mut self.infected, touch.id, TouchPhase::Stationary, inside) {
-                    blocked.push((touch.id, p));
+                let inside = !self.blocked_finger_ids.contains(&touch.id) && chart.touch_blocked(p, t, aspect);
+                if finger_blocked(&mut self.blocked_finger_ids, touch.id, TouchPhase::Stationary, inside) {
+                    blocked_touch_positions.push((touch.id, p));
                     false
                 } else {
                     true
                 }
             });
-            chart.blocked_touches = blocked;
+            chart.blocked_touches = blocked_touch_positions;
         }
         // pos[line][touch]
         let mut pos = Vec::<Vec<Option<Point>>>::with_capacity(chart.lines.len());

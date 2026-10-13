@@ -317,6 +317,26 @@ impl Renderer for Stream {
 mod tests {
     use super::*;
     #[test]
+    fn changing_practice_rate_updates_the_audio_clock_without_stale_multiplier() {
+        let sr = 8000;
+        let clip = AudioClip::from_raw(vec![Frame::default(); sr as usize * 20], sr);
+        let (mut player, mut stream) = Stream::new(clip, MusicParams::default(), 0., vec![]);
+        for pitch in [false, true] {
+            player.configure_practice(pitch, false).unwrap();
+            for rate in [0.1, 0.73, 1., 1.01, 1.25, 2., 1.] {
+                player.pause().unwrap();
+                player.seek_to(0.5).unwrap();
+                assert!(player.try_set_playback_rate(rate));
+                let mut buffer = vec![0.; sr as usize / 10 * 2];
+                stream.render_stereo(sr, &mut buffer);
+                assert!((player.position() - 0.5).abs() < 1e-9);
+                player.play().unwrap();
+                stream.render_stereo(sr, &mut buffer);
+                assert!((player.position() - (0.5 + rate * 0.1)).abs() < 1e-8, "pitch={pitch}, rate={rate}");
+            }
+        }
+    }
+    #[test]
     fn pitch_clock_seek_pause_and_cues() {
         let sr = 16000;
         let clip = AudioClip::from_raw(

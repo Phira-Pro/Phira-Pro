@@ -93,6 +93,7 @@ pub mod scene;
 pub mod task;
 pub mod time;
 pub mod ui;
+pub mod viewport;
 
 #[cfg(feature = "log")]
 pub mod log;

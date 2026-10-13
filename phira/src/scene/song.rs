@@ -1132,14 +1132,7 @@ impl SongScene {
                 .as_ref()
                 .map(|it| it.name.clone())
                 .unwrap_or_else(|| tl!("guest").into_owned());
-            config.res_pack_path = {
-                let id = get_data().respack_id;
-                if id == 0 {
-                    None
-                } else {
-                    Some(format!("{}/{}", dir::respacks()?, get_data().respacks[id - 1]))
-                }
-            };
+            config.res_pack_path = get_data().selected_respack_path()?;
             config.mods = mods;
             // 联机对战必须保证公平：把任何改动过的判定 / 玩法选项临时还原成官方默认值
             // （自动游玩 / 全屏判定 / 严格判定 / 判定窗口 / 晚按补偿 / 黄红键保护 / 尾判 /

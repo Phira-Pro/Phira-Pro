@@ -75,7 +75,12 @@ impl Base {
         ui.scope(|ui| {
             ui.dx(0.3);
             ui.dy(-0.3);
-            ui.slider(tl!("speed"), 0.1..2.0, 0.01, &mut next_speed, Some(0.5));
+            let r = ui.slider(tl!("speed"), 0.1..2.0, 0.01, &mut next_speed, Some(0.5));
+            let cy = r.h - 0.025;
+            for (key, x) in [("speed-start", 0.), ("speed-end", 0.5), ("speed-minus", 0.545), ("speed-plus", 0.605)] {
+                let p = ui.to_global((x, cy));
+                self.points.insert(key.into(), vec2(p.0, p.1));
+            }
         });
         ui.scope(|ui| {
             ui.dy(0.06);

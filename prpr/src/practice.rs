@@ -197,6 +197,24 @@ impl Bookmark {
     }
 }
 type Library = std::collections::BTreeMap<String, Vec<Bookmark>>;
+pub fn clamp_speed(speed: f32) -> f32 {
+    if speed.is_finite() {
+        ((speed.clamp(0.1, 2.) * 100.).round() / 100.).clamp(0.1, 2.)
+    } else {
+        1.
+    }
+}
+
+/// The slider, music and chart clock use the same effective practice rate.
+pub fn round_speed(config: &Config, target: f32, completed_rounds: u32) -> f32 {
+    let target = clamp_speed(target);
+    if config.practice_ramp {
+        clamp_speed(config.practice_speed_start + config.practice_speed_step * completed_rounds as f32).min(target)
+    } else {
+        target
+    }
+}
+
 static STORAGE: OnceLock<PathBuf> = OnceLock::new();
 pub fn set_storage(path: PathBuf) {
     let _ = STORAGE.set(path);
@@ -289,6 +307,38 @@ pub fn combo_range(notes: &[(f64, f64)], first: usize, last: usize, offset: f64,
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn practice_round_rates_use_centisteps_and_cap_at_target() {
+        let mut config = Config::default();
+        config.practice_ramp = true;
+        config.practice_speed_start = 0.7;
+        config.practice_speed_step = 0.03;
+        for (round, expected) in [(0, 0.7), (1, 0.73), (9, 0.97), (10, 1.), (100, 1.)] {
+            assert_eq!(round_speed(&config, 1., round), expected);
+        }
+        assert_eq!(round_speed(&config, 0.5, 0), 0.5);
+        config.practice_ramp = false;
+        assert_eq!(round_speed(&config, 1.25, 100), 1.25);
+        assert_eq!(clamp_speed(f32::NAN), 1.);
+        assert_eq!(clamp_speed(4.), 2.);
+        assert_eq!(clamp_speed(0.01), 0.1);
+    }
+
+    #[test]
+    fn practice_preferences_never_write_effective_speed_or_mods_back_to_global() {
+        let mut global = Config::default();
+        global.speed = 1.23;
+        global.mods.insert(crate::config::Mods::NIGHTCORE);
+        let mut session = global.clone();
+        session.speed = 0.61;
+        session.mods.remove(crate::config::Mods::NIGHTCORE);
+        session.practice_ramp = true;
+        save_preferences(&session);
+        assert!(take_preferences(&mut global));
+        assert_eq!(global.speed, 1.23);
+        assert!(global.mods.contains(crate::config::Mods::NIGHTCORE));
+        assert!(global.practice_ramp);
+    }
     #[test]
     fn saved_ranges_accept_old_options_and_preserve_new_controls() {
         let mut old: Options = serde_json::from_value(serde_json::json!({

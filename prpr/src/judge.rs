@@ -1390,7 +1390,10 @@ impl Judge {
     }
 
     fn touch_transform(flip_x: bool) -> impl Fn(&mut Touch) {
-        let vp = get_viewport();
+        Self::touch_transform_in(get_viewport(), flip_x)
+    }
+
+    fn touch_transform_in(vp: crate::viewport::Viewport, flip_x: bool) -> impl Fn(&mut Touch) {
         move |touch| {
             let p = touch.position;
             touch.position = vec2(
@@ -1404,9 +1407,15 @@ impl Judge {
     }
 
     pub fn get_touches() -> Vec<Touch> {
+        Self::get_touches_in(get_viewport())
+    }
+
+    /// HUD input uses the on-screen playfield, even while drawing to a
+    /// postprocess target whose viewport origin is local to that texture.
+    pub fn get_touches_in(vp: crate::viewport::Viewport) -> Vec<Touch> {
         TOUCHES.with(|it| {
             let guard = it.borrow();
-            let tr = Self::touch_transform(false);
+            let tr = Self::touch_transform_in(vp, false);
             guard
                 .touches
                 .iter()

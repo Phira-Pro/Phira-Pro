@@ -116,6 +116,9 @@ impl ReplayScene {
         if let Some(gameplay) = &replay.gameplay {
             gameplay.apply(&mut config);
         }
+        // Judgement/playback settings belong to the replay; note textures and
+        // sounds come from the viewer's current resource pack, as in gameplay.
+        config.res_pack_path = crate::get_data().selected_respack_path()?;
         config.sample_count = 4;
         config.player_name = replay.meta.player.clone().unwrap_or_else(|| "REPLAY · 未记录玩家".into());
         config.theoretical_score = replay.theoretical_score;

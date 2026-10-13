@@ -595,7 +595,6 @@ impl Main {
         if !(touches.is_empty() || FULL_LOADING.with(|it| it.borrow().is_some())) {
             let now = self.tm.now();
             let delta = (now - self.last_update_time) / touches.len() as f64;
-            let start_time = self.tm.start_time;
             let mut last_err = None;
             DIALOG.with(|it| -> Result<()> {
                 let mut index = 1;
@@ -611,8 +610,8 @@ impl Main {
                         false
                     } else {
                         drop(guard);
-                        self.tm.seek_to(t);
-                        match self.scenes.last_mut().unwrap().touch(&mut self.tm, touch) {
+                        let scene = self.scenes.last_mut().unwrap();
+                        match self.tm.with_event_time(t, |tm| scene.touch(tm, touch)) {
                             Ok(val) => !val,
                             Err(err) => {
                                 warn!(?err, "failed to handle touch");
@@ -627,7 +626,6 @@ impl Main {
             if let Some(err) = last_err {
                 return Err(err);
             }
-            self.tm.start_time = start_time;
         }
         self.touches = Some(touches);
         self.last_update_time = self.tm.now();

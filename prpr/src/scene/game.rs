@@ -773,7 +773,11 @@ impl GameScene {
                 config.mods.insert(Mods::AUTOPLAY);
             }
             GameMode::Exercise => {
-                config.mods.remove(Mods::AUTOPLAY);
+                // Practice owns its speed; global speed and Nightcore must not
+                // become hidden multipliers on its 0.01x controls.
+                config.speed = 1.;
+                config.practice_ramp = false;
+                config.mods.remove(Mods::AUTOPLAY | Mods::NIGHTCORE);
             }
             _ => {}
         }
@@ -905,9 +909,6 @@ impl GameScene {
             Vec::new()
         };
         let practice_target_speed = res.config.speed;
-        if mode == GameMode::Exercise && res.config.practice_ramp {
-            res.config.speed = res.config.practice_speed_start.clamp(0.1, practice_target_speed.max(0.1));
-        }
         res.config.practice_multiplier = res.config.practice.multiplier(res.config.speed);
         res.windows = res.config.judge_windows();
         // Prepare extra sfx from chart.hitsounds
@@ -1049,8 +1050,12 @@ impl GameScene {
         events
     }
 
-    fn touch_scale(&self) -> f32 {
-        screen_width() / self.res.camera.viewport.map_or(screen_width(), |v| v.2.max(1) as f32)
+    fn ui_to_playfield(&self, point: Vec2) -> Vec2 {
+        crate::viewport::map_position(point, self.res.last_vp, self.res.camera.viewport.unwrap_or(self.res.last_vp))
+    }
+
+    fn playfield_to_ui(&self, point: Vec2) -> Vec2 {
+        crate::viewport::map_position(point, self.res.camera.viewport.unwrap_or(self.res.last_vp), self.res.last_vp)
     }
 
     fn ui(&mut self, ui: &mut Ui, tm: &mut TimeManager) -> Result<()> {
@@ -1079,7 +1084,7 @@ impl GameScene {
         if res.config.interactive
             && !tm.paused()
             && self.pause_rewind.is_none()
-            && Judge::get_touches().iter().any(|touch| {
+            && Judge::get_touches_in(res.camera.viewport.unwrap_or(res.last_vp)).iter().any(|touch| {
                 touch.phase == TouchPhase::Started && {
                     let p = touch.position;
                     let p = Point::new(p.x, p.y);
@@ -1311,7 +1316,7 @@ impl GameScene {
             );
             if res.config.interactive && !(self.mode == GameMode::Exercise && self.practice_panel.modal(tm.real_time() as f32)) {
                 let mut clicked = None;
-                for touch in Judge::get_touches() {
+                for touch in Judge::get_touches_in(res.camera.viewport.unwrap_or(res.last_vp)) {
                     if touch.phase != TouchPhase::Started {
                         continue;
                     }
@@ -1350,11 +1355,7 @@ impl GameScene {
                         self.last_practice_accuracy = None;
                         if self.mode == GameMode::Exercise {
                             self.practice_partial = false;
-                            res.config.speed = if res.config.practice_ramp {
-                                res.config.practice_speed_start.clamp(0.1, self.practice_target_speed.max(0.1))
-                            } else {
-                                self.practice_target_speed
-                            };
+                            res.config.speed = practice::round_speed(&res.config, self.practice_target_speed, 0);
                             res.config.practice_multiplier = res.config.practice.multiplier(res.config.speed);
                             res.windows = res.config.judge_windows();
                             self.music.try_set_playback_rate(res.config.speed as f64);
@@ -1394,16 +1395,15 @@ impl GameScene {
                 }
             }
             if self.mode == GameMode::Exercise {
-                let old_top = ui.top;
-                ui.top = 1. / self.res.aspect_ratio;
                 let interactive = !self.practice_panel.modal(tm.real_time() as f32);
-                let scale = self.touch_scale();
+                let parent = self.res.last_vp;
+                let fitted = self.res.camera.viewport.unwrap_or(parent);
                 for touch in ui.ensure_touches() {
-                    touch.position *= scale;
+                    touch.position = crate::viewport::map_position(touch.position, parent, fitted);
                 }
                 let action = self.practice_base.render(
                     ui,
-                    self.practice_target_speed,
+                    self.res.config.speed,
                     self.exercise_range.start,
                     self.exercise_range.end,
                     tm.now(),
@@ -1411,12 +1411,6 @@ impl GameScene {
                     self.res.track_length,
                     interactive,
                 );
-                for touch in ui.ensure_touches() {
-                    touch.position /= scale;
-                }
-                if let Some(action) = action {
-                    self.practice_action(tm, action)?;
-                }
                 self.practice_panel.render(
                     ui,
                     tm.real_time() as f32,
@@ -1427,7 +1421,12 @@ impl GameScene {
                     &self.practice_statistics,
                     *self.res.icon_back,
                 );
-                ui.top = old_top;
+                for touch in ui.ensure_touches() {
+                    touch.position = crate::viewport::map_position(touch.position, fitted, parent);
+                }
+                if let Some(action) = action {
+                    self.practice_action(tm, action)?;
+                }
             }
         }
         if let Some(time) = self.pause_rewind {
@@ -1450,7 +1449,7 @@ impl GameScene {
                 a: touch_alpha,
                 ..Color::from_hex_rgb(self.res.config.touch_point_color)
             };
-            for touch in Judge::get_touches() {
+            for touch in Judge::get_touches_in(self.res.camera.viewport.unwrap_or(self.res.last_vp)) {
                 ui.fill_circle(touch.position.x, touch.position.y, touch_size, color);
             }
         }
@@ -1626,9 +1625,7 @@ impl Scene for GameScene {
             self.state = state;
             // 变速练习：每完成一圈提升一档速度并封顶在正常速度；谱面与音频同步变速。
             if self.res.config.practice_ramp {
-                let cfg = &self.res.config;
-                let speed =
-                    (cfg.practice_speed_start + cfg.practice_speed_step * self.practice_loops as f32).clamp(0.1, self.practice_target_speed.max(0.1));
+                let speed = self.practice_speed();
                 self.res.config.speed = speed;
                 tm.speed = speed as f64;
                 self.music.try_set_playback_rate(speed as f64);
@@ -2011,7 +2008,7 @@ impl Scene for GameScene {
         }
         if self.mode == GameMode::Exercise && tm.paused() {
             let touch = Touch {
-                position: touch.position * self.touch_scale(),
+                position: self.ui_to_playfield(touch.position),
                 ..touch.clone()
             };
             let (consumed, action) = self.practice_panel.touch(&touch, tm.real_time() as f32);
@@ -2020,8 +2017,11 @@ impl Scene for GameScene {
             }
             if let Some(action) = action.or_else(|| if consumed { None } else { self.practice_base.touch(&touch) }) {
                 self.practice_action(tm, action)?;
+                return Ok(true);
             }
-            return Ok(true);
+            // Unhandled touches must reach render-time controls (the original
+            // speed slider and +/- buttons) through Main's Ui.
+            return Ok(consumed);
         }
         Ok(false)
     }
@@ -2045,11 +2045,18 @@ impl Scene for GameScene {
             self.fps_last_frame_time = current_time;
         }
 
+        // Scene-manager touches are expressed in the outer UI viewport.
+        // Materialize them before switching to the chart's fitted viewport.
+        if self.mode == GameMode::Exercise {
+            set_camera(&ui.camera());
+            ui.ensure_touches();
+        }
         let res = &mut self.res;
         let asp = ui.viewport.2 as f32 / ui.viewport.3 as f32;
-        if res.update_size(ui.viewport) || self.mode == GameMode::View {
-            set_camera(&res.camera);
-        }
+        res.update_size(ui.viewport);
+        // The app draws its plugin overlay with a screen-space camera after
+        // every frame. Never inherit that projection when fitting the chart.
+        set_camera(&res.camera);
 
         let msaa = res.config.sample_count > 1;
         if msaa {
@@ -2090,8 +2097,12 @@ impl Scene for GameScene {
         } else {
             res.camera.viewport
         };
-        self.gl.quad_gl.render_pass(chart_onto.map(|it| it.render_pass));
-        self.gl.quad_gl.viewport(chart_target_vp);
+        set_camera(&Camera2D {
+            zoom: res.camera.zoom,
+            viewport: chart_target_vp,
+            render_target: chart_onto,
+            ..Default::default()
+        });
 
         let h = 1. / res.aspect_ratio;
         draw_rectangle(-1., -h, 2., h * 2., Color::new(0., 0., 0., res.alpha * res.info.background_dim));
@@ -2140,11 +2151,12 @@ impl Scene for GameScene {
             render_target: res.chart_target.as_ref().map(|target| target.output()).or(res.camera.render_target),
             ..Default::default()
         };
-        if practice_camera.is_some() {
-            set_camera(&hud_camera);
-        }
-        self.ui(ui, tm)?;
-        self.overlay_ui(ui, tm)?;
+        set_camera(&hud_camera);
+        let old_top = ui.top;
+        ui.top = 1. / self.res.aspect_ratio;
+        let ui_result = self.ui(ui, tm).and_then(|_| self.overlay_ui(ui, tm));
+        ui.top = old_top;
+        ui_result?;
         // Official ActiveBlock runs at CameraEvent.AfterForwardAlpha, after
         // notes and HUD. It captures the complete underlay before compositing.
 
@@ -2214,6 +2226,12 @@ impl Scene for GameScene {
             self.rendered_first_frame = true;
             tracing::info!("game first frame complete");
         }
+        // Leave the parent UI coordinate system active for scene input and
+        // overlays, including when postprocessing is disabled.
+        set_camera(&Camera2D {
+            render_target: self.res.camera.render_target,
+            ..ui.camera()
+        });
         Ok(())
     }
 

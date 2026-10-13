@@ -111,4 +111,52 @@ impl TimeManager {
         self.start_time = self.pause_time.unwrap_or_else(&self.get_time_fn) - pos / self.speed;
         self.wait();
     }
+
+    /// Interpolate running input without undoing an explicit seek/rate change.
+    /// Paused controls own the clock (practice scrubber/bookmarks), so they
+    /// must never be wrapped in a temporary clock that restores the old seek.
+    pub fn with_event_time<T>(&mut self, time: f64, handle: impl FnOnce(&mut Self) -> T) -> T {
+        if self.paused() {
+            return handle(self);
+        }
+        let original_start = self.start_time;
+        let original_speed = self.speed;
+        self.seek_to(time);
+        let temporary_start = self.start_time;
+        let result = handle(self);
+        if self.start_time == temporary_start && self.speed == original_speed {
+            self.start_time = original_start;
+        }
+        result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paused_scrubber_and_speed_changes_survive_touch_dispatch() {
+        let mut tm = TimeManager::manual(Box::new(|| 10.));
+        tm.seek_to(1.);
+        tm.pause();
+        for (time, speed) in [(2., 1.), (3.5, 0.73), (0.5, 1.25)] {
+            tm.with_event_time(-10., |tm| {
+                tm.speed = speed;
+                tm.seek_to(time);
+            });
+            assert!((tm.now() - time).abs() < 1e-9);
+            assert!(tm.paused());
+        }
+    }
+
+    #[test]
+    fn ordinary_running_input_restores_frame_clock_but_explicit_seek_persists() {
+        let mut tm = TimeManager::manual(Box::new(|| 10.));
+        tm.seek_to(3.);
+        tm.with_event_time(2.95, |tm| assert!((tm.now() - 2.95).abs() < 1e-9));
+        assert_eq!(tm.now(), 3.);
+        tm.with_event_time(2.95, |tm| tm.seek_to(5.));
+        assert_eq!(tm.now(), 5.);
+    }
 }

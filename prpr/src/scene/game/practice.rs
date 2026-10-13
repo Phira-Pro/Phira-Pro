@@ -35,13 +35,8 @@ impl GameScene {
         Ok(())
     }
 
-    fn practice_speed(&self) -> f32 {
-        if self.res.config.practice_ramp {
-            (self.res.config.practice_speed_start + self.res.config.practice_speed_step * self.practice_loops as f32)
-                .clamp(0.1, self.practice_target_speed.max(0.1))
-        } else {
-            self.practice_target_speed
-        }
+    pub(super) fn practice_speed(&self) -> f32 {
+        practice::round_speed(&self.res.config, self.practice_target_speed, self.practice_loops)
     }
 
     pub(super) fn practice_action(&mut self, tm: &mut TimeManager, action: PracticeAction) -> Result<()> {
@@ -285,7 +280,12 @@ impl GameScene {
         let cfg = &mut self.res.config;
         let mut restart = true;
         match id {
-            "practice_speed" => self.practice_target_speed = value.clamp(0.1, 2.),
+            "practice_speed" => {
+                self.practice_target_speed = practice::clamp_speed(value);
+                // A manual change selects the actual playback rate immediately.
+                // The saved ramp can be enabled again from the drawer.
+                cfg.practice_ramp = false;
+            }
             "practice_ramp_start" => cfg.practice_speed_start = value.clamp(0.1, 2.),
             "practice_ramp_step" => cfg.practice_speed_step = value.clamp(0.01, 0.5),
             "practice_retry" => {
@@ -334,7 +334,7 @@ impl GameScene {
         self.practice_panel
             .control_point(key)
             .or_else(|| self.practice_base.control_point(key))
-            .map(|p| p / self.touch_scale())
+            .map(|p| self.playfield_to_ui(p))
     }
     #[cfg(record)]
     pub fn practice_scroll_to(&mut self, offset: f32) {
@@ -343,6 +343,15 @@ impl GameScene {
     #[cfg(record)]
     pub fn practice_round_count(&self) -> u32 {
         self.practice_statistics.total
+    }
+    #[cfg(record)]
+    pub fn practice_touch_frame_for_qa(&mut self, tm: &mut TimeManager, ui: &mut Ui, touch: Touch) -> Result<()> {
+        // Match Main::update_with_mutate -> Main::render, including consumed
+        // scene input being removed before Ui sliders process the frame.
+        let consumed = tm.with_event_time(tm.now(), |tm| Scene::touch(self, tm, &touch))?;
+        Scene::update(self, tm)?;
+        ui.set_touches(Some(if consumed { Vec::new() } else { vec![touch] }));
+        Scene::render(self, tm, ui)
     }
     #[cfg(record)]
     pub fn practice_draw_ranges_for_qa(&self, ui: &mut Ui) {

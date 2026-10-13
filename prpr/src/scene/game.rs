@@ -1,10 +1,14 @@
 #![allow(unused)]
 
 prpr_l10n::tl_file!("game");
+#[path = "game/lifecycle.rs"]
+mod lifecycle;
 #[path = "game/practice.rs"]
 mod practice_controls;
 #[path = "game/ranges.rs"]
 mod practice_ranges;
+#[path = "game/render_layers.rs"]
+mod render_layers;
 
 use super::{
     draw_background,
@@ -605,6 +609,7 @@ pub struct GameScene {
     first_in: bool,
     entered: bool,
     rendered_first_frame: bool,
+    paused_before_background: Option<bool>,
     exercise_range: Range<f64>,
     practice_base: practice::base::Base,
     practice_panel: PracticePanel,
@@ -953,6 +958,7 @@ impl GameScene {
             first_in: false,
             entered: false,
             rendered_first_frame: false,
+            paused_before_background: None,
             exercise_range,
             practice_base: Default::default(),
             practice_panel: PracticePanel::default(),
@@ -1556,31 +1562,20 @@ impl Scene for GameScene {
         self.first_in = true;
         self.entered = true;
         self.rendered_first_frame = false;
+        self.paused_before_background = None;
         tracing::info!("game entry complete");
         Ok(())
     }
 
     fn pause(&mut self, tm: &mut TimeManager) -> Result<()> {
-        if !tm.paused() {
-            self.practice_panel.hide();
-            self.practice_base.cancel();
-            self.pause_rewind = None;
-            self.music.pause()?;
-            tm.pause();
-            self.chart.blocked_touches.clear();
-            self.block_audio.suspend(&mut self.music);
-        }
+        self.background_pause(tm)?;
         #[cfg(target_env = "ohos")]
         miniquad::native::set_interceptor_state(false);
         Ok(())
     }
 
     fn resume(&mut self, tm: &mut TimeManager) -> Result<()> {
-        self.last_update_time = tm.real_time();
-        self.fps_last_frame_time = tm.real_time();
-        if !matches!(self.state, State::Playing) {
-            tm.resume();
-        }
+        self.foreground_resume(tm);
         Ok(())
     }
 
@@ -2151,23 +2146,14 @@ impl Scene for GameScene {
             render_target: res.chart_target.as_ref().map(|target| target.output()).or(res.camera.render_target),
             ..Default::default()
         };
-        set_camera(&hud_camera);
-        let old_top = ui.top;
-        ui.top = 1. / self.res.aspect_ratio;
-        let ui_result = self.ui(ui, tm).and_then(|_| self.overlay_ui(ui, tm));
-        ui.top = old_top;
-        ui_result?;
-        // Official ActiveBlock runs at CameraEvent.AfterForwardAlpha, after
-        // notes and HUD. It captures the complete underlay before compositing.
-
         if let Some(camera) = &mut practice_camera {
             camera.render_target = hud_camera.render_target;
             set_camera(camera);
         }
         self.chart.render_block_overlay(&mut self.res);
-        if practice_camera.is_some() {
-            set_camera(&hud_camera);
-        }
+        // Noise affects the chart, never HUD text or application controls.
+        set_camera(&hud_camera);
+        self.draw_gameplay_ui(tm, ui)?;
 
         if self.mode == GameMode::TweakOffset {
             push_camera_state();
@@ -2222,6 +2208,9 @@ impl Scene for GameScene {
             }
         }
 
+        // Draw pause/practice/interaction controls only after the complete
+        // chart composite so noise and shaders cannot capture or obscure them.
+        self.draw_controls(tm, ui)?;
         if !self.rendered_first_frame {
             self.rendered_first_frame = true;
             tracing::info!("game first frame complete");

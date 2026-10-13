@@ -96,7 +96,7 @@ Rust 工具链镜像不替代 Cargo 的 crate 和 Git 依赖下载。使用代�
 **Build Release Assets**（`.github/workflows/release.yml`）监听 `release.published`，正式版和预发布版均触发；创建草稿或日常 push 不触发构建。工作流不代替维护者创建或发布 Release，也不修改 Release 正文。
 
 1. 修改 `version.json` 中的 Pro 版本并提升 `build_number`，执行 `python scripts/version.py sync` 和 `python scripts/version.py check`，提交版本文件与同步结果。
-2. 将包含发版工作流和版本更新的提交推送到 GitHub，再为该提交创建 Tag，例如 `v0.8.2-pro.13`。Tag 必须与该提交的 `pro_version` 一致；也接受不带 `v` 的 `0.8.2-pro.13`。
+2. 将包含发版工作流和版本更新的提交推送到 GitHub，再为该提交创建 Tag，例如 `v0.8.2-pro.13`。Tag 的基础版本必须与该提交的 `pro_version` 一致；也接受不带 `v` 的 `0.8.2-pro.13`。修复版允许追加 `-fix1`、`-fix2` 等正整数后缀，例如 `v0.8.2-pro.14-fix1`；应用内版本和附件名称仍为 `0.8.2-pro.14`，通过提升 `build_number` 区分安装包，Release 标题为 `pro.14-fix1`。
 3. 在 Releases 页面选择这个 Tag，填写更新说明并发布 Release；标记为预发布版也会构建。
 4. 工作流检查版本、Release 状态和 Tag 提交，随后并行调用桌面、Android 和 iOS 工作流。各平台固定构建同一个提交 SHA。全部成功后才开始向该 Release 上传完整附件集。
 

@@ -12,7 +12,9 @@ from version import ROOT, check_version
 
 
 def check_tag(tag, values):
-    if tag not in (values["pro_version"], "v" + values["pro_version"]):
+    # A fix release changes its tag/build identity, not the app's Pro revision
+    # or package filenames. Keep the base version match strict.
+    if not re.fullmatch(r"v?" + re.escape(values["pro_version"]) + r"(?:-fix[1-9][0-9]*)?", tag):
         raise ValueError(f"Release tag {tag!r} must match version.json: v{values['pro_version']}")
 
 
@@ -34,10 +36,10 @@ def remote_commit(tag):
 def resolve_tag(tag, expected_sha=""):
     # Keep the established tag spelling. A manually entered pro10 resolves to
     # pro.10; never create a second tag with a different naming convention.
-    match = re.fullmatch(r"(v?(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))-pro\.?([1-9][0-9]*)", tag)
+    match = re.fullmatch(r"(v?(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))-pro\.?([1-9][0-9]*)(-fix[1-9][0-9]*)?", tag)
     if not match:
         raise ValueError("Invalid Release tag; expected v0.8.2-pro.10")
-    canonical = f"{match[1]}-pro.{match[2]}"
+    canonical = f"{match[1]}-pro.{match[2]}{match[3] or ''}"
     sha = remote_commit(canonical)
     if expected_sha and sha != expected_sha:
         raise ValueError("Release event commit differs from the remote tag")

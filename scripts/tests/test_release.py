@@ -51,6 +51,25 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "missing"):
                 release.remote_commit(self.tag)
 
+    def test_fix_release_keeps_app_version_and_package_names(self):
+        for tag in (self.tag + "-fix1", self.tag[1:] + "-fix2"):
+            release.check_tag(tag, self.values)
+            with patch.object(release, "remote_commit", return_value=self.sha) as remote:
+                self.assertEqual(release.resolve_tag(tag), (tag, self.sha))
+                remote.assert_called_once_with(tag)
+        info = dict(self.info, tag_name=self.tag + "-fix1", name="pro.9-fix1")
+        with patch.object(release, "command_output", return_value=json.dumps(info)):
+            self.assertEqual(release.release_info("owner/repo", self.tag + "-fix1"), info)
+        assets = self.packages()
+        self.assertEqual(set(release.collect_assets(self.directory, self.values)), set(assets))
+        for tag in (self.tag + "-fix0", self.tag + "-fix01", self.tag + "-fix", self.tag + "-fix1-extra",
+                    "v0.8.2-pro.10-fix1", self.tag + "-fix1\nsha=injected"):
+            with self.subTest(tag=tag), self.assertRaises(ValueError):
+                release.check_tag(tag, self.values)
+        for tag in (self.tag + "-fix0", self.tag + "-fix01", self.tag + "-fix1-extra"):
+            with self.subTest(tag=tag), self.assertRaises(ValueError):
+                release.resolve_tag(tag)
+
     def test_manual_missing_dot_resolves_to_the_existing_tag_before_checkout(self):
         for tag in ("v0.8.2-pro10", "v0.8.2-pro.10"):
             with patch.object(release, "remote_commit", return_value=self.sha) as remote:

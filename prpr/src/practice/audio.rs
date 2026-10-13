@@ -57,13 +57,13 @@ impl Player {
     pub fn try_set_playback_rate(&mut self, rate: f64) -> bool {
         match self {
             Self::Native(m) => m.try_set_playback_rate(rate),
-            Self::Practice(m) => m.tx.try_send(Command::Rate(rate.clamp(0.1, 2.))).is_ok(),
+            Self::Practice(m) => m.tx.send(Command::Rate(rate.clamp(0.1, 2.))).is_ok(),
         }
     }
     pub fn try_set_low_pass_filter(&mut self, cutoff: Option<f32>, q: f32, seconds: f32) -> bool {
         match self {
             Self::Native(m) => m.try_set_low_pass_filter(cutoff, q, seconds),
-            Self::Practice(m) => m.tx.try_send(Command::Filter(cutoff, q, seconds)).is_ok(),
+            Self::Practice(m) => m.tx.send(Command::Filter(cutoff, q, seconds)).is_ok(),
         }
     }
     pub fn configure_practice(&mut self, pitch: bool, correct: bool) -> Result<()> {
@@ -84,7 +84,9 @@ struct State {
     paused: AtomicBool,
 }
 pub struct PracticePlayer {
-    tx: mpsc::SyncSender<Command>,
+    // Lifecycle/control commands must not wait for an audio callback: Android
+    // can suspend that callback while the UI is processing background events.
+    tx: mpsc::Sender<Command>,
     state: Arc<State>,
 }
 impl PracticePlayer {
@@ -129,7 +131,7 @@ impl Stream {
             position: AtomicU64::new(0),
             paused: AtomicBool::new(true),
         });
-        let (tx, rx) = mpsc::sync_channel(64);
+        let (tx, rx) = mpsc::channel();
         let stream = Self {
             clip,
             state: Arc::downgrade(&state),
@@ -316,6 +318,37 @@ impl Renderer for Stream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn lifecycle_commands_do_not_wait_for_a_suspended_audio_callback() {
+        let sr = 8000;
+        let (player, mut stream) = Stream::new(AudioClip::from_raw(vec![Frame::default(); sr as usize], sr), MusicParams::default(), 0., vec![]);
+        let Player::Practice(player) = player else { unreachable!() };
+        let (done, finished) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            // No callback drains the commands until this worker completes.
+            // The previous 64-slot sync channel blocks here during suspension.
+            for _ in 0..512 {
+                if player.send(Command::Pause(true)).is_err() {
+                    return player;
+                }
+            }
+            player.send(Command::Seek(0.25)).unwrap();
+            done.send(()).unwrap();
+            player
+        });
+        let completed = finished.recv_timeout(std::time::Duration::from_secs(2)).is_ok();
+        if !completed {
+            drop(stream);
+            let _ = worker.join();
+            panic!("UI lifecycle blocked while the audio callback was suspended");
+        }
+        let player = worker.join().unwrap();
+        let mut silence = [0.; 128];
+        stream.render_stereo(sr, &mut silence);
+        assert_eq!(f64::from_bits(player.state.position.load(Ordering::Relaxed)), 0.25);
+        assert!(player.state.paused.load(Ordering::Relaxed));
+        assert!(silence.iter().all(|v| *v == 0.));
+    }
     #[test]
     fn changing_practice_rate_updates_the_audio_clock_without_stale_multiplier() {
         let sr = 8000;

@@ -408,6 +408,120 @@ async fn replay_skin_regression(path: &std::path::Path) {
     println!("Replay skins: current selection, real custom note texture, legacy settings fallback and default selection passed");
 }
 
+async fn practice_lifecycle_and_noise_layers(info: ChartInfo, painter: &mut TextPainter) {
+    for (name, samples, fxaa) in [("direct", 1, false), ("fxaa", 1, true), ("msaa", 4, false)] {
+        let mut config = Config::default();
+        config.volume_music = 0.;
+        config.volume_sfx = 0.;
+        config.sample_count = samples;
+        config.fxaa = fxaa;
+        config.adjust_time = false;
+        let mut game = local(GameScene::new(
+            GameMode::Exercise,
+            info.clone(),
+            config,
+            fs_from_path("renamed-chart").unwrap(),
+            None,
+            BLACK_TEXTURE.clone(),
+            BLACK_TEXTURE.clone(),
+            None,
+            None,
+            None,
+        ))
+        .await
+        .unwrap();
+        let clock = std::rc::Rc::new(std::cell::Cell::new(10.));
+        let source_clock = clock.clone();
+        let mut tm = TimeManager::manual(Box::new(move || source_clock.get()));
+        game.enter(&mut tm, None).unwrap();
+        tm.seek_to(GameScene::BEFORE_TIME + 0.1);
+        game.update(&mut tm).unwrap();
+        // Do not advance BeforeMusic: this is the initially paused practice UI.
+        assert!(tm.paused());
+        let capture = |game: &mut GameScene, tm: &mut TimeManager, painter: &mut TextPainter| {
+            let mut ui = Ui::new(painter, Some((0, 0, 1280, 720)));
+            game.render(tm, &mut ui).unwrap();
+            unsafe { get_internal_gl() }.flush();
+            let mut bytes = vec![0; 1280 * 720 * 4];
+            unsafe {
+                use miniquad::gl::*;
+                glReadPixels(0, 0, 1280, 720, GL_RGBA, GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
+                assert_eq!(glGetError(), 0);
+            }
+            Image {
+                width: 1280,
+                height: 720,
+                bytes,
+            }
+        };
+        capture(&mut game, &mut tm, painter);
+        for round in 0..5 {
+            let paused_at = tm.now();
+            game.pause(&mut tm).unwrap();
+            clock.set(clock.get() + 60.);
+            game.resume(&mut tm).unwrap();
+            assert!(tm.paused(), "practice must stay paused on foreground: {name}/{round}");
+            assert!((tm.now() - paused_at).abs() < 1e-6);
+            assert_eq!(game.res.last_vp, (-1, -1, -1, -1), "surface cache must be invalidated even at the same dimensions");
+            game.update(&mut tm).unwrap();
+            let image = capture(&mut game, &mut tm, painter);
+            assert!(
+                image.bytes.chunks_exact(4).filter(|p| p[..3].iter().all(|v| *v > 180)).count() > 300,
+                "practice controls disappeared after foreground: {name}/{round}"
+            );
+        }
+        // Compare pixels with and without a real, active, full-screen noise
+        // area. Application controls must be identical; chart pixels must change.
+        let clean = capture(&mut game, &mut tm, painter);
+        game.chart.block_areas.push(prpr::core::BlockArea {
+            rpe_canvas: false,
+            top_right: prpr::core::Vector::new(1., 1.),
+            bottom_left: prpr::core::Vector::new(0., 0.),
+            appear_time: -2.,
+            enable_time: -1.,
+            disable_time: 20.,
+            disappear_time: 21.,
+            is_subtract: false,
+            rotate_events: vec![],
+            move_events: vec![],
+            scale_events: vec![],
+        });
+        game.res.time = 0.;
+        let noisy = capture(&mut game, &mut tm, painter);
+        let controls = |image: &Image| {
+            image
+                .bytes
+                .chunks_exact(4)
+                .enumerate()
+                .filter(|(i, _)| {
+                    let x = *i % 1280;
+                    let y = *i / 1280;
+                    (180..1100).contains(&x) && (150..560).contains(&y)
+                })
+                .map(|(_, p)| p.to_vec())
+                .collect::<Vec<_>>()
+        };
+        // White control pixels are insensitive to whatever chart lies below.
+        for (a, b) in controls(&clean).iter().zip(controls(&noisy).iter()) {
+            if a[..3].iter().all(|v| *v > 245) {
+                assert!(b[..3].iter().all(|v| *v > 235), "noise covered a white practice control: {name}: {a:?} -> {b:?}");
+            }
+        }
+        assert!(
+            clean
+                .bytes
+                .chunks_exact(4)
+                .zip(noisy.bytes.chunks_exact(4))
+                .filter(|(a, b)| a[..3] != b[..3])
+                .count()
+                > 10000,
+            "the noise fixture must actually change chart pixels: {name}"
+        );
+        noisy.export_png(&format!("target/replay-qa/noise-controls-{name}.png"));
+    }
+    println!("Practice lifecycle/noise: repeated background/foreground, preserved pause/seek, rebuilt targets and controls above active full-screen noise passed");
+}
+
 async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
     prpr::practice::set_storage(std::path::PathBuf::from(crate::dir::root().unwrap()).join("practice-bookmarks.json"));
     let mut config = Config::default();
@@ -982,6 +1096,7 @@ fn production_replay_transport_import_and_aspects() {
             crate::set_data(data);
             gameplay_aspect_regression(info.clone(), &mut painter).await;
             practice_speed_and_markers_regression(info.clone(), &mut painter).await;
+            practice_lifecycle_and_noise_layers(info.clone(), &mut painter).await;
             let mut fs = fs_from_path("renamed-chart").unwrap();
             let fingerprint = local(replay::library::fingerprint(fs.as_mut(), &info)).await.unwrap();
             let mut tape = Replay {

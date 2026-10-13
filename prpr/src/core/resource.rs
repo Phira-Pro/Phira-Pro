@@ -633,10 +633,14 @@ impl Resource {
         true
     }
 
+    pub(crate) fn invalidate_render_surface(&mut self) {
+        self.last_vp = (-1, -1, -1, -1);
+    }
+
     pub(crate) fn refresh_chart_render_policy(&mut self, policy: super::render_lifetime::Policy) {
         if self.chart_render_policy != policy {
             self.chart_render_policy = policy;
-            self.last_vp = (-1, -1, -1, -1);
+            self.invalidate_render_surface();
         }
     }
 

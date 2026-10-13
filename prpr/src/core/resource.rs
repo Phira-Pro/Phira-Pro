@@ -514,9 +514,12 @@ impl Resource {
         let res_pack = ResourcePack::from_path(config.res_pack_path.as_ref())
             .await
             .context("Failed to load resource pack")?;
+        // Start from the requested ratio; update_size applies adaptive fitting
+        // to the actual scene viewport before drawing or processing input.
+        let (aspect_ratio, _) = crate::viewport::playfield(crate::ext::get_viewport(), info.aspect_ratio, config.aspect_ratio, true);
         let camera = Camera2D {
             target: vec2(0., 0.),
-            zoom: vec2(1., -config.aspect_ratio.unwrap_or(info.aspect_ratio)),
+            zoom: vec2(1., -aspect_ratio),
             ..Default::default()
         };
 
@@ -529,7 +532,6 @@ impl Resource {
         let sfx_drag = audio.create_sfx(res_pack.sfx_drag.clone(), buffer_size)?;
         let sfx_flick = audio.create_sfx(res_pack.sfx_flick.clone(), buffer_size)?;
 
-        let aspect_ratio = config.aspect_ratio.unwrap_or(info.aspect_ratio);
         let note_width = config.note_scale * NOTE_WIDTH_RATIO_BASE as f32;
         let note_scale = config.note_scale;
 
@@ -561,7 +563,7 @@ impl Resource {
             mod_icons: Self::load_mod_icons().await?,
             res_pack,
             player: if let Some(player) = player { player } else { load_tex!("player.jpg") },
-            icon_back: load_tex!("back.png"),
+            icon_back: load_tex!("back.png").with_mipmap(),
             icon_retry: load_tex!("retry.png").with_mipmap(),
             icon_resume: load_tex!("resume.png"),
             icon_proceed: load_tex!("proceed.png").with_mipmap(),
@@ -607,38 +609,35 @@ impl Resource {
     }
 
     pub fn update_size(&mut self, vp: (i32, i32, i32, i32)) -> bool {
-        if self.last_vp == vp {
+        let (aspect_ratio, fitted) = crate::viewport::playfield(vp, self.info.aspect_ratio, self.config.aspect_ratio, self.info.force_aspect_ratio);
+        let resized = self.last_vp != vp;
+        let needs_target = !self.no_effect || self.config.sample_count != 1;
+        let target_changed = needs_target != self.chart_target.is_some();
+        if !resized
+            && !target_changed
+            && self.aspect_ratio == aspect_ratio
+            && self.camera.zoom.y == -aspect_ratio
+            && self.camera.viewport == Some(fitted)
+        {
             return false;
         }
         self.last_vp = vp;
-        if !self.no_effect || self.config.sample_count != 1 {
+        if resized || target_changed {
             self.snapshot_blit_sources.clear();
-            self.chart_target = Some(MSRenderTarget::with_policy((vp.2 as u32, vp.3 as u32), self.config.sample_count, self.chart_render_policy));
+            self.chart_target = needs_target
+                .then(|| MSRenderTarget::with_policy((vp.2.max(1) as u32, vp.3.max(1) as u32), self.config.sample_count, self.chart_render_policy));
         }
-        fn viewport(aspect_ratio: f32, (x, y, w, h): (i32, i32, i32, i32)) -> (i32, i32, i32, i32) {
-            let w = w as f32;
-            let h = h as f32;
-            let (rw, rh) = {
-                let ew = h * aspect_ratio;
-                if ew > w {
-                    let eh = w / aspect_ratio;
-                    (w, eh)
-                } else {
-                    (ew, h)
-                }
-            };
-            (x + ((w - rw) / 2.).round() as i32, y + ((h - rh) / 2.).round() as i32, rw as i32, rh as i32)
-        }
-        let aspect_ratio = self.config.aspect_ratio.unwrap_or(self.info.aspect_ratio);
-        if self.info.force_aspect_ratio {
-            self.aspect_ratio = aspect_ratio;
-            self.camera.viewport = Some(viewport(aspect_ratio, vp));
-        } else {
-            self.aspect_ratio = aspect_ratio.min(vp.2 as f32 / vp.3 as f32);
-            self.camera.zoom.y = -self.aspect_ratio;
-            self.camera.viewport = Some(viewport(self.aspect_ratio, vp));
-        };
+        self.aspect_ratio = aspect_ratio;
+        self.camera.zoom.y = -aspect_ratio;
+        self.camera.viewport = Some(fitted);
         true
+    }
+
+    pub(crate) fn refresh_chart_render_policy(&mut self, policy: super::render_lifetime::Policy) {
+        if self.chart_render_policy != policy {
+            self.chart_render_policy = policy;
+            self.last_vp = (-1, -1, -1, -1);
+        }
     }
 
     pub fn world_to_screen(&self, pt: Point) -> Point {

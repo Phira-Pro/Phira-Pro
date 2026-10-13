@@ -220,9 +220,13 @@ pub struct Config {
     pub ui_accent: String,
     /// 软件 UI 主题：表面色（按钮与弹窗底色，十六进制 RRGGBB）。
     pub ui_surface: String,
-    /// 是否在左下角显示当前帧率数字。
+    /// 是否显示当前帧率。
     pub show_fps: bool,
-    /// Android requested display refresh rate, in Hz.
+    /// 0 top center, 1 bottom center, 2 top left, 3 top right, 4 bottom left, 5 bottom right.
+    pub fps_position: u8,
+    /// Windows software frame limit. 0 follows this window's monitor refresh rate.
+    pub desktop_fps_limit: u16,
+    /// Android / iOS requested display refresh rate, in Hz.
     pub preferred_refresh_rate: u16,
     /// 失败后自动重试的次数上限（0 表示关闭）。
     pub auto_retry: f32,
@@ -230,6 +234,12 @@ pub struct Config {
     pub retry_lead: f32,
     /// 变速练习：练习模式每完成一圈就提速一档。
     pub practice_ramp: bool,
+    #[serde(default)]
+    pub practice: crate::practice::Options,
+    #[serde(skip)]
+    pub practice_active: bool,
+    #[serde(skip)]
+    pub practice_multiplier: f64,
     /// 变速练习的起始速度。
     pub practice_speed_start: f32,
     /// 变速练习每圈提升的速度。
@@ -303,18 +313,43 @@ impl JudgeWindows {
     /// Negative offset = early; positive offset = late.
     pub fn for_offset(&self, offset: f64) -> Self {
         let [perfect_plus, perfect, good, bad] = if offset > 0. { self.late } else { self.early };
-        Self { perfect_plus, perfect, good, bad, extended: if offset > 0. { self.extended_late } else { self.extended_early }, ..*self }
+        Self {
+            perfect_plus,
+            perfect,
+            good,
+            bad,
+            extended: if offset > 0. { self.extended_late } else { self.extended_early },
+            ..*self
+        }
     }
-    pub fn acceptance(&self) -> f64 { if self.grading.detailed { self.extended[2] } else { self.good } }
-    pub fn early_acceptance(&self) -> f64 { self.for_offset(-1.).acceptance() }
-    pub fn late_acceptance(&self) -> f64 { self.for_offset(1.).acceptance() }
+    pub fn acceptance(&self) -> f64 {
+        if self.grading.detailed {
+            self.extended[2]
+        } else {
+            self.good
+        }
+    }
+    pub fn early_acceptance(&self) -> f64 {
+        self.for_offset(-1.).acceptance()
+    }
+    pub fn late_acceptance(&self) -> f64 {
+        self.for_offset(1.).acceptance()
+    }
     pub fn refresh_maxima(&mut self) {
         self.extended = std::array::from_fn(|i| self.extended_early[i].max(self.extended_late[i]));
         [self.perfect_plus, self.perfect, self.good, self.bad] = std::array::from_fn(|i| self.early[i].max(self.late[i]));
     }
     pub fn add_frame_pad(&mut self, pad: f64) {
-        for side in [&mut self.early, &mut self.late] { for v in &mut side[1..] { *v += pad; } }
-        for side in [&mut self.extended_early, &mut self.extended_late] { for v in side { *v += pad; } }
+        for side in [&mut self.early, &mut self.late] {
+            for v in &mut side[1..] {
+                *v += pad;
+            }
+        }
+        for side in [&mut self.extended_early, &mut self.extended_late] {
+            for v in side {
+                *v += pad;
+            }
+        }
         self.refresh_maxima();
     }
 }
@@ -368,10 +403,15 @@ impl Default for Config {
             ui_accent: "2196f3".to_owned(),
             ui_surface: "2a323c".to_owned(),
             show_fps: false,
+            fps_position: 0,
+            desktop_fps_limit: 0,
             preferred_refresh_rate: 120,
             auto_retry: 0.,
             retry_lead: 0.,
             practice_ramp: false,
+            practice: Default::default(),
+            practice_active: false,
+            practice_multiplier: 1.,
             practice_speed_start: 0.7,
             practice_speed_step: 0.1,
             interactive: true,
@@ -444,9 +484,15 @@ impl Config {
         self.lim_perfect_ms = (windows.perfect * scale) as f32;
         self.lim_good_ms = (windows.good * scale) as f32;
         self.lim_bad_ms = (windows.bad * scale) as f32;
-        self.judge_timing.normalize([self.lim_perfect_plus_ms, self.lim_perfect_ms, self.lim_good_ms, self.lim_bad_ms]);
-        self.judge_grading.normalize(self.judge_timing.sides([self.lim_perfect_plus_ms, self.lim_perfect_ms, self.lim_good_ms, self.lim_bad_ms]));
-        if !self.judge_grading.perfect_plus { self.theoretical_score = false; }
+        self.judge_timing
+            .normalize([self.lim_perfect_plus_ms, self.lim_perfect_ms, self.lim_good_ms, self.lim_bad_ms]);
+        self.judge_grading.normalize(
+            self.judge_timing
+                .sides([self.lim_perfect_plus_ms, self.lim_perfect_ms, self.lim_good_ms, self.lim_bad_ms]),
+        );
+        if !self.judge_grading.perfect_plus {
+            self.theoretical_score = false;
+        }
     }
 
     /// 各档窗口的填写范围（毫秒），顺序为 perfect+ / perfect / good / bad。
@@ -497,7 +543,7 @@ impl Config {
         (self.late_leniency_ms.clamp(0., Self::LATE_LENIENCY_MAX) as f64) / 1000.
     }
 
-    /// 把配置里的毫秒窗口折算成判定用的秒数；开启 `Mods::STRICT_JUDGE` 时各档整体减半。
+    /// 把配置里的毫秒窗口折算成判定用的秒数；开启 `Mods::STRICT_JUDGE` 时 PERFECT 及以下窗口减半，Perfect+ 保持用户配置。
     ///
     /// 这里会再夹一次单调性，因此即使配置倒挂也不会影响实际判定。
     pub fn judge_windows(&self) -> JudgeWindows {
@@ -515,7 +561,7 @@ impl Config {
         let scale = if self.mods.contains(Mods::STRICT_JUDGE) { 0.5 } else { 1. };
         let secs = |ms: f32| ms as f64 / 1000. * scale;
         let mut windows = JudgeWindows {
-            perfect_plus: secs(perfect_plus),
+            perfect_plus: perfect_plus as f64 / 1000.,
             perfect: secs(perfect),
             good: secs(good),
             bad: secs(bad),
@@ -527,18 +573,49 @@ impl Config {
             early: self.judge_timing.sides([perfect_plus, perfect, good, bad])[0].map(secs),
             late: self.judge_timing.sides([perfect_plus, perfect, good, bad])[1].map(secs),
         };
+        let sides = self.judge_timing.sides([perfect_plus, perfect, good, bad]);
+        windows.early[0] = sides[0][0] as f64 / 1000.;
+        windows.late[0] = sides[1][0] as f64 / 1000.;
         if self.judge_algorithm == JudgeAlgorithm::Phigros && self.mods.contains(Mods::STRICT_JUDGE) {
             let mut rules = self.phigros_rules.clone();
             rules.sanitize();
             let [early, late] = rules.strict_sides();
-            windows.early = [windows.early[0].min(early[0] / 1000.), early[0] / 1000., early[1] / 1000., early[2] / 1000.];
-            windows.late = [windows.late[0].min(late[0] / 1000.), late[0] / 1000., late[1] / 1000., late[2] / 1000.];
+            windows.early = [windows.early[0], early[0] / 1000., early[1] / 1000., early[2] / 1000.];
+            windows.late = [windows.late[0], late[0] / 1000., late[1] / 1000., late[2] / 1000.];
+        }
+        for side in [&mut windows.early, &mut windows.late] {
+            // Perfect+ keeps its configured interval under STRICT. Raise lower
+            // grades if necessary to keep the effective windows ordered.
+            for i in (if self.judge_grading.perfect_plus { 1 } else { 2 })..4 {
+                side[i] = side[i].max(side[i - 1]);
+            }
         }
         for (ext, base) in [(&mut windows.extended_early, windows.early), (&mut windows.extended_late, windows.late)] {
-            for (i, fallback) in [0.070, 0.130, 0.160].into_iter().enumerate() { if !ext[i].is_finite() { ext[i] = fallback * scale; } }
+            for (i, fallback) in [0.070, 0.130, 0.160].into_iter().enumerate() {
+                if !ext[i].is_finite() {
+                    ext[i] = fallback * scale;
+                }
+            }
             ext[0] = ext[0].clamp(base[1], base[2]);
             ext[1] = ext[1].clamp(base[2], base[3]);
             ext[2] = ext[2].clamp(ext[1], base[3]);
+        }
+        if self.practice_active {
+            let multiplier = if self.practice_multiplier.is_finite() {
+                self.practice_multiplier.clamp(0.1, 10.)
+            } else {
+                1.
+            };
+            for side in [&mut windows.early, &mut windows.late] {
+                for value in side {
+                    *value *= multiplier;
+                }
+            }
+            for side in [&mut windows.extended_early, &mut windows.extended_late] {
+                for value in side {
+                    *value *= multiplier;
+                }
+            }
         }
         windows.refresh_maxima();
         windows
@@ -555,16 +632,20 @@ impl Config {
     ///   或 `STRICT_JUDGE`（判定窗口减半，成绩同样不可比）
     /// - 判定窗口 `lim_*_ms` 不是官方默认值
     /// - 晚按补偿 `late_leniency_ms` 不为 0
-    /// - 黄键 / 红键保护、Hold 尾判
-    /// - 血条扣血倍率 / 整体倍率不是 1.0
+    /// - Hold 尾判
+    /// 黄/红键保护、血条参数、流速与判定颜色允许计入成绩。
     pub fn non_official_items(&self, run_mods: Mods) -> Vec<&'static str> {
         let mods = self.mods | run_mods;
         let mut items = Vec::new();
-        if self.judge_grading.detailed { items.push("judge_grading"); }
+        if self.judge_grading.detailed || self.judge_grading.mania {
+            items.push("judge_grading");
+        }
         if self.judge_algorithm != JudgeAlgorithm::PhiraPro {
             items.push("judge_algorithm");
         }
-        if self.judge_timing != JudgeTiming::default() { items.push("judge_timing"); }
+        if self.judge_timing != JudgeTiming::default() {
+            items.push("judge_timing");
+        }
         if self.offline_mode {
             items.push("offline_mode");
         }
@@ -573,9 +654,6 @@ impl Config {
         }
         if self.speed < 1. - 1e-3 {
             items.push("speed");
-        }
-        if (self.flow_speed - 1.).abs() > 1e-3 {
-            items.push("flow_speed");
         }
         if mods.intersects(Mods::UNRATED) {
             items.push("mods");
@@ -596,20 +674,8 @@ impl Config {
         if self.late_leniency_ms > 0.5 {
             items.push("late_leniency");
         }
-        if self.drag_protect {
-            items.push("drag_protect");
-        }
-        if self.flick_protect {
-            items.push("flick_protect");
-        }
         if self.hold_tail_judge {
             items.push("hold_tail_judge");
-        }
-        if (self.hp_amount - 1.).abs() > 1e-3 {
-            items.push("hp_amount");
-        }
-        if (self.hp_scale - 1.).abs() > 1e-3 {
-            items.push("hp_scale");
         }
         items
     }
@@ -727,7 +793,9 @@ impl Config {
     }
 
     pub fn init(&mut self) {
-        if !self.judge_grading.perfect_plus { self.theoretical_score = false; }
+        if !self.judge_grading.perfect_plus {
+            self.theoretical_score = false;
+        }
         self.phigros_rules.sanitize();
         crate::ui::FONT_DISPLAY_SCALE.store(self.font_scale().to_bits(), std::sync::atomic::Ordering::Relaxed);
         if let Some(flag) = self.autoplay {
@@ -746,6 +814,7 @@ impl Config {
         };
         self.apply_ui_colors();
         crate::ui::SHOW_FPS.store(self.show_fps, std::sync::atomic::Ordering::Relaxed);
+        crate::ui::FPS_POSITION.store(self.fps_position.min(5) as u32, std::sync::atomic::Ordering::Relaxed);
         #[cfg(target_env = "ohos")]
         {
             // Due to the fucking poor performance of the Maloon GPU, the sample count must be set to 1.
@@ -804,16 +873,57 @@ mod tests {
         assert_eq!(restored.preferred_refresh_rate, 120);
     }
 
+    #[test]
+    fn desktop_limit_defaults_to_monitor_and_persists_independently_of_mobile_rate() {
+        let mut conf: Config = serde_json::from_str("{}").unwrap();
+        assert_eq!(conf.desktop_fps_limit, 0);
+        conf.desktop_fps_limit = 240;
+        let saved = serde_json::to_string(&conf).unwrap();
+        let restored: Config = serde_json::from_str(&saved).unwrap();
+        assert_eq!(restored.desktop_fps_limit, 240);
+        assert_eq!(restored.preferred_refresh_rate, 120);
+    }
+
     /// 严格判定 Mod 在各档基础上整体减半。
     #[test]
     fn judge_windows_strict_halves() {
         let mut conf = Config::default();
         conf.mods.insert(Mods::STRICT_JUDGE);
         let w = conf.judge_windows();
-        assert!((w.perfect_plus - 0.008).abs() < 1e-12);
+        assert!((w.perfect_plus - 0.016).abs() < 1e-12);
         assert!((w.perfect - 0.04).abs() < 1e-12);
         assert!((w.good - 0.08).abs() < 1e-12);
         assert!((w.bad - 0.11).abs() < 1e-12);
+    }
+
+    #[test]
+    fn strict_preserves_asymmetric_custom_perfect_plus_in_both_engines() {
+        for algorithm in [super::JudgeAlgorithm::PhiraPro, super::JudgeAlgorithm::Phigros] {
+            let mut c = Config::default();
+            c.judge_algorithm = algorithm;
+            c.mods = Mods::STRICT_JUDGE;
+            c.judge_timing.set([16., 80., 160., 220.], 0, false, 20.);
+            c.judge_timing.set([16., 80., 160., 220.], 0, true, 25.);
+            let w = c.judge_windows();
+            assert_eq!(w.early[0], 0.020);
+            assert_eq!(w.late[0], 0.025);
+            assert!(w.early[1] >= w.early[0] && w.late[1] >= w.late[0]);
+        }
+    }
+
+    #[test]
+    fn protection_health_flow_and_colors_are_score_eligible() {
+        let mut c = Config::default();
+        c.drag_protect = true;
+        c.flick_protect = true;
+        c.hp_mode = true;
+        c.hp_amount = 2.;
+        c.hp_scale = 0.5;
+        c.flow_speed = 1.23;
+        c.judge_grading.colors[0] = Some(0x12ab34);
+        assert!(c.is_official_play(Mods::empty()));
+        assert!(c.force_official_play(&mut Mods::empty()).is_empty());
+        assert!(c.drag_protect && c.flick_protect && c.hp_mode);
     }
 
     /// 自定义毫秒窗口按比例生效。
@@ -909,11 +1019,11 @@ mod tests {
         assert_eq!(conf.force_official_play(&mut Mods::empty()), vec!["lim_perfect"]);
         assert!(conf.is_official_play(Mods::empty()));
 
-        // Pro 的判定修饰项：晚按补偿 / 黄键保护 / 尾判。
+        // 保护、HP 参数与流速仍计入成绩；晚按补偿和尾判改变计分口径。
         conf.late_leniency_ms = 70.;
         conf.drag_protect = true;
         conf.hold_tail_judge = true;
-        assert_eq!(conf.non_official_items(Mods::empty()).len(), 3);
+        assert_eq!(conf.non_official_items(Mods::empty()).len(), 2);
         conf.force_official_play(&mut Mods::empty());
         assert!(conf.is_official_play(Mods::empty()));
 

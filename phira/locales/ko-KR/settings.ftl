@@ -77,7 +77,7 @@ item-note-size = 노트 크기
 item-chart-debug = 비트맵 디버그 모드
 item-chart-debug-sub = 라인 번호 및 방향 표시
 item-show-fps = 프레임률 표시
-item-show-fps-sub = 화면 왼쪽 아래에 현재 프레임률을 표시합니다
+item-show-fps-sub = Show the current framerate at your chosen position
 item-touch-debug = 터치 디버그 모드
 item-touch-debug-sub = 터치 지점 표시
 
@@ -203,7 +203,7 @@ item-status-url-sub = 설정의 '서버 상태' 버튼이 여는 주소. 비우�
 item-web-url = 웹 주소
 
 item-touch-color = 터치 지점 색상
-item-touch-color-sub = 탭하여 디버그 터치 지점 색상을 전환합니다
+item-touch-color-sub = Open the palette to choose any touch color
 item-touch-alpha = 터치 지점 불투명도
 item-touch-size = 터치 지점 크기
 item-reset-settings = 모든 설정 초기화
@@ -301,3 +301,33 @@ cover-apply = Apply
 
 item-shader-pre-render = Shader pre-rendering
 item-shader-pre-render-sub = Warms shaders and caches static block masks while loading. Slower loading; frame-rate gains vary with the chart.
+
+item-fps-position = FPS position
+fps-top-center = Top center
+fps-bottom-center = Bottom center
+fps-top-left = Top left
+fps-top-right = Top right
+fps-bottom-left = Bottom left
+fps-bottom-right = Bottom right
+
+plugins-settings = Plugins
+plugins-settings-sub = Import, enable and configure plugins
+preset-colors = Judgement colors
+preset-colors-sub = Choose any color with the palette; reset follows resource-pack colors
+preset-color-default = Resource pack
+
+item-desktop-fps = Frame rate limit
+item-desktop-fps-sub = Applies immediately; follows display refresh rate by default
+item-desktop-fps-auto = Follow display
+
+color-original = Original
+color-current = Current
+color-reset = Reset
+color-reset-all = Reset all
+color-invalid = Enter six hexadecimal digits, e.g. #12AB34
+color-rgb-invalid = Enter an integer from 0 to 255
+color-current-default = Current (default)
+
+practice-debug-display = Diagnostic display
+practice-debug-performance = Frame rate
+practice-debug-input = Touch visualization

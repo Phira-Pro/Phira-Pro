@@ -1,12 +1,22 @@
 #![allow(unused)]
 
 prpr_l10n::tl_file!("game");
+#[path = "game/practice.rs"]
+mod practice_controls;
+#[path = "game/ranges.rs"]
+mod practice_ranges;
 
 use super::{
     draw_background,
     ending::RecordUpdateState,
     loading::{BasicPlayer, SaveFn, UpdateFn, UploadFn},
     request_input, return_input, show_message, take_input, EndingScene, NextScene, Scene,
+};
+use crate::practice::{
+    self,
+    audio::Player as Music,
+    panel::{Action as PracticeAction, Panel as PracticePanel},
+    Bookmark, OriginalNotes, Round, Statistics,
 };
 use crate::{
     bin::BinaryReader,
@@ -25,8 +35,9 @@ use anyhow::{bail, Context, Result};
 use concat_string::concat_string;
 use inputbox::InputBox;
 use macroquad::{prelude::*, window::InternalGlContext};
-use sasa::{Music, MusicParams};
+use sasa::MusicParams;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     any::Any,
     cell::RefCell,
@@ -172,7 +183,7 @@ fn draw_offset_indicator(ui: &mut Ui, res: &Resource, recent: &[RecentHit], top:
         let alpha = (1. - age / FADE) as f32 * MAX_ALPHA;
         let x = to_x(hit.offset);
         let rect = Rect::new(x - MIN_STROKE / 2., cy - BAR_H / 2., MIN_STROKE, BAR_H);
-        if matches!(hit.judgement, Judgement::PerfectPlus) {
+        if matches!(hit.judgement, Judgement::PerfectPlus) && res.config.judge_grading.colors[4].is_none() {
             let mid = rect.y + rect.h * 0.5;
             fill_v(ui, Rect::new(rect.x, rect.y, rect.w, mid - rect.y), C_GRAD_TOP, C_GRAD_MID, alpha);
             fill_v(ui, Rect::new(rect.x, mid, rect.w, rect.y + rect.h - mid), C_GRAD_MID, C_GRAD_BOTTOM, alpha);
@@ -185,6 +196,7 @@ fn draw_offset_indicator(ui: &mut Ui, res: &Resource, recent: &[RecentHit], top:
                 Judgement::Meh => Color::from_hex_rgb(0xff8a65),
                 _ => C_BAD,
             };
+            let color = res.config.judge_grading.color(hit.judgement as usize, color);
             fill_v(ui, rect, color, color, alpha);
         }
     }
@@ -212,10 +224,16 @@ const DEATH_FADE: f64 = 0.5;
 /// 与横向判定范围。移植自上游改版 Phirc Mod++。
 fn debug_overlay(res: &Resource, chart: &Chart, ui: &mut Ui) {
     let lines = &chart.lines;
+    let camera = if res.config.practice_active {
+        let view = res.config.practice.view;
+        Matrix::new_translation(&Vector::new(-view.x, -view.y)).append_scaling(view.scale)
+    } else {
+        Matrix::identity()
+    };
     if res.config.chart_debug_line {
         for (id, line) in lines.iter().enumerate() {
             let tr = line.now_transform(res, lines);
-            let pos = debug_screen_transform(res.config.flip_x()) * tr;
+            let pos = camera * debug_screen_transform(res.config.flip_x()) * tr;
             let pos = pos.transform_point(&Point::new(0., 0.));
             let h = line.height.now();
             // f32 的 ULP：越大说明这个线高在浮点上越不可靠（速度快到丢精度）。
@@ -253,13 +271,20 @@ fn debug_overlay(res: &Resource, chart: &Chart, ui: &mut Ui) {
             (limits.perfect_plus, Color::new(1., 0.62, 0.12, 1.)),
         ];
         for (id, line) in lines.iter().enumerate() {
-            let tr = debug_screen_transform(res.config.flip_x()) * line.now_transform(res, lines);
+            let tr = camera * debug_screen_transform(res.config.flip_x()) * line.now_transform(res, lines);
             let line_height = line.height.now() as f64;
             let incline = line.incline.now_opt().unwrap_or_default().to_radians().sin();
             let mut ctrl = line.ctrl_obj.borrow().clone();
             // Sample the real scrolling track: speed events and time scaling
             // must affect the displayed timing bands, including late leniency.
-            let spans = debug_height_spans_sided(&line.height, res.time, [3, 2, 1, 0].map(|i| limits.early[i]), [3, 2, 1, 0].map(|i| limits.late[i]), res.config.speed as f64, res.config.late_leniency());
+            let spans = debug_height_spans_sided(
+                &line.height,
+                res.time,
+                [3, 2, 1, 0].map(|i| limits.early[i]),
+                [3, 2, 1, 0].map(|i| limits.late[i]),
+                res.config.speed as f64,
+                res.config.late_leniency(),
+            );
             for note in &line.notes {
                 if note.fake || matches!(note.judge, crate::judge::JudgeStatus::Judged) || note.object.now_alpha() == 0. {
                     continue;
@@ -270,17 +295,40 @@ fn debug_overlay(res: &Resource, chart: &Chart, ui: &mut Ui) {
                 let rules = &res.config.phigros_rules;
                 let special_window = if phigros {
                     match note.kind {
-                        NoteKind::Drag => Some(rules.drag_sides().map(|v| v / 1000.)),
+                        NoteKind::Drag => Some(rules.drag_sides().map(|v| {
+                            v / 1000.
+                                * if res.config.practice_active {
+                                    res.config.practice_multiplier
+                                } else {
+                                    1.
+                                }
+                        })),
                         NoteKind::Flick => Some([limits.early[1] * rules.flick_sides()[0], limits.late[1] * rules.flick_sides()[1]]),
                         _ => None,
                     }
-                } else { None };
-                let note_tiers = special_window.map_or(tiers, |window| [
-                    (window[0].max(window[1]), res.res_pack.info.fx_perfect()), (0., WHITE), (0., WHITE), (0., WHITE),
-                ]);
+                } else {
+                    None
+                };
+                let note_tiers = special_window.map_or(tiers, |window| {
+                    [
+                        (window[0].max(window[1]), res.res_pack.info.fx_perfect()),
+                        (0., WHITE),
+                        (0., WHITE),
+                        (0., WHITE),
+                    ]
+                });
                 let note_spans = if phigros {
-                    debug_height_spans_sided(&line.height, res.time, special_window.map_or([3, 2, 1, 0].map(|i| limits.early[i]), |w| [w[0], 0., 0., 0.]), special_window.map_or([3, 2, 1, 0].map(|i| limits.late[i]), |w| [w[1], 0., 0., 0.]), res.config.speed as f64, res.config.late_leniency())
-                } else { spans };
+                    debug_height_spans_sided(
+                        &line.height,
+                        res.time,
+                        special_window.map_or([3, 2, 1, 0].map(|i| limits.early[i]), |w| [w[0], 0., 0., 0.]),
+                        special_window.map_or([3, 2, 1, 0].map(|i| limits.late[i]), |w| [w[1], 0., 0., 0.]),
+                        res.config.speed as f64,
+                        res.config.late_leniency(),
+                    )
+                } else {
+                    spans
+                };
                 let side = Matrix::identity().append_nonuniform_scaling(&Vector::new(1., if note.above { 1. } else { -1. }));
                 let mat = tr * side * note_tr;
                 let pos = mat.transform_point(&Point::new(0., 0.));
@@ -288,9 +336,16 @@ fn debug_overlay(res: &Resource, chart: &Chart, ui: &mut Ui) {
                     continue;
                 }
                 let half = if phigros {
-                    (if matches!(note.kind, NoteKind::Drag | NoteKind::Flick) { rules.special_width } else { rules.tap_width }) as f32
-                        / world_scale as f32 * note.judge_area
-                } else { x_diff * note.judge_area };
+                    (if matches!(note.kind, NoteKind::Drag | NoteKind::Flick) {
+                        rules.special_width
+                    } else {
+                        rules.tap_width
+                    }) as f32
+                        / world_scale as f32
+                        * note.judge_area
+                } else {
+                    x_diff * note.judge_area
+                };
                 let sy = note_tr.transform_vector(&Vector::new(0., 1.)).norm();
                 if !half.is_finite() || half <= 0. || !sy.is_finite() || sy <= f32::EPSILON {
                     continue;
@@ -300,7 +355,9 @@ fn debug_overlay(res: &Resource, chart: &Chart, ui: &mut Ui) {
                     // Rectangles stay local so rotations cannot produce a
                     // negative width or an axis-aligned, stationary box.
                     for ((window, tint), (early, late)) in note_tiers.iter().zip(note_spans) {
-                        if *window <= 0. { continue; }
+                        if *window <= 0. {
+                            continue;
+                        }
                         let factor = speed / res.aspect_ratio as f64 / sy as f64;
                         let a = (early * factor) as f32;
                         let b = (late * factor) as f32;
@@ -313,21 +370,33 @@ fn debug_overlay(res: &Resource, chart: &Chart, ui: &mut Ui) {
                     }
                 });
                 let label = if let Some(window) = special_window {
-                    format!("[{id}] {:.2}s {} -{:.0}/+{:.0}ms", note.time, if matches!(note.kind, NoteKind::Drag) { "Drag" } else { "Flick" }, window[0] * 1000., window[1] * 1000.)
-                } else { format!(
-                    "[{id}] {:.2}s Perfect+ -{:.0}/+{:.0} P -{:.0}/+{:.0} G -{:.0}/+{:.0} B -{:.0}/+{:.0}ms",
-                    note.time,
-                    limits.early[0] * 1000., limits.late[0] * 1000.,
-                    limits.early[1] * 1000., limits.late[1] * 1000.,
-                    limits.early[2] * 1000., limits.late[2] * 1000.,
-                    limits.early[3] * 1000., limits.late[3] * 1000.
-                ) };
+                    format!(
+                        "[{id}] {:.2}s {} -{:.0}/+{:.0}ms",
+                        note.time,
+                        if matches!(note.kind, NoteKind::Drag) { "Drag" } else { "Flick" },
+                        window[0] * 1000.,
+                        window[1] * 1000.
+                    )
+                } else {
+                    format!(
+                        "[{id}] {:.2}s Perfect+ -{:.0}/+{:.0} P -{:.0}/+{:.0} G -{:.0}/+{:.0} B -{:.0}/+{:.0}ms",
+                        note.time,
+                        limits.early[0] * 1000.,
+                        limits.late[0] * 1000.,
+                        limits.early[1] * 1000.,
+                        limits.late[1] * 1000.,
+                        limits.early[2] * 1000.,
+                        limits.late[2] * 1000.,
+                        limits.early[3] * 1000.,
+                        limits.late[3] * 1000.
+                    )
+                };
                 ui.text(label)
-                .pos(pos.x, pos.y - 0.012)
-                .anchor(0.5, 1.)
-                .size(0.04)
-                .color(WHITE)
-                .draw_using(&PGR_FONT);
+                    .pos(pos.x, pos.y - 0.012)
+                    .anchor(0.5, 1.)
+                    .size(0.04)
+                    .color(WHITE)
+                    .draw_using(&PGR_FONT);
             }
         }
     }
@@ -342,7 +411,14 @@ fn debug_height_spans(height: &crate::core::AnimFloat, time: f64, windows: [f64;
     debug_height_spans_sided(height, time, windows, windows, speed, late)
 }
 
-fn debug_height_spans_sided(height: &crate::core::AnimFloat, time: f64, early: [f64; 4], late_windows: [f64; 4], speed: f64, late: f64) -> [(f64, f64); 4] {
+fn debug_height_spans_sided(
+    height: &crate::core::AnimFloat,
+    time: f64,
+    early: [f64; 4],
+    late_windows: [f64; 4],
+    speed: f64,
+    late: f64,
+) -> [(f64, f64); 4] {
     let mut sample = height.clone();
     sample.set_time(time);
     let center = sample.now() as f64;
@@ -530,8 +606,20 @@ pub struct GameScene {
     entered: bool,
     rendered_first_frame: bool,
     exercise_range: Range<f64>,
-    exercise_press: Option<(i8, u64)>,
-    exercise_btns: (RectButton, RectButton),
+    practice_base: practice::base::Base,
+    practice_panel: PracticePanel,
+    practice_key: String,
+    practice_bookmarks: Vec<Bookmark>,
+    practice_originals: OriginalNotes,
+    practice_statistics: Statistics,
+    practice_partial: bool,
+    practice_target_speed: f32,
+    practice_schedule: Vec<(f64, sasa::AudioClip)>,
+    practice_original_schedule: Vec<(f64, sasa::AudioClip)>,
+    practice_combo: Option<(usize, usize)>,
+    practice_notes: Vec<(f64, f64)>,
+    practice_auto: bool,
+    last_practice_accuracy: Option<f64>,
 
     pub music: Music,
 
@@ -673,18 +761,30 @@ impl GameScene {
         if config.fixed_background {
             info.background_dim = config.background_dim.clamp(0., 1.);
         }
+        config.practice_active = mode == GameMode::Exercise;
+        config.practice.sanitize();
+        config.practice_multiplier = if config.practice_active {
+            config.practice.multiplier(config.speed)
+        } else {
+            1.
+        };
         match mode {
             GameMode::TweakOffset => {
                 config.mods.insert(Mods::AUTOPLAY);
             }
             GameMode::Exercise => {
-                config.mods.remove(Mods::AUTOPLAY);
+                // Practice owns its speed; global speed and Nightcore must not
+                // become hidden multipliers on its 0.01x controls.
+                config.speed = 1.;
+                config.practice_ramp = false;
+                config.mods.remove(Mods::AUTOPLAY | Mods::NIGHTCORE);
             }
             _ => {}
         }
 
         tracing::info!("game loading: parse chart begins");
         let (mut chart, chart_bytes, chart_format) = Self::load_chart(fs.deref_mut(), &info).await?;
+        crate::extensions::chart_loaded(&chart, &info, &config, &chart_bytes);
         tracing::info!("game loading: chart parsed; preparing shaders and resources");
         if chart.has_block_areas() && (!config.block_area_simple || !chart.next_block_areas.is_empty()) {
             let prepared = crate::core::prepare_block_effects();
@@ -751,6 +851,66 @@ impl GameScene {
             tracing::info!("shader loading preparation: {:.1} ms", begun.elapsed().as_secs_f64() * 1000.);
         }
 
+        let practice_key = if mode == GameMode::Exercise {
+            hex::encode(Sha256::digest(&chart_bytes))
+        } else {
+            String::new()
+        };
+        let practice_bookmarks = if mode == GameMode::Exercise {
+            match practice::bookmarks(&practice_key) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!(?e, "practice bookmarks unavailable");
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        };
+        let mut practice_originals = if mode == GameMode::Exercise {
+            OriginalNotes::capture(&chart)
+        } else {
+            OriginalNotes(Vec::new())
+        };
+        // Build combo order from the source chart before converting Hold tails.
+        let source_practice_notes = if mode == GameMode::Exercise {
+            let mut notes: Vec<_> = chart
+                .lines
+                .iter()
+                .flat_map(|l| &l.notes)
+                .filter(|n| !n.fake)
+                .map(|n| {
+                    (
+                        n.time,
+                        match n.kind {
+                            NoteKind::Hold { end_time, .. } => end_time,
+                            _ => n.time,
+                        },
+                    )
+                })
+                .collect();
+            notes.sort_by(|a, b| a.0.total_cmp(&b.0));
+            notes
+        } else {
+            Vec::new()
+        };
+        let total_offset = (chart.offset + info_offset + res.config.offset) as f64;
+        let practice_original_schedule = if mode == GameMode::Exercise {
+            Self::correct_schedule(&chart, &res, total_offset)
+        } else {
+            Vec::new()
+        };
+        if mode == GameMode::Exercise {
+            practice_originals.apply(&mut chart, res.config.practice.behavior);
+        }
+        let practice_schedule = if mode == GameMode::Exercise {
+            Self::correct_schedule(&chart, &res, total_offset)
+        } else {
+            Vec::new()
+        };
+        let practice_target_speed = res.config.speed;
+        res.config.practice_multiplier = res.config.practice.multiplier(res.config.speed);
+        res.windows = res.config.judge_windows();
         // Prepare extra sfx from chart.hitsounds
         chart.hitsounds.drain().for_each(|(name, clip)| {
             if let Ok(clip) = res.create_sfx(clip) {
@@ -765,9 +925,10 @@ impl GameScene {
         judge.set_hp_scale(res.config.hp_scale);
         judge.set_grading(res.config.judge_grading);
 
-        let music = Self::new_music(&mut res)?;
+        let music = Self::new_music(&mut res, &practice_schedule)?;
         tracing::info!("game loading: audio ready");
         crate::core::reset_block_effects();
+
         Ok(Self {
             should_exit: false,
             next_scene: None,
@@ -793,8 +954,20 @@ impl GameScene {
             entered: false,
             rendered_first_frame: false,
             exercise_range,
-            exercise_press: None,
-            exercise_btns: (RectButton::new(), RectButton::new()),
+            practice_base: Default::default(),
+            practice_panel: PracticePanel::default(),
+            practice_key,
+            practice_bookmarks,
+            practice_originals,
+            practice_statistics: Statistics::default(),
+            practice_partial: false,
+            practice_target_speed,
+            practice_schedule,
+            practice_original_schedule,
+            practice_combo: None,
+            practice_notes: source_practice_notes,
+            practice_auto: false,
+            last_practice_accuracy: None,
 
             music,
 
@@ -823,19 +996,66 @@ impl GameScene {
         })
     }
 
-    fn new_music(res: &mut Resource) -> Result<Music> {
-        res.audio.create_music(
-            res.music.clone(),
-            MusicParams {
-                amplifier: res.config.music_amplifier(&res.music, res.config.volume_music),
-                playback_rate: res.config.speed as _,
-                ..Default::default()
-            },
-        )
+    fn new_music(res: &mut Resource, events: &[(f64, sasa::AudioClip)]) -> Result<Music> {
+        if res.config.practice_active {
+            let (mut player, stream) = practice::audio::Stream::new(
+                res.music.clone(),
+                MusicParams {
+                    amplifier: res.config.music_amplifier(&res.music, res.config.volume_music),
+                    playback_rate: res.config.speed as f64,
+                    ..Default::default()
+                },
+                res.config.volume_sfx,
+                events.to_vec(),
+            );
+            res.audio.add_renderer(stream)?;
+            player.configure_practice(
+                res.config.practice.preserve_pitch,
+                res.config.practice.correct_sound || res.config.has_mod(Mods::PERFECT_SOUND),
+            )?;
+            return Ok(player);
+        }
+        Ok(res
+            .audio
+            .create_music(
+                res.music.clone(),
+                MusicParams {
+                    amplifier: res.config.music_amplifier(&res.music, res.config.volume_music),
+                    playback_rate: res.config.speed as _,
+                    ..Default::default()
+                },
+            )?
+            .into())
     }
 
-    fn touch_scale(&self) -> f32 {
-        (screen_width() / screen_height()) / self.res.aspect_ratio
+    fn correct_schedule(chart: &Chart, res: &Resource, offset: f64) -> Vec<(f64, sasa::AudioClip)> {
+        let mut events: Vec<_> = chart
+            .lines
+            .iter()
+            .flat_map(|l| &l.notes)
+            .filter(|n| !n.fake)
+            .filter_map(|note| {
+                use crate::judge::HitSound;
+                let clip = match &note.hitsound {
+                    HitSound::None => return None,
+                    HitSound::Click => res.res_pack.sfx_click.clone(),
+                    HitSound::Drag => res.res_pack.sfx_drag.clone(),
+                    HitSound::Flick => res.res_pack.sfx_flick.clone(),
+                    HitSound::Custom(name) => chart.hitsounds.get(name)?.clone(),
+                };
+                Some((note.time + offset, clip))
+            })
+            .collect();
+        events.sort_by(|a, b| a.0.total_cmp(&b.0));
+        events
+    }
+
+    fn ui_to_playfield(&self, point: Vec2) -> Vec2 {
+        crate::viewport::map_position(point, self.res.last_vp, self.res.camera.viewport.unwrap_or(self.res.last_vp))
+    }
+
+    fn playfield_to_ui(&self, point: Vec2) -> Vec2 {
+        crate::viewport::map_position(point, self.res.camera.viewport.unwrap_or(self.res.last_vp), self.res.last_vp)
     }
 
     fn ui(&mut self, ui: &mut Ui, tm: &mut TimeManager) -> Result<()> {
@@ -864,7 +1084,7 @@ impl GameScene {
         if res.config.interactive
             && !tm.paused()
             && self.pause_rewind.is_none()
-            && Judge::get_touches().iter().any(|touch| {
+            && Judge::get_touches_in(res.camera.viewport.unwrap_or(res.last_vp)).iter().any(|touch| {
                 touch.phase == TouchPhase::Started && {
                     let p = touch.position;
                     let p = Point::new(p.x, p.y);
@@ -934,7 +1154,11 @@ impl GameScene {
                 legacy_aui.then(|| (pause_center.x, pause_center.y)),
                 (pause_center.x - pause_w * 1.5, pause_center.y - pause_h / 2.),
                 |ui, c| {
-                    crate::ui::draw_pause_icon(ui, Rect::new(pause_center.x - pause_w * 1.5, pause_center.y - pause_h / 2., pause_w * 3., pause_h), c);
+                    crate::ui::draw_pause_icon(
+                        ui,
+                        Rect::new(pause_center.x - pause_w * 1.5, pause_center.y - pause_h / 2., pause_w * 3., pause_h),
+                        c,
+                    );
                 },
             );
             if self.judge.combo() >= 3 {
@@ -1002,6 +1226,12 @@ impl GameScene {
             // 谱面调试叠加层（判定线 / 音符的编号、线高、时间、横向判定范围）。
             if res.config.chart_debug_line || res.config.chart_debug_note {
                 debug_overlay(res, &self.chart, ui);
+            }
+            if res.config.practice_active && res.config.practice.ranges {
+                practice_ranges::draw(res, &self.chart, ui, &self.judge.notes);
+            }
+            if res.config.practice_active && res.config.practice.view.scale < 1. {
+                practice_ranges::visible_frame(res, ui);
             }
             // magic to make score visible, refer to phira/src/rate.rs#L219
             ui.text("").draw_using(&PGR_FONT);
@@ -1084,9 +1314,9 @@ impl GameScene {
                     ..Default::default()
                 },
             );
-            if res.config.interactive {
+            if res.config.interactive && !(self.mode == GameMode::Exercise && self.practice_panel.modal(tm.real_time() as f32)) {
                 let mut clicked = None;
-                for touch in Judge::get_touches() {
+                for touch in Judge::get_touches_in(res.camera.viewport.unwrap_or(res.last_vp)) {
                     if touch.phase != TouchPhase::Started {
                         continue;
                     }
@@ -1110,14 +1340,7 @@ impl GameScene {
                 }
                 if clicked.is_some_and(|it| it != -1) && (tm.speed - res.config.speed as f64).abs() > 0.01 {
                     debug!("recreating music");
-                    self.music = res.audio.create_music(
-                        res.music.clone(),
-                        MusicParams {
-                            amplifier: res.config.music_amplifier(&res.music, res.config.volume_music),
-                            playback_rate: res.config.speed as _,
-                            ..Default::default()
-                        },
-                    )?;
+                    self.music = Self::new_music(res, &self.practice_schedule)?;
                     self.block_audio.reset();
                 }
                 match clicked {
@@ -1129,9 +1352,18 @@ impl GameScene {
                     Some(0) => {
                         self.auto_retry_count = 0;
                         self.practice_loops = 0;
+                        self.last_practice_accuracy = None;
+                        if self.mode == GameMode::Exercise {
+                            self.practice_partial = false;
+                            res.config.speed = practice::round_speed(&res.config, self.practice_target_speed, 0);
+                            res.config.practice_multiplier = res.config.practice.multiplier(res.config.speed);
+                            res.windows = res.config.judge_windows();
+                            self.music.try_set_playback_rate(res.config.speed as f64);
+                        }
                         reset!(self, res, tm);
                         if self.mode == GameMode::Exercise {
-                            self.judge.advance_to(&mut self.chart, self.exercise_range.start);
+                            let offset = (self.chart.offset + self.info_offset + res.config.offset) as f64;
+                            self.judge.advance_to(&mut self.chart, self.exercise_range.start - offset);
                         }
                         #[cfg(target_env = "ohos")]
                         miniquad::native::set_interceptor_state(true);
@@ -1163,116 +1395,37 @@ impl GameScene {
                 }
             }
             if self.mode == GameMode::Exercise {
-                let asp = self.touch_scale();
+                let interactive = !self.practice_panel.modal(tm.real_time() as f32);
+                let parent = self.res.last_vp;
+                let fitted = self.res.camera.viewport.unwrap_or(parent);
                 for touch in ui.ensure_touches() {
-                    touch.position *= asp;
+                    touch.position = crate::viewport::map_position(touch.position, parent, fitted);
                 }
-                ui.scope(|ui| {
-                    ui.dx(0.3);
-                    ui.dy(-0.3);
-                    ui.slider(tl!("speed"), 0.5..2.0, 0.05, &mut self.res.config.speed, Some(0.5));
-                });
-                ui.dy(0.06);
-                let hw = 0.7;
-                let h = 0.06;
-                let eh = 0.12;
-                let rad = 0.03;
-                let sp = self.offset().min(0.) as f64;
-                ui.fill_rect(Rect::new(-hw, -h, hw * 2., h * 2.), GRAY);
-                let st = -hw + ((self.exercise_range.start - sp) / (self.res.track_length - sp)) as f32 * hw * 2.;
-                let en = -hw + ((self.exercise_range.end - sp) / (self.res.track_length - sp)) as f32 * hw * 2.;
-                let t = tm.now();
-                let cur = -hw + ((t - sp) / (self.res.track_length - sp)) as f32 * hw * 2.;
-                ui.fill_rect(Rect::new(st, -h, en - st, h * 2.), WHITE);
-                ui.fill_rect(Rect::new(st, -eh, 0., eh + h).feather(0.005), BLUE);
-                ui.fill_circle(st, -eh, rad, BLUE);
-                if self.exercise_press.is_none() {
-                    let r = ui.rect_to_global(Rect::new(st, -eh, 0., 0.).feather(rad));
-                    self.exercise_press = Judge::get_touches()
-                        .iter()
-                        .find(|it| it.phase == TouchPhase::Started && r.contains(it.position))
-                        .map(|it| (-1, it.id));
-                }
-                ui.fill_rect(Rect::new(en, -h, 0., eh + h).feather(0.005), RED);
-                ui.fill_circle(en, eh, rad, RED);
-                if self.exercise_press.is_none() {
-                    let r = ui.rect_to_global(Rect::new(en, eh, 0., 0.).feather(rad));
-                    self.exercise_press = Judge::get_touches()
-                        .iter()
-                        .find(|it| it.phase == TouchPhase::Started && r.contains(it.position))
-                        .map(|it| (1, it.id));
-                }
-                ui.fill_rect(Rect::new(cur, -h, 0., h * 2.).feather(0.005), GREEN);
-                ui.fill_circle(cur, 0., rad, GREEN);
-                if self.exercise_press.is_none() {
-                    let r = ui.rect_to_global(Rect::new(cur, 0., 0., 0.).feather(rad));
-                    self.exercise_press = Judge::get_touches()
-                        .iter()
-                        .find(|it| it.phase == TouchPhase::Started && r.contains(it.position))
-                        .map(|it| (0, it.id));
-                }
-                ui.text(fmt_time(t as f32)).pos(0., -0.23).anchor(0.5, 0.).size(0.8).draw();
-                if let Some((ctrl, id)) = &self.exercise_press {
-                    if let Some(touch) = Judge::get_touches().iter().rfind(|it| it.id == *id) {
-                        let x = touch.position.x;
-                        let p = (x + hw) as f64 / (hw * 2.) as f64 * (self.res.track_length - sp) + sp;
-                        let p = if self.res.track_length - sp <= 3. || *ctrl == 0 {
-                            p.clamp(sp, self.res.track_length)
-                        } else {
-                            p.clamp(
-                                if *ctrl == -1 { sp } else { self.exercise_range.start + 3. },
-                                if *ctrl == -1 {
-                                    self.exercise_range.end - 3.
-                                } else {
-                                    self.res.track_length
-                                },
-                            )
-                        };
-                        if *ctrl == 0 {
-                            tm.seek_to(p);
-                            self.music.seek_to(p)?;
-                            self.bad_notes.clear();
-                            self.judge.reset();
-                            self.chart.reset();
-                            self.res.judge_line_color = self.res.res_pack.info.color_perfect();
-                        } else {
-                            *(if *ctrl == -1 {
-                                &mut self.exercise_range.start
-                            } else {
-                                &mut self.exercise_range.end
-                            }) = p;
-                        }
-                        if matches!(touch.phase, TouchPhase::Cancelled | TouchPhase::Ended) {
-                            self.exercise_press = None;
-                        }
-                    }
-                }
-                ui.dy(0.2);
-                let r = ui.text(tl!("to")).size(0.8).anchor(0.5, 0.).draw();
-                let mut tx = ui
-                    .text(fmt_time(self.exercise_range.start as f32))
-                    .pos(r.x - 0.02, 0.)
-                    .anchor(1., 0.)
-                    .size(0.8)
-                    .color(BLACK);
-                let re = tx.measure();
-                self.exercise_btns.0.set(tx.ui, re);
-                tx.ui
-                    .fill_rect(re.feather(0.01), Color::new(1., 1., 1., if self.exercise_btns.0.touching() { 0.5 } else { 1. }));
-                tx.draw();
-
-                let mut tx = ui
-                    .text(fmt_time(self.exercise_range.end as f32))
-                    .pos(r.right() + 0.02, 0.)
-                    .size(0.8)
-                    .color(BLACK);
-                let re = tx.measure();
-                self.exercise_btns.1.set(tx.ui, re);
-                tx.ui
-                    .fill_rect(re.feather(0.01), Color::new(1., 1., 1., if self.exercise_btns.1.touching() { 0.5 } else { 1. }));
-                tx.draw();
+                let action = self.practice_base.render(
+                    ui,
+                    self.res.config.speed,
+                    self.exercise_range.start,
+                    self.exercise_range.end,
+                    tm.now(),
+                    self.offset().min(0.) as f64,
+                    self.res.track_length,
+                    interactive,
+                );
+                self.practice_panel.render(
+                    ui,
+                    tm.real_time() as f32,
+                    &self.res.config,
+                    self.practice_combo.unwrap_or((1, self.practice_notes.len())),
+                    self.practice_auto,
+                    &self.practice_bookmarks,
+                    &self.practice_statistics,
+                    *self.res.icon_back,
+                );
                 for touch in ui.ensure_touches() {
-                    touch.position /= asp;
+                    touch.position = crate::viewport::map_position(touch.position, fitted, parent);
+                }
+                if let Some(action) = action {
+                    self.practice_action(tm, action)?;
                 }
             }
         }
@@ -1296,7 +1449,7 @@ impl GameScene {
                 a: touch_alpha,
                 ..Color::from_hex_rgb(self.res.config.touch_point_color)
             };
-            for touch in Judge::get_touches() {
+            for touch in Judge::get_touches_in(self.res.camera.viewport.unwrap_or(self.res.last_vp)) {
                 ui.fill_circle(touch.position.x, touch.position.y, touch_size, color);
             }
         }
@@ -1393,7 +1546,7 @@ impl Scene for GameScene {
         miniquad::native::set_interceptor_state(true);
         // Loading already created the first renderer; recreate on re-entry.
         if self.entered {
-            self.music = Self::new_music(&mut self.res)?;
+            self.music = Self::new_music(&mut self.res, &self.practice_schedule)?;
         }
         self.res.camera.render_target = target;
         tm.speed = self.res.config.speed as _;
@@ -1409,6 +1562,8 @@ impl Scene for GameScene {
 
     fn pause(&mut self, tm: &mut TimeManager) -> Result<()> {
         if !tm.paused() {
+            self.practice_panel.hide();
+            self.practice_base.cancel();
             self.pause_rewind = None;
             self.music.pause()?;
             tm.pause();
@@ -1438,20 +1593,56 @@ impl Scene for GameScene {
             tm.update(self.music.position());
         }
         if self.mode == GameMode::Exercise && tm.now() > self.exercise_range.end && !tm.paused() {
+            // Resolve the final frame before resetting. A frame that crosses
+            // the boundary must not drop its last Miss or Hold judgement.
+            self.res.time = self.exercise_range.end - self.offset() as f64 + 1e-6;
+            self.chart.update(&mut self.res);
+            self.judge.update(&mut self.res, &mut self.chart, &mut self.bad_notes);
+            self.judge
+                .finish_practice_round(&mut self.chart, self.res.time, self.res.config.hold_tail_judge);
+            self.last_practice_accuracy = Some(self.judge.real_time_accuracy());
+            let counts = self.judge.counts();
+            let played = counts.iter().sum::<u32>();
+            if !self.practice_partial && played != 0 {
+                let accuracy = self.judge.real_time_accuracy();
+                let result = self.judge.result(self.res.config.has_mod(Mods::NO_COMBO_SCORE));
+                let score = if self.res.config.has_mod(Mods::NO_COMBO_SCORE) {
+                    accuracy * 1_000_000.
+                } else {
+                    accuracy * 900_000. + result.max_combo as f64 / played as f64 * 100_000.
+                };
+                self.practice_statistics.push(Round {
+                    speed: self.res.config.speed,
+                    accuracy,
+                    counts,
+                    score: score.round() as u32,
+                });
+            }
+            self.practice_partial = false;
+            self.practice_loops += 1;
             let state = self.state.clone();
             reset!(self, self.res, tm);
             self.state = state;
             // 变速练习：每完成一圈提升一档速度并封顶在正常速度；谱面与音频同步变速。
             if self.res.config.practice_ramp {
-                self.practice_loops += 1;
-                let cfg = &self.res.config;
-                let speed = (cfg.practice_speed_start + cfg.practice_speed_step * self.practice_loops as f32).clamp(0.1, cfg.speed.max(0.1));
+                let speed = self.practice_speed();
+                self.res.config.speed = speed;
                 tm.speed = speed as f64;
                 self.music.try_set_playback_rate(speed as f64);
+                self.res.config.practice_multiplier = self.res.config.practice.multiplier(speed);
+                self.res.windows = self.res.config.judge_windows();
             }
+            let start = self.exercise_range.start - self.offset() as f64;
+            self.judge.advance_to(&mut self.chart, start);
             tm.seek_to(self.exercise_range.start);
-            tm.pause();
-            self.music.pause()?;
+            if self.practice_auto {
+                // reset! already resumes the clock; resuming twice panics.
+                self.music.seek_to(self.exercise_range.start.max(0.))?;
+                self.music.play()?;
+            } else {
+                tm.pause();
+                self.music.pause()?;
+            }
             #[cfg(target_env = "ohos")]
             miniquad::native::set_interceptor_state(false);
         }
@@ -1459,9 +1650,7 @@ impl Scene for GameScene {
         let time = tm.now();
         // Capture the last Playing frame even when it transitions to Ending,
         // but never record ending/UI touches or the clamped fade-out clock.
-        let capture_replay = !tm.paused()
-            && self.pause_rewind.is_none()
-            && matches!(self.state, State::BeforeMusic | State::Playing);
+        let capture_replay = !tm.paused() && self.pause_rewind.is_none() && matches!(self.state, State::BeforeMusic | State::Playing);
         let time = match self.state {
             State::Starting => {
                 if time >= Self::BEFORE_TIME {
@@ -1579,7 +1768,9 @@ impl Scene for GameScene {
                                     f(new_rec.clone())?;
                                 }
                                 if let Some(best) = &mut self.best_record {
-                                    if !new_rec.grading.is_some_and(|g| g.detailed) { best.update(new_rec); }
+                                    if !new_rec.grading.is_some_and(|g| g.detailed) {
+                                        best.update(new_rec);
+                                    }
                                 } else if !new_rec.grading.is_some_and(|g| g.detailed) {
                                     self.best_record = record.clone();
                                 }
@@ -1634,7 +1825,9 @@ impl Scene for GameScene {
         } else {
             self.block_audio.sync(
                 &mut self.music,
-                (!self.res.config.block_area_simple || !self.chart.next_block_areas.is_empty()) && matches!(self.state, State::Playing) && !self.chart.blocked_touches.is_empty(),
+                (!self.res.config.block_area_simple || !self.chart.next_block_areas.is_empty())
+                    && matches!(self.state, State::Playing)
+                    && !self.chart.blocked_touches.is_empty(),
             );
         }
         self.judge.set_recording_active(capture_replay);
@@ -1733,13 +1926,56 @@ impl Scene for GameScene {
         }
         if let Some((id, text)) = take_input() {
             let offset = self.offset().min(0.);
+            let (id, text) = if id == "exercise_combo_start" || id == "exercise_combo_end" {
+                let (mut first, mut last) = self.practice_combo.unwrap_or((1, self.practice_notes.len()));
+                if let Ok(value) = text.trim().parse::<usize>() {
+                    if id.ends_with("start") {
+                        first = value;
+                    } else {
+                        last = value;
+                    }
+                } else {
+                    show_message(tl!("ex-invalid-format")).error();
+                    return Ok(());
+                }
+                ("exercise_combo".to_owned(), format!("{first}-{last}"))
+            } else {
+                (id, text)
+            };
+            if self.mode == GameMode::Exercise && id.starts_with("practice_") {
+                self.practice_input(tm, &id, &text)?;
+                return Ok(());
+            }
             match id.as_str() {
+                "exercise_combo" => {
+                    let parts = text
+                        .split(|c: char| c == '-' || c == ',' || c.is_whitespace())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.parse::<usize>())
+                        .collect::<std::result::Result<Vec<_>, _>>()
+                        .unwrap_or_default();
+                    let range = if parts.len() == 2 {
+                        crate::practice::combo_range(&self.practice_notes, parts[0], parts[1], self.offset() as f64, self.res.track_length)
+                    } else {
+                        None
+                    };
+                    if let Some(range) = range {
+                        self.exercise_range = range;
+                        self.practice_combo = Some((parts[0], parts[1]));
+                        self.practice_range_changed(tm)?;
+                        show_message(tl!("ex-combo-applied")).ok();
+                    } else {
+                        show_message(format!("COMBO: 1–{}", self.practice_notes.len())).error();
+                    }
+                }
                 "exercise_start" => {
                     if let Some(t) = parse_time(&text) {
-                        if !(offset as f64..self.res.track_length.min(self.exercise_range.end - 3.).max(offset as f64)).contains(&t) {
+                        if !(offset as f64..=self.res.track_length.min(self.exercise_range.end - 0.05).max(offset as f64)).contains(&t) {
                             show_message(tl!("ex-time-out-of-range")).error();
                         } else {
                             self.exercise_range.start = t;
+                            self.practice_combo = None;
+                            self.practice_range_changed(tm)?;
                             show_message(tl!("ex-time-set")).ok();
                         }
                     } else {
@@ -1748,10 +1984,12 @@ impl Scene for GameScene {
                 }
                 "exercise_end" => {
                     if let Some(t) = parse_time(&text) {
-                        if !((self.exercise_range.start + 3.).max(offset as f64).min(self.res.track_length)..self.res.track_length).contains(&t) {
+                        if !((self.exercise_range.start + 0.05).max(offset as f64).min(self.res.track_length)..=self.res.track_length).contains(&t) {
                             show_message(tl!("ex-time-out-of-range")).error();
                         } else {
                             self.exercise_range.end = t;
+                            self.practice_combo = None;
+                            self.practice_range_changed(tm)?;
                             show_message(tl!("ex-time-set")).ok();
                         }
                     } else {
@@ -1770,22 +2008,30 @@ impl Scene for GameScene {
         }
         if self.mode == GameMode::Exercise && tm.paused() {
             let touch = Touch {
-                position: touch.position * self.touch_scale(),
+                position: self.ui_to_playfield(touch.position),
                 ..touch.clone()
             };
-            if self.exercise_btns.0.touch(&touch) {
-                request_input("exercise_start", InputBox::new().default_text(fmt_time(self.exercise_range.start as f32)));
+            let (consumed, action) = self.practice_panel.touch(&touch, tm.real_time() as f32);
+            if consumed {
+                self.practice_base.cancel();
+            }
+            if let Some(action) = action.or_else(|| if consumed { None } else { self.practice_base.touch(&touch) }) {
+                self.practice_action(tm, action)?;
                 return Ok(true);
             }
-            if self.exercise_btns.1.touch(&touch) {
-                request_input("exercise_end", InputBox::new().default_text(fmt_time(self.exercise_range.end as f32)));
-                return Ok(true);
-            }
+            // Unhandled touches must reach render-time controls (the original
+            // speed slider and +/- buttons) through Main's Ui.
+            return Ok(consumed);
         }
         Ok(false)
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
+        if self.mode == GameMode::Exercise {
+            let eligible = Self::implicit_msaa_eligible(&self.chart, &self.res);
+            self.res
+                .refresh_chart_render_policy(crate::core::render_lifetime::Policy::continuous(eligible, self.res.config.sample_count));
+        }
         if !self.rendered_first_frame {
             tracing::info!("game first frame begins");
         }
@@ -1799,11 +2045,18 @@ impl Scene for GameScene {
             self.fps_last_frame_time = current_time;
         }
 
+        // Scene-manager touches are expressed in the outer UI viewport.
+        // Materialize them before switching to the chart's fitted viewport.
+        if self.mode == GameMode::Exercise {
+            set_camera(&ui.camera());
+            ui.ensure_touches();
+        }
         let res = &mut self.res;
         let asp = ui.viewport.2 as f32 / ui.viewport.3 as f32;
-        if res.update_size(ui.viewport) || self.mode == GameMode::View {
-            set_camera(&res.camera);
-        }
+        res.update_size(ui.viewport);
+        // The app draws its plugin overlay with a screen-space camera after
+        // every frame. Never inherit that projection when fitting the chart.
+        set_camera(&res.camera);
 
         let msaa = res.config.sample_count > 1;
         if msaa {
@@ -1844,12 +2097,30 @@ impl Scene for GameScene {
         } else {
             res.camera.viewport
         };
-        self.gl.quad_gl.render_pass(chart_onto.map(|it| it.render_pass));
-        self.gl.quad_gl.viewport(chart_target_vp);
+        set_camera(&Camera2D {
+            zoom: res.camera.zoom,
+            viewport: chart_target_vp,
+            render_target: chart_onto,
+            ..Default::default()
+        });
 
         let h = 1. / res.aspect_ratio;
         draw_rectangle(-1., -h, 2., h * 2., Color::new(0., 0., 0., res.alpha * res.info.background_dim));
 
+        let mut practice_camera = if res.config.practice_active {
+            Some(Camera2D {
+                target: vec2(res.config.practice.view.x, res.config.practice.view.y),
+                zoom: vec2(res.config.practice.view.scale, -res.aspect_ratio * res.config.practice.view.scale),
+                viewport: chart_target_vp,
+                render_target: chart_onto,
+                ..Default::default()
+            })
+        } else {
+            None
+        };
+        if let Some(camera) = &practice_camera {
+            set_camera(camera);
+        }
         self.chart.render(ui, res);
 
         self.gl.quad_gl.render_pass(
@@ -1871,12 +2142,32 @@ impl Scene for GameScene {
             res.emitter.draw(dt);
         }
         crate::core::hide_cover::draw(res);
-        self.ui(ui, tm)?;
-        self.overlay_ui(ui, tm)?;
+        // Keep HUD/pause controls in the same framebuffer as the chart. A
+        // camera reset to res.camera would draw them directly to the screen,
+        // where the later FXAA/custom-effect composite would overwrite them.
+        let hud_camera = Camera2D {
+            zoom: res.camera.zoom,
+            viewport: chart_target_vp,
+            render_target: res.chart_target.as_ref().map(|target| target.output()).or(res.camera.render_target),
+            ..Default::default()
+        };
+        set_camera(&hud_camera);
+        let old_top = ui.top;
+        ui.top = 1. / self.res.aspect_ratio;
+        let ui_result = self.ui(ui, tm).and_then(|_| self.overlay_ui(ui, tm));
+        ui.top = old_top;
+        ui_result?;
         // Official ActiveBlock runs at CameraEvent.AfterForwardAlpha, after
         // notes and HUD. It captures the complete underlay before compositing.
 
+        if let Some(camera) = &mut practice_camera {
+            camera.render_target = hud_camera.render_target;
+            set_camera(camera);
+        }
         self.chart.render_block_overlay(&mut self.res);
+        if practice_camera.is_some() {
+            set_camera(&hud_camera);
+        }
 
         if self.mode == GameMode::TweakOffset {
             push_camera_state();
@@ -1935,6 +2226,12 @@ impl Scene for GameScene {
             self.rendered_first_frame = true;
             tracing::info!("game first frame complete");
         }
+        // Leave the parent UI coordinate system active for scene input and
+        // overlays, including when postprocessing is disabled.
+        set_camera(&Camera2D {
+            render_target: self.res.camera.render_target,
+            ..ui.camera()
+        });
         Ok(())
     }
 

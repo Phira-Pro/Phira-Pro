@@ -66,7 +66,7 @@ item-note-size = ノーツの大きさ
 item-chart-debug = ビートマップデバッグモード
 item-chart-debug-sub = ラインナンバーや回転値を表示します
 item-show-fps = フレームレート表示
-item-show-fps-sub = 画面左下に現在のフレームレートを表示します
+item-show-fps-sub = Show the current framerate at your chosen position
 item-touch-debug = タッチデバッグモード
 item-touch-debug-sub = タップした点を表示します
 
@@ -192,7 +192,7 @@ item-status-url-sub = 設定の「サーバーステータス」ボタンで開�
 item-web-url = Web アドレス
 
 item-touch-color = タッチポイントの色
-item-touch-color-sub = タップしてデバッグ用タッチポイントの色を切り替えます
+item-touch-color-sub = Open the palette to choose any touch color
 item-touch-alpha = タッチポイントの不透明度
 item-touch-size = タッチポイントの大きさ
 item-reset-settings = すべての設定をリセット
@@ -290,3 +290,33 @@ cover-apply = Apply
 
 item-shader-pre-render = Shader pre-rendering
 item-shader-pre-render-sub = Warms shaders and caches static block masks while loading. Slower loading; frame-rate gains vary with the chart.
+
+item-fps-position = FPS position
+fps-top-center = Top center
+fps-bottom-center = Bottom center
+fps-top-left = Top left
+fps-top-right = Top right
+fps-bottom-left = Bottom left
+fps-bottom-right = Bottom right
+
+plugins-settings = Plugins
+plugins-settings-sub = Import, enable and configure plugins
+preset-colors = Judgement colors
+preset-colors-sub = Choose any color with the palette; reset follows resource-pack colors
+preset-color-default = Resource pack
+
+item-desktop-fps = Frame rate limit
+item-desktop-fps-sub = Applies immediately; follows display refresh rate by default
+item-desktop-fps-auto = Follow display
+
+color-original = Original
+color-current = Current
+color-reset = Reset
+color-reset-all = Reset all
+color-invalid = Enter six hexadecimal digits, e.g. #12AB34
+color-rgb-invalid = Enter an integer from 0 to 255
+color-current-default = Current (default)
+
+practice-debug-display = Diagnostic display
+practice-debug-performance = Frame rate
+practice-debug-input = Touch visualization

@@ -19,7 +19,7 @@ resolver = "2"
 jni = { git = "https://github.com/Phira-Pro/prpr-jni", rev = "2dd17c0e6edee01e6a8214e2dcebe35b9cf42687" }
 
 [workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(closed)', 'cfg(flash)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(closed)', 'cfg(flash)', 'cfg(record)'] }
 
 [workspace.package]
 # Generated from version.json; update with python scripts/version.py sync.

@@ -69,7 +69,7 @@ pub fn all() -> Result<Vec<Item>> {
     }
     for entry in std::fs::read_dir(&root)? {
         let path = entry?.path();
-        if !path.is_file() || !matches!(path.extension().and_then(|s| s.to_str()), Some("phirar" | "phirarec")) {
+        if !path.is_file() || !matches!(path.extension().and_then(|s| s.to_str()), Some("ppr" | "phirar" | "phirarec")) {
             continue;
         }
         match super::load(&path) {
@@ -146,7 +146,7 @@ fn import_into(root: &Path, source: &Path) -> Result<(PathBuf, bool)> {
         ))?)
     );
     let bytes = super::bytes(&replay)?;
-    let file = format!("import-{:x}.phirar", Sha256::digest(&bytes));
+    let file = format!("import-{:x}.ppr", Sha256::digest(&bytes));
     std::fs::create_dir_all(root)?;
     let path = root.join(&file);
     let mut bindings = index(root)?;

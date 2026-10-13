@@ -39,7 +39,7 @@ item-practice-ramp-sub = Naikkan kecepatan setiap putaran latihan
 item-practice-speed = Kecepatan awal
 item-practice-step = Kenaikan per putaran
 item-show-fps = Tampilkan FPS
-item-show-fps-sub = Tampilkan FPS saat ini di kiri bawah
+item-show-fps-sub = Show the current framerate at your chosen position
 item-hp-height = Ketebalan bilah
 item-offline = Mode Offline
 item-offline-sub = Anda tidak bisa mengupload skor anda di Mode Offline.
@@ -190,7 +190,7 @@ item-status-url-sub = Alamat yang dibuka tombol "Status server". Kosongkan untuk
 item-web-url = Alamat web
 
 item-touch-color = Warna Titik Sentuh
-item-touch-color-sub = Ketuk untuk mengganti warna titik sentuh debug
+item-touch-color-sub = Open the palette to choose any touch color
 item-touch-alpha = Opasitas Titik Sentuh
 item-touch-size = Ukuran Titik Sentuh
 item-reset-settings = Atur Ulang Semua Pengaturan
@@ -288,3 +288,33 @@ cover-apply = Apply
 
 item-shader-pre-render = Shader pre-rendering
 item-shader-pre-render-sub = Warms shaders and caches static block masks while loading. Slower loading; frame-rate gains vary with the chart.
+
+item-fps-position = FPS position
+fps-top-center = Top center
+fps-bottom-center = Bottom center
+fps-top-left = Top left
+fps-top-right = Top right
+fps-bottom-left = Bottom left
+fps-bottom-right = Bottom right
+
+plugins-settings = Plugins
+plugins-settings-sub = Import, enable and configure plugins
+preset-colors = Judgement colors
+preset-colors-sub = Choose any color with the palette; reset follows resource-pack colors
+preset-color-default = Resource pack
+
+item-desktop-fps = Frame rate limit
+item-desktop-fps-sub = Applies immediately; follows display refresh rate by default
+item-desktop-fps-auto = Follow display
+
+color-original = Original
+color-current = Current
+color-reset = Reset
+color-reset-all = Reset all
+color-invalid = Enter six hexadecimal digits, e.g. #12AB34
+color-rgb-invalid = Enter an integer from 0 to 255
+color-current-default = Current (default)
+
+practice-debug-display = Diagnostic display
+practice-debug-performance = Frame rate
+practice-debug-input = Touch visualization

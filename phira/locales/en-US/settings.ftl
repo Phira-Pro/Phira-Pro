@@ -92,11 +92,11 @@ item-note-size = Note Size
 item-chart-debug = Show Line ID
 item-chart-debug-sub = Display the IDs and orientation of lines.
 item-show-fps = Show FPS
-item-show-fps-sub = Show the current framerate in the bottom-left corner
+item-show-fps-sub = Show the current framerate at your chosen position
 item-touch-debug = Show Touch Points
 item-touch-debug-sub = Display user touch points.
 item-touch-color = Touch Point Color
-item-touch-color-sub = Tap to cycle the color of the touch point indicator.
+item-touch-color-sub = Open the palette to choose any touch color
 item-touch-alpha = Touch Point Opacity
 item-touch-size = Touch Point Size
 item-reset-settings = Reset All Settings
@@ -398,3 +398,33 @@ preset-od-sub = ScoreV2 symmetric windows, Perfect+ off; extended OD -15 to 15
 
 replays-settings = Replay files
 replays-settings-sub = Import, export, match charts and watch replays
+
+item-fps-position = FPS position
+fps-top-center = Top center
+fps-bottom-center = Bottom center
+fps-top-left = Top left
+fps-top-right = Top right
+fps-bottom-left = Bottom left
+fps-bottom-right = Bottom right
+
+plugins-settings = Plugins
+plugins-settings-sub = Import, enable and configure plugins
+preset-colors = Judgement colors
+preset-colors-sub = Choose any color with the palette; reset follows resource-pack colors
+preset-color-default = Resource pack
+
+item-desktop-fps = Frame rate limit
+item-desktop-fps-sub = Applies immediately; follows display refresh rate by default
+item-desktop-fps-auto = Follow display
+
+color-original = Original
+color-current = Current
+color-reset = Reset
+color-reset-all = Reset all
+color-invalid = Enter six hexadecimal digits, e.g. #12AB34
+color-rgb-invalid = Enter an integer from 0 to 255
+color-current-default = Current (default)
+
+practice-debug-display = Diagnostic display
+practice-debug-performance = Frame rate
+practice-debug-input = Touch visualization

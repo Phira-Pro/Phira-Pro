@@ -1,5 +1,7 @@
 //! UI utilities.
+mod fps;
 mod judgement_grid;
+pub use fps::draw_fps_overlay;
 pub use judgement_grid::{draw_judgement_grid, grade_cells, judgement_grid_area, judgement_grid_layout, judgement_panel_left, GradeLayout};
 
 /// The existing gameplay pause mark, sized to an icon rectangle.
@@ -73,9 +75,10 @@ pub static UI_ACCENT: AtomicU32 = AtomicU32::new(0x2196f3);
 pub static UI_SURFACE: AtomicU32 = AtomicU32::new(0x2a323c);
 /// 主循环写入的当前帧率（`f32::to_bits` 的位模式），供界面显示。
 pub static CURRENT_FPS: AtomicU32 = AtomicU32::new(0);
-/// 是否在左下角显示帧率数字（由配置同步）。
+/// 是否显示帧率数字（由配置同步）。
 pub static SHOW_FPS: AtomicBool = AtomicBool::new(false);
-/// Android display's highest supported refresh rate, stored as `f32::to_bits`.
+pub static FPS_POSITION: AtomicU32 = AtomicU32::new(0);
+/// Android / iOS display's highest supported refresh rate, stored as `f32::to_bits`.
 pub static MAX_DEVICE_REFRESH_RATE: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Default, Clone, Copy)]
@@ -727,6 +730,16 @@ pub struct Ui<'a> {
     pub alpha: f32,
 }
 
+// Scissor coordinates are relative to the active framebuffer, whose height
+// can differ from the window (chart postprocess targets and scene previews).
+fn render_surface_height() -> f32 {
+    let gl = unsafe { get_internal_gl() };
+    gl.quad_gl
+        .get_active_render_pass()
+        .map(|pass| pass.texture(gl.quad_context).height as f32)
+        .unwrap_or_else(screen_height)
+}
+
 struct UiScratch {
     vertex_buffers: VertexBuffers<Vertex, u16>,
     fill_tess: FillTessellator,
@@ -735,7 +748,11 @@ struct UiScratch {
 
 impl Default for UiScratch {
     fn default() -> Self {
-        Self { vertex_buffers: VertexBuffers::new(), fill_tess: FillTessellator::new(), stroke_tess: StrokeTessellator::new() }
+        Self {
+            vertex_buffers: VertexBuffers::new(),
+            fill_tess: FillTessellator::new(),
+            stroke_tess: StrokeTessellator::new(),
+        }
     }
 }
 
@@ -754,7 +771,9 @@ impl Drop for Ui<'_> {
         };
         let _ = UI_SCRATCH.try_with(|pool| {
             let mut pool = pool.borrow_mut();
-            if pool.len() < 4 { pool.push(scratch); }
+            if pool.len() < 4 {
+                pool.push(scratch);
+            }
         });
     }
 }
@@ -821,9 +840,12 @@ impl<'a> Ui<'a> {
         }
         let shading = shading.into_shading();
         let vertices = [
-            Point::new(rect.x, rect.y), Point::new(rect.right(), rect.y),
-            Point::new(rect.x, rect.bottom()), Point::new(rect.right(), rect.bottom()),
-        ].map(|p| shading.new_vertex(&self.transform, &p, self.alpha));
+            Point::new(rect.x, rect.y),
+            Point::new(rect.right(), rect.y),
+            Point::new(rect.x, rect.bottom()),
+            Point::new(rect.right(), rect.bottom()),
+        ]
+        .map(|p| shading.new_vertex(&self.transform, &p, self.alpha));
         let gl = unsafe { get_internal_gl() }.quad_gl;
         gl.texture(shading.texture());
         gl.draw_mode(DrawMode::Triangles);
@@ -915,6 +937,7 @@ impl<'a> Ui<'a> {
             return true;
         }
         let vp = get_viewport();
+        let surface_height = render_surface_height();
         let mut min = vec2(f32::INFINITY, f32::INFINITY);
         let mut max = vec2(f32::NEG_INFINITY, f32::NEG_INFINITY);
         for (x, y) in [
@@ -925,11 +948,11 @@ impl<'a> Ui<'a> {
         ] {
             let p = self.to_global((x, y));
             let p =
-                vec2(vp.0 as f32 + (p.0 + 1.) * vp.2 as f32 * 0.5, screen_height() - (vp.1 + vp.3) as f32 + (p.1 * vp.2 as f32 + vp.3 as f32) * 0.5);
+                vec2(vp.0 as f32 + (p.0 + 1.) * vp.2 as f32 * 0.5, surface_height - (vp.1 + vp.3) as f32 + (p.1 * vp.2 as f32 + vp.3 as f32) * 0.5);
             min = min.min(p);
             max = max.max(p);
         }
-        let (x, y, w, h) = self.scissor.unwrap_or((vp.0, screen_height() as i32 - vp.1 - vp.3, vp.2, vp.3));
+        let (x, y, w, h) = self.scissor.unwrap_or((vp.0, surface_height as i32 - vp.1 - vp.3, vp.2, vp.3));
         max.x >= x as f32 - 2. && max.y >= y as f32 - 2. && min.x <= (x + w) as f32 + 2. && min.y <= (y + h) as f32 + 2.
     }
 
@@ -1015,13 +1038,14 @@ impl<'a> Ui<'a> {
     }
 
     pub fn scissor<R>(&mut self, rect: Rect, f: impl FnOnce(&mut Ui) -> R) -> R {
+        let surface_height = render_surface_height();
         let igl = unsafe { get_internal_gl() };
         let gl = igl.quad_gl;
         let rect = self.rect_to_global(rect);
         let vp = get_viewport();
         let pt = (
             vp.0 as f32 + (rect.x + 1.) / 2. * vp.2 as f32,
-            (screen_height() - (vp.1 + vp.3) as f32) + (rect.y * vp.2 as f32 / vp.3 as f32 + 1.) / 2. * vp.3 as f32,
+            (surface_height - (vp.1 + vp.3) as f32) + (rect.y * vp.2 as f32 / vp.3 as f32 + 1.) / 2. * vp.3 as f32,
         );
 
         let old = self.scissor;

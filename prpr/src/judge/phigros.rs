@@ -150,7 +150,7 @@ impl Engine {
         if cfg.mods.contains(Mods::STRICT_JUDGE) && cfg.phigros_rules.frame_compensation && self.frames != 0 {
             let count = self.frames.min(10);
             let pad = self.frame_times[..count].iter().sum::<f64>() / count as f64 * 0.5;
-            windows.add_frame_pad(pad);
+            windows.add_frame_pad(pad * if cfg.practice_active { cfg.practice_multiplier } else { 1. });
         }
         windows
     }
@@ -184,7 +184,11 @@ impl Engine {
             now,
             speed,
             if flick { flick_early } else { limits.early[3] },
-            if flick { flick_late + cfg.late_leniency() } else { limits.late_acceptance() + cfg.late_leniency() },
+            if flick {
+                flick_late + cfg.late_leniency()
+            } else {
+                limits.late_acceptance() + cfg.late_leniency()
+            },
             rules.late_overrun,
         );
         let mut best: Option<(usize, f64, f64)> = None;
@@ -241,6 +245,14 @@ impl Engine {
         let limits = self.windows(cfg, frame_seconds);
         let mut rules = cfg.phigros_rules.clone();
         rules.sanitize();
+        if cfg.practice_active {
+            rules.drag_ms *= cfg.practice_multiplier;
+            if let Some(sides) = &mut rules.drag_sides_ms {
+                for value in sides {
+                    *value *= cfg.practice_multiplier;
+                }
+            }
+        }
         let rules = &rules;
         let dpi = if rules.device_dpi > 0. { rules.device_dpi } else { dpi };
         let mut events = Vec::new();
@@ -307,10 +319,7 @@ impl Engine {
             match n.kind {
                 Kind::Tap => {
                     if state.click {
-                        score = Some((
-                            super::judgement_at_distance(abs, &side, true),
-                            -dt,
-                        ));
+                        score = Some((super::judgement_at_distance(abs, &side, true), -dt));
                     } else if dt < -limits.late_acceptance() - cfg.late_leniency() {
                         score = Some((Judgement::Miss, 0.));
                     }

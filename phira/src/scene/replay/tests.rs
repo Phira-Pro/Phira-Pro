@@ -79,7 +79,17 @@ fn screenshot(painter: &mut TextPainter, scene: &mut ReplayScene, tm: &mut TimeM
 
 fn click(scene: &mut ReplayScene, tm: &mut TimeManager, position: Vec2) {
     for phase in [TouchPhase::Started, TouchPhase::Ended] {
-        Scene::touch(scene, tm, &Touch { id: 99, phase, position, time: 0. }).unwrap();
+        Scene::touch(
+            scene,
+            tm,
+            &Touch {
+                id: 99,
+                phase,
+                position,
+                time: 0.,
+            },
+        )
+        .unwrap();
     }
     Scene::update(scene, tm).unwrap();
 }
@@ -93,8 +103,732 @@ fn click_analysis(scene: &mut ReplayScene, tm: &mut TimeManager, index: usize, c
 
 fn pixel(image: &Image, x: i32, y: i32) -> &[u8] {
     let i = ((y * image.width as i32 + x) * 4) as usize;
-    &image.bytes[i..i+3]
+    &image.bytes[i..i + 3]
 }
+
+async fn gameplay_aspect_regression(info: ChartInfo, painter: &mut TextPainter) {
+    let mut config = Config::default();
+    config.volume_music = 0.;
+    config.volume_sfx = 0.;
+    config.sample_count = 1;
+    config.particle = false;
+    config.adjust_time = false;
+    let mut game = local(GameScene::new(
+        GameMode::Exercise,
+        info,
+        config,
+        fs_from_path("renamed-chart").unwrap(),
+        None,
+        BLACK_TEXTURE.clone(),
+        BLACK_TEXTURE.clone(),
+        None,
+        None,
+        None,
+    ))
+    .await
+    .unwrap();
+    // Exercise normally installs an extra camera for chart-inspection tools.
+    // Disable that optional layer to exercise the normal gameplay HUD path.
+    game.res.config.practice_active = false;
+    let clock = std::rc::Rc::new(std::cell::Cell::new(10.));
+    let source_clock = clock.clone();
+    let mut tm = TimeManager::manual(Box::new(move || source_clock.get()));
+    game.enter(&mut tm, None).unwrap();
+    tm.seek_to(GameScene::BEFORE_TIME + 0.1);
+    game.update(&mut tm).unwrap();
+    tm.seek_to(0.);
+    game.update(&mut tm).unwrap();
+    game.pause(&mut tm).unwrap();
+    // Phone, tablet, and a replay/preview viewport with a nonzero origin.
+    for (name, vp) in [
+        ("phone", (0, 0, 1280, 548)),
+        ("tablet", (0, 0, 1280, 960)),
+        ("offset", (80, 100, 1120, 630)),
+    ] {
+        for (path, chart_ratio, override_ratio, forced) in [
+            ("chart-4x3", 4. / 3., None, false),
+            ("chart-21x9-forced", 21. / 9., None, true),
+            ("global-4x3", 16. / 9., Some(4. / 3.), false),
+            ("global-21x9-forced", 4. / 3., Some(21. / 9.), true),
+        ] {
+            game.res.info.aspect_ratio = chart_ratio;
+            game.res.info.force_aspect_ratio = forced;
+            game.res.config.aspect_ratio = override_ratio;
+            for (effect, samples, fxaa) in [("direct", 1, false), ("fxaa", 1, true), ("msaa", 4, false)] {
+                game.res.config.sample_count = samples;
+                game.res.config.fxaa = fxaa;
+                game.res.no_effect = !fxaa;
+                // Exercise switches its framebuffer policy with the sample count.
+                let mut ui = Ui::new(painter, Some(vp));
+                set_camera(&ui.camera());
+                game.render(&mut tm, &mut ui).unwrap();
+                let fitted = game.res.camera.viewport.unwrap();
+                let desired = override_ratio.unwrap_or(chart_ratio);
+                let expected = if forced { desired } else { desired.min(vp.2 as f32 / vp.3 as f32) };
+                assert!((game.res.aspect_ratio - expected).abs() < 1e-6, "wrong ratio: {name}/{path}/{effect}");
+                assert_eq!(game.res.camera.zoom.y, -expected, "camera must track the effective aspect");
+                assert_eq!(ui.viewport, vp);
+                assert_eq!(ui.top, vp.3 as f32 / vp.2 as f32, "game must restore the outer UI dimensions");
+                drop(ui);
+                // The app's plugin overlay resets the camera to physical screen
+                // space after every frame, even when no plugin is installed.
+                for frame in 0..2 {
+                    let mut ui = Ui::new(painter, Some(vp));
+                    set_camera(&ui.camera());
+                    game.render(&mut tm, &mut ui).unwrap();
+                    unsafe { get_internal_gl() }.flush();
+                    let mut bytes = vec![0; (1280 * 960 * 4) as usize];
+                    unsafe {
+                        use miniquad::gl::*;
+                        glReadPixels(0, 0, 1280, 960, GL_RGBA, GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
+                        assert_eq!(glGetError(), 0);
+                    }
+                    // Score text must remain near the top-right of the fitted
+                    // playfield on subsequent frames, not vanish above it.
+                    let score_pixels = bytes
+                        .chunks_exact(4)
+                        .enumerate()
+                        .filter(|(i, p)| {
+                            let x = *i as i32 % 1280;
+                            let y = *i as i32 / 1280;
+                            x > fitted.0 + fitted.2 * 3 / 4
+                                && x < fitted.0 + fitted.2
+                                && y > fitted.1 + fitted.3 * 4 / 5
+                                && y < fitted.1 + fitted.3
+                                && p[..3].iter().all(|&v| v > 60)
+                        })
+                        .count();
+                    if score_pixels <= 30 {
+                        Image {
+                            width: 1280,
+                            height: 960,
+                            bytes: bytes.clone(),
+                        }
+                        .export_png("target/replay-qa/aspect-failed.png");
+                    }
+                    assert!(
+                        score_pixels > 30,
+                        "score left the playfield: {name}/{path}/{effect}/frame-{frame}: {score_pixels}; alpha={}; time={}",
+                        game.res.alpha,
+                        tm.now()
+                    );
+                    if frame == 1 && effect == "fxaa" {
+                        Image {
+                            width: 1280,
+                            height: 960,
+                            bytes,
+                        }
+                        .export_png(&format!("target/replay-qa/aspect-{name}-{path}.png"));
+                    }
+                }
+                // The drawer is drawn in chart coordinates; its public hit
+                // point must map back into the outer screen and remain usable.
+                let point = game.practice_control_point("drawer").unwrap();
+                for phase in [TouchPhase::Started, TouchPhase::Ended] {
+                    Scene::touch(
+                        &mut game,
+                        &mut tm,
+                        &Touch {
+                            id: 991,
+                            phase,
+                            position: point,
+                            time: 0.,
+                        },
+                    )
+                    .unwrap();
+                }
+                clock.set(clock.get() + 0.5);
+                let mut ui = Ui::new(painter, Some(vp));
+                set_camera(&ui.camera());
+                game.render(&mut tm, &mut ui).unwrap();
+                assert!(game.practice_control_point("exercise_combo_start").is_some(), "drawer hit target: {name}/{path}/{effect}");
+                let point = game.practice_control_point("drawer").unwrap();
+                for phase in [TouchPhase::Started, TouchPhase::Ended] {
+                    Scene::touch(
+                        &mut game,
+                        &mut tm,
+                        &Touch {
+                            id: 991,
+                            phase,
+                            position: point,
+                            time: 0.,
+                        },
+                    )
+                    .unwrap();
+                }
+                clock.set(clock.get() + 0.5);
+            }
+        }
+    }
+    println!("Gameplay aspects: per-chart/global, forced/adaptive, phone/tablet/offset viewport, direct/FXAA/MSAA, repeated frames and drawer touch passed");
+}
+
+async fn practice_speed_and_markers_regression(info: ChartInfo, painter: &mut TextPainter) {
+    for (global_speed, mods) in [(0.5, Mods::empty()), (1.25, Mods::NIGHTCORE)] {
+        let mut config = Config::default();
+        config.speed = global_speed;
+        config.mods = mods;
+        config.practice_ramp = true; // saved ramp must not hide the initial 1x
+        config.volume_music = 0.;
+        config.volume_sfx = 0.;
+        config.sample_count = 1;
+        config.adjust_time = false;
+        let mut game = local(GameScene::new(
+            GameMode::Exercise,
+            info.clone(),
+            config.clone(),
+            fs_from_path("renamed-chart").unwrap(),
+            None,
+            BLACK_TEXTURE.clone(),
+            BLACK_TEXTURE.clone(),
+            None,
+            None,
+            None,
+        ))
+        .await
+        .unwrap();
+        assert_eq!(config.speed, global_speed, "the launch copy must not change global settings");
+        assert_eq!(game.res.config.speed, 1.);
+        assert!(!game.res.config.mods.contains(Mods::NIGHTCORE));
+        assert!(!game.res.config.practice_ramp);
+        let mut tm = TimeManager::manual(Box::new(|| 10.));
+        game.enter(&mut tm, None).unwrap();
+        tm.seek_to(GameScene::BEFORE_TIME + 0.1);
+        game.update(&mut tm).unwrap();
+        assert!(tm.paused());
+        for (w, h) in [(1280, 548), (1280, 960), (1279, 720)] {
+            let vp = (0, 0, w, h);
+            let mut ui = Ui::new(painter, Some(vp));
+            game.render(&mut tm, &mut ui).unwrap();
+            drop(ui);
+            // Feed events through the scene -> retained Ui input path; calling
+            // practice_input directly cannot reproduce the dead speed slider.
+            let mut frame = |game: &mut GameScene, tm: &mut TimeManager, phase, position| {
+                let mut ui = Ui::new(painter, Some(vp));
+                game.practice_touch_frame_for_qa(
+                    tm,
+                    &mut ui,
+                    Touch {
+                        id: 879,
+                        phase,
+                        position,
+                        time: 0.,
+                    },
+                )
+                .unwrap();
+            };
+            let before = game.res.config.speed;
+            let plus = game.practice_control_point("speed-plus").unwrap();
+            for phase in [TouchPhase::Started, TouchPhase::Ended] {
+                frame(&mut game, &mut tm, phase, plus);
+            }
+            assert!((game.res.config.speed - before - 0.01).abs() < 1e-6, "speed + at {w}x{h}");
+            let minus = game.practice_control_point("speed-minus").unwrap();
+            for phase in [TouchPhase::Started, TouchPhase::Ended] {
+                frame(&mut game, &mut tm, phase, minus);
+            }
+            assert!((game.res.config.speed - before).abs() < 1e-6);
+            let start = game.practice_control_point("speed-start").unwrap();
+            let end = game.practice_control_point("speed-end").unwrap();
+            for (phase, p) in [
+                (TouchPhase::Started, start),
+                (TouchPhase::Moved, start.lerp(end, 0.6)),
+                (TouchPhase::Ended, start.lerp(end, 0.6)),
+            ] {
+                frame(&mut game, &mut tm, phase, p);
+            }
+            assert!((game.res.config.speed - 1.24).abs() < 1e-6, "speed drag at {w}x{h}: {}", game.res.config.speed);
+            assert_eq!(tm.speed, game.res.config.speed as f64);
+            assert!(tm.paused(), "adjusting speed must not start playback");
+            // All three time markers must drag across more than one frame.
+            for (key, dx) in [("marker:-1", 0.10), ("marker:1", -0.10), ("marker:0", 0.22)] {
+                let point = game.practice_control_point(key).unwrap();
+                for (phase, x) in [
+                    (TouchPhase::Started, 0.),
+                    (TouchPhase::Moved, dx / 2.),
+                    (TouchPhase::Moved, dx),
+                    (TouchPhase::Ended, dx),
+                ] {
+                    frame(&mut game, &mut tm, phase, point + vec2(x, 0.));
+                }
+                let moved = game.practice_control_point(key).unwrap();
+                assert!((moved.x - point.x - dx).abs() < 0.003, "{key} drag at {w}x{h}: {point:?} -> {moved:?}");
+                if key == "marker:0" {
+                    assert!(tm.now() > 0.1);
+                    assert!((game.res.time - (tm.now() - game.offset() as f64)).abs() < 1e-8);
+                }
+            }
+        }
+    }
+    println!("Practice speed: global/Nightcore isolation, real slider +/- and drag, clock rate, red/blue/green marker drags at three aspects passed");
+}
+
+async fn replay_skin_regression(path: &std::path::Path) {
+    let directory = std::path::PathBuf::from(crate::dir::respacks().unwrap()).join("qa-skin");
+    std::fs::create_dir_all(&directory).unwrap();
+    for item in std::fs::read_dir("assets/respack").unwrap() {
+        let item = item.unwrap();
+        if item.path().is_file() {
+            std::fs::copy(item.path(), directory.join(item.file_name())).unwrap();
+        }
+    }
+    let mut yaml: serde_yaml::Value = serde_yaml::from_slice(&std::fs::read(directory.join("info.yml")).unwrap()).unwrap();
+    yaml["name"] = serde_yaml::Value::String("QA current skin".into());
+    std::fs::write(directory.join("info.yml"), serde_yaml::to_string(&yaml).unwrap()).unwrap();
+    Image::gen_image_color(24, 12, MAGENTA).export_png(directory.join("click.png").to_str().unwrap());
+    let data = crate::get_data_mut();
+    data.respacks = vec!["qa-skin".into()];
+    data.respack_id = 1;
+    data.config.res_pack_path = Some("stale-unused-path".into());
+    let tape = replay::load(path).unwrap();
+    for legacy in [false, true] {
+        let mut recording = tape.clone();
+        if legacy {
+            recording.settings = None;
+        }
+        let source = path.with_file_name(if legacy { "legacy-skin.ppr" } else { "current-skin.ppr" });
+        replay::save(&recording, &source).unwrap();
+        let scene = local(ReplayScene::new_bound(source, "renamed-chart".into(), true)).await.unwrap();
+        assert_eq!(scene.game_scene.res.res_pack.info.name, "QA current skin");
+        let texture = scene.game_scene.res.res_pack.note_style.click.get_texture_data();
+        assert_eq!(texture.width, 24);
+        assert_eq!(texture.height, 12);
+        assert_eq!(&texture.bytes[..4], &[255, 0, 255, 255]);
+        assert_eq!(scene.game_scene.res.config.speed, recording.speed);
+        assert_eq!(scene.game_scene.res.config.judge_grading, recording.grading);
+        assert_eq!(std::path::Path::new(scene.game_scene.res.config.res_pack_path.as_ref().unwrap()), directory);
+    }
+    crate::get_data_mut().respack_id = 0;
+    assert_eq!(crate::get_data().selected_respack_path().unwrap(), None);
+    let scene = local(ReplayScene::new_bound(path.to_owned(), "renamed-chart".into(), true))
+        .await
+        .unwrap();
+    assert_ne!(scene.game_scene.res.res_pack.info.name, "QA current skin");
+    crate::get_data_mut().config.res_pack_path = None;
+    println!("Replay skins: current selection, real custom note texture, legacy settings fallback and default selection passed");
+}
+
+async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
+    prpr::practice::set_storage(std::path::PathBuf::from(crate::dir::root().unwrap()).join("practice-bookmarks.json"));
+    let mut config = Config::default();
+    config.volume_music = 0.;
+    config.volume_sfx = 0.;
+    config.sample_count = 1;
+    config.fxaa = true;
+    config.adjust_time = false;
+    let mut game = local(GameScene::new(
+        GameMode::Exercise,
+        info,
+        config,
+        fs_from_path("renamed-chart").unwrap(),
+        None,
+        BLACK_TEXTURE.clone(),
+        BLACK_TEXTURE.clone(),
+        None,
+        None,
+        None,
+    ))
+    .await
+    .unwrap();
+    let real_clock = std::rc::Rc::new(std::cell::Cell::new(10.));
+    let clock = real_clock.clone();
+    let mut tm = TimeManager::manual(Box::new(move || clock.get()));
+    game.enter(&mut tm, None).unwrap();
+    tm.seek_to(GameScene::BEFORE_TIME + 0.1);
+    game.update(&mut tm).unwrap();
+    tm.seek_to(0.);
+    game.update(&mut tm).unwrap();
+    game.pause(&mut tm).unwrap();
+    prpr::scene::return_input("exercise_combo".into(), "2-2".into());
+    game.update(&mut tm).unwrap();
+    // The selected Hold starts at 2s and ends at 5s; both receive 250ms margin.
+    for (w, h, ratio) in [(960, 720, "4x3"), (1280, 720, "16x9"), (1280, 548, "21x9")] {
+        let mut ui = Ui::new(painter, Some((0, 0, w, h)));
+        game.render(&mut tm, &mut ui).unwrap();
+        unsafe { get_internal_gl() }.flush();
+        let mut bytes = vec![0; (w * h * 4) as usize];
+        unsafe {
+            use miniquad::gl::*;
+            glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
+            assert_eq!(glGetError(), 0);
+        }
+        let text_pixels = bytes
+            .chunks_exact(4)
+            .enumerate()
+            .filter(|(i, p)| {
+                let x = *i as i32 % w;
+                let y = *i as i32 / w;
+                x > w / 5 && x < w * 4 / 5 && y > h / 5 && y < h * 4 / 5 && p[..3].iter().all(|&v| v > 180)
+            })
+            .count();
+        assert!(text_pixels > 300, "practice controls must remain visible under FXAA at {ratio}: {text_pixels}");
+        Image {
+            width: w as u16,
+            height: h as u16,
+            bytes,
+        }
+        .export_png(&format!("target/replay-qa/practice-{ratio}.png"));
+    }
+    // Render again at the real window aspect so touch coordinates match it.
+    let w = screen_width() as i32;
+    let h = screen_height() as i32;
+    let mut ui = Ui::new(painter, Some((0, 0, w, h)));
+    game.render(&mut tm, &mut ui).unwrap();
+    drop(ui);
+    let start_marker = game.practice_control_point("marker:-1").unwrap();
+    for (phase, position) in [
+        (TouchPhase::Started, start_marker),
+        (TouchPhase::Moved, start_marker + vec2(0.03, 0.)),
+        (TouchPhase::Ended, start_marker + vec2(0.03, 0.)),
+    ] {
+        Scene::touch(
+            &mut game,
+            &mut tm,
+            &Touch {
+                id: 776,
+                phase,
+                position,
+                time: 0.,
+            },
+        )
+        .unwrap();
+    }
+    assert!(tm.now() > 1.75, "the original blue marker must adjust the range");
+    prpr::scene::return_input("exercise_combo".into(), "2-2".into());
+    game.update(&mut tm).unwrap();
+    render(&mut game, &mut tm, painter);
+    assert!(game.practice_control_point("practice_loop").is_none(), "automatic loop belongs in the drawer");
+    toggle_drawer(&mut game, &mut tm, painter);
+    real_clock.set(10.6);
+    render(&mut game, &mut tm, painter);
+    let loop_point = game.practice_control_point("practice_loop").unwrap();
+    for phase in [TouchPhase::Started, TouchPhase::Ended] {
+        let activated = Scene::touch(
+            &mut game,
+            &mut tm,
+            &Touch {
+                id: 777,
+                phase,
+                position: loop_point,
+                time: 0.,
+            },
+        )
+        .unwrap();
+        if phase == TouchPhase::Ended {
+            assert!(activated, "auto-loop must be reachable");
+        }
+    }
+    toggle_drawer(&mut game, &mut tm, painter);
+    real_clock.set(11.2);
+    tm.resume();
+    tm.seek_to(5.3);
+    game.update(&mut tm).unwrap();
+    assert!(!tm.paused(), "enabled auto-loop must continue playing");
+    assert!((tm.now() - 1.75).abs() < 0.02, "combo loop must include the selected Hold tail");
+    for note in &game.chart.lines[0].notes {
+        if note.time < 1.75 {
+            assert!(
+                matches!(note.judge, JudgeStatus::Judged),
+                "notes before the combo range must be skipped: time={}, state={:?}",
+                note.time,
+                note.judge
+            );
+        }
+        if (note.time - 2.).abs() < 0.01 {
+            assert!(!matches!(note.judge, JudgeStatus::Judged), "the selected Hold must remain playable");
+        }
+    }
+    assert_eq!(game.practice_round_count(), 1, "the last Hold miss must be captured before looping");
+    game.pause(&mut tm).unwrap();
+    fn input(game: &mut GameScene, tm: &mut TimeManager, id: &str, text: &str) {
+        prpr::scene::return_input(id.into(), text.into());
+        game.update(tm).unwrap();
+    }
+    fn render(game: &mut GameScene, tm: &mut TimeManager, painter: &mut TextPainter) {
+        let mut ui = Ui::new(painter, None);
+        game.render(tm, &mut ui).unwrap();
+    }
+    fn toggle_drawer(game: &mut GameScene, tm: &mut TimeManager, painter: &mut TextPainter) {
+        render(game, tm, painter);
+        let position = game.practice_control_point("drawer").unwrap();
+        for phase in [TouchPhase::Started, TouchPhase::Ended] {
+            Scene::touch(
+                game,
+                tm,
+                &Touch {
+                    id: 778,
+                    phase,
+                    position,
+                    time: 0.,
+                },
+            )
+            .unwrap();
+        }
+    }
+    fn click(game: &mut GameScene, tm: &mut TimeManager, painter: &mut TextPainter, key: &str, scroll: &mut f32) {
+        render(game, tm, painter);
+        let point = game
+            .practice_control_point(key)
+            .unwrap_or_else(|| panic!("missing practice control: {key}"));
+        *scroll += point.y * scale_for(game) / ((1.6 - 0.12) / 1.64);
+        game.practice_scroll_to(*scroll);
+        render(game, tm, painter);
+        let point = game.practice_control_point(key).unwrap();
+        assert!(point.x.abs() < 0.95 && point.y.abs() < 0.2, "control must be on screen: {key}: {point:?}");
+        for phase in [TouchPhase::Started, TouchPhase::Ended] {
+            Scene::touch(
+                game,
+                tm,
+                &Touch {
+                    id: 779,
+                    phase,
+                    position: point,
+                    time: 0.,
+                },
+            )
+            .unwrap();
+        }
+    }
+    fn scale_for(game: &GameScene) -> f32 {
+        screen_width() / game.res.camera.viewport.unwrap().2 as f32
+    }
+    let mut scroll = 0.;
+    input(&mut game, &mut tm, "practice_speed", "1.25");
+    assert_eq!(game.practice_round_count(), 0, "changing conditions starts a new statistics group");
+    render(&mut game, &mut tm, painter);
+    let drawer = game.practice_control_point("drawer").unwrap();
+    for phase in [TouchPhase::Started, TouchPhase::Ended] {
+        Scene::touch(
+            &mut game,
+            &mut tm,
+            &Touch {
+                id: 780,
+                phase,
+                position: drawer,
+                time: 0.,
+            },
+        )
+        .unwrap();
+    }
+    real_clock.set(11.8);
+    // Check both drawer fields, then feed the platform input response without
+    // opening native dialogs during unattended graphics regression.
+    render(&mut game, &mut tm, painter);
+    let first_combo = game.practice_control_point("exercise_combo_start").unwrap();
+    let last_combo = game.practice_control_point("exercise_combo_end").unwrap();
+    assert!(first_combo.x < last_combo.x && (first_combo.y - last_combo.y).abs() < 1e-6);
+    assert!(game.practice_control_point("exercise_combo").is_none(), "Combo must not remain on the base screen");
+    input(&mut game, &mut tm, "exercise_combo_end", "3");
+    assert!((tm.now() - 1.75).abs() < 1e-6, "changing the end Combo must retain the segment start");
+    input(&mut game, &mut tm, "exercise_combo_start", "3");
+    assert!((tm.now() - 5.75).abs() < 1e-6, "start Combo must move the segment to the third note");
+    input(&mut game, &mut tm, "exercise_combo_start", "2");
+    input(&mut game, &mut tm, "exercise_combo_end", "2");
+    click(&mut game, &mut tm, painter, "audio", &mut scroll);
+    click(&mut game, &mut tm, painter, "practice_pitch", &mut scroll);
+    click(&mut game, &mut tm, painter, "practice_correct", &mut scroll);
+    assert!(game.res.config.practice.preserve_pitch && game.res.config.practice.correct_sound);
+    let normal_windows = Config::default().judge_windows();
+    input(&mut game, &mut tm, "practice_multiplier", "150");
+    assert!((game.res.windows.perfect - normal_windows.perfect * 1.5).abs() < 1e-6);
+    let originals: Vec<_> = game
+        .chart
+        .lines
+        .iter()
+        .flat_map(|l| &l.notes)
+        .map(|n| (n.time, format!("{:?}", n.kind), format!("{:?}", n.hitsound)))
+        .collect();
+    click(&mut game, &mut tm, painter, "behavior", &mut scroll);
+    for behavior in [
+        prpr::practice::NoteBehavior::Tap,
+        prpr::practice::NoteBehavior::Drag,
+        prpr::practice::NoteBehavior::Flick,
+        prpr::practice::NoteBehavior::Original,
+    ] {
+        click(&mut game, &mut tm, painter, "practice_behavior", &mut scroll);
+        assert_eq!(game.res.config.practice.behavior, behavior);
+        if behavior != prpr::practice::NoteBehavior::Original {
+            assert!(game
+                .chart
+                .lines
+                .iter()
+                .flat_map(|l| &l.notes)
+                .all(|n| !matches!(n.kind, prpr::core::NoteKind::Hold { .. })));
+        }
+    }
+    let restored: Vec<_> = game
+        .chart
+        .lines
+        .iter()
+        .flat_map(|l| &l.notes)
+        .map(|n| (n.time, format!("{:?}", n.kind), format!("{:?}", n.hitsound)))
+        .collect();
+    for n in &originals {
+        assert!(restored.contains(n), "restoring note behavior must retain each original Hold tail and hitsound");
+    }
+    input(&mut game, &mut tm, "practice_bookmark", "Hold 区间");
+    input(&mut game, &mut tm, "practice_speed", "0.85");
+    click(&mut game, &mut tm, painter, "bookmarks", &mut scroll);
+    click(&mut game, &mut tm, painter, "load:0", &mut scroll);
+    assert_eq!(game.res.config.speed, 1.25);
+    assert!(game.res.config.practice.preserve_pitch);
+    input(&mut game, &mut tm, "practice_scale", "60");
+    input(&mut game, &mut tm, "practice_x", "0.3");
+    input(&mut game, &mut tm, "practice_y", "-0.15");
+    click(&mut game, &mut tm, painter, "debug", &mut scroll);
+    for anchor in [
+        prpr::practice::RangeAnchor::Note,
+        prpr::practice::RangeAnchor::Both,
+        prpr::practice::RangeAnchor::JudgeLine,
+    ] {
+        click(&mut game, &mut tm, painter, "practice_range_anchor", &mut scroll);
+        assert_eq!(game.res.config.practice.range_anchor, anchor);
+    }
+    click(&mut game, &mut tm, painter, "range_tap", &mut scroll);
+    for value in [false, true] {
+        click(&mut game, &mut tm, painter, "practice_tap_range_0", &mut scroll);
+        assert_eq!(game.res.config.practice.range_tap[0], value);
+    }
+    click(&mut game, &mut tm, painter, "range_hold", &mut scroll);
+    for value in [false, true] {
+        click(&mut game, &mut tm, painter, "practice_hold_range_3", &mut scroll);
+        assert_eq!(game.res.config.practice.range_hold[3], value);
+    }
+    // A pass-through postprocess must not apply the reveal camera a second
+    // time, nor mirror its already transformed framebuffer.
+    fn pixels(game: &mut GameScene, tm: &mut TimeManager, painter: &mut TextPainter) -> Vec<u8> {
+        render(game, tm, painter);
+        unsafe { get_internal_gl() }.flush();
+        let mut bytes = vec![0; (screen_width() * screen_height()) as usize * 4];
+        unsafe {
+            use miniquad::gl::*;
+            glReadPixels(0, 0, screen_width() as i32, screen_height() as i32, GL_RGBA, GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
+            assert_eq!(glGetError(), 0);
+        }
+        bytes
+    }
+    game.practice_scroll_to(0.);
+    let before = pixels(&mut game, &mut tm, painter);
+    let mut identity = prpr::core::Effect::new(
+        -100. ..100.,
+        "#version 100\nprecision mediump float; varying lowp vec2 uv; uniform sampler2D screenTexture; void main(){gl_FragColor=texture2D(screenTexture,uv);}",
+        vec![],
+        false,
+    )
+    .unwrap();
+    identity.update(&game.res);
+    game.chart.extra.effects.push(identity);
+    let after = pixels(&mut game, &mut tm, painter);
+    let differences = before.iter().zip(&after).filter(|(a, b)| a.abs_diff(**b) > 2).count();
+    assert!(differences < before.len() / 1000, "pass-through effect changed the reveal transform: {differences} channels");
+    game.chart.extra.effects.clear();
+    game.res.config.practice.ranges = true;
+    game.res.config.judge_grading.detailed = true;
+    game.res.windows = game.res.config.judge_windows();
+    for (w, h, ratio) in [(960, 720, "4x3"), (1280, 720, "16x9"), (1280, 548, "21x9")] {
+        game.practice_scroll_to(0.);
+        let mut ui = Ui::new(painter, Some((0, 0, w, h)));
+        game.render(&mut tm, &mut ui).unwrap();
+        unsafe { get_internal_gl() }.flush();
+        let mut bytes = vec![0; (w * h * 4) as usize];
+        unsafe {
+            use miniquad::gl::*;
+            glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
+            assert_eq!(glGetError(), 0);
+        }
+        Image {
+            width: w as u16,
+            height: h as u16,
+            bytes,
+        }
+        .export_png(&format!("target/replay-qa/practice-advanced-{ratio}.png"));
+    }
+    // Collapse the drawer through its real edge button, then verify the normal
+    // chart bounds while the reveal camera is zoomed out and panned.
+    render(&mut game, &mut tm, painter);
+    let drawer = game.practice_control_point("drawer").unwrap();
+    for phase in [TouchPhase::Started, TouchPhase::Ended] {
+        Scene::touch(
+            &mut game,
+            &mut tm,
+            &Touch {
+                id: 781,
+                phase,
+                position: drawer,
+                time: 0.,
+            },
+        )
+        .unwrap();
+    }
+    real_clock.set(12.4);
+    tm.resume();
+    for (w, h, ratio) in [(960, 720, "4x3"), (1280, 720, "16x9"), (1280, 548, "21x9")] {
+        let mut ui = Ui::new(painter, Some((0, 0, w, h)));
+        game.render(&mut tm, &mut ui).unwrap();
+        unsafe { get_internal_gl() }.flush();
+        let mut bytes = vec![0; (w * h * 4) as usize];
+        unsafe {
+            use miniquad::gl::*;
+            glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, bytes.as_mut_ptr() as _);
+        }
+        let frame = game.res.config.practice.view.visible_frame(game.res.aspect_ratio);
+        let (vx, vy, vw, vh) = game.res.camera.viewport.unwrap();
+        let x = (vx as f32 + (frame.center().x + 1.) * vw as f32 / 2.).round() as i32;
+        let y = (vy as f32 + vh as f32 / 2. - frame.y * vw as f32 / 2.).round() as i32;
+        let highlighted = (-3..=3).any(|dy| {
+            let i = (((y + dy).clamp(0, h - 1) * w + x.clamp(0, w - 1)) * 4) as usize;
+            bytes[i] > 150 && bytes[i + 1] > 120 && bytes[i + 2] < 120
+        });
+        assert!(highlighted, "normal visible area must have a highlighted frame at {ratio}");
+        Image {
+            width: w as u16,
+            height: h as u16,
+            bytes,
+        }
+        .export_png(&format!("target/replay-qa/practice-frame-{ratio}.png"));
+    }
+    game.pause(&mut tm).unwrap();
+    render(&mut game, &mut tm, painter);
+    let drawer = game.practice_control_point("drawer").unwrap();
+    for phase in [TouchPhase::Started, TouchPhase::Ended] {
+        Scene::touch(
+            &mut game,
+            &mut tm,
+            &Touch {
+                id: 782,
+                phase,
+                position: drawer,
+                time: 0.,
+            },
+        )
+        .unwrap();
+    }
+    real_clock.set(13.0);
+    game.practice_scroll_to(scroll);
+    click(&mut game, &mut tm, painter, "delete:0", &mut scroll);
+    let library: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(std::path::PathBuf::from(crate::dir::root().unwrap()).join("practice-bookmarks.json")).unwrap())
+            .unwrap();
+    assert!(library.as_object().unwrap().values().all(|list| list.as_array().unwrap().is_empty()), "bookmark deletion must persist");
+    input(&mut game, &mut tm, "practice_ramp_start", "0.50");
+    input(&mut game, &mut tm, "practice_ramp_step", "0.02");
+    click(&mut game, &mut tm, painter, "ramp", &mut scroll);
+    click(&mut game, &mut tm, painter, "practice_ramp", &mut scroll);
+    click(&mut game, &mut tm, painter, "judgement", &mut scroll);
+    click(&mut game, &mut tm, painter, "practice_inverse", &mut scroll);
+    assert!((tm.speed - 0.5).abs() < 1e-6);
+    tm.resume();
+    tm.seek_to(5.3);
+    game.update(&mut tm).unwrap();
+    assert!((tm.speed - 0.52).abs() < 1e-6);
+    assert!((game.res.config.speed - 0.52).abs() < 1e-6);
+    assert!((game.res.windows.perfect - normal_windows.perfect / 0.52).abs() < 1e-6);
+    println!("Practice: combo input, Hold tail, auto-loop touch and three aspect ratios passed");
+    practice_range_qa::run(&mut game, painter);
+}
+
+#[path = "range_render.rs"]
+mod practice_range_qa;
 
 // Exercise the recorder through the real GameScene state machine. Constructed
 // replay tapes cannot catch a fade-out clearing the live recording.
@@ -126,6 +860,9 @@ async fn record_through_ending(info: ChartInfo, local_path: &str, recorded_confi
     .await
     .unwrap();
     let note_count = game.judge.result(false).num_of_notes as usize;
+    let report_text = crate::plugins::reports()["example.density"].clone();
+    let report: serde_json::Value = serde_json::from_str(&report_text).unwrap_or_else(|e| panic!("plugin report: {report_text}; {e}"));
+    assert!(report["difficulty"].as_f64().unwrap() > 0., "real GameScene must invoke the installed analysis plugin");
     let mut tm = TimeManager::manual(Box::new(|| 10.));
     game.enter(&mut tm, None).unwrap();
     tm.seek_to(GameScene::BEFORE_TIME + 0.1);
@@ -167,6 +904,27 @@ async fn record_through_ending(info: ChartInfo, local_path: &str, recorded_confi
         note_count,
         "retry must not concatenate old hits and ending must not erase new hits"
     );
+    // RETRY on the result page reuses this GameScene after save consumed PENDING.
+    // This differs from retrying a partial attempt before the first save.
+    for attempt in 0..2 {
+        game.enter(&mut tm, None).unwrap();
+        tm.seek_to(GameScene::BEFORE_TIME + 0.1);
+        game.update(&mut tm).unwrap();
+        tm.seek_to(0.);
+        game.update(&mut tm).unwrap();
+        for frame in 1..=((end + 1.4) * 120.) as usize {
+            tm.seek_to(frame as f64 / 120.);
+            game.update(&mut tm).unwrap();
+        }
+        let next =
+            replay::save_recording(&format!("local:{local_path}"), 123459 + attempt).expect("result-page retry must create a new recording buffer");
+        assert_eq!(next.extension().unwrap(), "ppr");
+        let next = replay::load(&next).unwrap();
+        assert_eq!(next.judges.len(), recorded.judges.len());
+        assert_eq!(game.judge.counts(), expected);
+        assert_eq!(next.meta.fingerprint, recorded.meta.fingerprint);
+        assert!(replay::save_recording(&format!("local:{local_path}"), 123470).is_none(), "one attempt must only be saved once");
+    }
     let export = path.with_file_name("complete-export.phirar");
     replay::save(&recorded, &export).unwrap();
     let (imported, _) = replay::library::import(&export).unwrap();
@@ -222,6 +980,8 @@ fn production_replay_transport_import_and_aspects() {
                 played_unlock: false,
             });
             crate::set_data(data);
+            gameplay_aspect_regression(info.clone(), &mut painter).await;
+            practice_speed_and_markers_regression(info.clone(), &mut painter).await;
             let mut fs = fs_from_path("renamed-chart").unwrap();
             let fingerprint = local(replay::library::fingerprint(fs.as_mut(), &info)).await.unwrap();
             let mut tape = Replay {
@@ -297,6 +1057,7 @@ fn production_replay_transport_import_and_aspects() {
                 replay::library::Match::Found("renamed-chart".into(), true)
             );
             replay::library::bind(&path, "renamed-chart", true).unwrap();
+            replay_skin_regression(&path).await;
             let board = replay::library::board_records("local:renamed-chart");
             assert_eq!(board.len(), 1);
             assert!(board[0].replay_imported);
@@ -324,7 +1085,7 @@ fn production_replay_transport_import_and_aspects() {
             }
             let original_frames = std::mem::replace(&mut scene.replay.frames, (0..=1440).map(|i| i as f64 / 120.).collect());
             scene.seek(3.);
-            for (index, column, frame) in [(3,0,350), (4,1,349), (5,2,350), (6,3,360)] {
+            for (index, column, frame) in [(3, 0, 350), (4, 1, 349), (5, 2, 350), (6, 3, 360)] {
                 click_analysis(&mut scene, &mut tm, index, column, false);
                 assert!((scene.current - frame as f64 / 120.).abs() < 1e-9);
                 assert!(!scene.playing && !scene.frame_fallback);
@@ -398,7 +1159,7 @@ fn production_replay_transport_import_and_aspects() {
             screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-before");
             let on = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-on");
             let fitted = scene.game_scene.res.camera.viewport.unwrap();
-            let pos = scene.visible_touches().iter().find(|p| p.0 == u64::MAX).unwrap().1;
+            let pos = scene.visible_touches().iter().find(|p| p.0 == 1).unwrap().1;
             let x = (fitted.0 as f32 + (pos.x + 1.) * fitted.2 as f32 / 2.).round() as i32;
             let y = (fitted.1 as f32 + fitted.3 as f32 / 2. - pos.y * fitted.2 as f32 / 2.).round() as i32;
             click_analysis(&mut scene, &mut tm, 10, 0, true);
@@ -409,8 +1170,10 @@ fn production_replay_transport_import_and_aspects() {
             click_analysis(&mut scene, &mut tm, 15, 1, true);
             assert!(scene.fingers && scene.finger_ids);
             let ids = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-ids");
-            let changed_chart_pixels = (fitted.1..fitted.1 + fitted.3).flat_map(|y| (fitted.0..fitted.0 + fitted.2).map(move |x| (x,y)))
-                .filter(|&(x,y)| pixel(&on,x,y) != pixel(&ids,x,y)).count();
+            let changed_chart_pixels = (fitted.1..fitted.1 + fitted.3)
+                .flat_map(|y| (fitted.0..fitted.0 + fitted.2).map(move |x| (x, y)))
+                .filter(|&(x, y)| pixel(&on, x, y) != pixel(&ids, x, y))
+                .count();
             assert!(changed_chart_pixels > 20, "finger IDs must be visible in the chart");
             let size = scene.game_scene.res.config.touch_point_size;
             scene.finger_ids = false;
@@ -420,18 +1183,25 @@ fn production_replay_transport_import_and_aspects() {
             assert_ne!(scene.game_scene.res.config.touch_point_size, size);
             assert!(scene.fingers, "size adjustment must show the touch being adjusted");
             let after_size = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-size-after");
-            let blue_pixels = |image: &Image| (y-40..y+40).flat_map(|y| (x-40..x+40).map(move |x| (x,y)))
-                .filter(|&(x,y)| {let p=pixel(image,x,y);p[2] as u16>p[0] as u16+20&&p[2] as u16>p[1] as u16+20}).count();
+            let blue_pixels = |image: &Image| {
+                (y - 40..y + 40)
+                    .flat_map(|y| (x - 40..x + 40).map(move |x| (x, y)))
+                    .filter(|&(x, y)| {
+                        let p = pixel(image, x, y);
+                        p[2] as u16 > p[0] as u16 + 20 && p[2] as u16 > p[1] as u16 + 20
+                    })
+                    .count()
+            };
             assert_ne!(blue_pixels(&before_size), blue_pixels(&after_size), "size must change the rendered touch area");
             let alpha = scene.game_scene.res.config.touch_point_alpha;
             click_analysis(&mut scene, &mut tm, 17, 3, true);
             assert_ne!(scene.game_scene.res.config.touch_point_alpha, alpha);
             let after_alpha = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, "touch-alpha-after");
-            assert_ne!(pixel(&after_size,x,y), pixel(&after_alpha,x,y), "opacity must change actual touch pixels");
+            assert_ne!(pixel(&after_size, x, y), pixel(&after_alpha, x, y), "opacity must change actual touch pixels");
             scene.seek(1.03);
-            assert!(scene.visible_touches().iter().any(|p| p.0 == 900 && p.2 > 0.));
+            assert!(scene.visible_touches().iter().any(|p| p.0 == 3 && p.2 > 0.));
             scene.seek(1.2);
-            assert!(!scene.visible_touches().iter().any(|p| p.0 == 900));
+            assert!(!scene.visible_touches().iter().any(|p| p.0 == 3));
             scene.seek(1.5);
             assert_eq!(scene.game_scene.judge.counts()[4], 1);
             scene.apply_touches(2.);
@@ -528,27 +1298,59 @@ fn production_replay_transport_import_and_aspects() {
             assert_eq!(recorded.settings, Some(crate::judgement_presets::JudgeSettings::capture(&scene.game_scene.res.config)));
             // Reset is authoritative even if its new clock is later than the
             // prior attempt (for example retry-from-here).
-            live.reset();live.commit(2.,TJ::Good,0,2,0.05);
-            let mut hook=replay::recorder(None,0.,1.,0);
-            hook(1.,&mut scene.game_scene.res,&mut live);
-            live.reset();live.commit(2.,TJ::Perfect,0,3,0.);
-            hook(2.,&mut scene.game_scene.res,&mut live);
-            let retried=replay::load(&replay::save_recording("retry",123458).unwrap()).unwrap();
-            assert_eq!(retried.judges.len(),1);assert_eq!(retried.judges[0].note,3);
-            record_through_ending(info.clone(),"renamed-chart",None).await;
-            if let (Ok(tape_path),Ok(chart_path))=(std::env::var("REPLAY_QA_TAPE"),std::env::var("REPLAY_QA_CHART")) {
-                let provided=replay::load(std::path::Path::new(&tape_path)).unwrap();
-                println!("Provided replay: {} judges, {} touches, {} frames; original score {:?}",provided.judges.len(),provided.touches.len(),provided.frames.len(),provided.meta.result.as_ref().map(|r|r.score));
-                let (imported_chart,_)=local(crate::scene::import_chart(std::fs::File::open(chart_path).unwrap())).await.unwrap();
-                let local_path=imported_chart.local_path.as_str();
-                let mut fs=fs_from_path(local_path).unwrap();
-                let info=local(prpr::fs::load_info(fs.as_mut())).await.unwrap();
-                if let Some(expected)=&provided.meta.fingerprint {assert_eq!(&local(replay::library::fingerprint(fs.as_mut(),&info)).await.unwrap(),expected);}
-                if let Some(expected)=&provided.meta.audio_fingerprint {assert_eq!(&local(replay::library::audio_fingerprint(fs.as_mut(),&info)).await.unwrap(),expected);}
-                if provided.judges.is_empty() {
-                    assert!(local(ReplayScene::new_bound(PathBuf::from(tape_path),local_path.into(),true)).await.err().unwrap().to_string().contains("判定事件"));
+            live.reset();
+            live.commit(2., TJ::Good, 0, 2, 0.05);
+            let mut hook = replay::recorder(None, 0., 1., 0);
+            hook(1., &mut scene.game_scene.res, &mut live);
+            live.reset();
+            live.commit(2., TJ::Perfect, 0, 3, 0.);
+            hook(2., &mut scene.game_scene.res, &mut live);
+            let retried = replay::load(&replay::save_recording("retry", 123458).unwrap()).unwrap();
+            assert_eq!(retried.judges.len(), 1);
+            assert_eq!(retried.judges[0].note, 3);
+            let plugin_package = isolated.path().join("density.zip");
+            let mut archive = zip::ZipWriter::new(std::fs::File::create(&plugin_package).unwrap());
+            for (name, body) in [
+                ("manifest.json", include_str!("../../../../docs/plugins/examples/density/manifest.json")),
+                ("main.rhai", include_str!("../../../../docs/plugins/examples/density/main.rhai")),
+            ] {
+                archive.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+                archive.write_all(body.as_bytes()).unwrap();
+            }
+            archive.finish().unwrap();
+            crate::plugins::import(&plugin_package).unwrap();
+            crate::plugins::change("example.density", Some(true), None, false).unwrap();
+            crate::plugins::init();
+            record_through_ending(info.clone(), "renamed-chart", None).await;
+            practice_regression(info.clone(), &mut painter).await;
+            if let (Ok(tape_path), Ok(chart_path)) = (std::env::var("REPLAY_QA_TAPE"), std::env::var("REPLAY_QA_CHART")) {
+                let provided = replay::load(std::path::Path::new(&tape_path)).unwrap();
+                println!(
+                    "Provided replay: {} judges, {} touches, {} frames; original score {:?}",
+                    provided.judges.len(),
+                    provided.touches.len(),
+                    provided.frames.len(),
+                    provided.meta.result.as_ref().map(|r| r.score)
+                );
+                let (imported_chart, _) = local(crate::scene::import_chart(std::fs::File::open(chart_path).unwrap())).await.unwrap();
+                let local_path = imported_chart.local_path.as_str();
+                let mut fs = fs_from_path(local_path).unwrap();
+                let info = local(prpr::fs::load_info(fs.as_mut())).await.unwrap();
+                if let Some(expected) = &provided.meta.fingerprint {
+                    assert_eq!(&local(replay::library::fingerprint(fs.as_mut(), &info)).await.unwrap(), expected);
                 }
-                record_through_ending(info,local_path,Some(&provided)).await;
+                if let Some(expected) = &provided.meta.audio_fingerprint {
+                    assert_eq!(&local(replay::library::audio_fingerprint(fs.as_mut(), &info)).await.unwrap(), expected);
+                }
+                if provided.judges.is_empty() {
+                    assert!(local(ReplayScene::new_bound(PathBuf::from(tape_path), local_path.into(), true))
+                        .await
+                        .err()
+                        .unwrap()
+                        .to_string()
+                        .contains("判定事件"));
+                }
+                record_through_ending(info, local_path, Some(&provided)).await;
             }
             // Historical packages are verified before registration; source chart and PB stay untouched.
             let mut package = std::io::Cursor::new(Vec::new());
@@ -566,8 +1368,11 @@ fn production_replay_transport_import_and_aspects() {
                 tape.meta.fingerprint.clone().unwrap()
             );
             assert!(crate::get_data().charts[0].record.is_none());
-            let mut state = local(crate::page::SharedState::new(FontArc::try_from_vec(std::fs::read("assets/harmonyos.ttf").unwrap()).unwrap())).await.unwrap();
+            let mut state = local(crate::page::SharedState::new(FontArc::try_from_vec(std::fs::read("assets/harmonyos.ttf").unwrap()).unwrap()))
+                .await
+                .unwrap();
             crate::page::replays::render_regression(&mut painter, &path, &mut state);
+            crate::page::plugins::render_regression(&mut painter, &mut state);
             // Content drift cannot silently bind to the same location.
             std::fs::OpenOptions::new()
                 .append(true)

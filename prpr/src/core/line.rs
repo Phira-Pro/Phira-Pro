@@ -1,4 +1,6 @@
-use super::{chart::ChartSettings, object::CtrlObject, Anim, AnimFloat, BpmList, Matrix, Note, Object, Point, RenderConfig, Resource, Vector, FADEOUT_TIME};
+use super::{
+    chart::ChartSettings, object::CtrlObject, Anim, AnimFloat, BpmList, Matrix, Note, Object, Point, RenderConfig, Resource, Vector, FADEOUT_TIME,
+};
 use crate::{
     ext::{get_viewport, NotNanExt, SafeTexture},
     judge::JudgeStatus,
@@ -107,6 +109,33 @@ pub struct JudgeLineCache {
 }
 
 impl JudgeLineCache {
+    pub fn with_companion<T: Clone>(notes: &mut [Note], companion: &mut Vec<T>) -> Self {
+        // Sort through one shared permutation so original Hold tails/hitsounds
+        // cannot become attached to a different note after conversion.
+        let mut order: Vec<usize> = (0..notes.len()).collect();
+        order.sort_by_cached_key(|&i| {
+            let n = &notes[i];
+            (n.plain(), !n.above, n.speed.not_nan(), ((n.height + n.object.translation.1.now() as f64) * n.speed).not_nan())
+        });
+        *companion = order.iter().map(|&i| companion[i].clone()).collect();
+        let mut current: Vec<usize> = (0..notes.len()).collect();
+        let mut positions = current.clone();
+        for (dst, &original) in order.iter().enumerate() {
+            let src = positions[original];
+            notes.swap(dst, src);
+            current.swap(dst, src);
+            positions[current[dst]] = dst;
+            positions[current[src]] = src;
+        }
+        let mut cache = Self {
+            update_order: Vec::new(),
+            not_plain_count: 0,
+            above_indices: Vec::new(),
+            below_indices: Vec::new(),
+        };
+        cache.reset(notes);
+        cache
+    }
     pub fn new(notes: &mut [Note]) -> Self {
         // 用 `sort_by_cached_key`：排序键只求值一次，避免在 O(n log n) 次比较里反复调用
         // `plain()` / `now()` —— 数百万音符下这能省下数亿次函数调用。
@@ -461,7 +490,8 @@ impl JudgeLine {
             ];
             let height_above = p[0].y.max(p[1].y.max(p[2].y.max(p[3].y))) * res.aspect_ratio;
             let height_below = -p[0].y.min(p[1].y.min(p[2].y.min(p[3].y))) * res.aspect_ratio;
-            let agg = res.config.aggressive || self.notes.len() > EXTREME_LINE_NOTES;
+            let agg = !(res.config.practice_active && res.config.practice.view.active())
+                && (res.config.aggressive || self.notes.len() > EXTREME_LINE_NOTES);
             for note in self.notes.iter().take(self.cache.not_plain_count).filter(|it| it.above) {
                 note.render(res, &mut config, bpm_list);
             }

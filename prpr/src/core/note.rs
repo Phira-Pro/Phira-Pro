@@ -99,10 +99,22 @@ fn draw_tex(res: &Resource, texture: Texture2D, order: i8, x: f32, y: f32, color
 }
 fn draw_tex_pts(res: &Resource, texture: Texture2D, order: i8, p: [Point; 4], color: Color, params: DrawTextureParams) {
     let mut p = p.map(|it| res.world_to_screen(it));
-    if p[0].x.min(p[1].x.min(p[2].x.min(p[3].x))) > 1.
-        || p[0].x.max(p[1].x.max(p[2].x.max(p[3].x))) < -1.
-        || p[0].y.min(p[1].y.min(p[2].y.min(p[3].y))) > 1.
-        || p[0].y.max(p[1].y.max(p[2].y.max(p[3].y))) < -1.
+    let visible = p.map(|point| {
+        if res.config.practice_active {
+            let ui = res
+                .config
+                .practice
+                .view
+                .chart_to_screen(vec2(if res.config.flip_x() { -point.x } else { point.x }, -point.y));
+            Point::new(ui.x, ui.y)
+        } else {
+            point
+        }
+    });
+    if visible[0].x.min(visible[1].x.min(visible[2].x.min(visible[3].x))) > 1.
+        || visible[0].x.max(visible[1].x.max(visible[2].x.max(visible[3].x))) < -1.
+        || visible[0].y.min(visible[1].y.min(visible[2].y.min(visible[3].y))) > 1.
+        || visible[0].y.max(visible[1].y.max(visible[2].y.max(visible[3].y))) < -1.
     {
         return;
     }
@@ -158,14 +170,14 @@ impl Note {
 
     pub fn update(&mut self, res: &mut Resource, parent_rot: f32, parent_tr: &Matrix, ctrl_obj: &mut CtrlObject, line_height: f64) {
         self.object.set_time(res.time);
-        if let Some(color) = if let JudgeStatus::Hold(perfect, at, ..) = &mut self.judge {
+        if let Some(color) = if let JudgeStatus::Hold(perfect, at, _, _, _, grade) = &mut self.judge {
             if res.time > *at {
                 *at += HOLD_PARTICLE_INTERVAL / res.config.speed as f64;
                 Some(self.fx_color.unwrap_or_else(|| {
                     if *perfect {
-                        res.res_pack.info.fx_perfect()
+                        res.config.judge_grading.color(*grade as usize, res.res_pack.info.fx_perfect())
                     } else {
-                        res.res_pack.info.fx_good()
+                        res.config.judge_grading.color(*grade as usize, res.res_pack.info.fx_good())
                     }
                 }))
             } else {
@@ -425,7 +437,10 @@ impl BadNote {
                 },
                 self.kind.order(),
                 res.note_width,
-                Color::new(0.423529, 0.262745, 0.262745, ((self.time - res.time).max(-1.) / BAD_TIME + 1.) as f32),
+                Color {
+                    a: ((self.time - res.time).max(-1.) / BAD_TIME + 1.) as f32,
+                    ..res.config.judge_grading.color(2, Color::new(0.423529, 0.262745, 0.262745, 1.))
+                },
             );
         });
         true

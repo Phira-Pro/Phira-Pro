@@ -1,5 +1,5 @@
 //! One settings panel for selecting, copying, editing and saving judgement presets.
-use super::{item_row_h, render_switch, right_rect, ChooseButton, L10N_LOCAL};
+use super::{item_row_h, render_switch, right_rect, ChooseButton, ColorAction, ColorPicker, L10N_LOCAL};
 use crate::{
     get_data, get_data_mut,
     judgement_presets::{self, JudgePreset, JudgeSettings},
@@ -10,7 +10,7 @@ use inputbox::InputBox;
 use macroquad::prelude::*;
 use prpr::{
     config::JudgeAlgorithm,
-    ext::{semi_white, RectExt},
+    ext::{poll_future, semi_white, LocalTask, RectExt},
     scene::{request_input, return_input, show_error, take_input},
     ui::{DRectButton, Scroll, Ui},
 };
@@ -41,6 +41,11 @@ pub(super) struct JudgementList {
     name: DRectButton,
     algorithm: DRectButton,
     numbers: Vec<DRectButton>,
+    colors: Vec<DRectButton>,
+    colors_reset: DRectButton,
+    picker: Option<(usize, ColorPicker)>,
+    color_defaults: [u32; 8],
+    color_task: LocalTask<Result<[u32; 8]>>,
     sides: Vec<DRectButton>,
     switches: Vec<DRectButton>,
     draft: Option<Draft>,
@@ -228,6 +233,21 @@ impl JudgementList {
             name: DRectButton::new(),
             algorithm: DRectButton::new(),
             sides: (0..58).map(|_| DRectButton::new()).collect(),
+            colors: (0..8).map(|_| DRectButton::new()).collect(),
+            colors_reset: DRectButton::new(),
+            picker: None,
+            color_defaults: [0xffffff; 8],
+            color_task: Some(Box::pin(async {
+                let mut fs = match get_data().config.res_pack_path.clone() {
+                    Some(path) => prpr::fs::fs_from_file(std::path::Path::new(&path))?,
+                    None => prpr::fs::fs_from_assets("respack/")?,
+                };
+                let info: prpr::core::ResPackInfo = serde_yaml::from_slice(&fs.load_file("info.yml").await?)?;
+                let hex = |c: Color| ((c.r * 255.).round() as u32) << 16 | ((c.g * 255.).round() as u32) << 8 | (c.b * 255.).round() as u32;
+                let p = hex(info.fx_perfect());
+                let g = hex(info.fx_good());
+                Ok([p, g, 0x6c4343, 0x999999, p, g, g, g])
+            })),
             numbers: (0..29).map(|_| DRectButton::new()).collect(),
             switches: (0..10).map(|_| DRectButton::new()).collect(),
             draft: None,
@@ -295,6 +315,21 @@ impl JudgementList {
         }
     }
     pub fn top_touch(&mut self, touch: &Touch, t: f32) -> bool {
+        if let Some((id, picker)) = &mut self.picker {
+            if let Some(action) = picker.touch(touch, t) {
+                if let ColorAction::Apply(color) = action {
+                    if let Some(draft) = &mut self.draft {
+                        draft.settings.grading.colors[*id] = color;
+                    } else {
+                        let mut settings = JudgeSettings::capture(&get_data().config);
+                        settings.grading.colors[*id] = color;
+                        self.apply_current(settings);
+                    }
+                }
+                self.picker = None;
+            }
+            return true;
+        }
         self.od.top_touch(touch, t) || (self.draft.is_none() && self.selector.top_touch(touch, t))
     }
     pub fn touch(&mut self, touch: &Touch, t: f32) -> Result<Option<bool>> {
@@ -413,6 +448,20 @@ impl JudgementList {
         self.refresh();
     }
     fn touch_controls(&mut self, touch: &Touch, t: f32, settings: &mut JudgeSettings) -> Result<Option<bool>> {
+        if self.colors_reset.touch(touch, t) {
+            settings.grading.colors = [None; 8];
+            return Ok(Some(false));
+        }
+        for (i, b) in self.colors.iter_mut().enumerate() {
+            if b.touch(touch, t) {
+                let name = prpr::judge::GRADE_ORDER.iter().find(|(id, _)| *id == i).unwrap().1;
+                self.picker = Some((
+                    i,
+                    ColorPicker::new(format!("{} · {name}", tl!("preset-colors")), settings.grading.colors[i], None, self.color_defaults[i]),
+                ));
+                return Ok(Some(false));
+            }
+        }
         if self.od.touch(touch, t) {
             return Ok(Some(false));
         }
@@ -448,12 +497,26 @@ impl JudgementList {
         for i in switch_indices(settings) {
             if self.switches[i].touch(touch, t) {
                 *switch(settings, i) ^= true;
+                if i == 9 && !settings.grading.detailed || i == 8 && settings.grading.perfect_plus {
+                    settings.grading.mania = false;
+                }
                 return Ok(Some(false));
             }
         }
         Ok(None)
     }
     pub fn update(&mut self, t: f32) -> Result<bool> {
+        if let Some(task) = &mut self.color_task {
+            if let Some(result) = poll_future(task.as_mut()) {
+                if let Ok(colors) = result {
+                    self.color_defaults = colors;
+                }
+                self.color_task = None;
+            }
+        }
+        if let Some((_, picker)) = &mut self.picker {
+            picker.update();
+        }
         self.od.update(t);
         if self.od.changed() && self.od.selected() > 0 {
             let od = self.od.selected() as i8 - 16;
@@ -494,6 +557,20 @@ impl JudgementList {
                 return Ok(false);
             }
             if let Some(draft) = &mut self.draft {
+                if let Some(id) = id.strip_prefix("preset-color-").and_then(|s| s.parse::<usize>().ok()).filter(|i| *i < 8) {
+                    let value = text.trim().trim_start_matches('#');
+                    if value.is_empty() {
+                        draft.settings.grading.colors[id] = None;
+                    } else if value.len() == 6 {
+                        match u32::from_str_radix(value, 16) {
+                            Ok(c) => draft.settings.grading.colors[id] = Some(c),
+                            Err(_) => show_error(anyhow::anyhow!("RGB: #RRGGBB")),
+                        }
+                    } else {
+                        show_error(anyhow::anyhow!("RGB: #RRGGBB"));
+                    }
+                    return Ok(false);
+                }
                 if id == "preset-name" {
                     draft.name = text.trim().to_owned();
                     return Ok(false);
@@ -620,12 +697,23 @@ impl JudgementList {
         for i in switch_indices(settings).into_iter().filter(|i| *i < 8) {
             row! { render_title(ui, switch_label(i), None); let enabled = *switch(settings, i); render_switch(ui, rr, t, &mut self.switches[i], enabled); }
         }
+        row! { render_title(ui, tl!("preset-colors"), Some(tl!("preset-colors-sub"))); self.colors_reset.render_text(ui, rr, t, tl!("color-reset-all"), 0.32, false); }
+        for (id, name) in prpr::judge::GRADE_ORDER {
+            row! {
+                render_title(ui, name, None);
+                if let Some(c)=settings.grading.colors[id] { ui.fill_rect(Rect::new(rr.x-0.06,rr.y+0.02,0.035,0.035),Color::from_hex_rgb(c)); }
+                self.colors[id].render_text(ui,rr,t,settings.grading.colors[id].map(|c|format!("#{c:06X}")).unwrap_or_else(||tl!("preset-color-default").into_owned()),0.36,false);
+            }
+        }
         h
     }
     pub fn render_top(&mut self, ui: &mut Ui, t: f32) {
         self.od.render_top(ui, t, 1.);
         if self.draft.is_none() {
             self.selector.render_top(ui, t, 1.);
+        }
+        if let Some((_, picker)) = &mut self.picker {
+            picker.render(ui, t);
         }
     }
 }
@@ -683,7 +771,9 @@ impl super::Page for JudgementPage {
         Ok(())
     }
     fn on_back_pressed(&mut self, _state: &mut super::SharedState) -> bool {
-        if self.list.draft.take().is_some() {
+        if self.list.picker.take().is_some() {
+            true
+        } else if self.list.draft.take().is_some() {
             self.list.discard_input = true;
             self.scroll.y_scroller.reset();
             true

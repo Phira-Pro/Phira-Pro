@@ -2,12 +2,21 @@ name: Build Desktop Packages
 
 on:
   workflow_dispatch:
+    inputs:
+      run-tests:
+        description: Run full Rust and Windows graphics compilation checks before packaging (slower)
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       source-ref:
         description: Commit to build; empty uses the triggering ref
         type: string
         default: ''
+      run-tests:
+        description: Run full regression checks before packaging
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -50,8 +59,24 @@ jobs:
       - name: Set up Rust
         run: rustup toolchain install
 
-      - name: Cache Rust and FFmpeg
+      - name: Cache release build and dependencies
+        id: release-cache
         uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/release
+            prpr-avc/static-lib
+          key: desktop-release-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'prpr-avc/ffmpeg-version') }}-${{ inputs.source-ref || github.sha }}
+          restore-keys: |
+            desktop-release-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'prpr-avc/ffmpeg-version') }}-
+            desktop-release-v2-${{ runner.os }}-${{ runner.arch }}-
+
+      # Migrate the previous combined cache once, then save only Release data.
+      - name: Reuse previous desktop cache on migration
+        if: steps.release-cache.outputs.cache-hit == ''
+        uses: actions/cache/restore@v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -61,10 +86,27 @@ jobs:
           key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'prpr-avc/ffmpeg-version') }}
           restore-keys: desktop-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Cache optional regression builds
+        if: inputs.run-tests == true
+        uses: actions/cache@v6.1.0
+        with:
+          path: target/debug
+          key: desktop-tests-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ inputs.source-ref || github.sha }}
+          restore-keys: |
+            desktop-tests-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
+            desktop-tests-v1-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Verify judgement and preset regressions
+        if: inputs.run-tests == true
         run: |
           cargo test --locked -p prpr --no-default-features --lib
           cargo test --locked -p phira --no-default-features --lib
+
+      - name: Compile Windows graphics regressions
+        if: inputs.run-tests == true && runner.os == 'Windows'
+        env:
+          RUSTFLAGS: --cfg record
+        run: cargo test --locked -p phira --no-default-features --lib --no-run
 
       - name: Build and package
         run: python scripts/build.py --platform ${{ matrix.platform }} --package --output dist/${{ matrix.platform }}
@@ -74,4 +116,5 @@ jobs:
         with:
           name: PhiraPro-${{ matrix.platform }}-${{ runner.arch }}
           path: dist/${{ matrix.platform }}/*.zip
+          compression-level: 0
           if-no-files-found: error

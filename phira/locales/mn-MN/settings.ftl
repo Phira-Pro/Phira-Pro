@@ -62,7 +62,7 @@ item-note-size = Нотны хэмжээ
 item-chart-debug = Бийтмап дибаг горим
 item-chart-debug-sub = Зураасын номер болон чиглэлийг үзүүлнэ
 item-show-fps = FPS харуулах
-item-show-fps-sub = Зүүн доод буланд одоогийн FPS-ийг харуулна
+item-show-fps-sub = Show the current framerate at your chosen position
 item-touch-debug = Хүрэхийн дибаг горим
 item-touch-debug-sub = Хүрэлцэх цэгүүдийг харуулна
 load-cali-failed = Дууг ачаалахад амжилтгүй боллоо
@@ -161,7 +161,7 @@ item-status-url-sub = Тохиргооны «Серверийн төлөв» т�
 item-web-url = Вэб хаяг
 
 item-touch-color = Хүрэлтийн цэгийн өнгө
-item-touch-color-sub = Дибаг хүрэлтийн цэгийн өнгийг солихын тулд дарна уу
+item-touch-color-sub = Open the palette to choose any touch color
 item-touch-alpha = Хүрэлтийн цэгийн тунгалаг байдал
 item-touch-size = Хүрэлтийн цэгийн хэмжээ
 item-reset-settings = Бүх тохиргоог анхны утгад буцаах
@@ -259,3 +259,33 @@ cover-apply = Apply
 
 item-shader-pre-render = Shader pre-rendering
 item-shader-pre-render-sub = Warms shaders and caches static block masks while loading. Slower loading; frame-rate gains vary with the chart.
+
+item-fps-position = FPS position
+fps-top-center = Top center
+fps-bottom-center = Bottom center
+fps-top-left = Top left
+fps-top-right = Top right
+fps-bottom-left = Bottom left
+fps-bottom-right = Bottom right
+
+plugins-settings = Plugins
+plugins-settings-sub = Import, enable and configure plugins
+preset-colors = Judgement colors
+preset-colors-sub = Choose any color with the palette; reset follows resource-pack colors
+preset-color-default = Resource pack
+
+item-desktop-fps = Frame rate limit
+item-desktop-fps-sub = Applies immediately; follows display refresh rate by default
+item-desktop-fps-auto = Follow display
+
+color-original = Original
+color-current = Current
+color-reset = Reset
+color-reset-all = Reset all
+color-invalid = Enter six hexadecimal digits, e.g. #12AB34
+color-rgb-invalid = Enter an integer from 0 to 255
+color-current-default = Current (default)
+
+practice-debug-display = Diagnostic display
+practice-debug-performance = Frame rate
+practice-debug-input = Touch visualization

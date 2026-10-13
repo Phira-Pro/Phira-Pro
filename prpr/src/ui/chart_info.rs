@@ -180,7 +180,9 @@ pub fn render_chart_info(ui: &mut Ui, edit: &mut ChartInfoEdit, width: f32) -> (
         }));
 
         ui.dx(0.01);
+        let old_force_aspect_ratio = info.force_aspect_ratio;
         let r = ui.checkbox(tl!("force-aspect-ratio"), &mut info.force_aspect_ratio);
+        edit.updated |= old_force_aspect_ratio != info.force_aspect_ratio;
         dy!(r.h + s);
         ui.dx(-0.01);
 

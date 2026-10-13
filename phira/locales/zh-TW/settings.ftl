@@ -84,7 +84,7 @@ item-note-size = 音符大小
 item-chart-debug = 譜面除錯
 item-chart-debug-sub = 顯示判定線編號和朝向
 item-show-fps = 顯示幀率
-item-show-fps-sub = 在左下角顯示目前幀率
+item-show-fps-sub = 顯示目前幀率，可選擇顯示位置
 item-touch-debug = 觸摸除錯
 item-touch-debug-sub = 遊玩過程中顯示觸摸點
 load-cali-failed = 載入音訊失敗
@@ -208,7 +208,7 @@ item-status-url-sub = 設定頁「伺服器狀態」按鈕開啟的位址。留�
 item-web-url = Web 位址
 
 item-touch-color = 觸點顏色
-item-touch-color-sub = 點擊循環切換除錯觸點的顏色
+item-touch-color-sub = 點擊調色盤自由選擇觸點顏色
 item-touch-alpha = 觸點透明度
 item-touch-size = 觸點大小
 item-reset-settings = 恢復預設設定
@@ -306,3 +306,33 @@ cover-apply = 应用
 
 item-shader-pre-render = Shader 預渲染
 item-shader-pre-render-sub = 載入時預熱著色器並快取靜態噪域，載入會更慢；動態效果仍即時渲染，幀率提升因譜面而異
+
+item-fps-position = 帧率显示位置
+fps-top-center = 居中顶部
+fps-bottom-center = 居中底部
+fps-top-left = 左上
+fps-top-right = 右上
+fps-bottom-left = 左下
+fps-bottom-right = 右下
+
+plugins-settings = 插件管理
+plugins-settings-sub = 导入、启停和配置个性化插件
+preset-colors = 判定颜色
+preset-colors-sub = 點擊調色盤自由選色；恢復預設使用資源包顏色
+preset-color-default = 资源包默认
+
+item-desktop-fps = 幀率上限
+item-desktop-fps-sub = 選擇後立即生效；預設跟隨螢幕更新率
+item-desktop-fps-auto = 跟隨螢幕
+
+color-original = 原始顏色
+color-current = 目前顏色
+color-reset = 恢復預設
+color-reset-all = 恢復全部預設
+color-invalid = 請輸入有效的六位顏色值，例如 #12AB34
+color-rgb-invalid = 請輸入 0～255 的整數
+color-current-default = 目前（預設）
+
+practice-debug-display = 除錯顯示
+practice-debug-performance = 幀率設定
+practice-debug-input = 觸點視覺化

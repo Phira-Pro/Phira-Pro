@@ -1,5 +1,5 @@
 //! User-facing display/audio preferences and the hidden-cover editor.
-use super::{item_row_h, render_switch, render_title, request_mobile_file, right_rect, ChooseButton, L10N_LOCAL};
+use super::{item_row_h, render_switch, render_title, request_mobile_file, right_rect, ChooseButton, ColorAction, ColorPicker, L10N_LOCAL};
 use crate::{dir, get_data, get_data_mut, scene::BGM_VOLUME_UPDATED};
 use anyhow::{Context, Result};
 use inputbox::InputBox;
@@ -23,6 +23,7 @@ pub(super) struct ExperienceList {
     image: [DRectButton; 2],
     reset: [DRectButton; 2],
     editor: Option<CoverEditor>,
+    color_editor: Option<(usize, ColorPicker)>,
     dirty: bool,
 }
 
@@ -55,11 +56,33 @@ impl ExperienceList {
             image: std::array::from_fn(|_| DRectButton::new()),
             reset: std::array::from_fn(|_| DRectButton::new()),
             editor: None,
+            color_editor: None,
             dirty: false,
         }
     }
 
+    pub fn close_editor(&mut self) -> bool {
+        self.color_editor.take().is_some() || self.editor.take().is_some()
+    }
+
     pub fn top_touch(&mut self, touch: &Touch, t: f32) -> bool {
+        if let Some((side, picker)) = &mut self.color_editor {
+            if let Some(action) = picker.touch(touch, t) {
+                if let ColorAction::Apply(Some(color)) = action {
+                    let config = &mut get_data_mut().config;
+                    if *side == 0 {
+                        config.hide_upper_color = color;
+                        config.hide_upper_image = None;
+                    } else {
+                        config.hide_lower_color = color;
+                        config.hide_lower_image = None;
+                    }
+                    self.dirty = true;
+                }
+                self.color_editor = None;
+            }
+            return true;
+        }
         if let Some(editor) = &mut self.editor {
             if editor.touch(touch, t) {
                 match editor.apply() {
@@ -106,7 +129,15 @@ impl ExperienceList {
         for side in 0..2 {
             if self.color[side].touch(touch, t) {
                 let color = if side == 0 { config.hide_upper_color } else { config.hide_lower_color };
-                self.editor = Some(CoverEditor::color(side, color));
+                self.color_editor = Some((
+                    side,
+                    ColorPicker::new(
+                        if side == 0 { tl!("upper-cover-color") } else { tl!("lower-cover-color") }.into_owned(),
+                        Some(color),
+                        Some(0),
+                        0,
+                    ),
+                ));
                 return Ok(Some(false));
             }
             if self.image[side].touch(touch, t) {
@@ -135,6 +166,9 @@ impl ExperienceList {
     }
 
     pub fn update(&mut self, t: f32) -> Result<bool> {
+        if let Some((_, picker)) = &mut self.color_editor {
+            picker.update();
+        }
         if self.language != get_data().language {
             self.language = get_data().language.clone();
             self.font.set_options(font_options());
@@ -205,6 +239,9 @@ impl ExperienceList {
 
     pub fn render_top(&mut self, ui: &mut Ui, t: f32) {
         self.font.render_top(ui, t, 1.);
+        if let Some((_, picker)) = &mut self.color_editor {
+            picker.render(ui, t);
+        }
         if let Some(editor) = &mut self.editor {
             let scale = ((ui.top - 0.02) / 0.52).clamp(0.5, 1.);
             editor.ui_scale = scale;
@@ -216,14 +253,11 @@ impl ExperienceList {
 struct CoverEditor {
     ui_scale: f32,
     side: usize,
-    hsv: [f32; 3],
     source: Option<image::RgbaImage>,
     texture: Option<SafeTexture>,
     center: Vec2,
     zoom: f32,
     zoom_slider: Slider,
-    palette: Rect,
-    hue_rect: Rect,
     image_rect: Rect,
     dragging: Option<(u64, Vec2)>,
     confirm: DRectButton,
@@ -232,31 +266,15 @@ struct CoverEditor {
 }
 
 impl CoverEditor {
-    fn color(side: usize, color: u32) -> Self {
-        let c = Color::from_hex_rgb(color);
-        let max = c.r.max(c.g).max(c.b);
-        let min = c.r.min(c.g).min(c.b);
-        let d = max - min;
-        let hue = if d == 0. {
-            0.
-        } else if max == c.r {
-            ((c.g - c.b) / d).rem_euclid(6.) / 6.
-        } else if max == c.g {
-            ((c.b - c.r) / d + 2.) / 6.
-        } else {
-            ((c.r - c.g) / d + 4.) / 6.
-        };
+    fn new(side: usize) -> Self {
         Self {
             ui_scale: 1.,
             side,
-            hsv: [hue, if max > 0. { d / max } else { 0. }, max],
             source: None,
             texture: None,
             center: vec2(0.5, 0.5),
             zoom: 1.,
             zoom_slider: Slider::new(1.0..4.0, 0.05),
-            palette: Rect::default(),
-            hue_rect: Rect::default(),
             image_rect: Rect::default(),
             dragging: None,
             confirm: DRectButton::new(),
@@ -274,7 +292,7 @@ impl CoverEditor {
         limits.max_image_height = Some(8192);
         reader.limits(limits);
         let image = reader.decode().context("无法读取遮挡图片")?;
-        let mut editor = Self::color(side, 0);
+        let mut editor = Self::new(side);
         let preview = image.thumbnail(1024, 1024).to_rgba8();
         editor.texture = Some(Texture2D::from_rgba8(preview.width() as u16, preview.height() as u16, preview.as_raw()).into());
         editor.source = Some(image.to_rgba8());
@@ -323,21 +341,11 @@ impl CoverEditor {
                     }
                 }
             }
-        } else if matches!(touch.phase, TouchPhase::Started | TouchPhase::Moved | TouchPhase::Stationary) {
-            if self.palette.contains(touch.position) {
-                self.hsv[1] = (touch.position.x - self.palette.x) / self.palette.w;
-                self.hsv[2] = 1. - (touch.position.y - self.palette.y) / self.palette.h;
-            }
-            if self.hue_rect.contains(touch.position) {
-                self.hsv[0] = (touch.position.x - self.hue_rect.x) / self.hue_rect.w;
-            }
         }
         false
     }
 
     fn apply(&self) -> Result<()> {
-        let color = hsv(self.hsv[0], self.hsv[1], self.hsv[2]);
-        let hex = ((color.r * 255.).round() as u32) << 16 | ((color.g * 255.).round() as u32) << 8 | (color.b * 255.).round() as u32;
         let path = if let (Some(image), Some(crop)) = (&self.source, self.selected_crop()) {
             let crop = image::imageops::crop_imm(image, crop.x as u32, crop.y as u32, crop.w.max(1.) as u32, crop.h.max(1.) as u32).to_image();
             let image = image::DynamicImage::ImageRgba8(crop).resize(2048, 2048, image::imageops::FilterType::Lanczos3);
@@ -349,10 +357,10 @@ impl CoverEditor {
         };
         let config = &mut get_data_mut().config;
         if self.side == 0 {
-            config.hide_upper_color = hex;
+            config.hide_upper_color = 0;
             config.hide_upper_image = path;
         } else {
-            config.hide_lower_color = hex;
+            config.hide_lower_color = 0;
             config.hide_lower_image = path;
         }
         Ok(())
@@ -385,47 +393,12 @@ impl CoverEditor {
             self.zoom_slider
                 .render(ui, Rect::new(0.05, 0.24, 0.42, 0.06), t, self.zoom, format!("{:.2}×", self.zoom));
             ui.text(tl!("cover-crop-help")).pos(0., 0.35).anchor(0.5, 0.5).size(0.35).draw();
-        } else {
-            let r = Rect::new(-0.55, -0.32, 1.1, 0.5);
-            self.palette = ui.rect_to_global(r);
-            for row in 0..12 {
-                for col in 0..24 {
-                    ui.fill_rect(
-                        Rect::new(r.x + r.w * col as f32 / 24., r.y + r.h * row as f32 / 12., r.w / 24. + 0.001, r.h / 12. + 0.001),
-                        hsv(self.hsv[0], col as f32 / 23., 1. - row as f32 / 11.),
-                    );
-                }
-            }
-            let hue = Rect::new(-0.55, 0.22, 1.1, 0.04);
-            self.hue_rect = ui.rect_to_global(hue);
-            for col in 0..48 {
-                ui.fill_rect(Rect::new(hue.x + hue.w * col as f32 / 48., hue.y, hue.w / 48. + 0.001, hue.h), hsv(col as f32 / 48., 1., 1.));
-            }
-            let selected = hsv(self.hsv[0], self.hsv[1], self.hsv[2]);
-            ui.fill_circle(r.x + r.w * self.hsv[1], r.y + r.h * (1. - self.hsv[2]), 0.012, WHITE);
-            ui.fill_rect(Rect::new(-0.12, 0.30, 0.24, 0.06), selected);
         }
         self.cancel
             .render_text(ui, Rect::new(-0.48, 0.43, 0.40, 0.08), t, tl!("cover-cancel"), 0.45, false);
         self.confirm
             .render_text(ui, Rect::new(0.08, 0.43, 0.40, 0.08), t, tl!("cover-apply"), 0.45, true);
     }
-}
-
-fn hsv(h: f32, s: f32, v: f32) -> Color {
-    let h = h.rem_euclid(1.) * 6.;
-    let c = v * s;
-    let x = c * (1. - (h % 2. - 1.).abs());
-    let m = v - c;
-    let (r, g, b) = match h as u32 {
-        0 => (c, x, 0.),
-        1 => (x, c, 0.),
-        2 => (0., c, x),
-        3 => (0., x, c),
-        4 => (x, 0., c),
-        _ => (c, 0., x),
-    };
-    Color::new(r + m, g + m, b + m, 1.)
 }
 
 fn frame(ui: &mut Ui, r: Rect, dashed: bool) {
@@ -454,4 +427,61 @@ fn frame(ui: &mut Ui, r: Rect, dashed: bool) {
             );
         }
     }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+pub(super) fn render_regression(painter: &mut prpr::ui::TextPainter) {
+    use super::qa::{capture, center};
+    let touch = |phase, position| Touch {
+        id: 930,
+        phase,
+        position,
+        time: 0.,
+    };
+    for (w, h, ratio) in [(960, 720, "4x3"), (1280, 720, "16x9"), (1280, 548, "21x9")] {
+        let mut list = ExperienceList::new();
+        let mut ui = Ui::new(painter, Some((0, 0, w, h)));
+        for side in 0..2 {
+            let height = ui.scope(|ui| list.render(ui, Rect::new(0., 0., 1.6, 8.), 2.).1);
+            set_camera(&ui.camera());
+            clear_background(Color::new(0.10, 0.13, 0.18, 1.));
+            ui.scope(|ui| {
+                ui.dx(-0.8);
+                ui.dy(-height + (6 - side * 3) as f32 * item_row_h() - 0.15);
+                list.render(ui, Rect::new(0., 0., 1.6, 8.), 2.);
+            });
+            let p = center(&list.color[side]);
+            for phase in [TouchPhase::Started, TouchPhase::Ended] {
+                list.touch(&touch(phase, p), 2.).unwrap();
+            }
+            list.render_top(&mut ui, 2.);
+            capture(&mut ui, &format!("hide-color-picker-{side}-{ratio}"));
+            list.color_editor.as_ref().unwrap().1.test_input("#F4A619");
+            list.update(2.).unwrap();
+            assert!(list.close_editor(), "Back cancels the color dialog");
+            let config = &get_data().config;
+            assert_eq!(if side == 0 { config.hide_upper_color } else { config.hide_lower_color }, 0);
+            for phase in [TouchPhase::Started, TouchPhase::Ended] {
+                list.touch(&touch(phase, p), 2.).unwrap();
+            }
+            list.render_top(&mut ui, 2.);
+            list.color_editor.as_ref().unwrap().1.test_input("#F4A619");
+            list.update(2.).unwrap();
+            let p = list.color_editor.as_ref().unwrap().1.test_button("apply");
+            for phase in [TouchPhase::Started, TouchPhase::Ended] {
+                assert!(list.top_touch(&touch(phase, p), 2.));
+            }
+            assert!(list.update(2.).unwrap());
+            let config = &get_data().config;
+            assert_eq!(if side == 0 { config.hide_upper_color } else { config.hide_lower_color }, 0xf4a619);
+            // Existing hide-cover reset still clears color and image together.
+            let p = center(&list.reset[side]);
+            for phase in [TouchPhase::Started, TouchPhase::Ended] {
+                list.touch(&touch(phase, p), 2.).unwrap();
+            }
+            let config = &get_data().config;
+            assert_eq!(if side == 0 { config.hide_upper_color } else { config.hide_lower_color }, 0);
+        }
+    }
+    println!("Hide colors: shared picker, Back cancellation, Apply and existing cover reset passed at three aspects");
 }

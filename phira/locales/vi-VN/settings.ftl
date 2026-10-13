@@ -76,7 +76,7 @@ item-note-size = Kích thước Note
 item-chart-debug = Hiển thị line ID
 item-chart-debug-sub = Hiển thị ID và hướng của line
 item-show-fps = Hiện FPS
-item-show-fps-sub = Hiện FPS hiện tại ở góc dưới bên trái
+item-show-fps-sub = Show the current framerate at your chosen position
 item-touch-debug = Hiển thị điểm chạm
 item-touch-debug-sub = Hiển thị điểm chạm khi bạn chạm vào màn hình
 load-cali-failed = Không thể tải âm thanh hiệu chỉnh
@@ -208,7 +208,7 @@ item-status-url-sub = Địa chỉ mở bởi nút "Trạng thái máy chủ". �
 item-web-url = Địa chỉ web
 
 item-touch-color = Màu điểm chạm
-item-touch-color-sub = Nhấn để đổi màu điểm chạm gỡ lỗi
+item-touch-color-sub = Open the palette to choose any touch color
 item-touch-alpha = Độ mờ điểm chạm
 item-touch-size = Kích thước điểm chạm
 item-reset-settings = Đặt lại tất cả cài đặt
@@ -306,3 +306,33 @@ cover-apply = Apply
 
 item-shader-pre-render = Shader pre-rendering
 item-shader-pre-render-sub = Warms shaders and caches static block masks while loading. Slower loading; frame-rate gains vary with the chart.
+
+item-fps-position = FPS position
+fps-top-center = Top center
+fps-bottom-center = Bottom center
+fps-top-left = Top left
+fps-top-right = Top right
+fps-bottom-left = Bottom left
+fps-bottom-right = Bottom right
+
+plugins-settings = Plugins
+plugins-settings-sub = Import, enable and configure plugins
+preset-colors = Judgement colors
+preset-colors-sub = Choose any color with the palette; reset follows resource-pack colors
+preset-color-default = Resource pack
+
+item-desktop-fps = Frame rate limit
+item-desktop-fps-sub = Applies immediately; follows display refresh rate by default
+item-desktop-fps-auto = Follow display
+
+color-original = Original
+color-current = Current
+color-reset = Reset
+color-reset-all = Reset all
+color-invalid = Enter six hexadecimal digits, e.g. #12AB34
+color-rgb-invalid = Enter an integer from 0 to 255
+color-current-default = Current (default)
+
+practice-debug-display = Diagnostic display
+practice-debug-performance = Frame rate
+practice-debug-input = Touch visualization

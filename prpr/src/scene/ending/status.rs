@@ -150,11 +150,26 @@ impl PlayStatus {
                 if r.device_dpi == 0. { "AUTO".to_owned() } else { format!("{:.1}", r.device_dpi) },
                 r.flick_sample_hz, r.flick_multiplier, r.flick_projection_min));
         }
-        if !options.is_empty() {
-            primary.push(format!("+{}", options.len()));
+        let mut brief = Vec::new();
+        if !rated {
+            brief.push("UNRATED".to_owned());
         }
+        if let Some(od) = od {
+            brief.push(format!("OD{od}"));
+        } else if c.judge_grading.detailed {
+            brief.push("DETAILED".to_owned());
+        } else if c.judge_algorithm == JudgeAlgorithm::Phigros {
+            brief.push("PHIGROS".to_owned());
+        }
+        if c.mods.contains(Mods::STRICT_JUDGE) {
+            brief.push("STRICT".to_owned());
+        }
+        if brief.is_empty() {
+            brief.push("PHIRA PRO".to_owned());
+        }
+
         Self {
-            label: format!("{}  [i]", primary.join(" · ")),
+            label: format!("{}  [i]", brief.join(" · ")),
             details,
         }
     }
@@ -169,13 +184,13 @@ mod tests {
         let mut c = Config::default();
         c.apply_osu_mania_od(15);
         let status = PlayStatus::new(&c, false);
-        assert!(status.label.starts_with("UNRATED · OD15 · PHIRA PRO"));
-        assert!(status.details.contains("PERFECT: −8.4 / +8.4"));
+        assert!(status.label.starts_with("UNRATED · OD15  [i]"));
+        assert!(status.details.contains("PERFECT: −8.5 / +8.5"));
         assert!(status.details.contains("PERFECT+ OFF"));
         c.judge_timing.set([8., 8.4, 52., 143.], 1, true, 9.);
         let status = PlayStatus::new(&c, false);
         assert!(!status.label.contains("OD15"));
-        assert!(status.label.contains("CUSTOM WINDOWS"));
+        assert!(status.details.contains("CUSTOM WINDOWS"));
         assert!(status.details.contains("ASYMMETRIC WINDOWS"));
     }
 
@@ -185,7 +200,7 @@ mod tests {
         c.apply_osu_mania_od(15);
         c.mods = Mods::STRICT_JUDGE | Mods::NO_FAIL | Mods::FULLSCREEN_JUDGE;
         let status = PlayStatus::new(&c, false);
-        assert!(status.label.contains("OD15 · STRICT MODE"));
+        assert!(status.label.contains("OD15 · STRICT"));
         assert!(status.details.contains("PERFECT: −4.2 / +4.2"));
         assert!(status.details.contains("NO FAIL"));
         assert!(status.details.contains("FULLSCREEN JUDGE"));

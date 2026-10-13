@@ -142,9 +142,19 @@ pub struct Data {
 }
 
 impl Data {
+    /// Gameplay and replay resolve the current selection from the same library.
+    pub fn selected_respack_path(&self) -> Result<Option<String>> {
+        self.respack_id
+            .checked_sub(1)
+            .and_then(|index| self.respacks.get(index))
+            .map(|name| Ok(format!("{}/{}", dir::respacks()?, name)))
+            .transpose()
+    }
     pub async fn init(&mut self) -> Result<()> {
         self.config.phigros_rules.sanitize();
-        for preset in &mut self.judge_presets { preset.settings.normalize(); }
+        for preset in &mut self.judge_presets {
+            preset.settings.normalize();
+        }
         fn persist_retry_state(data: &Data) {
             let res = (|| -> Result<()> {
                 let root = dir::root().with_context(|| "failed to get root directory")?;

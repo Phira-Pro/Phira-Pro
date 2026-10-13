@@ -1038,7 +1038,6 @@ pub struct Judge {
     pub trackers: HashMap<u64, FlickTracker>,
     pub last_time: f64,
     pub infected: HashSet<u64>,
-    held_touches: HashMap<u64, Touch>,
     sound_schedule: Vec<(f64, HitSound)>,
     sound_cursor: usize,
 
@@ -1115,7 +1114,6 @@ impl Judge {
             trackers: HashMap::new(),
             last_time: 0.,
             infected: HashSet::new(),
-            held_touches: HashMap::new(),
             sound_schedule,
             sound_cursor: 0,
 
@@ -1134,7 +1132,6 @@ impl Judge {
         self.notes.iter_mut().for_each(|it| it.1 = 0);
         self.trackers.clear();
         self.infected.clear();
-        self.held_touches.clear();
         self.sound_cursor = 0;
         self.key_down_count = 0;
         self.inner.reset();
@@ -1163,7 +1160,6 @@ impl Judge {
             self.key_down_count = self.key_down_count.saturating_add_signed(status.key_delta);
             for touch in &status.touches {
                 if matches!(touch.phase, TouchPhase::Started | TouchPhase::Ended | TouchPhase::Cancelled) {
-                    self.held_touches.remove(&touch.id);
                     self.infected.remove(&touch.id);
                     self.trackers.remove(&touch.id);
                 }
@@ -1317,22 +1313,15 @@ impl Judge {
                 });
             }
             let tr = Self::touch_transform(res.config.flip_x());
-            let mut current: HashMap<_, _> = touches
-                .into_iter()
+            touches.into_iter()
                 .map(|mut it| {
                     tr(&mut it);
                     (it.id, it)
                 })
-                .collect();
-            for (&id, touch) in &self.held_touches {
-                current.entry(id).or_insert_with(|| Touch {
-                    phase: TouchPhase::Stationary,
-                    time: f64::NEG_INFINITY,
-                    ..touch.clone()
-                });
-            }
-            current
+                .collect()
         };
+        // use native method of removing blocked id when absent in current snapshot
+        self.infected.retain(|id| touches.contains_key(id));
         let (events, keys_down, key_delta) = TOUCHES.with(|it| {
             let guard = it.borrow();
             let events = guard.touches.clone();
@@ -1372,7 +1361,6 @@ impl Judge {
                 let p = to_local(p);
                 match phase {
                     TouchPhase::Started => {
-                        self.infected.remove(&id);
                         self.trackers.insert(id, FlickTracker::new(res.dpi, t, p));
                         touches.insert(id, event);
                     }
@@ -1386,22 +1374,24 @@ impl Judge {
                             tracker.push(t, p);
                         }
                     }
-                    TouchPhase::Ended | TouchPhase::Cancelled => {
+                    TouchPhase::Ended => {
                         self.trackers.remove(&id);
-                        self.infected.remove(&id);
+                        // do not remove if started and ended in the same frame
+                        if touches.get(&id).map(|it| it.phase) != Some(TouchPhase::Started) {
+                            touches.remove(&id);
+                        }
+                    }
+                    TouchPhase::Cancelled => {
+                        self.trackers.remove(&id);
                         touches.remove(&id);
                     }
                 }
             }
         }
-        touches.retain(|id, touch| {
-            let down = !matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled);
-            if !down {
-                self.infected.remove(id);
-            }
-            down
+        // ended and cancelled touches are now removable
+        touches.retain(|_, touch| {
+            !matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled)
         });
-        self.held_touches.clone_from(&touches);
         let mut touches: Vec<Touch> = touches
             .into_values()
             .map(|mut it| {
@@ -1426,8 +1416,7 @@ impl Judge {
             }
             let aspect = res.aspect_ratio;
             let mut blocked = Vec::new();
-            // Infection is a finger lifetime, not a field lifetime. Quiet
-            // frames must retain it until an explicit Ended/Cancelled event.
+            // blocking persists after leaving the region until the id disappears from the touches
             touches.retain(|touch| {
                 let p = Vector::new(touch.position.x, -touch.position.y);
                 let inside = !self.infected.contains(&touch.id) && chart.touch_blocked(p, t, aspect);

@@ -1201,5 +1201,7 @@ fn recording_info(replay: &Replay, config: &Config) -> Vec<String> {
     lines
 }
 
-#[cfg(all(test, target_os = "windows"))]
+// This graphics suite uses prpr's record-gated inspection hooks. Keep ordinary
+// library tests buildable without them; CI separately compiles the full suite.
+#[cfg(all(test, target_os = "windows", record))]
 mod tests;

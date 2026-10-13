@@ -66,6 +66,12 @@ jobs:
           cargo test --locked -p prpr --no-default-features --lib
           cargo test --locked -p phira --no-default-features --lib
 
+      - name: Compile Windows graphics regressions
+        if: runner.os == 'Windows'
+        env:
+          RUSTFLAGS: --cfg record
+        run: cargo test --locked -p phira --no-default-features --lib --no-run
+
       - name: Build and package
         run: python scripts/build.py --platform ${{ matrix.platform }} --package --output dist/${{ matrix.platform }}
 

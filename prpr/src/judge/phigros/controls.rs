@@ -3,15 +3,15 @@ use super::super::{judge_distance, judgement_at_distance, judgement_of_offset, U
 
 #[derive(Clone, Default)]
 pub(super) struct NoteState {
-    pub click: bool,
-    pub special: bool,
+    pub is_judged: bool,
+    pub is_judged_for_flick: bool,
     pub done: bool,
 }
 
 impl NoteState {
     fn score(&mut self, note: &Spec, judgement: Judgement, offset: f64, events: &mut Vec<Event>) {
         self.done = true;
-        self.click = true;
+        self.is_judged = true;
         events.push(Event {
             target: note.target,
             action: Action::Score { judgement, offset },
@@ -34,7 +34,7 @@ pub(super) struct ClickControl {
 impl ClickControl {
     fn judge(&mut self, note: &Spec, state: &mut NoteState, ctx: &JudgeContext, events: &mut Vec<Event>) {
         let dt = (note.time - ctx.now) / ctx.cfg.speed as f64;
-        self.is_judged |= state.click;
+        self.is_judged |= state.is_judged;
         if self.is_judged {
             let side = ctx.limits.for_offset(-dt);
             let abs = judge_distance(-dt, ctx.cfg.late_leniency());
@@ -77,7 +77,7 @@ impl HoldControl {
         let abs = judge_distance(-dt, ctx.cfg.late_leniency());
         let mut score = None;
         if self.head.is_none() {
-            self.is_judged |= state.click;
+            self.is_judged |= state.is_judged;
             if !self.is_judged && dt < -ctx.limits.late_acceptance() - ctx.cfg.late_leniency() {
                 score = Some((Judgement::Miss, 0.));
             }
@@ -90,7 +90,7 @@ impl HoldControl {
                     action: Action::Head { judgement, offset: -dt },
                 });
             } else if self.is_judged {
-                state.click = false;
+                state.is_judged = false;
             }
         }
         if let Some(head) = self.head {
@@ -180,9 +180,10 @@ impl FlickControl {
     fn judge(&mut self, note: &Spec, state: &mut NoteState, ctx: &JudgeContext, events: &mut Vec<Event>) {
         let dt = (note.time - ctx.now) / ctx.cfg.speed as f64;
         let [_, late] = ctx.rules.flick_sides();
-        self.is_judged |= state.special;
+        self.is_judged |= state.is_judged_for_flick;
         if !self.is_judged && dt < -ctx.limits.late[1] * late - ctx.cfg.late_leniency() {
             state.score(note, Judgement::Miss, 0., events);
+            state.is_judged_for_flick = true;
         } else if self.is_judged && dt < ctx.rules.special_early_ms / 1000. {
             state.score(note, Judgement::Perfect, 0., events);
         }

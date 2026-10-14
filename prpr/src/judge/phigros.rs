@@ -192,7 +192,7 @@ impl Engine {
         for i in range {
             let n = &self.specs[i];
             let state = &self.states[i];
-            if state.done || if flick { n.kind != Kind::Flick || state.special } else { state.click } {
+            if state.done || if flick { n.kind != Kind::Flick || state.is_judged_for_flick } else { state.is_judged } {
                 continue;
             }
             if !flick && ((n.kind == Kind::Drag && !cfg.drag_protect) || (n.kind == Kind::Flick && !cfg.flick_protect)) {
@@ -273,7 +273,7 @@ impl Engine {
             let _ = f;
             if let Some(i) = self.select(finger, false, now, speed, &limits, cfg, rules, &mut geometry) {
                 if self.specs[i].kind != Kind::Flick {
-                    self.states[i].click = true;
+                    self.states[i].is_judged = true;
                 }
             }
         }
@@ -282,7 +282,7 @@ impl Engine {
                 continue;
             }
             if let Some(i) = self.select(finger, true, now, speed, &limits, cfg, rules, &mut geometry) {
-                self.states[i].special = true;
+                self.states[i].is_judged_for_flick = true;
                 self.flicks.get_mut(&f.id).unwrap().new_flick = false;
             }
         }

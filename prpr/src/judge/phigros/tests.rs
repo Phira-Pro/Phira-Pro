@@ -34,8 +34,13 @@ fn asymmetric_special_windows_and_strict_frame_pad() {
     for (offset, armed) in [(-0.081, false), (-0.079, true), (0.159, true), (0.161, false)] {
         let mut engine = Engine::new(vec![spec(0, 0., Kind::Flick)]);
         let mut input = finger(false, 0.); input.keyboard = true;
-        step(&mut engine, &cfg, offset, &[input]);
-        assert_eq!(special(&engine, 0), armed, "Flick {offset}");
+        let events = step(&mut engine, &cfg, offset, &[input]);
+        if offset > 0.16 {
+            assert_eq!(scores(&events), [(0, Judgement::Miss as u8)]);
+            assert!(engine.states[0].is_judged_for_flick);
+        } else {
+            assert_eq!(special(&engine, 0), armed, "Flick {offset}");
+        }
     }
     cfg.mods.insert(Mods::STRICT_JUDGE);
     cfg.phigros_rules.strict_early_ms = Some([30., 80., 130.]);
@@ -91,7 +96,7 @@ fn hold(e: &Engine, i: usize) -> &controls::HoldControl {
 fn special(e: &Engine, i: usize) -> bool {
     match &e.controls[i] {
         Control::Drag(control) => control.is_judged,
-        Control::Flick(_) => e.states[i].special,
+        Control::Flick(_) => e.states[i].is_judged_for_flick,
         _ => panic!("expected a Drag or Flick control"),
     }
 }
@@ -185,13 +190,13 @@ fn multiple_protectors_and_same_frame_clicks_follow_the_article_sequence() {
         for (head, protected) in [(0.010, false), (0.015, true)] {
             let mut e = Engine::new(vec![spec(2, head, Kind::Tap), spec(1, 0.005, kind), spec(0, 0., Kind::Flick)]);
             step(&mut e, &config(), -0.1, &[finger(true, 0.)]);
-            assert_eq!(e.states[2].click, !protected);
-            assert_eq!(e.states[1].click, protected && kind == Kind::Drag);
+            assert_eq!(e.states[2].is_judged, !protected);
+            assert_eq!(e.states[1].is_judged, protected && kind == Kind::Drag);
         }
         let mut e = Engine::new(vec![spec(0, 0., kind), spec(1, 0.05, Kind::Tap)]);
         let mut second = finger(true, 0.); second.id = 18;
         step(&mut e, &config(), -0.15, &[finger(true, 0.), second]);
-        assert_eq!(e.states[1].click, kind == Kind::Drag);
+        assert_eq!(e.states[1].is_judged, kind == Kind::Drag);
         assert!(!special(&e, 0), "two clicks outside Drag's held window cannot arm it");
     }
 }
@@ -201,17 +206,17 @@ fn chronological_protection_gap_and_independent_drag_marks() {
     for kind in [Kind::Drag, Kind::Flick] {
         let mut e = Engine::new(vec![spec(1, 0.05, Kind::Tap), spec(0, 0., kind)]);
         assert!(scores(&step(&mut e, &config(), -0.15, &[finger(true, 0.)])).is_empty());
-        assert!(!e.states[1].click, "protected tap is not matched");
-        assert_eq!(e.states[0].click, kind == Kind::Drag);
+        assert!(!e.states[1].is_judged, "protected tap is not matched");
+        assert_eq!(e.states[0].is_judged, kind == Kind::Drag);
         assert!(!special(&e, 0), "click protection must not arm drag/flick scoring");
         let events = step(&mut e, &config(), -0.149, &[finger(true, 0.)]);
-        assert_eq!(e.states[1].click, kind == Kind::Drag, "drag absorbs one click, flick can absorb repeated clicks");
+        assert_eq!(e.states[1].is_judged, kind == Kind::Drag, "drag absorbs one click, flick can absorb repeated clicks");
         assert_eq!(scores(&events).is_empty(), kind == Kind::Flick);
     }
     for (gap, protected) in [(0.009, false), (0.01, true), (0.011, true)] {
         let mut e = Engine::new(vec![spec(0, 0., Kind::Flick), spec(1, gap, Kind::Tap)]);
         step(&mut e, &config(), -0.1, &[finger(true, 0.)]);
-        assert_eq!(!e.states[1].click, protected, "gap {gap}");
+        assert_eq!(!e.states[1].is_judged, protected, "gap {gap}");
     }
 }
 
@@ -282,10 +287,10 @@ fn early_hold_can_absorb_clicks_on_later_frames() {
     let mut e = Engine::new(vec![spec(0, 1., Kind::Hold), spec(1, 1.01, Kind::Tap)]);
     assert!(step(&mut e, &cfg, 0.8, &[finger(true, 0.)]).is_empty());
     assert!(step(&mut e, &cfg, 0.81, &[finger(true, 0.)]).is_empty(), "the second click should match the Hold again, not Bad the Tap");
-    assert!(!e.states[1].click);
+    assert!(!e.states[1].is_judged);
     let events = step(&mut e, &cfg, 0.85, &[finger(true, 0.)]);
     assert!(matches!(events[0].action, Action::Head { judgement: Judgement::Good, .. }));
-    assert!(e.states[0].click);
+    assert!(e.states[0].is_judged);
     assert_eq!(scores(&step(&mut e, &cfg, 0.86, &[finger(true, 0.)])), [(1, Judgement::Good as u8)]);
 }
 
@@ -297,7 +302,7 @@ fn early_hold_matching_flag_is_not_cleared_between_same_frame_clicks() {
     let fingers = [finger(true, 0.), Finger { id: 18, ..finger(true, 0.) }];
     assert_eq!(scores(&step(&mut e, &cfg, 0.8, &fingers)), [(1, Judgement::Bad as u8)]);
     assert!(hold(&e, 0).is_judged);
-    assert!(!e.states[0].click);
+    assert!(!e.states[0].is_judged);
 }
 
 #[test]
@@ -306,7 +311,7 @@ fn early_hold_waits_for_good_and_never_bad() {
     let events = step(&mut e, &config(), -0.21, &[finger(true, 0.)]);
     assert!(events.is_empty());
     assert!(hold(&e, 0).is_judged);
-    assert!(!e.states[0].click);
+    assert!(!e.states[0].is_judged);
     assert!(hold(&e, 0).head.is_none());
     assert!(step(&mut e, &config(), -0.18, &[]).is_empty());
     let events = step(&mut e, &config(), -0.179, &[]);
@@ -347,7 +352,7 @@ fn hold_tail_boundary_and_delayed_miss() {
     assert_eq!(scores(&step(&mut e, &config(), 0.780001, &[])), [(0, Judgement::PerfectPlus as u8)]);
     let mut e = Engine::new(vec![spec(0, 0., Kind::Hold)]);
     assert!(step(&mut e, &config(), 0.181, &[finger(true, 0.)]).is_empty());
-    assert!(hold(&e, 0).is_judged && !e.states[0].click && hold(&e, 0).head.is_none());
+    assert!(hold(&e, 0).is_judged && !e.states[0].is_judged && hold(&e, 0).head.is_none());
     assert!(step(&mut e, &config(), 1.25, &[]).is_empty());
     assert_eq!(scores(&step(&mut e, &config(), 1.250001, &[])), [(0, Judgement::Miss as u8)]);
 }
@@ -510,7 +515,7 @@ fn ten_ms_tie_survives_chart_timestamp_subtraction() {
         for (gap, protected) in [(0.009, false), (0.01, true), (0.011, true)] {
             let mut e = Engine::new(vec![spec(0, base, Kind::Flick), spec(1, base + gap, Kind::Tap)]);
             step(&mut e, &config(), base - 0.1, &[finger(true, 0.)]);
-            assert_eq!(!e.states[1].click, protected, "base {base}, gap {gap}");
+            assert_eq!(!e.states[1].is_judged, protected, "base {base}, gap {gap}");
         }
     }
 }

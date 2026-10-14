@@ -4,6 +4,9 @@ use super::Judgement;
 use crate::config::{Config, JudgeAlgorithm, JudgeWindows, Mods, PhigrosRules};
 use std::collections::{BTreeSet, HashMap};
 
+mod controls;
+use controls::{Control, JudgeContext, NoteState};
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Kind {
     Tap,
@@ -48,17 +51,6 @@ pub struct Event {
     pub action: Action,
 }
 
-#[derive(Clone, Default)]
-struct Control {
-    click: bool,
-    special: bool,
-    head: Option<(Judgement, f64)>,
-    safe: i32,
-    released: Option<f64>,
-    done: bool,
-    hold_scored: bool,
-}
-
 #[derive(Default)]
 struct Flick {
     point: [f64; 2],
@@ -91,6 +83,7 @@ impl Flick {
 
 pub struct Engine {
     specs: Vec<Spec>,
+    states: Vec<NoteState>,
     controls: Vec<Control>,
     active: BTreeSet<usize>,
     entered: usize,
@@ -106,15 +99,17 @@ impl Engine {
     pub fn new(mut specs: Vec<Spec>) -> Self {
         // Stable tie order: chart line order then original note order.
         specs.sort_by(|a, b| a.time.total_cmp(&b.time));
-        let controls = specs
+        let states = specs
             .iter()
-            .map(|n| Control {
+            .map(|n| NoteState {
                 done: n.skipped,
                 ..Default::default()
             })
             .collect();
+        let controls = specs.iter().map(|n| Control::new(n.kind)).collect();
         Self {
             specs,
+            states,
             controls,
             active: BTreeSet::new(),
             entered: 0,
@@ -125,13 +120,15 @@ impl Engine {
     }
 
     pub fn advance_to(&mut self, time: f64) {
-        for (note, state) in self.specs.iter().zip(&mut self.controls) {
+        for (i, note) in self.specs.iter().enumerate() {
             if note.time < time {
-                state.done = true;
-                state.hold_scored = false;
+                self.states[i].done = true;
+                if let Control::Hold(control) = &mut self.controls[i] {
+                    control.hold_scored = false;
+                }
             }
         }
-        self.active.retain(|i| !self.controls[*i].done);
+        self.active.retain(|i| !self.states[*i].done);
         self.flicks.clear();
         self.frames = 0;
     }
@@ -194,7 +191,7 @@ impl Engine {
         let mut best: Option<(usize, f64, f64)> = None;
         for i in range {
             let n = &self.specs[i];
-            let state = &self.controls[i];
+            let state = &self.states[i];
             if state.done || if flick { n.kind != Kind::Flick || state.special } else { state.click } {
                 continue;
             }
@@ -276,7 +273,7 @@ impl Engine {
             let _ = f;
             if let Some(i) = self.select(finger, false, now, speed, &limits, cfg, rules, &mut geometry) {
                 if self.specs[i].kind != Kind::Flick {
-                    self.controls[i].click = true;
+                    self.states[i].click = true;
                 }
             }
         }
@@ -285,141 +282,25 @@ impl Engine {
                 continue;
             }
             if let Some(i) = self.select(finger, true, now, speed, &limits, cfg, rules, &mut geometry) {
-                self.controls[i].special = true;
+                self.states[i].special = true;
                 self.flicks.get_mut(&f.id).unwrap().new_flick = false;
             }
         }
-        let [drag_early, drag_late] = rules.drag_sides().map(|v| v / 1000.);
-        let [flick_early, flick_late] = rules.flick_sides();
+        let [drag_early, _] = rules.drag_sides().map(|v| v / 1000.);
+        let [flick_early, _] = rules.flick_sides();
         let lookahead = limits.early[3].max(drag_early).max(limits.early[1] * flick_early);
         let end = self.specs.partition_point(|n| n.time <= now + lookahead * speed);
         while self.entered < end {
-            if !self.controls[self.entered].done {
+            if !self.states[self.entered].done {
                 self.active.insert(self.entered);
             }
             self.entered += 1;
         }
+        let ctx = JudgeContext { cfg, now, limits: &limits, rules };
         for &i in &self.active {
-            let n = &self.specs[i];
-            let state = &mut self.controls[i];
-            if state.done {
-                if state.hold_scored && now >= n.end {
-                    state.hold_scored = false;
-                    events.push(Event {
-                        target: n.target,
-                        action: Action::EndHold,
-                    });
-                }
-                continue;
-            }
-            let dt = (n.time - now) / speed;
-            let side = limits.for_offset(-dt);
-            let abs = super::judge_distance(-dt, cfg.late_leniency());
-            let mut score = None;
-            match n.kind {
-                Kind::Tap => {
-                    if state.click {
-                        score = Some((super::judgement_at_distance(abs, &side, true), -dt));
-                    } else if dt < -limits.late_acceptance() - cfg.late_leniency() {
-                        score = Some((Judgement::Miss, 0.));
-                    }
-                }
-                Kind::Hold => {
-                    if state.head.is_none() {
-                        if !state.click && dt < -limits.late_acceptance() - cfg.late_leniency() {
-                            score = Some((Judgement::Miss, 0.));
-                        }
-                        if state.click && abs < side.acceptance() {
-                            let judgement = super::judgement_at_distance(abs, &side, true);
-                            state.head = Some((judgement, -dt));
-                            state.safe = rules.hold_safe_frames;
-                            events.push(Event {
-                                target: n.target,
-                                action: Action::Head { judgement, offset: -dt },
-                            });
-                        }
-                    }
-                    if let Some(head) = state.head {
-                        let on_note = fingers
-                            .iter()
-                            .enumerate()
-                            .any(|(finger, _)| geometry(n.target, finger).is_some_and(|(dx, _)| dx < rules.tap_width));
-                        if cfg.hold_tail_judge {
-                            // Explicit custom extension; disabled in the built-in Phigros preset.
-                            if on_note {
-                                state.released = None;
-                            } else {
-                                state.released.get_or_insert(now);
-                            }
-                            if state.released.is_some_and(|up| now > up + super::UP_TOLERANCE * speed) && (n.end - now) / speed > limits.early[3] {
-                                score = Some((Judgement::Miss, 0.));
-                            }
-                            if score.is_none() && now >= n.end {
-                                let off = state.released.map_or(0., |up| (up - n.end) / speed);
-                                score = Some((super::judgement_of_offset(off, &limits), off));
-                            }
-                        } else {
-                            if on_note {
-                                state.safe = rules.hold_safe_frames;
-                            } else if state.safe < 0 {
-                                score = Some((Judgement::Miss, 0.));
-                            } else {
-                                state.safe -= 1;
-                            }
-                            if score.is_none() && now > n.end - rules.hold_tail_ms / 1000. * speed {
-                                score = Some(head);
-                            }
-                        }
-                    } else if !state.done && now > n.end + rules.hold_delayed_miss_ms / 1000. * speed {
-                        score = Some((Judgement::Miss, 0.));
-                    }
-                }
-                Kind::Drag => {
-                    if super::judge_distance(-dt, cfg.late_leniency()) <= if dt >= 0. { drag_early } else { drag_late } && !state.special {
-                        state.special = fingers
-                            .iter()
-                            .enumerate()
-                            .any(|(finger, _)| geometry(n.target, finger).is_some_and(|(dx, _)| dx < rules.special_width));
-                    }
-                    if !state.special && dt < -drag_late - cfg.late_leniency() {
-                        score = Some((Judgement::Miss, 0.));
-                    }
-                    if state.special && dt < rules.special_early_ms / 1000. {
-                        score = Some((Judgement::Perfect, 0.));
-                    }
-                }
-                Kind::Flick => {
-                    if !state.special && dt < -limits.late[1] * flick_late - cfg.late_leniency() {
-                        score = Some((Judgement::Miss, 0.));
-                    }
-                    if state.special && dt < rules.special_early_ms / 1000. {
-                        score = Some((Judgement::Perfect, 0.));
-                    }
-                }
-            }
-            if let Some((judgement, offset)) = score {
-                if cfg.hold_tail_judge && n.kind == Kind::Hold && state.head.is_none() {
-                    events.push(Event {
-                        target: n.target,
-                        action: Action::Score { judgement, offset },
-                    });
-                }
-                state.done = true;
-                state.hold_scored = n.kind == Kind::Hold && !matches!(judgement, Judgement::Miss) && now < n.end;
-                state.click = true;
-                events.push(Event {
-                    target: n.target,
-                    action: Action::Score { judgement, offset },
-                });
-                if n.kind == Kind::Hold && !matches!(judgement, Judgement::Miss) && now >= n.end {
-                    events.push(Event {
-                        target: n.target,
-                        action: Action::EndHold,
-                    });
-                }
-            }
+            self.controls[i].judge(&self.specs[i], &mut self.states[i], &ctx, fingers, &mut geometry, &mut events);
         }
-        self.active.retain(|i| !self.controls[*i].done || self.controls[*i].hold_scored);
+        self.active.retain(|i| self.controls[*i].is_active(&self.states[*i]));
         (limits, events)
     }
 }

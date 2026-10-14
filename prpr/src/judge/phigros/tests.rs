@@ -102,7 +102,7 @@ fn special(e: &Engine, i: usize) -> bool {
 }
 
 #[test]
-fn separate_controls_preserve_event_order_and_score_once() {
+fn separate_controls_use_native_type_order_and_score_once() {
     let cfg = config();
     let mut e = Engine::new(vec![spec(0, 0., Kind::Flick), spec(1, 0., Kind::Hold), spec(2, 0., Kind::Drag), spec(3, 0., Kind::Tap)]);
     assert!(matches!(e.controls[0], Control::Flick(_)));
@@ -113,8 +113,8 @@ fn separate_controls_preserve_event_order_and_score_once() {
     let events = e.step(&cfg, 0., 1. / 120., 200., &fingers, |target, finger| {
         (target.1 as usize == finger).then_some((0., 0.))
     }).1;
-    assert_eq!(events.iter().map(|event| event.target.1).collect::<Vec<_>>(), [0, 1, 2, 3]);
-    assert_eq!(scores(&events), [(0, Judgement::Perfect as u8), (2, Judgement::Perfect as u8), (3, Judgement::PerfectPlus as u8)]);
+    assert_eq!(events.iter().map(|event| event.target.1).collect::<Vec<_>>(), [3, 2, 1, 0]);
+    assert_eq!(scores(&events), [(3, Judgement::PerfectPlus as u8), (2, Judgement::Perfect as u8), (0, Judgement::Perfect as u8)]);
     for finger in &mut fingers { finger.started = false; }
     assert!(step(&mut e, &cfg, 0.01, &fingers).is_empty());
     assert_eq!(scores(&step(&mut e, &cfg, 0.781, &fingers)), [(1, Judgement::PerfectPlus as u8)]);
@@ -124,6 +124,15 @@ fn separate_controls_preserve_event_order_and_score_once() {
     assert!(matches!(events[0].action, Action::EndHold));
     assert!(e.active.is_empty());
     assert!(step(&mut e, &cfg, 1.01, &fingers).is_empty());
+}
+
+#[test]
+fn type_order_overrides_time_order() {
+    let mut e = Engine::new(vec![spec(1, 0.11, Kind::Tap), spec(0, 0., Kind::Drag)]);
+    let events = step(&mut e, &config(), 0.101, &[finger(true, 0.)]);
+    assert_eq!(scores(&events), [(1, Judgement::PerfectPlus as u8), (0, Judgement::Miss as u8)]);
+    assert!(e.active.is_empty());
+    assert!(step(&mut e, &config(), 0.11, &[]).is_empty());
 }
 
 #[test]

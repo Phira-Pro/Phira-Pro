@@ -297,8 +297,12 @@ impl Engine {
             self.entered += 1;
         }
         let ctx = JudgeContext { cfg, now, limits: &limits, rules };
-        for &i in &self.active {
-            self.controls[i].judge(&self.specs[i], &mut self.states[i], &ctx, fingers, &mut geometry, &mut events);
+        for kind in [Kind::Tap, Kind::Drag, Kind::Hold, Kind::Flick] {
+            for &i in &self.active {
+                if self.specs[i].kind == kind {
+                    self.controls[i].judge(&self.specs[i], &mut self.states[i], &ctx, fingers, &mut geometry, &mut events);
+                }
+            }
         }
         self.active.retain(|i| self.controls[*i].is_active(&self.states[*i]));
         (limits, events)

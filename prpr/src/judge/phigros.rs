@@ -2,10 +2,12 @@
 //! Geometry is supplied by the renderer; all time/matching/control logic is testable without a GPU.
 use super::Judgement;
 use crate::config::{Config, JudgeAlgorithm, JudgeWindows, Mods, PhigrosRules};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 mod controls;
-use controls::{Control, JudgeContext, NoteState};
+mod note_update_manager;
+use controls::{JudgeContext, NoteState};
+use note_update_manager::NoteUpdateManager;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Kind {
@@ -84,9 +86,7 @@ impl Flick {
 pub struct Engine {
     specs: Vec<Spec>,
     states: Vec<NoteState>,
-    controls: Vec<Control>,
-    active: BTreeSet<usize>,
-    entered: usize,
+    note_update_manager: NoteUpdateManager,
     flicks: HashMap<u64, Flick>,
     frame_times: [f64; 10],
     frames: usize,
@@ -106,13 +106,11 @@ impl Engine {
                 ..Default::default()
             })
             .collect();
-        let controls = specs.iter().map(|n| Control::new(n.kind)).collect();
+        let note_update_manager = NoteUpdateManager::new(&specs);
         Self {
             specs,
             states,
-            controls,
-            active: BTreeSet::new(),
-            entered: 0,
+            note_update_manager,
             flicks: HashMap::new(),
             frame_times: [0.; 10],
             frames: 0,
@@ -120,15 +118,7 @@ impl Engine {
     }
 
     pub fn advance_to(&mut self, time: f64) {
-        for (i, note) in self.specs.iter().enumerate() {
-            if note.time < time {
-                self.states[i].done = true;
-                if let Control::Hold(control) = &mut self.controls[i] {
-                    control.hold_scored = false;
-                }
-            }
-        }
-        self.active.retain(|i| !self.states[*i].done);
+        self.note_update_manager.advance_to(&self.specs, &mut self.states, time);
         self.flicks.clear();
         self.frames = 0;
     }
@@ -286,25 +276,8 @@ impl Engine {
                 self.flicks.get_mut(&f.id).unwrap().new_flick = false;
             }
         }
-        let [drag_early, _] = rules.drag_sides().map(|v| v / 1000.);
-        let [flick_early, _] = rules.flick_sides();
-        let lookahead = limits.early[3].max(drag_early).max(limits.early[1] * flick_early);
-        let end = self.specs.partition_point(|n| n.time <= now + lookahead * speed);
-        while self.entered < end {
-            if !self.states[self.entered].done {
-                self.active.insert(self.entered);
-            }
-            self.entered += 1;
-        }
         let ctx = JudgeContext { cfg, now, limits: &limits, rules };
-        for kind in [Kind::Tap, Kind::Drag, Kind::Hold, Kind::Flick] {
-            for &i in &self.active {
-                if self.specs[i].kind == kind {
-                    self.controls[i].judge(&self.specs[i], &mut self.states[i], &ctx, fingers, &mut geometry, &mut events);
-                }
-            }
-        }
-        self.active.retain(|i| self.controls[*i].is_active(&self.states[*i]));
+        self.note_update_manager.update(&self.specs, &mut self.states, &ctx, fingers, &mut geometry, &mut events);
         (limits, events)
     }
 }

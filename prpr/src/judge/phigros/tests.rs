@@ -1,4 +1,5 @@
 use super::*;
+use super::controls::Control;
 
 #[test]
 fn asymmetric_grades_and_hold_heads_use_the_correct_side() {
@@ -89,12 +90,12 @@ fn step(e: &mut Engine, cfg: &Config, now: f64, fingers: &[Finger]) -> Vec<Event
 }
 
 fn hold(e: &Engine, i: usize) -> &controls::HoldControl {
-    let Control::Hold(control) = &e.controls[i] else { panic!("expected a Hold control") };
+    let Control::Hold(control) = &e.note_update_manager.controls[i] else { panic!("expected a Hold control") };
     control
 }
 
 fn special(e: &Engine, i: usize) -> bool {
-    match &e.controls[i] {
+    match &e.note_update_manager.controls[i] {
         Control::Drag(control) => control.is_judged,
         Control::Flick(_) => e.states[i].is_judged_for_flick,
         _ => panic!("expected a Drag or Flick control"),
@@ -105,10 +106,10 @@ fn special(e: &Engine, i: usize) -> bool {
 fn separate_controls_use_native_type_order_and_score_once() {
     let cfg = config();
     let mut e = Engine::new(vec![spec(0, 0., Kind::Flick), spec(1, 0., Kind::Hold), spec(2, 0., Kind::Drag), spec(3, 0., Kind::Tap)]);
-    assert!(matches!(e.controls[0], Control::Flick(_)));
-    assert!(matches!(e.controls[1], Control::Hold(_)));
-    assert!(matches!(e.controls[2], Control::Drag(_)));
-    assert!(matches!(e.controls[3], Control::Click(_)));
+    assert!(matches!(e.note_update_manager.controls[0], Control::Flick(_)));
+    assert!(matches!(e.note_update_manager.controls[1], Control::Hold(_)));
+    assert!(matches!(e.note_update_manager.controls[2], Control::Drag(_)));
+    assert!(matches!(e.note_update_manager.controls[3], Control::Click(_)));
     let mut fingers: Vec<_> = (0..4).map(|id| Finger { id, keyboard: id == 0, ..finger(true, 0.) }).collect();
     let events = e.step(&cfg, 0., 1. / 120., 200., &fingers, |target, finger| {
         (target.1 as usize == finger).then_some((0., 0.))
@@ -122,7 +123,7 @@ fn separate_controls_use_native_type_order_and_score_once() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].target.1, 1);
     assert!(matches!(events[0].action, Action::EndHold));
-    assert!(e.active.is_empty());
+    assert!(e.note_update_manager.active.is_empty());
     assert!(step(&mut e, &cfg, 1.01, &fingers).is_empty());
 }
 
@@ -131,7 +132,7 @@ fn type_order_overrides_time_order() {
     let mut e = Engine::new(vec![spec(1, 0.11, Kind::Tap), spec(0, 0., Kind::Drag)]);
     let events = step(&mut e, &config(), 0.101, &[finger(true, 0.)]);
     assert_eq!(scores(&events), [(1, Judgement::PerfectPlus as u8), (0, Judgement::Miss as u8)]);
-    assert!(e.active.is_empty());
+    assert!(e.note_update_manager.active.is_empty());
     assert!(step(&mut e, &config(), 0.11, &[]).is_empty());
 }
 
@@ -142,14 +143,14 @@ fn skipped_controls_and_advanced_hold_tails_stay_inactive() {
         note.skipped = true;
         let mut e = Engine::new(vec![note]);
         assert!(step(&mut e, &config(), 0., &[finger(true, 0.)]).is_empty());
-        assert!(e.active.is_empty());
+        assert!(e.note_update_manager.active.is_empty());
     }
     let mut e = Engine::new(vec![spec(0, 0., Kind::Hold)]);
     step(&mut e, &config(), 0., &[finger(true, 0.)]);
     step(&mut e, &config(), 0.781, &[finger(false, 0.)]);
     assert!(hold(&e, 0).hold_scored);
     e.advance_to(0.9);
-    assert!(e.active.is_empty());
+    assert!(e.note_update_manager.active.is_empty());
     assert!(!hold(&e, 0).hold_scored);
     assert!(step(&mut e, &config(), 1., &[]).is_empty());
 }
@@ -508,7 +509,7 @@ fn successful_hold_scores_once_and_ends_visually_at_its_tail() {
     let events = step(&mut e, &config(), 1., &[]);
     assert!(scores(&events).is_empty());
     assert!(matches!(events[0].action, Action::EndHold));
-    assert!(e.active.is_empty());
+    assert!(e.note_update_manager.active.is_empty());
     assert!(step(&mut e, &config(), 1.01, &[]).is_empty());
 }
 

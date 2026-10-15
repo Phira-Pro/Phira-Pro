@@ -176,6 +176,9 @@ pub struct Config {
     pub aggressive: bool,
     /// Flat block ranges; skips materials, hover and music filtering, not judgement.
     pub block_area_simple: bool,
+    pub menu_playlist: Option<String>,
+    pub noise_glow: bool,
+    pub noise_refraction: bool,
     /// Loading-time shader draws and exact static block geometry cache.
     pub shader_pre_render: bool,
     pub ap_fc_indicator: bool,
@@ -238,6 +241,8 @@ pub struct Config {
     pub practice: crate::practice::Options,
     #[serde(skip)]
     pub practice_active: bool,
+    #[serde(skip)]
+    pub practice_local_path: Option<String>,
     #[serde(skip)]
     pub practice_multiplier: f64,
     /// 变速练习的起始速度。
@@ -374,6 +379,9 @@ impl Default for Config {
             adjust_time: false,
             aggressive: true,
             block_area_simple: false,
+            menu_playlist: None,
+            noise_glow: true,
+            noise_refraction: true,
             shader_pre_render: false,
             ap_fc_indicator: true,
             aspect_ratio: None,
@@ -411,6 +419,7 @@ impl Default for Config {
             practice_ramp: false,
             practice: Default::default(),
             practice_active: false,
+            practice_local_path: None,
             practice_multiplier: 1.,
             practice_speed_start: 0.7,
             practice_speed_step: 0.1,
@@ -451,6 +460,9 @@ impl Default for Config {
 }
 
 impl Config {
+    pub(crate) fn clear_legacy_autoplay(&mut self) {
+        self.autoplay = None;
+    }
     pub fn font_scale(&self) -> f32 {
         [0.8, 0.9, 1., 1.1, 1.2][self.font_size.min(4)]
     }

@@ -14,6 +14,9 @@ pub struct MusicPanel {
     popup: bool,
     popup_rect: Option<Rect>,
     anchor: Rect,
+    extra: [DRectButton; 4],
+    history: Vec<(usize, RectButton)>,
+    pub open_chart: Option<String>,
 }
 impl Default for MusicPanel {
     fn default() -> Self {
@@ -25,6 +28,9 @@ impl Default for MusicPanel {
             popup: false,
             popup_rect: None,
             anchor: Rect::default(),
+            extra: std::array::from_fn(|_| DRectButton::new()),
+            history: Vec::new(),
+            open_chart: None,
         }
     }
 }
@@ -83,7 +89,7 @@ fn texture_icon_rect(button: Rect, texture: Texture2D, artwork: Rect) -> Rect {
     )
 }
 fn dropdown_rect(anchor: Rect, top: f32) -> Rect {
-    let h = 0.18;
+    let h = (top * 2. - 0.08).min(0.34);
     let y = if anchor.bottom() + 0.012 + h <= top - 0.02 {
         anchor.bottom() + 0.012
     } else {
@@ -98,6 +104,27 @@ fn timestamp(seconds: f64) -> String {
 impl MusicPanel {
     pub fn touch(&mut self, touch: &Touch, t: f32, music: &mut MenuMusic) -> Result<bool> {
         if self.popup {
+            for (i, b) in self.extra.iter_mut().enumerate() {
+                if b.touch(touch, t) {
+                    match i {
+                        0 => music.previous(),
+                        1 => music.next(),
+                        2 => music.cycle_playlist()?,
+                        3 => {
+                            self.open_chart = music.current_path().map(str::to_owned);
+                            self.popup = false;
+                        }
+                        _ => {}
+                    }
+                    return Ok(true);
+                }
+            }
+            for (i, b) in &mut self.history {
+                if b.touch(touch) {
+                    music.play_history(*i);
+                    return Ok(true);
+                }
+            }
             if self.progress.contains(touch.position) {
                 if self.progress.touch(touch) {
                     self.popup = false;
@@ -174,6 +201,10 @@ impl MusicPanel {
     }
     pub fn render_top(&mut self, ui: &mut Ui, music: &MenuMusic, title_fallback: &str) {
         if !self.popup {
+            for b in &mut self.extra {
+                b.invalidate();
+            }
+            self.history.clear();
             self.popup_rect = None;
             return;
         }
@@ -181,11 +212,48 @@ impl MusicPanel {
             let r = dropdown_rect(self.anchor, ui.top);
             self.popup_rect = Some(r);
             ui.fill_path(&r.rounded(0.008), semi_black(0.48));
+            let bh = 0.055;
+            let gap = 0.01;
+            let width = (r.w - 0.04 - gap) / 2.;
+            let y = r.y + 0.105;
+            self.extra[0].render_text(ui, Rect::new(r.x + 0.02, y, width, bh), get_time() as f32, "‹", 0.4, false);
+            self.extra[1].render_text(ui, Rect::new(r.x + 0.02 + width + gap, y, width, bh), get_time() as f32, "›", 0.4, false);
+            self.extra[2].render_text(
+                ui,
+                Rect::new(r.x + 0.02, y + 0.063, width, bh),
+                get_time() as f32,
+                format!("播放列表：{}", music.playlist_name()),
+                0.32,
+                false,
+            );
+            self.extra[3].render_text(
+                ui,
+                Rect::new(r.x + 0.02 + width + gap, y + 0.063, width, bh),
+                get_time() as f32,
+                if music.custom { "自定义背景音乐" } else { "打开当前谱面" },
+                0.33,
+                false,
+            );
+            let history = music.history();
+            self.history.resize_with(history.len().min(2), || (0, RectButton::new()));
+            for (i, ((index, name), (id, btn))) in history.iter().take(2).zip(&mut self.history).enumerate() {
+                *id = *index;
+                let rect = Rect::new(r.x + 0.02, y + 0.126 + i as f32 * 0.043, r.w - 0.04, 0.04);
+                btn.set(ui, rect);
+                ui.text(format!("历史 · {name}"))
+                    .pos(rect.x, rect.center().y)
+                    .anchor(0., 0.5)
+                    .no_baseline()
+                    .size(0.29)
+                    .max_width(rect.w)
+                    .color(semi_white(0.65))
+                    .draw();
+            }
             let title = if music.title.is_empty() { title_fallback } else { &music.title };
-            ui.text(title).pos(r.x + 0.02, r.y + 0.025).size(0.48).max_width(r.w - 0.04).draw();
+            ui.text(title).pos(r.x + 0.02, r.y + 0.016).size(0.40).max_width(r.w - 0.04).draw();
             ui.text(format!("{} / {}", timestamp(music.position()), timestamp(music.duration)))
-                .pos(r.x + 0.02, r.y + 0.10)
-                .size(0.42)
+                .pos(r.x + 0.02, r.y + 0.062)
+                .size(0.32)
                 .color(semi_white(0.7))
                 .draw();
         });
@@ -317,7 +385,7 @@ pub(crate) async fn render_regression(painter: &mut prpr::ui::TextPainter) {
                     &Touch {
                         id: 212,
                         phase,
-                        position: vec2(-0.8, 0.),
+                        position: vec2(0.95, -ui.top + 0.01),
                         time: 2.,
                     },
                     2.,

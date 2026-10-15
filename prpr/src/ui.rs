@@ -208,6 +208,10 @@ impl RectButton {
 
     pub fn contains(&self, pos: Vec2) -> bool {
         if let Some([a, b, c, d]) = self.pts {
+            // Degenerate rectangles are disabled hit targets, not the entire screen.
+            if (b - a).perp_dot(d - a).abs() <= f32::EPSILON {
+                return false;
+            }
             let abp = (b - a).perp_dot(pos - a);
             let bcp = (c - b).perp_dot(pos - b);
             let cdp = (d - c).perp_dot(pos - c);
@@ -1581,4 +1585,26 @@ pub fn list_switch() {
             });
         }
     });
+}
+
+#[cfg(test)]
+mod disabled_hit_target_tests {
+    use super::*;
+    #[test]
+    fn empty_hit_target_never_intercepts_and_live_target_keeps_edges() {
+        let empty = RectButton {
+            pts: Some([vec2(10., 10.); 4]),
+            id: None,
+        };
+        for p in [vec2(0., 0.), vec2(10., 10.), vec2(-1., 0.5)] {
+            assert!(!empty.contains(p));
+        }
+        let live = RectButton {
+            pts: Some([vec2(0., 0.), vec2(1., 0.), vec2(1., 1.), vec2(0., 1.)]),
+            id: None,
+        };
+        assert!(live.contains(vec2(0.5, 0.5)));
+        assert!(live.contains(vec2(1., 1.)));
+        assert!(!live.contains(vec2(2., 1.)));
+    }
 }

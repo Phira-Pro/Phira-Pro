@@ -38,6 +38,15 @@ pub struct TextureShading {
     color: Color,
 }
 
+impl TextureShading {
+    /// Framebuffer textures have the opposite vertical origin to image assets.
+    pub fn flip_y(mut self) -> Self {
+        self.texture.1.y += self.texture.1.h;
+        self.texture.1.h = -self.texture.1.h;
+        self
+    }
+}
+
 impl Shading for TextureShading {
     fn new_vertex(&self, mat: &Matrix, p: &Point, alpha: f32) -> Vertex {
         let t = mat.transform_point(p);

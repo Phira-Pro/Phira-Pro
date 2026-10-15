@@ -20,6 +20,10 @@ pub struct ReplayManager {
     items: Vec<Item>,
     library_revision: u64,
     filter: usize,
+    query: String,
+    sort: usize,
+    multi: bool,
+    chosen: std::collections::HashSet<PathBuf>,
     selected: Option<PathBuf>,
     rows: Vec<RectButton>,
     scroll: Scroll,
@@ -44,10 +48,14 @@ impl ReplayManager {
             items: Vec::new(),
             library_revision: library::revision(),
             filter: 0,
+            query: String::new(),
+            sort: 0,
+            multi: false,
+            chosen: Default::default(),
             selected: None,
             rows: Vec::new(),
             scroll: Scroll::new(),
-            buttons: (0..13).map(|_| DRectButton::new()).collect(),
+            buttons: (0..20).map(|_| DRectButton::new()).collect(),
             status: String::new(),
             choosing_chart: false,
             import_waiting: false,
@@ -80,8 +88,22 @@ impl ReplayManager {
         }
     }
     fn visible(&self) -> Vec<Item> {
-        self.items
+        let mut out: Vec<_> = self
+            .items
             .iter()
+            .filter(|item| {
+                let q = self.query.to_lowercase();
+                format!(
+                    "{} {} {} {} {}",
+                    item.meta.name,
+                    item.player(),
+                    item.mode,
+                    item.record.as_ref().map(|r| r.time_text()).unwrap_or_default(),
+                    item.speed.map(|s| format!("{s:.2}x")).unwrap_or_default()
+                )
+                .to_lowercase()
+                .contains(&q)
+            })
             .filter(|item| match self.filter {
                 1 => !item.imported(),
                 2 => item.imported(),
@@ -99,7 +121,14 @@ impl ReplayManager {
                 })
             })
             .cloned()
-            .collect()
+            .collect();
+        match self.sort {
+            0 => out.sort_by_key(|i| std::cmp::Reverse(i.meta.recorded_at.unwrap_or(0))),
+            1 => out.sort_by_key(|i| i.meta.name.clone()),
+            2 => out.sort_by_key(|i| std::cmp::Reverse(std::fs::metadata(&i.path).map(|m| m.len()).unwrap_or(0))),
+            _ => out.sort_by_key(|i| !i.binding.as_ref().is_some_and(|b| b.keep)),
+        }
+        out
     }
     fn selected_item(&self) -> Option<Item> {
         self.items.iter().find(|i| Some(&i.path) == self.selected.as_ref()).cloned()
@@ -127,14 +156,25 @@ impl ReplayManager {
             self.reload();
         }
         self.scroll.update(t);
+        if let Some((id, text)) = prpr::scene::take_input() {
+            if id == "replay_search" {
+                self.query = text;
+                self.scroll.y_scroller.reset();
+            } else {
+                prpr::scene::return_input(id, text);
+            }
+        }
+        self.chosen.retain(|p| self.items.iter().any(|i| &i.path == p));
         replay::poll_export();
         if self.import_waiting {
             if let Some((id, file)) = take_file() {
                 if id == "replay_import" {
                     self.import_waiting = false;
                     if !file.is_empty() {
-                        match library::import(std::path::Path::new(&file)) {
-                            Ok((path, added)) => {
+                        match library::import_package(std::path::Path::new(&file)) {
+                            Ok(result) => {
+                                let added = result.iter().any(|(_, a)| *a);
+                                let path = result[0].0.clone();
                                 self.selected = Some(path.clone());
                                 self.reload();
                                 if !added {
@@ -246,6 +286,63 @@ impl ReplayManager {
             return Ok(true);
         }
         if self.task.is_some() || self.play_task.is_some() || self.download_task.is_some() || self.install_task.is_some() {
+            return Ok(true);
+        }
+        if self.buttons[13].touch(touch, t) {
+            prpr::scene::request_input("replay_search", inputbox::InputBox::new().default_text(&self.query));
+            return Ok(true);
+        }
+        if self.buttons[14].touch(touch, t) {
+            self.sort = (self.sort + 1) % 4;
+            self.scroll.y_scroller.reset();
+            return Ok(true);
+        }
+        if self.buttons[15].touch(touch, t) {
+            self.multi ^= true;
+            self.chosen.clear();
+            self.selected = None;
+            self.choosing_chart = false;
+            return Ok(true);
+        }
+        if self.buttons[16].touch(touch, t) {
+            self.chosen = self.visible().iter().map(|i| i.path.clone()).collect();
+            return Ok(true);
+        }
+        if self.buttons[17].touch(touch, t) {
+            let paths: Vec<_> = self
+                .items
+                .iter()
+                .filter(|i| self.chosen.contains(&i.path) && !i.binding.as_ref().is_some_and(|b| b.keep))
+                .map(|i| i.path.clone())
+                .collect();
+            prpr::ui::Dialog::simple(format!("删除选中的 {} 个回放？重要回放会保留，成绩历史不受影响。", paths.len()))
+                .buttons(vec!["取消".into(), "删除".into()])
+                .listener(move |_, pos| {
+                    if pos == 1 {
+                        for p in &paths {
+                            if let Err(e) = library::delete(p) {
+                                show_error(e);
+                                break;
+                            }
+                        }
+                    }
+                    false
+                })
+                .show();
+            return Ok(true);
+        }
+        if self.buttons[18].touch(touch, t) {
+            let paths = self.chosen.iter().cloned().collect::<Vec<_>>();
+            if !paths.is_empty() {
+                replay::export_batch(&paths)?;
+            }
+            return Ok(true);
+        }
+        if self.buttons[19].touch(touch, t) {
+            if let Some(item) = self.selected_item() {
+                library::set_keep(&item.path, !item.binding.as_ref().is_some_and(|b| b.keep))?;
+                self.reload();
+            }
             return Ok(true);
         }
         if self.buttons[0].touch(touch, t) {
@@ -360,6 +457,11 @@ impl ReplayManager {
                         self.find_chart(path, Some(preferred));
                     }
                 } else if let Some(item) = items.get(i) {
+                    if self.multi {
+                        if !self.chosen.remove(&item.path) {
+                            self.chosen.insert(item.path.clone());
+                        }
+                    }
                     self.selected = Some(item.path.clone());
                     self.status.clear();
                 }
@@ -390,9 +492,68 @@ impl ReplayManager {
         y += 0.095;
         let filter_width = (w - 3. * 0.012) / 4.;
         for (i, label) in ["全部", "自己录制", "导入回放", "缺少谱面"].iter().enumerate() {
-            self.buttons[i + 3].render_text(ui, Rect::new(x + i as f32 * (filter_width + 0.012), y, filter_width, 0.07), t, *label, 0.4, self.filter == i);
+            self.buttons[i + 3].render_text(
+                ui,
+                Rect::new(x + i as f32 * (filter_width + 0.012), y, filter_width, 0.07),
+                t,
+                *label,
+                0.4,
+                self.filter == i,
+            );
         }
         y += 0.09;
+        self.buttons[13].render_text(
+            ui,
+            Rect::new(x, y, w * 0.5, 0.07),
+            t,
+            if self.query.is_empty() {
+                "搜索曲名 / 玩家 / 日期 / 规则"
+            } else {
+                &self.query
+            },
+            0.34,
+            false,
+        );
+        self.buttons[14].render_text(
+            ui,
+            Rect::new(x + w * 0.51, y, w * 0.27, 0.07),
+            t,
+            ["最新录制", "曲名", "占用空间", "重要优先"][self.sort],
+            0.34,
+            false,
+        );
+        self.buttons[15].render_text(
+            ui,
+            Rect::new(x + w * 0.79, y, w * 0.21, 0.07),
+            t,
+            if self.multi { "完成多选" } else { "多选" },
+            0.34,
+            self.multi,
+        );
+        y += 0.085;
+        for b in &mut self.buttons[16..] {
+            b.invalidate();
+        }
+        if self.multi {
+            for (i, label) in ["全选结果", "删除所选", "导出所选"].iter().enumerate() {
+                self.buttons[16 + i].render_text(ui, Rect::new(x + i as f32 * w / 3., y, w / 3. - 0.012, 0.065), t, *label, 0.35, false);
+            }
+            y += 0.08;
+        } else if let Some(item) = self.selected_item() {
+            self.buttons[19].render_text(
+                ui,
+                Rect::new(x, y, w, 0.065),
+                t,
+                if item.binding.as_ref().is_some_and(|b| b.keep) {
+                    "重要回放：已保留"
+                } else {
+                    "标为重要回放"
+                },
+                0.35,
+                false,
+            );
+            y += 0.08;
+        }
         if let Some(item) = self.selected_item() {
             let score = item
                 .record
@@ -424,7 +585,9 @@ impl ReplayManager {
             }
             y += 0.09;
         } else {
-            for button in &mut self.buttons[7..] {
+            // Only single-record actions disappear without a selection. Keep
+            // search, sort and batch controls active on an unopened list.
+            for button in &mut self.buttons[7..13] {
                 button.invalidate();
             }
         }
@@ -455,9 +618,9 @@ impl ReplayManager {
                         (charts[i].0.clone(), charts[i].1.clone(), false)
                     } else {
                         let item = &items[i];
-                        let status = if item.binding.as_ref().is_some_and(|b| b.local_path.is_none()) {
+                        let status = if item.imported() && item.binding.as_ref().is_some_and(|b| b.local_path.is_none()) {
                             "缺少谱面 / 待关联"
-                        } else if item.binding.as_ref().is_some_and(|b| !b.verified) {
+                        } else if item.binding.as_ref().is_some_and(|b| b.local_path.is_some() && !b.verified) {
                             "关联未校验"
                         } else if item.imported() {
                             "导入回放"
@@ -477,9 +640,17 @@ impl ReplayManager {
                                 item.meta.level,
                                 item.mode,
                                 item.speed.map_or("速度未记录".into(), |s| format!("{s:.2}×")),
-                                status
+                                format!(
+                                    "{status} · {:.2} MiB{}",
+                                    std::fs::metadata(&item.path).map(|m| m.len()).unwrap_or(0) as f64 / 1048576.,
+                                    if item.binding.as_ref().is_some_and(|b| b.keep) {
+                                        " · 重要"
+                                    } else {
+                                        ""
+                                    }
+                                )
                             ),
-                            self.selected.as_ref() == Some(&item.path),
+                            self.selected.as_ref() == Some(&item.path) || self.chosen.contains(&item.path),
                         )
                     };
                     ui.fill_path(&r.rounded(0.012), if selected { semi_white(0.12) } else { semi_black(0.25) });
@@ -566,11 +737,19 @@ impl Scene for ReplayManager {
 #[cfg(all(test, target_os = "windows"))]
 pub(crate) fn render_regression(painter: &mut prpr::ui::TextPainter, path: &std::path::Path, state: &mut SharedState) {
     let mut manager = ReplayManager::new(None, true);
-    manager.selected = Some(path.to_path_buf());
     for (w, h, label) in [(960, 720, "4x3"), (1280, 720, "16x9"), (1280, 548, "21x9")] {
         let mut ui = Ui::new(painter, Some((0, 0, w, h)));
         set_camera(&ui.camera());
         clear_background(Color::new(0.10, 0.13, 0.18, 1.));
+        manager.selected = None;
+        manager.render_inner(&mut ui, 2.);
+        for i in [13, 14, 15] {
+            assert!(
+                (-100..=100).any(|x| (-75..=75).any(|y| manager.buttons[i].inner.contains(vec2(x as f32 / 100., y as f32 / 100.)))),
+                "list-level button {i} must work before selecting a record"
+            );
+        }
+        manager.selected = Some(path.to_path_buf());
         manager.render_inner(&mut ui, 2.);
         assert!(manager.selected_item().is_some());
         unsafe { get_internal_gl() }.flush();
@@ -607,7 +786,12 @@ pub(crate) fn render_regression(painter: &mut prpr::ui::TextPainter, path: &std:
         if name == "settings-closed" {
             assert!(bytes.chunks_exact(4).all(|p| p[..3] == [0, 0, 0]), "replay buttons remain after page fade-out");
         }
-        Image { width: 1280, height: 720, bytes }.export_png(&format!("target/replay-qa/manager-{name}.png"));
+        Image {
+            width: 1280,
+            height: 720,
+            bytes,
+        }
+        .export_png(&format!("target/replay-qa/manager-{name}.png"));
     }
     state.fader = super::Fader::new();
     let mut copied = replay::load(path).unwrap();

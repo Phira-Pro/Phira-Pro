@@ -1179,6 +1179,23 @@ pub fn request_export(path: &std::path::Path) -> Result<()> {
     crate::page::request_export(name);
     Ok(())
 }
+pub fn export_batch(paths: &[std::path::PathBuf]) -> Result<()> {
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for path in paths {
+        let tape = load(path)?;
+        zip.start_file(
+            path.file_name().context("缺少文件名")?.to_string_lossy(),
+            zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+        )?;
+        zip.write_all(&bytes(&tape)?)?;
+    }
+    request_export_bytes(format!("replays-{}.zip", chrono::Local::now().format("%Y%m%d-%H%M%S")), zip.finish()?.into_inner());
+    Ok(())
+}
+pub fn request_export_bytes(name: String, bytes: Vec<u8>) {
+    EXPORT_BYTES.with(|v| *v.borrow_mut() = Some(bytes));
+    crate::page::request_export(name);
+}
 pub fn poll_export() {
     if !EXPORT_BYTES.with(|v| v.borrow().is_some()) {
         return;

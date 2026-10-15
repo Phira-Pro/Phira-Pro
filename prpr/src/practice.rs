@@ -1,8 +1,10 @@
 //! Practice-only state. None of these controls changes a saved judgement preset
 //! or the chart on disk.
+pub mod adaptive;
 pub mod audio;
 pub mod base;
 pub mod panel;
+pub mod tools;
 pub fn format_time(time: f64) -> String {
     let t = time.abs();
     let seconds = t % 60.;
@@ -72,6 +74,7 @@ impl NoteBehavior {
 #[serde(default, rename_all = "camelCase")]
 pub struct Options {
     pub preserve_pitch: bool,
+    pub adaptive: adaptive::Goal,
     pub judgement_multiplier: f32,
     pub inverse_speed: bool,
     pub correct_sound: bool,
@@ -98,6 +101,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             preserve_pitch: false,
+            adaptive: Default::default(),
             judgement_multiplier: 1.,
             inverse_speed: false,
             correct_sound: false,
@@ -118,6 +122,8 @@ impl Options {
         fn bound(v: &mut f32, low: f32, high: f32, default: f32) {
             *v = if v.is_finite() { v.clamp(low, high) } else { default };
         }
+        bound(&mut self.adaptive.accuracy, 0., 1., 0.98);
+        self.adaptive.consecutive = self.adaptive.consecutive.clamp(1, 99);
         bound(&mut self.judgement_multiplier, 0.1, 3., 1.);
         bound(&mut self.view.scale, 0.1, 5., 1.);
         bound(&mut self.view.x, -4., 4., 0.);

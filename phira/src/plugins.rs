@@ -800,7 +800,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let package = dir.path().join("ppsr.zip");
         let index = dir.path().join("plugins/index.json");
-        std::fs::write(&package, include_bytes!("../../docs/plugins/Phira-Pro-PPSR.zip")).unwrap();
+        // Build the fixture from tracked sources; the distributable ZIP is not in Git.
+        {
+            use std::io::Write;
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&package).unwrap());
+            let options = zip::write::SimpleFileOptions::default();
+            for (name, contents) in [
+                ("manifest.json", include_str!("../../docs/plugins/examples/ppsr/manifest.json")),
+                ("main.rhai", include_str!("../../docs/plugins/examples/ppsr/main.rhai")),
+            ] {
+                zip.start_file(name, options).unwrap();
+                zip.write_all(contents.as_bytes()).unwrap();
+            }
+            zip.finish().unwrap();
+        }
         install_package(&package, &index).unwrap();
         let installed = read_index_at(&index).unwrap();
         assert_eq!(installed.len(), 1);

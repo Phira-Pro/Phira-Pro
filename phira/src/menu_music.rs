@@ -27,6 +27,10 @@ pub struct MenuMusic {
     low_pass: f32,
     library_paths: Vec<String>,
     attempted: bool,
+    history: Vec<String>,
+    history_cursor: Option<usize>,
+    requested_path: Option<String>,
+    navigating: bool,
 }
 
 fn preview_position(start: f32, duration: f64) -> f64 {
@@ -88,8 +92,87 @@ impl MenuMusic {
         self.custom = dir::find_appearance_audio("bgm").is_some();
         self.request();
     }
+    pub fn current_path(&self) -> Option<&str> {
+        if self.custom {
+            None
+        } else {
+            self.last_path.as_deref()
+        }
+    }
+    pub fn history(&self) -> Vec<(usize, String)> {
+        self.history
+            .iter()
+            .enumerate()
+            .rev()
+            .take(5)
+            .map(|(i, p)| {
+                (
+                    i,
+                    get_data()
+                        .charts
+                        .iter()
+                        .find(|c| &c.local_path == p)
+                        .map(|c| c.info.name.clone())
+                        .unwrap_or("谱面已移除".into()),
+                )
+            })
+            .collect()
+    }
+    pub fn play_history(&mut self, index: usize) {
+        if self.custom || self.task.is_some() {
+            return;
+        }
+        if let Some(path) = self.history.get(index).cloned() {
+            self.history_cursor = Some(index);
+            self.requested_path = Some(path);
+            self.navigating = true;
+            self.request();
+        }
+    }
+    pub fn previous(&mut self) {
+        if let Some(i) = self.history_cursor.filter(|i| *i > 0) {
+            self.play_history(i - 1);
+        }
+    }
+    pub fn next(&mut self) {
+        if self.custom {
+            return;
+        }
+        if let Some(i) = self.history_cursor.filter(|i| i + 1 < self.history.len()) {
+            self.play_history(i + 1);
+        } else {
+            self.random();
+        }
+    }
+    pub fn playlist_name(&self) -> String {
+        get_data()
+            .config
+            .menu_playlist
+            .as_ref()
+            .and_then(|id| get_data().collection_uuids().iter().find(|u| u.to_string() == *id))
+            .map(|id| get_data().collection_info(id).name.clone())
+            .unwrap_or("全部本地谱面".into())
+    }
+    pub fn cycle_playlist(&mut self) -> Result<()> {
+        if self.custom {
+            return Ok(());
+        }
+        let ids = get_data().collection_uuids();
+        let next = get_data()
+            .config
+            .menu_playlist
+            .as_ref()
+            .and_then(|id| ids.iter().position(|u| u.to_string() == *id))
+            .map_or(0, |i| i + 1);
+        let selected = ids.get(next).map(ToString::to_string);
+        get_data_mut_set_playlist(selected)?;
+        self.random();
+        Ok(())
+    }
     pub fn random(&mut self) {
         if !self.custom {
+            self.navigating = false;
+            self.requested_path = None;
             self.request();
         }
     }
@@ -102,13 +185,24 @@ impl MenuMusic {
         self.custom = custom_path.is_some();
         let mut paths: Vec<String> = get_data().charts.iter().map(|it| it.local_path.clone()).collect();
         self.library_paths = paths.clone();
+        if let Some(id) = &get_data().config.menu_playlist {
+            if let Some(uuid) = get_data().collection_uuids().iter().find(|u| u.to_string() == *id) {
+                let collection = get_data().collection_info(uuid);
+                let allowed: std::collections::HashSet<_> = collection.charts.iter().filter_map(|c| c.find_local_path().ok().flatten()).collect();
+                paths.retain(|p| allowed.contains(p.as_str()));
+            }
+        }
         paths.shuffle(&mut thread_rng());
+        let requested = self.requested_path.take();
         // With several usable charts, avoid immediately selecting the current song.
         if paths.len() > 1 {
             if let Some(index) = paths.iter().position(|it| Some(it) == self.last_path.as_ref()) {
                 let previous = paths.remove(index);
                 paths.push(previous);
             }
+        }
+        if let Some(path) = requested {
+            paths = vec![path];
         }
         self.task = Some(Task::new(async move {
             if let Some(path) = custom_path {
@@ -183,6 +277,19 @@ impl MenuMusic {
                     self.music = Some(music);
                     self.duration = loaded.clip.length();
                     self.title = loaded.title;
+                    if let Some(path) = &loaded.path {
+                        if !self.navigating && self.history.last() != Some(path) {
+                            if let Some(cursor) = self.history_cursor {
+                                self.history.truncate(cursor + 1);
+                            }
+                            self.history.push(path.clone());
+                            if self.history.len() > 100 {
+                                self.history.remove(0);
+                            }
+                            self.history_cursor = Some(self.history.len() - 1);
+                        }
+                    }
+                    self.navigating = false;
                     self.last_path = loaded.path;
                     self.gain = loaded.gain;
                     let music = self.music.as_mut().unwrap();
@@ -193,9 +300,7 @@ impl MenuMusic {
                     }
                 }
                 Err(err) => {
-                    self.music = None;
-                    self.title.clear();
-                    self.duration = 0.;
+                    self.navigating = false;
                     tracing::warn!(?err, "menu music unavailable");
                 }
             }
@@ -203,7 +308,7 @@ impl MenuMusic {
         if self.active && !self.user_paused && !self.custom && self.task.is_none() {
             let changed = self.music.is_none() && self.library_paths != get_data().charts.iter().map(|it| it.local_path.clone()).collect::<Vec<_>>();
             if (!self.attempted || changed) && self.music.is_none() || self.music.is_some() && self.position() >= self.duration - 0.005 {
-                self.request();
+                self.next();
             }
         }
         Ok(())
@@ -294,6 +399,21 @@ mod tests {
         player.random();
         loaded(&mut player).await;
         assert_ne!(first, player.title, "skip the immediately previous chart");
+        let second = player.title.clone();
+        player.previous();
+        loaded(&mut player).await;
+        assert_eq!(player.title, first);
+        assert!(player.current_path().is_some());
+        player.next();
+        loaded(&mut player).await;
+        assert_eq!(player.title, second);
+        assert_eq!(player.history().len(), 2);
+        player.play_history(0);
+        loaded(&mut player).await;
+        assert_eq!(player.title, first);
+        player.next();
+        loaded(&mut player).await;
+        assert_eq!(player.title, second);
         player.toggle().unwrap();
         for _ in 0..3 {
             next_frame().await;
@@ -342,3 +462,8 @@ mod tests {
 
 #[cfg(test)]
 pub(crate) use tests::playback_regression;
+
+fn get_data_mut_set_playlist(value: Option<String>) -> Result<()> {
+    crate::get_data_mut().config.menu_playlist = value;
+    crate::save_data()
+}

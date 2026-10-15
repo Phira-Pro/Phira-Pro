@@ -128,6 +128,16 @@ impl Scroller {
         self.touch = None;
     }
 
+    /// Freeze a hidden surface without losing its position or carrying drag
+    /// velocity across the time spent in another scene.
+    pub fn suspend(&mut self, t: f32) {
+        self.touch = None;
+        self.speed = 0.;
+        self.goto = None;
+        self.last_time = t;
+        self.tracker.reset();
+    }
+
     pub fn goto_step(&mut self, index: usize) {
         self.goto = Some(self.step * index as f32);
     }

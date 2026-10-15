@@ -9,9 +9,11 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 ## 下载
 
-在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows 压缩包或 Linux 压缩包或 Android arm64 APK。Windows 解压后运行 `phira-main.exe` (Linux为`phira-main`)；Android 安装 APK，更新时保留应用数据。
+在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows、macOS、Linux 压缩包、Android arm64 APK 或 iOS 未签名 IPA。Windows 解压后运行 `phira-main.exe`，macOS / Linux 运行 `phira-main`；Android 更新时保留应用数据，iOS IPA 需自行签名安装。
 
-当前发布修复版为 **pro.14-fix1**（应用内 `0.8.2-pro.14`，build 67），修复谱面比例引起的 UI 越界、练习倍速与绿色标记拖动、回放资源包皮肤、噪域遮挡界面、练习前后台恢复和同帧短点击丢失问题，见 [fix1 更新说明](docs/development/pro-14-fix1.md)及 [fix1 Release](https://github.com/Phira-Pro/Phira-Pro/releases/tag/v0.8.2-pro.14-fix1)。pro.14 的完整功能见 [pro.14 更新说明](docs/development/pro-14.md)，插件接口见 [开发说明](docs/plugins/README.md)，模块职责与审查方法见 [代码审查指南](docs/development/code-review-guide.md)。本版包含 [rpe-next 噪域兼容](docs/development/rpe-next-noise.md)、[回放录制修复](docs/development/replays.md)及各平台帧率设置。历史更新见 [pro.13 更新与验证说明](docs/development/pro-13.md)和 [pro.12 更新说明](docs/development/pro-12.md)。版本维护、五个平台的构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
+当前版本为 **pro.15**（应用内 `0.8.2-pro.15`，build 72），新增设置搜索、备份预检与选择性还原、回放批量管理、画质与问题诊断、练习分析与双回放对照、谱库排序筛选、课题模式与课题成绩历史，以及主页音乐播放列表。课题模式包含三首连续游玩、黑场过渡、Saira 字体结算和五种课题牌子；牌子页取消与确定均返回主页。包含 Rulaifozu 的 PPSR 插件 API 更新及 Terrysquid 的判定与谱面兼容修复，见 [pro.15 更新说明](docs/development/pro-15.md)与 [pro.15 Release](https://github.com/Phira-Pro/Phira-Pro/releases/tag/v0.8.2-pro.15)。
+
+插件接口见 [开发说明](docs/plugins/README.md)，模块职责与审查方法见 [代码审查指南](docs/development/code-review-guide.md)。本版继续包含 [rpe-next 噪域兼容](docs/development/rpe-next-noise.md)、[回放录制修复](docs/development/replays.md)及各平台帧率设置。历史更新见 [pro.14-fix1](docs/development/pro-14-fix1.md)、[pro.14](docs/development/pro-14.md)、[pro.13](docs/development/pro-13.md)和 [pro.12](docs/development/pro-12.md)。版本维护、五个平台构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
 
 ## 相对官方版新增的功能
 
@@ -97,6 +99,10 @@ python scripts/build.py
 ```
 
 Windows、Linux、macOS 在各自系统上使用 `python scripts/build.py --package` 构建 ZIP，版本和平台名称自动派生；包内包含程序、资源与许可证。更新日志保留在 `docs`。Android 使用 `python scripts/build.py --platform android`，iOS 在 macOS 上使用 `python scripts/build.py --platform ios`。GitHub Actions 提供手动运行的 Desktop Packages / Android APK / iOS IPA 工作流；发布与版本定义一致的 Release 后，Build Release Assets 自动构建并上传五个平台附件，上传时校验文件大小与 SHA-256。iOS 产物未签名，安装前需自行签名。发版步骤、环境与签名配置见 [构建说明](docs/development/build.md)。
+
+## 维护人员
+
+Terrysquid、Rulaifozu。应用内人员名单同步更新。
 
 ## 授权与致谢
 

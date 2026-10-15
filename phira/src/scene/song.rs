@@ -1160,6 +1160,7 @@ impl SongScene {
             }
         }));
 
+        let practice_source = local_path.to_owned();
         Ok(Some(Box::pin(async move {
             let mut info = fs::load_info(fs.as_mut()).await?;
             info.id = id;
@@ -1167,6 +1168,7 @@ impl SongScene {
                 crate::replay::library::record_identity(fs.as_mut(), &info).await?;
             }
             let mut config = get_data().config.clone();
+            config.practice_local_path = Some(practice_source);
             config.player_name = get_data()
                 .me
                 .as_ref()

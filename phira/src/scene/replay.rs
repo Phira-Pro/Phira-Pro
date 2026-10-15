@@ -71,6 +71,104 @@ pub struct ReplayScene {
 }
 
 impl ReplayScene {
+    #[cfg(test)]
+    pub(crate) fn analysis_state(&self) -> (u32, [u32; 8]) {
+        (self.game_scene.judge.score(false), self.game_scene.judge.counts())
+    }
+    pub(crate) fn analysis_pause(&mut self) {
+        let _ = self.game_scene.music.pause();
+    }
+    pub(crate) fn analysis_contacts(&self, time: f64) -> Vec<String> {
+        let mut live = std::collections::BTreeMap::new();
+        for (i, e) in self.replay.touches.iter().enumerate().take_while(|(_, e)| e.t as f64 <= time + 1e-6) {
+            if e.phase >= 2 {
+                live.remove(&e.id);
+            } else {
+                live.insert(e.id, (i, *e));
+            }
+        }
+        live.values()
+            .map(|(i, e)| {
+                let p = self.touch_position(vec2(e.x, e.y), *i, time);
+                format!("F{} ({:.2},{:.2})", self.finger_numbers[*i], p.x, p.y)
+            })
+            .collect()
+    }
+    pub(crate) fn analysis_events(&self) -> Vec<prpr::practice::tools::Event> {
+        self.replay
+            .judges
+            .iter()
+            .map(|e| prpr::practice::tools::Event {
+                time: e.t,
+                line: e.line,
+                index: e.note,
+                grade: match e.kind {
+                    7 => 5,
+                    8 => 6,
+                    9 => 7,
+                    5 => e.head_grade.unwrap_or(0),
+                    6 => e.head_grade.unwrap_or(1),
+                    g => g,
+                },
+                diff: e.diff as f64,
+                head: matches!(e.kind, 5 | 6),
+            })
+            .collect()
+    }
+    pub(crate) fn analysis_tick(&mut self, time: f64, playing: bool, rate: f32, fingers: bool, audio: bool) -> Result<()> {
+        let time = time.clamp(0., self.end());
+        self.particle_delta = (time - self.current).clamp(0., 0.1) as f32;
+        if time < self.current {
+            self.seek(time);
+        } else {
+            self.current = time;
+        }
+        self.fingers = fingers;
+        self.finger_ids = true;
+        self.game_scene.res.time = time;
+        self.game_scene.res.alpha = 1.;
+        self.apply_judges(time, false);
+        self.apply_touches(time);
+        self.game_scene.tick_replay();
+        self.checkpoint();
+        self.playing = playing && audio;
+        self.speed = rate / self.game_scene.res.config.speed.max(0.05);
+        self.game_scene.res.audio.recover_if_needed()?;
+        self.sync_music();
+        Ok(())
+    }
+    pub(crate) fn analysis_render(&mut self, tm: &mut TimeManager, ui: &mut Ui, target: RenderTarget) -> Result<()> {
+        self.game_scene.res.camera.render_target = Some(target);
+        self.game_scene.set_replay_frame_delta(self.particle_delta);
+        self.particle_delta = 0.;
+        // Practice leaves the shared scene clock paused. Render the replay with
+        // its own unpaused clock so practice pause controls never enter a pane.
+        let real = tm.real_time();
+        let mut render_clock = TimeManager::manual(Box::new(move || real));
+        render_clock.seek_to(self.current);
+        self.game_scene.render(&mut render_clock, ui)?;
+        if self.fingers {
+            let fitted = self.game_scene.res.camera.viewport.unwrap_or(ui.viewport);
+            let mut touch_ui = Ui::new(ui.text_painter, Some(fitted));
+            set_camera(&Camera2D {
+                render_target: Some(target),
+                ..touch_ui.camera()
+            });
+            let c = &self.game_scene.res.config;
+            for (id, pos, fade) in self.visible_touches() {
+                let alpha = c.touch_point_alpha * fade;
+                touch_ui.fill_circle(pos.x, pos.y, c.touch_point_size, Color { a: alpha, ..BLUE });
+                touch_ui
+                    .text(format!("F{id}"))
+                    .pos(pos.x, pos.y - c.touch_point_size)
+                    .anchor(0.5, 1.)
+                    .size(0.28)
+                    .color(semi_white(alpha))
+                    .draw();
+            }
+        }
+        Ok(())
+    }
     pub async fn new(path: PathBuf) -> Result<Self> {
         let replay = replay::load(&path).context("读取回放失败")?;
         replay.ensure_playable()?;

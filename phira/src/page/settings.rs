@@ -2,6 +2,7 @@ prpr_l10n::tl_file!("settings");
 mod color;
 mod experience;
 mod judgement;
+pub(crate) mod search;
 use color::{ColorAction, ColorPicker};
 use experience::ExperienceList;
 use judgement::JudgementPage;
@@ -168,7 +169,7 @@ static STAFF_LIST: Lazy<StaffList> = Lazy::new(|| {
     serde_yaml::from_str(data).unwrap()
 });
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum SettingListType {
     General,
     Audio,
@@ -191,13 +192,15 @@ pub struct SettingsPage {
     save_time: f32,
 
     icon: SafeTexture,
+    search: search::Search,
 }
 
 impl SettingsPage {
     const SAVE_TIME: f32 = 0.5;
 
-    pub fn new(icon: SafeTexture, icon_lang: SafeTexture) -> Self {
+    pub fn new(icon: SafeTexture, icon_lang: SafeTexture, search_icon: SafeTexture, close_icon: SafeTexture) -> Self {
         Self {
+            search: search::Search::new(search_icon, close_icon),
             list_general: GeneralList::new(icon_lang),
             list_audio: AudioList::new(),
             list_chart: ChartList::new(),
@@ -236,6 +239,18 @@ impl Page for SettingsPage {
 
     fn touch(&mut self, touch: &Touch, s: &mut SharedState) -> Result<bool> {
         let t = s.t;
+        let (consumed, tab) = self.search.touch(touch, t);
+        if let Some(tab) = tab {
+            self.tabs.goto(s.rt, tab);
+            self.list_debug.section_open = [true; 3];
+            self.scroll.y_scroller.reset();
+        }
+        if consumed {
+            return Ok(true);
+        }
+        if self.search.active() {
+            return Ok(self.scroll.touch(touch, t));
+        }
         if match self.tabs.selected() {
             SettingListType::General => self.list_general.top_touch(touch, t),
             SettingListType::Audio => self.list_audio.top_touch(touch, t),
@@ -248,6 +263,7 @@ impl Page for SettingsPage {
         }
 
         if self.tabs.touch(touch, s.rt) {
+            self.search.target = None;
             return Ok(true);
         }
 
@@ -273,6 +289,9 @@ impl Page for SettingsPage {
 
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
         let t = s.t;
+        if self.search.update() {
+            self.scroll.y_scroller.reset();
+        }
         if self.tabs.changed() {
             self.scroll.y_scroller.reset();
         }
@@ -301,6 +320,7 @@ impl Page for SettingsPage {
 
         s.fader.render(ui, s.t, |ui| {
             let r = ui.content_rect();
+            self.search.bar(ui, r.right(), t);
             self.tabs.render(ui, rt, r, |ui, item| {
                 // HUD 自定义：设置列表区域（整体移动 / 缩放；行高仍是固定的 item_row_h()）。
                 const SLOT_LIST: crate::hud::SlotDef = crate::hud::SlotDef::centered("list", [0., 0., 1.65, 1.1], crate::hud::Cap(true, true, true));
@@ -315,13 +335,32 @@ impl Page for SettingsPage {
                 ui.scope(|ui| {
                     ui.dx(r.x);
                     ui.dy(r.y);
-                    self.scroll.render(ui, |ui| match item {
-                        SettingListType::General => self.list_general.render(ui, r, t),
-                        SettingListType::Audio => self.list_audio.render(ui, r, t),
-                        SettingListType::Chart => self.list_chart.render(ui, r, t),
-                        SettingListType::Debug => self.list_debug.render(ui, r, t),
-                        SettingListType::Experience => self.list_experience.render(ui, r, t),
-                        SettingListType::About => render_about(ui, r, &self.icon),
+                    search::FOCUS.with(|f| {
+                        let mut f = f.borrow_mut();
+                        f.0 = self.search.target.clone();
+                        f.1 = None;
+                    });
+                    self.scroll.render(ui, |ui| {
+                        if self.search.active() {
+                            self.search.render(ui, r)
+                        } else {
+                            match item {
+                                SettingListType::General => self.list_general.render(ui, r, t),
+                                SettingListType::Audio => self.list_audio.render(ui, r, t),
+                                SettingListType::Chart => self.list_chart.render(ui, r, t),
+                                SettingListType::Debug => self.list_debug.render(ui, r, t),
+                                SettingListType::Experience => self.list_experience.render(ui, r, t),
+                                SettingListType::About => render_about(ui, r, &self.icon),
+                            }
+                        }
+                    });
+                    search::FOCUS.with(|f| {
+                        let mut f = f.borrow_mut();
+                        if let Some(y) = f.1.take() {
+                            self.scroll.y_scroller.offset += y - r.y - 0.025;
+                            self.search.target = None;
+                        }
+                        f.0 = None;
                     });
                 });
 
@@ -340,6 +379,9 @@ impl Page for SettingsPage {
     }
 
     fn on_back_pressed(&mut self, _s: &mut SharedState) -> bool {
+        if self.search.cancel() {
+            return true;
+        }
         match self.tabs.selected() {
             SettingListType::Debug => self.list_debug.picker.take().is_some(),
             SettingListType::Experience => self.list_experience.close_editor(),
@@ -362,6 +404,9 @@ impl SettingsPage {
         }
         if matches!(self.tabs.selected(), SettingListType::Chart) {
             return self.list_chart.next_page().unwrap_or_default();
+        }
+        if matches!(self.tabs.selected(), SettingListType::Debug) {
+            return self.list_debug.next_page.take().unwrap_or_default();
         }
         NextPage::None
     }
@@ -414,6 +459,8 @@ fn render_about(ui: &mut Ui, mut r: Rect, icon: &SafeTexture) -> (f32, f32) {
 }
 
 fn render_title<'a>(ui: &mut Ui, title: impl Into<Cow<'a, str>>, subtitle: Option<Cow<'a, str>>) -> f32 {
+    let title: Cow<'a, str> = title.into();
+    search::focus(ui, &title);
     const TITLE_SIZE: f32 = 0.6;
     const SUBTITLE_SIZE: f32 = 0.35;
     const LEFT: f32 = 0.06;
@@ -454,7 +501,7 @@ fn render_title<'a>(ui: &mut Ui, title: impl Into<Cow<'a, str>>, subtitle: Optio
             .right();
         r1.max(r2)
     } else {
-        ui.text(title.into())
+        ui.text(title)
             .pos(LEFT, item_row_h() / 2.)
             .anchor(0., 0.5)
             .no_baseline()
@@ -1741,6 +1788,8 @@ impl ChartList {
 }
 
 struct DebugList {
+    tools: [DRectButton; 2],
+    next_page: Option<NextPage>,
     sections: [DRectButton; 3],
     section_open: [bool; 3],
     #[cfg(target_os = "windows")]
@@ -1766,6 +1815,8 @@ struct DebugList {
 impl DebugList {
     pub fn new() -> Self {
         Self {
+            tools: std::array::from_fn(|_| DRectButton::new()),
+            next_page: None,
             sections: std::array::from_fn(|_| DRectButton::new()),
             section_open: [true; 3],
             #[cfg(target_os = "windows")]
@@ -1827,6 +1878,12 @@ impl DebugList {
     }
 
     pub fn touch(&mut self, touch: &Touch, t: f32) -> Result<Option<bool>> {
+        for (i, b) in self.tools.iter_mut().enumerate() {
+            if b.touch(touch, t) {
+                self.next_page = Some(NextPage::Overlay(Box::new(crate::page::tools::ToolsPage::new(i == 1))));
+                return Ok(Some(false));
+            }
+        }
         for (index, button) in self.sections.iter_mut().enumerate() {
             if button.touch(touch, t) {
                 self.section_open[index] ^= true;
@@ -1948,6 +2005,12 @@ impl DebugList {
         }
         let rr = right_rect(w);
 
+        for (i, label) in ["画质设置", "问题诊断"].iter().enumerate() {
+            render_title(ui, *label, None);
+            self.tools[i].render_text(ui, rr, t, "打开", 0.4, false);
+            ui.dy(item_row_h());
+            h += item_row_h();
+        }
         let data = get_data();
         let config = &data.config;
         self.sections[0].render_text(

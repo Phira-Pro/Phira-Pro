@@ -1488,6 +1488,10 @@ fn production_replay_transport_import_and_aspects() {
                 .unwrap();
             crate::page::replays::render_regression(&mut painter, &path, &mut state);
             crate::page::plugins::render_regression(&mut painter, &mut state);
+            crate::practice_tools::qa::run(&mut painter, &path).await;
+            crate::page::course::render_regression(&mut painter).await;
+            crate::page::tools::qa::run(&mut painter, &mut state);
+            crate::page::settings::search::qa::run(&mut painter, &mut state);
             // Content drift cannot silently bind to the same location.
             std::fs::OpenOptions::new()
                 .append(true)

@@ -99,7 +99,11 @@ impl TimeManager {
     }
 
     pub fn pause(&mut self) {
-        self.pause_time = Some(self.real_time());
+        // Nested overlays and lifecycle callbacks can pause an already paused
+        // clock. Preserve its original anchor instead of advancing frozen time.
+        if self.pause_time.is_none() {
+            self.pause_time = Some(self.real_time());
+        }
     }
 
     pub fn resume(&mut self) {
@@ -134,6 +138,25 @@ impl TimeManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_pause_preserves_seek_across_overlay_time() {
+        let real = std::rc::Rc::new(std::cell::Cell::new(10.));
+        let clock = real.clone();
+        let mut tm = TimeManager::manual(Box::new(move || clock.get()));
+        tm.seek_to(3.5);
+        tm.pause();
+        real.set(70.);
+        tm.pause();
+        assert_eq!(tm.now(), 3.5);
+        tm.seek_to(1.25);
+        tm.pause();
+        assert_eq!(tm.now(), 1.25);
+        tm.resume();
+        assert_eq!(tm.now(), 1.25);
+        real.set(71.);
+        assert_eq!(tm.now(), 2.25);
+    }
 
     #[test]
     fn paused_scrubber_and_speed_changes_survive_touch_dispatch() {

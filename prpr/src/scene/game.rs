@@ -572,6 +572,7 @@ pub enum GameMode {
     Exercise,
     NoRetry,
     View,
+    Course,
 }
 
 #[derive(Clone)]
@@ -613,6 +614,12 @@ pub struct GameScene {
     exercise_range: Range<f64>,
     practice_base: practice::base::Base,
     practice_panel: PracticePanel,
+    practice_progress: practice::adaptive::Progress,
+    practice_last_events: Vec<practice::tools::Event>,
+    practice_tool_touches: Vec<practice::tools::TouchSample>,
+    practice_last_touches: Vec<practice::tools::TouchSample>,
+    practice_tools_return: bool,
+    practice_tools_position: f64,
     practice_key: String,
     practice_bookmarks: Vec<Bookmark>,
     practice_originals: OriginalNotes,
@@ -776,6 +783,9 @@ impl GameScene {
         if config.fixed_background {
             info.background_dim = config.background_dim.clamp(0., 1.);
         }
+        if mode == GameMode::Course {
+            config = crate::course::config(&config);
+        }
         config.practice_active = mode == GameMode::Exercise;
         config.practice.sanitize();
         config.practice_multiplier = if config.practice_active {
@@ -792,6 +802,7 @@ impl GameScene {
                 // become hidden multipliers on its 0.01x controls.
                 config.speed = 1.;
                 config.practice_ramp = false;
+                config.practice.adaptive.enabled = false;
                 config.mods.remove(Mods::AUTOPLAY | Mods::NIGHTCORE);
             }
             _ => {}
@@ -843,6 +854,7 @@ impl GameScene {
         )
         .await
         .context("Failed to load resources")?;
+        crate::diagnostics::session(&res.config, &res.info);
         tracing::info!("game loading: resources ready, samples={}, shader_pre_render={}", res.config.sample_count, res.config.shader_pre_render);
 
         let eligible = Self::implicit_msaa_eligible(&chart, &res);
@@ -973,6 +985,12 @@ impl GameScene {
             exercise_range,
             practice_base: Default::default(),
             practice_panel: PracticePanel::default(),
+            practice_progress: Default::default(),
+            practice_last_events: Vec::new(),
+            practice_tool_touches: Vec::new(),
+            practice_last_touches: Vec::new(),
+            practice_tools_return: false,
+            practice_tools_position: 0.,
             practice_key,
             practice_bookmarks,
             practice_originals,
@@ -1307,7 +1325,7 @@ impl GameScene {
             let o = if self.mode == GameMode::Exercise { -0.3 } else { 0. };
             let s = 0.06;
             let w = 0.05;
-            let no_retry = self.mode == GameMode::NoRetry;
+            let no_retry = matches!(self.mode, GameMode::NoRetry | GameMode::Course);
             draw_texture_ex(
                 *res.icon_back,
                 -s * 3. - w,
@@ -1561,6 +1579,19 @@ impl Scene for GameScene {
         on_game_start();
         #[cfg(target_env = "ohos")]
         miniquad::native::set_interceptor_state(true);
+        if self.practice_tools_return {
+            self.practice_tools_return = false;
+            self.practice_panel.suspend(tm.real_time() as f32);
+            self.res.camera.render_target = target;
+            self.res.invalidate_render_surface();
+            tm.speed = self.res.config.speed as f64;
+            tm.adjust_time = self.res.config.adjust_time;
+            tm.seek_to(self.practice_tools_position);
+            tm.pause();
+            self.music.pause()?;
+            self.music.seek_to(self.practice_tools_position.max(0.))?;
+            return Ok(());
+        }
         // Loading already created the first renderer; recreate on re-entry.
         if self.entered {
             self.music = Self::new_music(&mut self.res, &self.practice_schedule)?;
@@ -1578,6 +1609,17 @@ impl Scene for GameScene {
         Ok(())
     }
 
+    fn on_result(&mut self, tm: &mut TimeManager, result: Box<dyn Any>) -> Result<()> {
+        if let Ok(selection) = result.downcast::<practice::tools::Selection>() {
+            let start = (selection.start + self.offset() as f64).clamp(self.offset().min(0.) as f64, self.res.track_length - 0.05);
+            let end = (selection.end + self.offset() as f64).clamp(start + 0.05, self.res.track_length);
+            self.exercise_range = start..end;
+            self.practice_combo = None;
+            self.practice_range_changed(tm)?;
+            self.practice_tools_position = start;
+        }
+        Ok(())
+    }
     fn pause(&mut self, tm: &mut TimeManager) -> Result<()> {
         self.background_pause(tm)?;
         #[cfg(target_env = "ohos")]
@@ -1595,6 +1637,24 @@ impl Scene for GameScene {
             .update(&self.chart, &self.res, self.info_offset, tm.real_time() as f32);
 
         self.res.audio.recover_if_needed()?;
+        if self.mode == GameMode::Exercise && !tm.paused() && matches!(self.state, State::Playing) && self.practice_tool_touches.len() < 100_000 {
+            let time = tm.now() - self.offset() as f64;
+            for touch in Judge::get_touches_in(self.res.camera.viewport.unwrap_or(self.res.last_vp)) {
+                let phase = match touch.phase {
+                    TouchPhase::Started => 0,
+                    TouchPhase::Moved | TouchPhase::Stationary => 1,
+                    TouchPhase::Ended => 2,
+                    TouchPhase::Cancelled => 3,
+                };
+                self.practice_tool_touches.push(practice::tools::TouchSample {
+                    time,
+                    id: touch.id,
+                    phase,
+                    x: touch.position.x,
+                    y: touch.position.y,
+                });
+            }
+        }
         if matches!(self.state, State::Playing) {
             tm.update(self.music.position());
         }
@@ -1624,13 +1684,17 @@ impl Scene for GameScene {
                     score: score.round() as u32,
                 });
             }
+            self.practice_last_events = self.practice_events();
+            self.practice_last_touches = std::mem::take(&mut self.practice_tool_touches);
+            self.practice_progress
+                .finish(&self.res.config.practice.adaptive, self.judge.real_time_accuracy(), counts, self.practice_partial);
             self.practice_partial = false;
             self.practice_loops += 1;
             let state = self.state.clone();
             reset!(self, self.res, tm);
             self.state = state;
             // 变速练习：每完成一圈提升一档速度并封顶在正常速度；谱面与音频同步变速。
-            if self.res.config.practice_ramp {
+            if self.res.config.practice_ramp || self.res.config.practice.adaptive.enabled {
                 let speed = self.practice_speed();
                 self.res.config.speed = speed;
                 tm.speed = speed as f64;
@@ -1806,6 +1870,7 @@ impl Scene for GameScene {
                                 if self.res.config.show_avg_fps { self.get_avg_fps() } else { None },
                             )?)))
                         }
+                        GameMode::Course => Some(NextScene::PopWithResult(Box::new(self.judge.result(true)))),
                         GameMode::TweakOffset => Some(NextScene::PopWithResult(Box::new(None::<f32>))),
                         GameMode::Exercise => None,
                     };
@@ -2232,6 +2297,10 @@ impl Scene for GameScene {
             render_target: self.res.camera.render_target,
             ..ui.camera()
         });
+        if self.mode == GameMode::Course {
+            // Fade the entire screen, not just notes/HUD, before the parent loads the next song.
+            ui.fill_rect(ui.screen_rect(), crate::ext::semi_black(1. - self.res.alpha));
+        }
         Ok(())
     }
 
@@ -2252,10 +2321,13 @@ impl Scene for GameScene {
                     }
                 }
                 // not sure if they need result. just keep it
-                GameMode::Exercise | GameMode::NoRetry | GameMode::View => NextScene::Pop,
+                GameMode::Exercise | GameMode::NoRetry | GameMode::View | GameMode::Course => NextScene::Pop,
                 GameMode::TweakOffset => NextScene::PopWithResult(Box::new(None::<f32>)),
             }
         } else if let Some(next_scene) = self.next_scene.take() {
+            if self.practice_tools_return {
+                return next_scene;
+            }
             if !matches!(next_scene, NextScene::None) && tm.paused() {
                 tm.resume();
             }

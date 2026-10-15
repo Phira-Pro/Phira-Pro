@@ -8,6 +8,7 @@
 //
 // 注：谱面 / 皮肤在下次启动时由 `Data::init` 重新扫描建索引，因此导入后需重启。
 
+pub mod restore;
 use crate::{dir, get_data_mut};
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
@@ -84,12 +85,7 @@ pub fn scan(data_json: &Path) -> Result<Scan> {
     let name = std::fs::read_to_string(data_json)
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        .and_then(|v| {
-            v.get("me")
-                .and_then(|m| m.get("name"))
-                .and_then(|n| n.as_str())
-                .map(str::to_owned)
-        });
+        .and_then(|v| v.get("me").and_then(|m| m.get("name")).and_then(|n| n.as_str()).map(str::to_owned));
     Ok(Scan {
         root,
         charts,
@@ -193,14 +189,29 @@ pub fn import(scan: &Scan, import_config: bool) -> Result<Imported> {
 /// 把整个数据目录打包为 zip，返回打包的文件数。
 pub fn create_backup(dest: &Path) -> Result<u64> {
     let root = data_dir()?;
-    let file = std::fs::File::create(dest)?;
-    let mut zip = zip::ZipWriter::new(std::io::BufWriter::new(file));
+    let parent = dest.parent().context("备份目标路径无效")?;
+    std::fs::create_dir_all(parent)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    let temporary_path = temporary.path().to_owned();
+    let mut zip = zip::ZipWriter::new(std::io::BufWriter::new(temporary.as_file_mut()));
+    zip.start_file("pro-backup.json", zip::write::SimpleFileOptions::default())?;
+    std::io::Write::write_all(
+        &mut zip,
+        serde_json::to_vec(
+            &serde_json::json!({"format":1,"version":crate::PRO_VERSION,"build":env!("PHIRA_BUILD_NUMBER"),"created":chrono::Utc::now().timestamp()}),
+        )?
+        .as_slice(),
+    )?;
     let opts = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o755);
     let mut n = 0u64;
-    for entry in WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(&root).into_iter().filter_entry(|e| e.file_name() != "_restore_snapshots") {
+        let entry = entry?;
         let path = entry.path();
+        if path == dest || path == temporary_path {
+            continue;
+        }
         let Ok(rel) = path.strip_prefix(&root) else { continue };
         if rel.as_os_str().is_empty() {
             continue;
@@ -215,30 +226,21 @@ pub fn create_backup(dest: &Path) -> Result<u64> {
             n += 1;
         }
     }
-    zip.finish()?;
+    use std::io::Write;
+    zip.finish()?.flush()?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(dest).map_err(|e| e.error)?;
     Ok(n)
 }
 
 /// 从备份 zip 还原（同名覆盖），返回还原的文件数。需重启生效。
 pub fn restore_backup(src: &Path) -> Result<u64> {
-    let root = data_dir()?;
-    let file = std::fs::File::open(src)?;
-    let mut zip = zip::ZipArchive::new(file)?;
-    let mut n = 0u64;
-    for i in 0..zip.len() {
-        let mut entry = zip.by_index(i)?;
-        let Some(rel) = entry.enclosed_name() else { continue };
-        let to = root.join(rel);
-        if entry.is_dir() {
-            std::fs::create_dir_all(&to)?;
-        } else {
-            if let Some(p) = to.parent() {
-                std::fs::create_dir_all(p)?;
-            }
-            let mut out = std::fs::File::create(&to)?;
-            std::io::copy(&mut entry, &mut out)?;
-            n += 1;
-        }
-    }
-    Ok(n)
+    Ok(restore::apply(
+        src,
+        &restore::Options {
+            replace: true,
+            ..Default::default()
+        },
+    )?
+    .0)
 }

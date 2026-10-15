@@ -176,6 +176,7 @@ pub struct MainScene {
     icon_back: SafeTexture,
 
     pages: Vec<Box<dyn Page>>,
+    course_home_fade: Option<f64>,
 
     idle_fps: IdleFps,
 
@@ -270,6 +271,7 @@ impl MainScene {
             icon_back: TEX_ICON_BACK.with(|it| it.borrow().clone().unwrap()),
 
             pages: Vec::new(),
+            course_home_fade: None,
 
             import_task: None,
 
@@ -306,7 +308,17 @@ impl MainScene {
 }
 
 impl Scene for MainScene {
-    fn on_result(&mut self, _tm: &mut TimeManager, result: Box<dyn Any>) -> Result<()> {
+    fn on_result(&mut self, tm: &mut TimeManager, result: Box<dyn Any>) -> Result<()> {
+        if result.is::<crate::page::course::ReturnHome>() {
+            while self.pages.len() > 1 {
+                self.pages.last_mut().unwrap().exit()?;
+                self.pages.pop();
+            }
+            self.state.fader = crate::page::Fader::new();
+            self.state.menu_music.set_low_pass(0.)?;
+            self.course_home_fade = Some(tm.real_time());
+            return Ok(());
+        }
         self.pages.last_mut().unwrap().on_result(result, &mut self.state)
     }
 
@@ -393,7 +405,7 @@ impl Scene for MainScene {
                     pages.push(Box::new(page));
                 }
                 PageId::Settings => {
-                    let page = crate::page::SettingsPage::new(icons.icon.clone(), icons.lang.clone());
+                    let page = crate::page::SettingsPage::new(icons.icon.clone(), icons.lang.clone(), icons.search.clone(), icons.close.clone());
                     pages.push(Box::new(page));
                 }
                 PageId::Favorites => {
@@ -928,6 +940,13 @@ impl Scene for MainScene {
             ui.full_loading(itl!("batch-importing", "current" => current, "total" => total), s.t);
         }
 
+        if let Some(start) = self.course_home_fade {
+            let p = ((tm.real_time() - start) / 0.6).clamp(0., 1.) as f32;
+            ui.fill_rect(ui.screen_rect(), prpr::ext::semi_black(1. - p * p * (3. - 2. * p)));
+            if p >= 1. {
+                self.course_home_fade = None;
+            }
+        }
         self.idle_fps.settle();
 
         Ok(())

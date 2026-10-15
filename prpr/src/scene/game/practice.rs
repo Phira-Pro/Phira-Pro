@@ -3,6 +3,10 @@ use super::*;
 impl GameScene {
     pub(super) fn practice_range_changed(&mut self, tm: &mut TimeManager) -> Result<()> {
         self.practice_loops = 0;
+        self.practice_progress = Default::default();
+        self.practice_last_events.clear();
+        self.practice_tool_touches.clear();
+        self.practice_last_touches.clear();
         self.practice_partial = false;
         self.practice_statistics.clear();
         self.last_practice_accuracy = None;
@@ -36,11 +40,70 @@ impl GameScene {
     }
 
     pub(super) fn practice_speed(&self) -> f32 {
-        practice::round_speed(&self.res.config, self.practice_target_speed, self.practice_loops)
+        if self.res.config.practice.adaptive.enabled {
+            practice::clamp_speed(self.res.config.practice_speed_start + self.res.config.practice_speed_step * self.practice_progress.level as f32)
+                .min(self.practice_target_speed)
+        } else {
+            practice::round_speed(&self.res.config, self.practice_target_speed, self.practice_loops)
+        }
     }
 
     pub(super) fn practice_action(&mut self, tm: &mut TimeManager, action: PracticeAction) -> Result<()> {
         match action {
+            PracticeAction::External(tool) => {
+                let notes = self
+                    .chart
+                    .lines
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(line, l)| {
+                        l.notes
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, n)| !n.fake)
+                            .map(move |(i, n)| practice::tools::Note {
+                                line: line as u32,
+                                index: i as u32,
+                                time: n.time,
+                                end: if let NoteKind::Hold { end_time, .. } = n.kind {
+                                    end_time
+                                } else {
+                                    n.time
+                                },
+                                kind: match n.kind {
+                                    NoteKind::Click => 0,
+                                    NoteKind::Hold { .. } => 1,
+                                    NoteKind::Drag => 2,
+                                    NoteKind::Flick => 3,
+                                },
+                            })
+                    })
+                    .collect();
+                let events = self.practice_events();
+                let request = practice::tools::Request {
+                    tool,
+                    local_path: self.res.config.practice_local_path.clone(),
+                    info: self.res.info.clone(),
+                    key: self.practice_key.clone(),
+                    now: self.res.time,
+                    duration: self.res.track_length,
+                    notes,
+                    events: if events.is_empty() { self.practice_last_events.clone() } else { events },
+                    touches: if self.practice_tool_touches.is_empty() {
+                        self.practice_last_touches.clone()
+                    } else {
+                        self.practice_tool_touches.clone()
+                    },
+                };
+                if let Some(scene) = practice::tools::open(request) {
+                    self.practice_panel.suspend(tm.real_time() as f32);
+                    self.practice_tools_return = true;
+                    self.practice_tools_position = tm.now();
+                    self.music.pause()?;
+                    tm.pause();
+                    self.next_scene = Some(NextScene::Overlay(scene));
+                }
+            }
             PracticeAction::Input(id, text) => request_input(&id, InputBox::new().default_text(text)),
             PracticeAction::Value(id, value) => {
                 let value = if matches!(id.as_str(), "practice_scale" | "practice_multiplier" | "practice_range_alpha") {
@@ -55,6 +118,16 @@ impl GameScene {
                 let p = &mut cfg.practice;
                 let mut restart = true;
                 match id.as_str() {
+                    "practice_adaptive" => {
+                        p.adaptive.enabled ^= true;
+                        cfg.practice_ramp = false;
+                    }
+                    "practice_goal_fc" => {
+                        p.adaptive.full_combo ^= true;
+                    }
+                    "practice_goal_drop" => {
+                        p.adaptive.lower_on_failure ^= true;
+                    }
                     "practice_loop" => {
                         self.practice_auto ^= true;
                         restart = false;
@@ -285,7 +358,10 @@ impl GameScene {
                 // A manual change selects the actual playback rate immediately.
                 // The saved ramp can be enabled again from the drawer.
                 cfg.practice_ramp = false;
+                cfg.practice.adaptive.enabled = false;
             }
+            "practice_target_accuracy" => cfg.practice.adaptive.accuracy = (value / 100.).clamp(0., 1.),
+            "practice_consecutive" => cfg.practice.adaptive.consecutive = value.round().clamp(1., 99.) as u32,
             "practice_ramp_start" => cfg.practice_speed_start = value.clamp(0.1, 2.),
             "practice_ramp_step" => cfg.practice_speed_step = value.clamp(0.01, 0.5),
             "practice_retry" => {
@@ -368,5 +444,30 @@ impl GameScene {
             })
             .collect();
         super::practice_ranges::draw(&self.res, &self.chart, ui, &indices);
+    }
+}
+
+impl GameScene {
+    #[cfg(record)]
+    pub fn practice_open_analysis_for_qa(&mut self, tm: &mut TimeManager, tool: usize) -> Result<()> {
+        self.practice_action(tm, PracticeAction::External(tool))
+    }
+    pub(super) fn practice_events(&self) -> Vec<practice::tools::Event> {
+        self.judge
+            .judgements
+            .borrow()
+            .iter()
+            .map(|(t, line, index, grade, diff, head)| practice::tools::Event {
+                time: *t,
+                line: *line,
+                index: *index,
+                grade: match grade {
+                    Ok(g) => *g as u8,
+                    Err(p) => head.map_or(if *p { 0 } else { 1 }, |g| g as u8),
+                },
+                diff: *diff,
+                head: grade.is_err(),
+            })
+            .collect()
     }
 }

@@ -35,6 +35,7 @@ mod page;
 mod plugins;
 mod ppsr_features;
 mod popup;
+mod practice_tools;
 mod rate;
 mod replay;
 mod resource;
@@ -146,6 +147,9 @@ pub fn get_data_mut() -> &'static mut Data {
 }
 
 pub fn save_data() -> Result<()> {
+    if transfer::restore::CONFIG_RESTORED.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(());
+    }
     let path = std::path::PathBuf::from(dir::root()?).join("data.json");
     transfer::write_atomic(&path, serde_json::to_string(get_data())?.as_bytes())
 }
@@ -406,6 +410,7 @@ async fn the_main() -> Result<()> {
     data.init().await?;
     set_data(data);
     plugins::init();
+    prpr::practice::tools::register(practice_tools::open);
     prpr::practice::set_storage(std::path::PathBuf::from(&dir).join("practice-bookmarks.json"));
     #[cfg(any(target_os = "android", target_os = "ios"))]
     set_refresh_rate(get_data().config.preferred_refresh_rate)?;

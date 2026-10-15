@@ -24,6 +24,8 @@ pub struct Binding {
     pub imported_at: i64,
     pub local_path: Option<String>,
     pub verified: bool,
+    #[serde(default)]
+    pub keep: bool,
     pub replay_id: Option<String>,
     pub event_hash: Option<String>,
     pub player: Option<String>,
@@ -176,6 +178,33 @@ fn import_into(root: &Path, source: &Path) -> Result<(PathBuf, bool)> {
     write_index(root, &bindings)?;
     Ok((path, true))
 }
+pub fn import_package(source: &Path) -> Result<Vec<(PathBuf, bool)>> {
+    if source.extension().is_none_or(|e| !e.eq_ignore_ascii_case("zip")) {
+        return Ok(vec![import(source)?]);
+    }
+    let mut z = zip::ZipArchive::new(std::fs::File::open(source)?)?;
+    anyhow::ensure!(z.len() <= 1000, "回放包最多包含 1000 个文件");
+    let temp = tempfile::tempdir()?;
+    let mut staged = Vec::new();
+    let mut total = 0u64;
+    for i in 0..z.len() {
+        let mut e = z.by_index(i)?;
+        let rel = e.enclosed_name().context("回放包包含无效路径")?;
+        if e.is_dir() {
+            continue;
+        }
+        anyhow::ensure!(matches!(rel.extension().and_then(|v| v.to_str()), Some("ppr" | "phirar" | "phirarec")), "回放包包含非回放文件");
+        total = total.checked_add(e.size()).context("文件大小溢出")?;
+        anyhow::ensure!(total <= 512 * 1024 * 1024, "回放包解压大小超过 512 MiB");
+        let dst = temp.path().join(format!("{i}.ppr"));
+        let mut f = std::fs::File::create(&dst)?;
+        std::io::copy(&mut e, &mut f)?;
+        super::load(&dst)?;
+        staged.push(dst);
+    }
+    anyhow::ensure!(!staged.is_empty(), "回放包为空");
+    staged.iter().map(|p| import(p)).collect()
+}
 pub fn import(source: &Path) -> Result<(PathBuf, bool)> {
     import_into(&root()?, source)
 }
@@ -193,6 +222,20 @@ pub fn bind(path: &Path, local_path: &str, verified: bool) -> Result<()> {
     let binding = bindings.iter_mut().find(|b| b.file == file).unwrap();
     binding.local_path = Some(local_path.to_owned());
     binding.verified = verified;
+    write_index(&root, &bindings)
+}
+pub fn set_keep(path: &Path, keep: bool) -> Result<()> {
+    let root = root()?;
+    anyhow::ensure!(path.parent() == Some(root.as_path()), "回放路径无效");
+    let file = path.file_name().context("缺少文件名")?.to_string_lossy().into_owned();
+    let mut bindings = index(&root)?;
+    if !bindings.iter().any(|b| b.file == file) {
+        bindings.push(Binding {
+            file: file.clone(),
+            ..Default::default()
+        });
+    }
+    bindings.iter_mut().find(|b| b.file == file).unwrap().keep = keep;
     write_index(&root, &bindings)
 }
 pub fn delete(path: &Path) -> Result<()> {

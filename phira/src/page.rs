@@ -12,8 +12,10 @@ pub use favorites::FavoritesPage;
 
 mod history;
 pub use history::HistoryPage;
+pub mod course;
 pub mod plugins;
 pub mod replays;
+pub mod tools;
 
 mod home;
 pub use home::HomePage;
@@ -30,8 +32,9 @@ pub use offset::OffsetPage;
 mod respack;
 pub use respack::{ResPackItem, ResPackPage};
 
-mod settings;
+pub(crate) mod settings;
 pub use settings::SettingsPage;
+mod search_bar;
 
 mod transfer;
 use tokio::sync::Notify;

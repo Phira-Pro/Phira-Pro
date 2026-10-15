@@ -121,6 +121,11 @@ pub struct LibraryPage {
     need_show_order_meta_menu: bool,
 
     order_rev: bool,
+    played_filter: usize,
+    course_btn: DRectButton,
+    course_start: DRectButton,
+    course_selection: Option<Vec<ChartRef>>,
+    course_next: Option<NextScene>,
 
     filter_btn: DRectButton,
     tags: TagsDialog,
@@ -167,6 +172,15 @@ pub struct LibraryPage {
 }
 
 impl LibraryPage {
+    fn exit_course(&mut self) {
+        self.course_selection = None;
+        self.course_start.invalidate();
+        for list in self.tabs.iter_mut() {
+            list.view.multi_select = None;
+            list.view.selection_limit = None;
+        }
+    }
+
     pub fn new(icons: Arc<Icons>, rank_icons: [SafeTexture; 8]) -> Result<Self> {
         NEED_UPDATE.store(true, Ordering::Relaxed);
         let icon_star = icons.star.clone();
@@ -206,6 +220,11 @@ impl LibraryPage {
             need_show_order_meta_menu: false,
 
             order_rev: true,
+            played_filter: 0,
+            course_btn: DRectButton::new(),
+            course_start: DRectButton::new(),
+            course_selection: None,
+            course_next: None,
 
             filter_btn: DRectButton::new(),
             tags: TagsDialog::new(true).tap_mut(|it| it.perms = get_data().me.as_ref().map(|it| it.perms()).unwrap_or_default()),
@@ -289,6 +308,7 @@ impl LibraryPage {
                 ChartOrder::Name => "name",
                 ChartOrder::Rating => "rating",
                 ChartOrder::Difficulty => "difficulty",
+                _ => "updated",
             };
             if self.order_rev {
                 format!("-{order}")
@@ -361,11 +381,24 @@ impl LibraryPage {
         } else {
             None
         };
+        let played_filter = self.played_filter;
+        let played_history: HashSet<_> = crate::history::all().iter().map(|r| r.key.clone()).collect();
         let local_matcher = |chart: &ChartItem| {
+            let played = chart
+                .local_path
+                .as_deref()
+                .and_then(|p| get_data().charts.iter().find(|c| c.local_path == p))
+                .and_then(|c| c.record.as_ref());
+            let has_played = played.is_some() || played_history.contains(&crate::replay::key_for(chart.info.id, chart.local_path.as_deref()));
+            if played_filter == 1 && has_played || played_filter == 2 && !has_played || played_filter == 3 && played.is_some_and(|r| r.full_combo) {
+                return false;
+            }
             if let Some(search_id) = search_by_id {
                 chart.info.id == Some(search_id)
             } else {
-                chart.info.name.to_ascii_lowercase().contains(&self.search_str.to_ascii_lowercase())
+                [&chart.info.name, &chart.info.composer, &chart.info.charter]
+                    .iter()
+                    .any(|s| s.to_lowercase().contains(&self.search_str.to_lowercase()))
             }
         };
 
@@ -442,6 +475,7 @@ impl LibraryPage {
         self.order_meta_menu.set_options(vec![
             tl!("order-by", "order" => self.current_order.label()),
             if self.order_rev { tl!("order-desc") } else { tl!("order-asc") }.into(),
+            format!("筛选：{}", ["全部", "未游玩", "已游玩", "未全连"][self.played_filter]),
         ]);
     }
 
@@ -542,7 +576,9 @@ fn present_export_picker(path: String) {
     // miss its active window. Use the same root as the import picker first.
     let app = UIApplication::sharedApplication(mtm);
     #[allow(deprecated)]
-    let controller = app.keyWindow().and_then(|window| window.rootViewController())
+    let controller = app
+        .keyWindow()
+        .and_then(|window| window.rootViewController())
         .or_else(|| inputbox::backend::IOS::get_top_view_controller(mtm));
     if let Some(mut controller) = controller {
         while let Some(presented) = controller.presentedViewController() {
@@ -670,8 +706,21 @@ mod ohos_export {
 }
 
 impl Page for LibraryPage {
+    fn on_back_pressed(&mut self, _: &mut SharedState) -> bool {
+        if self.course_selection.is_some() {
+            self.exit_course();
+            true
+        } else {
+            false
+        }
+    }
+
     fn label(&self) -> Cow<'static, str> {
-        tl!("label")
+        if self.course_selection.is_some() {
+            "课题模式".into()
+        } else {
+            tl!("label")
+        }
     }
 
     fn enter(&mut self, s: &mut SharedState) -> Result<()> {
@@ -693,6 +742,39 @@ impl Page for LibraryPage {
     }
 
     fn touch(&mut self, touch: &Touch, s: &mut SharedState) -> Result<bool> {
+        if self.course_btn.touch(touch, s.t) {
+            if self.course_selection.is_some() {
+                self.exit_course();
+            } else {
+                self.course_selection = Some(Vec::new());
+                self.tabs.goto(s.rt, 0);
+                for list in self.tabs.iter_mut() {
+                    list.view.multi_select = Some(Vec::new());
+                    list.view.selection_limit = Some(3);
+                }
+                self.multi_operation_btn.invalidate();
+                self.multi_select_btn.invalidate();
+                self.multi_select_cancel_btn.invalidate();
+            }
+            return Ok(true);
+        }
+        if self.course_selection.is_some() && self.course_start.touch(touch, s.t) {
+            let selection = self.course_selection.as_ref().unwrap();
+            if selection.len() != 3 {
+                show_message("请选择三首曲目后开始游玩").warn();
+                return Ok(true);
+            }
+            let paths = selection
+                .iter()
+                .map(|r| {
+                    r.find_local_path()?
+                        .map(|p| p.into_owned())
+                        .ok_or_else(|| anyhow!("缺少课题谱面，请先下载或导入"))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            self.course_next = Some(NextScene::Overlay(Box::new(crate::page::course::CourseScene::new(paths))));
+            return Ok(true);
+        }
         let t = s.t;
         if self.sync_fav_task.is_some()
             || self.export_task.is_some()
@@ -736,7 +818,11 @@ impl Page for LibraryPage {
         if charts_view.transiting() {
             return Ok(true);
         }
-        if charts_view.touch(touch, t, s.rt)? {
+        let consumed = charts_view.touch(touch, t, s.rt)?;
+        if self.course_selection.is_some() {
+            self.course_selection = charts_view.multi_select.clone();
+        }
+        if consumed {
             return Ok(true);
         }
         if choose_cover {
@@ -813,7 +899,7 @@ impl Page for LibraryPage {
             }
             ChartListType::Popular => {}
         }
-        if self.tabs.selected_mut().view.multi_select.is_some() {
+        if self.course_selection.is_none() && self.tabs.selected_mut().view.multi_select.is_some() {
             if self.multi_operation_btn.touch(touch, t) {
                 let mut options = vec!["multi-export", "multi-create-fav", "multi-manage-fav"];
                 if self.tabs.selected_mut().view.allow_edit {
@@ -876,6 +962,12 @@ impl Page for LibraryPage {
                 self.load_online();
             }
         }
+        if let Some(selection) = &self.course_selection {
+            for list in self.tabs.iter_mut() {
+                list.view.multi_select = Some(selection.clone());
+                list.view.selection_limit = Some(3);
+            }
+        }
         if cfg!(closed) && self.tabs.selected_mut().view.clicked_special {
             let icons = Arc::clone(&self.icons);
             self.next_page_task = Some(Box::pin(async move { Ok(NextPage::Overlay(Box::new(CollectionPage::new(icons).await?))) }));
@@ -910,8 +1002,31 @@ impl Page for LibraryPage {
             if let Some(res) = task.take() {
                 match res {
                     Err(err) => show_error(err.context(tl!("failed-to-load-online"))),
-                    Ok(res) => {
+                    Ok(mut res) => {
                         self.online_total_page = res.2;
+                        if matches!(
+                            self.current_order,
+                            ChartOrder::Composer | ChartOrder::Charter | ChartOrder::Score | ChartOrder::Accuracy | ChartOrder::Unplayed
+                        ) {
+                            self.current_order.apply(&mut res.0, |it| it.chart.as_ref().unwrap());
+                            if self.order_rev {
+                                res.0.reverse();
+                            }
+                        }
+                        res.0.retain(|it| {
+                            let c = it.chart.as_ref().unwrap();
+                            let rec = get_data()
+                                .charts
+                                .iter()
+                                .find(|l| c.info.id.is_some() && l.info.id == c.info.id)
+                                .and_then(|l| l.record.as_ref());
+                            match self.played_filter {
+                                1 => rec.is_none(),
+                                2 => rec.is_some(),
+                                3 => !rec.is_some_and(|r| r.full_combo),
+                                _ => true,
+                            }
+                        });
                         self.tabs.selected_mut().view.set(t, res.0);
                     }
                 }
@@ -1078,11 +1193,25 @@ impl Page for LibraryPage {
                     self.order_meta_menu.set_selected(usize::MAX);
                     self.on_order_update(s);
                 }
+                2 => {
+                    self.played_filter = (self.played_filter + 1) % 4;
+                    self.order_meta_menu.set_selected(usize::MAX);
+                    self.update_order_meta_menu_options();
+                    self.on_order_update(s);
+                }
                 _ => {}
             }
         }
         if self.order_menu.changed() {
             self.current_order = self.order_menu_options[self.order_menu.selected()];
+            if self.tabs.selected().ty != ChartListType::Local
+                && matches!(
+                    self.current_order,
+                    ChartOrder::Composer | ChartOrder::Charter | ChartOrder::Score | ChartOrder::Accuracy | ChartOrder::Unplayed
+                )
+            {
+                show_message("在线谱库按服务分页；此项对当前页应用本地排序与成绩");
+            }
             self.order_rev = matches!(self.current_order, ChartOrder::Default | ChartOrder::Rating);
             self.order_meta_menu.set_selected(usize::MAX);
             self.update_order_meta_menu_options();
@@ -1436,6 +1565,27 @@ impl Page for LibraryPage {
                 Ok(())
             })
         })?;
+        s.render_fader(ui, |ui| {
+            self.course_btn.render_text(
+                ui,
+                Rect::new(-0.94, r.bottom() - 0.085, 0.20, 0.085),
+                t,
+                if self.course_selection.is_some() { "退出" } else { "课题模式" },
+                0.36,
+                false,
+            );
+            if self.course_selection.is_some() {
+                self.course_start
+                    .render_text(ui, Rect::new(-0.94, r.bottom() - 0.19, 0.20, 0.085), t, "开始游玩", 0.36, false);
+                ui.text(format!("已选 {} / 3", self.course_selection.as_ref().unwrap().len()))
+                    .pos(-0.84, r.bottom() - 0.23)
+                    .anchor(0.5, 1.)
+                    .size(0.32)
+                    .draw();
+            } else {
+                self.course_start.invalidate();
+            }
+        });
         // HUD 自定义：右上按钮排（整体移动 / 缩放；排内按钮仍等距自动排列）。
         const SLOT_TOPBAR: crate::hud::SlotDef = crate::hud::SlotDef::centered("topbar", [0., 0., 0.09, 0.09], crate::hud::Cap(true, true, true));
         let bar = if crate::hud::has("library", "topbar") {
@@ -1452,7 +1602,8 @@ impl Page for LibraryPage {
                 r.x -= r.w;
 
                 // 多选模式操作按钮
-                if let Some(selected) = &mut self.tabs.selected_mut().view.multi_select {
+                let course_active = self.course_selection.is_some();
+                if let Some(selected) = self.tabs.selected_mut().view.multi_select.as_mut().filter(|_| !course_active) {
                     self.multi_operation_btn.render_shadow(ui, r, t, |ui, path| {
                         ui.fill_path(&path, WHITE);
                         let cr = r.feather(-0.01);
@@ -1472,7 +1623,7 @@ impl Page for LibraryPage {
                     let tw = ui.text(&text).size(0.5).measure().w;
                     let w = tw + 0.1;
                     // HUD 自定义：多选按钮（可单独拖动缩放）。
-                let sr = crate::hud::slot_or(ui, "library", "multi", crate::hud::Cap(true, true, true), Rect::new(r.x - w - 0.02, r.y, w, r.h));
+                    let sr = crate::hud::slot_or(ui, "library", "multi", crate::hud::Cap(true, true, true), Rect::new(r.x - w - 0.02, r.y, w, r.h));
                     self.multi_select_btn.render_shadow(ui, sr, t, |ui, path| {
                         ui.fill_path(&path, WHITE);
                         let ir = Rect::new(sr.x + 0.04, sr.center().y, 0., 0.).feather(0.025);
@@ -1551,47 +1702,49 @@ impl Page for LibraryPage {
                     self.order_meta_menu
                         .set_auto_adjust(Some(ui.screen_rect().nonuniform_feather(-0.03, -0.05)));
                     if self.tabs.selected().ty == ChartListType::Local {
-                        self.order_menu_options = vec![ChartOrder::Default, ChartOrder::Name, ChartOrder::Difficulty];
+                        self.order_menu_options = vec![
+                            ChartOrder::Default,
+                            ChartOrder::Name,
+                            ChartOrder::Composer,
+                            ChartOrder::Charter,
+                            ChartOrder::Difficulty,
+                            ChartOrder::Score,
+                            ChartOrder::Accuracy,
+                            ChartOrder::Unplayed,
+                        ];
                     } else {
-                        self.order_menu_options = vec![ChartOrder::Default, ChartOrder::Rating, ChartOrder::Name, ChartOrder::Difficulty];
+                        self.order_menu_options = vec![
+                            ChartOrder::Default,
+                            ChartOrder::Rating,
+                            ChartOrder::Name,
+                            ChartOrder::Composer,
+                            ChartOrder::Charter,
+                            ChartOrder::Difficulty,
+                            ChartOrder::Score,
+                            ChartOrder::Accuracy,
+                            ChartOrder::Unplayed,
+                        ];
                     }
                     self.order_meta_menu.set_bottom(true);
                     self.order_meta_menu.set_auto_dismiss(false);
                     self.update_order_meta_menu_options();
                     self.order_meta_menu.set_selected(usize::MAX);
-                    self.order_meta_menu.show(ui, t, Rect::new(or.x, or.bottom() + 0.02, 0.35, 0.2));
+                    self.order_meta_menu.show(ui, t, Rect::new(or.x, or.bottom() + 0.02, 0.4, 0.3));
                 }
 
-                let empty = self.search_str.is_empty();
-                r.w = 0.53;
-                r.x -= r.w + 0.02;
-                if empty {
-                    r.x += r.h;
-                    r.w -= r.h;
-                }
-                let (sr, ir) = {
-                    // HUD 自定义：搜索框（可单独拖动缩放）；文字跟随搜索框。
-                    let sr = crate::hud::slot_or(ui, "library", "search", crate::hud::Cap(true, true, true), r);
-                    self.search_btn.render_shadow(ui, sr, t, |ui, path| {
-                        ui.fill_path(&path, semi_black(0.4));
-                    });
-                    let mut r = sr.feather(-0.01);
-                    r.w = r.h;
-                    if !empty {
-                        ui.fill_rect(r, (*self.icons.close, r, ScaleType::Fit));
-                        self.search_clr_btn.set(ui, r);
-                        r.x += r.w;
-                    }
-                    ui.fill_rect(r, (*self.icons.search, r, ScaleType::Fit));
-                    (sr, r)
-                };
-                ui.text(&self.search_str)
-                    .pos(ir.right() + 0.01, sr.center().y)
-                    .anchor(0., 0.5)
-                    .no_baseline()
-                    .size(0.6)
-                    .max_width((sr.right() - ir.right() - 0.03).max(0.02))
-                    .draw();
+                r = super::search_bar::rect(r.x - 0.02, r.y, r.h, self.search_str.is_empty());
+                // Keep the library's existing HUD position while sharing its exact appearance with settings.
+                let sr = crate::hud::slot_or(ui, "library", "search", crate::hud::Cap(true, true, true), r);
+                super::search_bar::render(
+                    ui,
+                    &mut self.search_btn,
+                    &mut self.search_clr_btn,
+                    sr,
+                    t,
+                    &self.search_str,
+                    &self.icons.search,
+                    &self.icons.close,
+                );
             });
         }
         if chosen != ChartListType::Local {
@@ -1600,13 +1753,7 @@ impl Page for LibraryPage {
                 // HUD 自定义：页码与翻页按钮（切到在线/热门分页后即可编辑）。
                 let cx = r.center().x;
                 let py = r.bottom() + 0.034;
-                let pager = crate::hud::slot_or(
-                    ui,
-                    "library",
-                    "pager",
-                    crate::hud::Cap(true, false, false),
-                    Rect::new(cx - 0.25, py, 0.5, 0.06),
-                );
+                let pager = crate::hud::slot_or(ui, "library", "pager", crate::hud::Cap(true, false, false), Rect::new(cx - 0.25, py, 0.5, 0.06));
                 ui.text(tl!("page", "current" => self.current_page + 1, "total" => total_page))
                     .pos(pager.center().x, pager.y)
                     .anchor(0.5, 0.)
@@ -1642,7 +1789,8 @@ impl Page for LibraryPage {
             let mut r = self.order_meta_menu.rect();
             r.w = 0.3;
             r.x -= r.w + 0.02;
-            r.h = 0.4;
+            r.h = (self.order_menu_options.len() as f32 * 0.09).min(0.72);
+            self.order_menu.set_auto_adjust(Some(ui.screen_rect().feather(-0.03)));
             self.order_menu.show(ui, t, r);
         }
         self.multi_select_menu.render(ui, t, 1.);
@@ -1688,6 +1836,9 @@ impl Page for LibraryPage {
     }
 
     fn next_scene(&mut self, _s: &mut SharedState) -> NextScene {
+        if let Some(next) = self.course_next.take() {
+            return next;
+        }
         self.tabs.selected_mut().view.next_scene().unwrap_or_default()
     }
 }

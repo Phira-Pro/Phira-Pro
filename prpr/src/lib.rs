@@ -2,6 +2,8 @@ pub mod audio;
 pub mod bin;
 pub mod config;
 pub mod core;
+pub mod course;
+pub mod diagnostics;
 pub mod dir;
 pub mod ext;
 pub mod extensions;

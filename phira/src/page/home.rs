@@ -474,6 +474,19 @@ impl Page for HomePage {
         }
         if self.char_screen_p.now(rt) < 1e-2 {
             if self.music_panel.touch(touch, t, &mut s.menu_music)? {
+                if let Some(path) = self.music_panel.open_chart.take() {
+                    // A fresh launch can play library music before the library
+                    // page has populated SharedState's chart cards.
+                    if !s.charts_local.iter().any(|c| c.local_path.as_ref() == Some(&path)) {
+                        s.reload_local_charts();
+                    }
+                    if let Some(item) = s.charts_local.iter().find(|c| c.local_path.as_ref() == Some(&path)).cloned() {
+                        self.sf
+                            .goto(t, crate::scene::SongScene::new(item, Some(path), self.icons.clone(), s.icons.clone(), Default::default()));
+                    } else {
+                        prpr::scene::show_message("当前歌曲的本地谱面已被移除，请刷新谱面库").warn();
+                    }
+                }
                 return Ok(true);
             }
             self.btn_play_3d.touch(touch, t);
@@ -505,7 +518,12 @@ impl Page for HomePage {
                 return Ok(true);
             }
             if self.btn_settings.touch(touch, t) {
-                self.next_page = Some(NextPage::Overlay(Box::new(SettingsPage::new(self.icons.icon.clone(), self.icons.lang.clone()))));
+                self.next_page = Some(NextPage::Overlay(Box::new(SettingsPage::new(
+                    self.icons.icon.clone(),
+                    self.icons.lang.clone(),
+                    self.icons.search.clone(),
+                    self.icons.close.clone(),
+                ))));
                 return Ok(true);
             }
         } else {

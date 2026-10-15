@@ -729,6 +729,9 @@ fn draw_layer_frame(
         }
         let copy_ms = profile_mark(&mut profile_start);
 
+        m.set_uniform("_GlowIntensity", if res.config.noise_glow { 0.8_f32 } else { 0_f32 });
+        m.set_uniform("_DisplaceStrength", if res.config.noise_refraction { 0.15_f32 } else { 0_f32 });
+        m.set_uniform("_TouchDisplaceStrength", if res.config.noise_refraction { 0.08_f32 } else { 0_f32 });
         m.set_texture("uDisplaceTex", *DISPLACE_TEX);
         m.set_texture("uSparkTex", *SPARK_TEX);
         m.set_texture("uMasks", frame.effect.unwrap());

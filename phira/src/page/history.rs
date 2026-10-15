@@ -40,6 +40,9 @@ fn card(ui: &mut Ui, r: Rect) -> Rect {
 
 pub struct HistoryPage {
     records: Vec<Record>,
+    course: bool,
+    course_records: Vec<super::course::records::Record>,
+    btn_course: DRectButton,
     /// `None` = 全部谱面；`Some(key)` = 只看这一首
     selected: Option<String>,
     only_fc: bool,
@@ -58,6 +61,9 @@ impl HistoryPage {
         history::ensure_loaded();
         Self {
             records: history::all(),
+            course: false,
+            course_records: Vec::new(),
+            btn_course: DRectButton::new(),
             selected: None,
             only_fc: false,
             scroll: Scroll::new(),
@@ -142,6 +148,78 @@ impl HistoryPage {
     }
 }
 
+impl HistoryPage {
+    fn render_courses(&mut self, ui: &mut Ui, s: &mut SharedState, area: Rect) -> Result<()> {
+        s.render_fader(ui, |ui| {
+            self.scroll.size((area.w, area.h));
+            ui.dx(area.x);
+            ui.dy(area.y);
+            self.scroll.render(ui, |ui| {
+                let w = area.w;
+                let mut y = 0.;
+                if self.course_records.is_empty() {
+                    ui.text("暂无保存的课题成绩").pos(w / 2., 0.2).anchor(0.5, 0.5).size(0.5).draw();
+                    ui.text("在课题结算中点击保存成绩，或在牌子页面点击确定")
+                        .pos(w / 2., 0.28)
+                        .anchor(0.5, 0.5)
+                        .size(0.34)
+                        .max_width(w - 0.04)
+                        .draw();
+                    return (w, 0.4);
+                }
+                for record in &self.course_records {
+                    let height = 0.11 + record.charts.len() as f32 * 0.12;
+                    let r = Rect::new(0., y, w, height);
+                    let inner = card(ui, r);
+                    let time = chrono::DateTime::from_timestamp_millis(record.time)
+                        .map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S").to_string())
+                        .unwrap_or_default();
+                    ui.text(format!("{} · Lv.{} · {}{}", time, record.difficulty, record.grade, if record.full_combo { " · FC" } else { "" }))
+                        .pos(inner.x, y + 0.025)
+                        .size(0.38)
+                        .max_width(w - 0.38)
+                        .draw();
+                    ui.text(format!("{:07}", record.score))
+                        .pos(inner.right(), y + 0.025)
+                        .anchor(1., 0.)
+                        .size(0.52)
+                        .draw();
+                    for (i, chart) in record.charts.iter().enumerate() {
+                        let cy = y + 0.11 + i as f32 * 0.12;
+                        ui.text(format!("{}. {} · {}", i + 1, chart.name, chart.level))
+                            .pos(inner.x, cy)
+                            .size(0.40)
+                            .max_width(w - 0.38)
+                            .draw();
+                        ui.text(format!("{:07}", chart.score))
+                            .pos(inner.right(), cy)
+                            .anchor(1., 0.)
+                            .size(0.40)
+                            .draw();
+                        ui.text(format!(
+                            "Perfect {}   Good {}   Bad {}   Miss {}   Early {}   Late {}",
+                            chart.counts[0] + chart.counts[4],
+                            chart.counts[1],
+                            chart.counts[2],
+                            chart.counts[3],
+                            chart.early,
+                            chart.late
+                        ))
+                        .pos(inner.x, cy + 0.052)
+                        .size(0.32)
+                        .color(semi_white(0.72))
+                        .max_width(inner.w)
+                        .draw();
+                    }
+                    y += height + 0.02;
+                }
+                (w, y)
+            });
+        });
+        Ok(())
+    }
+}
+
 thread_local! {
     static PENDING_EXPORT: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
@@ -160,8 +238,25 @@ impl Page for HistoryPage {
 
     fn touch(&mut self, touch: &Touch, s: &mut SharedState) -> Result<bool> {
         let t = s.t;
+        if self.btn_course.touch(touch, t) {
+            self.course = !self.course;
+            self.scroll.y_scroller.reset();
+            if self.course {
+                match crate::dir::root().and_then(|root| super::course::records::load_at(std::path::Path::new(&root))) {
+                    Ok(records) => self.course_records = records,
+                    Err(e) => {
+                        show_error(e);
+                        self.course = false;
+                    }
+                }
+            }
+            return Ok(true);
+        }
         if self.scroll.touch(touch, t) {
             return Ok(true);
+        }
+        if self.course {
+            return Ok(false);
         }
         if self.btn_all.touch(touch, t) {
             // 「全部」是彻底重置：既取消单曲筛选，也关掉「只看全连」。
@@ -204,6 +299,19 @@ impl Page for HistoryPage {
         let mut cr = ui.content_rect();
         cr.x += 0.025;
         cr.w -= 0.025;
+        s.render_fader(ui, |ui| {
+            self.btn_course.render_text(
+                ui,
+                Rect::new(cr.right() - 0.26, -ui.top + 0.04, 0.26, 0.09),
+                t,
+                if self.course { "单曲成绩" } else { "课题成绩" },
+                0.42,
+                self.course,
+            );
+        });
+        if self.course {
+            return self.render_courses(ui, s, cr);
+        }
         let records = self.filtered();
         let selected_name = self
             .selected
@@ -436,13 +544,17 @@ impl Page for HistoryPage {
                         .color(semi_white(0.88))
                         .no_baseline()
                         .draw();
-                    ui.text(if rec.grading.is_some_and(|g| g.detailed) { tl!("detailed-grades").into_owned() } else { format!("P{} G{} B{} M{}", rec.counts[0], rec.counts[1], rec.counts[2], rec.counts[3]) })
-                        .pos(ix + r.w * 0.29, cy)
-                        .anchor(0., 0.5)
-                        .size(0.34)
-                        .color(semi_white(0.7))
-                        .no_baseline()
-                        .draw();
+                    ui.text(if rec.grading.is_some_and(|g| g.detailed) {
+                        tl!("detailed-grades").into_owned()
+                    } else {
+                        format!("P{} G{} B{} M{}", rec.counts[0], rec.counts[1], rec.counts[2], rec.counts[3])
+                    })
+                    .pos(ix + r.w * 0.29, cy)
+                    .anchor(0., 0.5)
+                    .size(0.34)
+                    .color(semi_white(0.7))
+                    .no_baseline()
+                    .draw();
                     ui.text(format!("x{}", rec.max_combo))
                         .pos(ix + r.w * 0.50, cy)
                         .anchor(0., 0.5)

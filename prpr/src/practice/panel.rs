@@ -45,6 +45,7 @@ pub enum Action {
     Clear,
     Seek(f64),
     Boundary(bool, f64),
+    External(usize),
 }
 pub struct Panel {
     pub scroll: Scroll,
@@ -195,6 +196,15 @@ impl Panel {
         self.scroll.y_scroller.halt();
         self.toggle.cancel();
     }
+    pub fn suspend(&mut self, t: f32) {
+        self.scroll.x_scroller.suspend(t);
+        self.scroll.y_scroller.suspend(t);
+        self.outside_id = None;
+        self.toggle.cancel();
+        for button in self.buttons.values_mut() {
+            button.cancel(t);
+        }
+    }
     pub fn touch(&mut self, touch: &Touch, t: f32) -> (bool, Option<Action>) {
         if self.outside_id == Some(touch.id) {
             if matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled) {
@@ -321,6 +331,48 @@ impl Panel {
                         );
                         y += 0.105;
                         self.switch(ui, t, "practice_loop", tl!("practice-loop"), auto, &mut y);
+                        if self.section(ui, t, "analysis", "谱面分析与回放", &mut y) {
+                            for (i, label) in ["密度与失误时间轴", "双回放对照", "单音符判定详情"].iter().enumerate() {
+                                self.button(ui, t, &format!("practice_tool_{i}"), *label, Rect::new(0., y, 1.64, 0.084), false, Action::External(i));
+                                y += 0.105;
+                            }
+                        }
+                        if self.section(ui, t, "adaptive", "达标晋级练习", &mut y) {
+                            self.switch(ui, t, "practice_adaptive", "达标后提速", p.adaptive.enabled, &mut y);
+                            self.number(
+                                ui,
+                                t,
+                                "practice_target_accuracy",
+                                "目标准度",
+                                p.adaptive.accuracy,
+                                0.01,
+                                0.,
+                                1.,
+                                format!("{:.2}%", p.adaptive.accuracy * 100.),
+                                &mut y,
+                            );
+                            self.number(
+                                ui,
+                                t,
+                                "practice_consecutive",
+                                "连续达标轮数",
+                                p.adaptive.consecutive as f32,
+                                1.,
+                                1.,
+                                99.,
+                                p.adaptive.consecutive.to_string(),
+                                &mut y,
+                            );
+                            self.switch(ui, t, "practice_goal_fc", "同时要求全连", p.adaptive.full_combo, &mut y);
+                            self.switch(ui, t, "practice_goal_drop", "未达标时降低一档", p.adaptive.lower_on_failure, &mut y);
+                            ui.text("使用变速练习的起始倍速、每档增幅及原版速度滑条设置的目标倍速。")
+                                .pos(0.02, y)
+                                .size(0.30)
+                                .max_width(1.6)
+                                .multiline()
+                                .draw();
+                            y += 0.10;
+                        }
                         if self.section(ui, t, "audio", tl!("practice-audio"), &mut y) {
                             self.switch(ui, t, "practice_pitch", tl!("practice-pitch"), p.preserve_pitch, &mut y);
                             self.switch(ui, t, "practice_correct", tl!("practice-correct"), p.correct_sound, &mut y);

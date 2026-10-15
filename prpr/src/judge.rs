@@ -1378,6 +1378,7 @@ impl Judge {
         };
         repeat_all_miniquad_input(&mut handler, *SUBSCRIBER_ID);
         handler.finalize();
+        crate::diagnostics::frame(&handler.status.touches);
         TOUCHES.with(|it| {
             *it.borrow_mut() = handler.status;
         });

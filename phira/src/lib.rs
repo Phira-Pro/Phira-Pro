@@ -33,6 +33,7 @@ mod menu_music;
 mod migrate;
 mod page;
 mod plugins;
+mod ppsr_features;
 mod popup;
 mod rate;
 mod replay;

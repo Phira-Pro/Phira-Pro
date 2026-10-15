@@ -43,8 +43,8 @@ use prpr::{
     info::ChartInfo,
     judge::icon_index,
     scene::{
-        request_file, request_input, return_file, return_input, show_error, show_message, take_file, take_input, BasicPlayer, GameMode, LoadingScene,
-        LocalSceneTask, NextScene, RecordUpdateState, SaveFn, Scene, SimpleRecord, UpdateFn, UploadFn, UploadScore,
+        request_file, request_input, return_file, return_input, show_error, show_message, take_file, take_input, BasicPlayer, GameMode, GameScene,
+        LoadingScene, LocalSceneTask, NextScene, RecordUpdateState, SaveFn, Scene, SimpleRecord, UpdateFn, UploadFn, UploadScore,
     },
     task::Task,
     time::TimeManager,
@@ -317,6 +317,11 @@ pub struct SongScene {
 
     load_task: Option<Task<Result<Option<Arc<Chart>>>>>,
     entity: Option<Chart>,
+    ppsr_analysis_task: LocalTask<Result<serde_json::Value>>,
+    ppsr_analysis_started: bool,
+    ppsr_collapsed: bool,
+    ppsr_toggle: DRectButton,
+    ppsr_panel: crate::plugins::PpsrPanelState,
     info: BriefChartInfo,
     local_path: Option<String>,
 
@@ -518,6 +523,11 @@ impl SongScene {
                 id.map(|it| Task::new(async move { Ptr::new(it).fetch_opt().await }))
             },
             entity: None,
+            ppsr_analysis_task: None,
+            ppsr_analysis_started: false,
+            ppsr_collapsed: false,
+            ppsr_toggle: DRectButton::new(),
+            ppsr_panel: crate::plugins::PpsrPanelState::default(),
             info: chart.info,
             local_path,
 
@@ -649,6 +659,36 @@ impl SongScene {
 
             export_task: None,
         }
+    }
+
+    fn start_ppsr_analysis(&mut self) {
+        if self.ppsr_analysis_started || !crate::plugins::chart_selected_needed() {
+            return;
+        }
+        let Some(path) = self.local_path.clone() else {
+            return;
+        };
+        self.ppsr_analysis_started = true;
+        crate::plugins::clear_chart_selected_reports();
+        let chart_set = if matches!(self.chart_type, ChartType::Integrated) {
+            "phigros"
+        } else {
+            "phira"
+        };
+        self.ppsr_analysis_task = Some(Box::pin(async move {
+            let mut fs = fs_from_path(&path)?;
+            let info = fs::load_info(fs.as_mut()).await?;
+            let (chart, _, format) = GameScene::load_chart_for_analysis(fs.as_mut(), &info).await?;
+            let mut payload = crate::ppsr_features::extract(&chart, &info)?;
+            let object = payload.as_object_mut().context("PPSR feature extractor returned a non-object")?;
+            object.insert("api".into(), json!(crate::plugins::API_VERSION));
+            object.insert("name".into(), json!(info.name));
+            object.insert("level".into(), json!(info.level));
+            object.insert("difficulty".into(), json!(info.difficulty));
+            object.insert("format".into(), serde_json::to_value(format)?);
+            object.insert("chart_set".into(), json!(chart_set));
+            Ok(payload)
+        }));
     }
 
     fn start_download(&mut self) -> Result<()> {
@@ -1847,6 +1887,9 @@ impl SongScene {
         self.info = info.into();
         self.illu = illu;
         self.update_chart_info()?;
+        self.ppsr_analysis_task = None;
+        self.ppsr_analysis_started = false;
+        self.start_ppsr_analysis();
 
         Ok(())
     }
@@ -1983,6 +2026,7 @@ impl Scene for SongScene {
             tm.seek_to(-fade_in_time().unwrap_or_default() as _);
             self.load_ldb();
         }
+        self.start_ppsr_analysis();
         if let Some(music) = &mut self.preview {
             music.seek_to(0.)?;
             music.play()?;
@@ -2029,6 +2073,14 @@ impl Scene for SongScene {
         }
         if self.fav_menu.showing() {
             self.fav_menu.touch(touch, t);
+            return Ok(true);
+        }
+        if self.ppsr_panel.touch(touch) {
+            return Ok(true);
+        }
+        if self.ppsr_toggle.touch(touch, t) {
+            self.ppsr_collapsed = !self.ppsr_collapsed;
+            button_hit();
             return Ok(true);
         }
         if self.side_enter_time.is_finite() {
@@ -2274,6 +2326,17 @@ impl Scene for SongScene {
         let t = tm.now() as f32;
         self.menu.update(t);
         self.fav_menu.update(t);
+        let ppsr_result = self.ppsr_analysis_task.as_mut().and_then(|task| poll_future(task.as_mut()));
+        if let Some(result) = ppsr_result {
+            self.ppsr_analysis_task = None;
+            match result {
+                Ok(payload) => crate::plugins::chart_selected(&payload),
+                Err(err) => {
+                    warn!(?err, "failed to analyze selected chart with PPSR");
+                    show_error(err.context("PPSR 谱面分析失败"));
+                }
+            }
+        }
         if self.fav_btn.update_long_touch(t, &mut self.fav_long_touch) {
             button_hit();
             let options = self.get_fav_menu_options();
@@ -3298,6 +3361,7 @@ impl Scene for SongScene {
             ui.fill_rect(r, semi_black(0.3));
         }
 
+        crate::plugins::render_ppsr_panel(ui, t, self.ppsr_collapsed, &mut self.ppsr_toggle, &mut self.ppsr_panel);
         self.sf.render(ui, t);
 
         Ok(())

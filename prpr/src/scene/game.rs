@@ -705,6 +705,14 @@ impl GameScene {
     }
 
     pub async fn load_chart(fs: &mut dyn FileSystem, info: &ChartInfo) -> Result<(Chart, Vec<u8>, ChartFormat)> {
+        Self::load_chart_impl(fs, info, true).await
+    }
+
+    pub async fn load_chart_for_analysis(fs: &mut dyn FileSystem, info: &ChartInfo) -> Result<(Chart, Vec<u8>, ChartFormat)> {
+        Self::load_chart_impl(fs, info, false).await
+    }
+
+    async fn load_chart_impl(fs: &mut dyn FileSystem, info: &ChartInfo, load_textures: bool) -> Result<(Chart, Vec<u8>, ChartFormat)> {
         let extra = fs.load_file("extra.json").await.ok().map(String::from_utf8).transpose()?;
         let extra = if let Some(extra) = extra {
             parse_extra(&extra, fs).await.context("Failed to parse extra")?
@@ -745,7 +753,9 @@ impl GameScene {
                 r.read()
             }
         }?;
-        chart.load_textures(fs).await?;
+        if load_textures {
+            chart.load_textures(fs).await?;
+        }
         chart.settings.hold_partial_cover = info.hold_partial_cover;
         Ok((chart, bytes, format))
     }

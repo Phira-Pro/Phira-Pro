@@ -45,6 +45,8 @@ vendor/
 vendor/*
 /docs/*
 !/docs/development/
+!/docs/plugins/
+!/docs/plugins/agent-guide.md
 
 # Android：壳工程源码入库；忽略 Gradle 构建输出与签名密钥（密钥走 CI Secret）
 /phira-android/.gradle/

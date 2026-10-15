@@ -91,6 +91,25 @@ fn quad(ui: &mut Ui, r: Rect, skew: f32, shading: impl IntoShading) {
     b.triangle(0, 2, 3);
     b.commit();
 }
+/// Fit complete text using its actual Saira ink bounds, so tablet rows grow with their text.
+/// Width fitting only reduces exceptionally long counts; scores are never ellipsized.
+fn fit_size(ui: &mut Ui, text: &str, height: f32, width: f32) -> f32 {
+    let bounds = ui.text(text).size(1.).no_baseline().measure();
+    (height / bounds.h.max(0.001)).min(width / bounds.w.max(0.001))
+}
+fn text_draw(ui: &mut Ui, text: &str, pos: Vec2, anchor: Vec2, size: f32, color: Color) {
+    ui.text(text)
+        .pos(pos.x, pos.y)
+        .anchor(anchor.x, anchor.y)
+        .no_baseline()
+        .size(size)
+        .color(color)
+        .draw();
+}
+fn text_fit(ui: &mut Ui, text: &str, pos: Vec2, anchor: Vec2, height: f32, width: f32, color: Color) {
+    let size = fit_size(ui, text, height, width);
+    text_draw(ui, text, pos, anchor, size, color);
+}
 pub(super) fn results(ui: &mut Ui, assets: &mut Assets, stages: &[Stage], aborted: bool, saved: bool, buttons: &mut [DRectButton; 4], t: f32) {
     std::mem::swap(ui.text_painter, &mut assets.font);
     let area = ui.screen_rect().feather(-0.06);
@@ -132,47 +151,39 @@ pub(super) fn results(ui: &mut Ui, assets: &mut Assets, stages: &[Stage], aborte
             .size(0.62)
             .max_width(art.w - 0.06)
             .draw();
-        ui.text(&stage.info.level)
-            .pos(art.right() - 0.015, art.y + 0.02)
-            .anchor(1., 0.)
-            .size(0.32)
-            .draw();
-        let stats_x = art.right() + 0.055;
-        let stats_w = r.right() - stats_x - 0.035;
-        ui.text(format!("{:07}", stage.result.score))
-            .pos(r.right() - 0.03, r.y + card_h * 0.15)
-            .anchor(1., 0.)
-            .no_baseline()
-            .size(1.1)
-            .draw();
-        for (j, (label, count)) in ["Perfect", "Good", "Bad", "Miss"].iter().zip(stage.result.counts[..4].iter()).enumerate() {
-            let x = stats_x + stats_w * j as f32 / 5.2;
-            ui.text(count.to_string())
-                .pos(x, r.y + card_h * 0.68)
-                .anchor(0., 0.5)
-                .no_baseline()
-                .size(0.50)
-                .draw();
-            ui.text(*label)
-                .pos(x, r.y + card_h * 0.92)
-                .anchor(0., 0.5)
-                .no_baseline()
-                .size(0.29)
-                .color(semi_white(0.7))
-                .draw();
+        text_fit(ui, &stage.info.level, vec2(art.right() - 0.025, art.y + card_h * 0.08), vec2(1., 0.), card_h * 0.105, art.w * 0.45, WHITE);
+        let stats_x = art.right() + 0.035;
+        let stats_right = r.right() - 0.025;
+        let stats_w = stats_right - stats_x;
+        text_fit(ui, &format!("{:07}", stage.result.score), vec2(stats_right, r.y + card_h * 0.07), vec2(1., 0.), card_h * 0.30, stats_w, WHITE);
+        let column_w = stats_w * 0.18;
+        let labels = ["Perfect", "Good", "Bad", "Miss"];
+        let counts: Vec<_> = stage.result.counts[..4].iter().map(|n| n.to_string()).collect();
+        let label_size = labels
+            .iter()
+            .map(|s| fit_size(ui, s, card_h * 0.10, column_w - 0.008))
+            .fold(f32::INFINITY, f32::min);
+        let count_size = counts
+            .iter()
+            .map(|s| fit_size(ui, s, card_h * 0.16, column_w - 0.008))
+            .fold(f32::INFINITY, f32::min);
+        for (j, (label, count)) in labels.iter().zip(&counts).enumerate() {
+            let x = stats_x + column_w * (j as f32 + 0.5);
+            text_draw(ui, count, vec2(x, r.y + card_h * 0.67), vec2(0.5, 0.5), count_size, WHITE);
+            text_draw(ui, label, vec2(x, r.y + card_h * 0.89), vec2(0.5, 0.5), label_size, semi_white(0.85));
         }
-        let early_late = if card_h < 0.16 {
-            format!("E {} · L {}", stage.result.early, stage.result.late)
-        } else {
-            format!("Early {}\nLate  {}", stage.result.early, stage.result.late)
-        };
-        ui.text(early_late)
-            .pos(r.right() - 0.025, r.y + card_h * if card_h < 0.16 { 0.92 } else { 0.64 })
-            .anchor(1., if card_h < 0.16 { 0.5 } else { 0. })
-            .no_baseline()
-            .size(0.29)
-            .multiline()
-            .draw();
+        let timing_x = stats_x + column_w * 4. + 0.012;
+        let timing_w = stats_right - timing_x;
+        let early = stage.result.early.to_string();
+        let late = stage.result.late.to_string();
+        let timing_size = label_size
+            .min(fit_size(ui, "Early", f32::MAX, timing_w * 0.54))
+            .min(fit_size(ui, &early, f32::MAX, timing_w * 0.43))
+            .min(fit_size(ui, &late, f32::MAX, timing_w * 0.43));
+        for (label, value, y) in [("Early", early.as_str(), 0.64), ("Late", late.as_str(), 0.86)] {
+            text_draw(ui, label, vec2(timing_x, r.y + card_h * y), vec2(0., 0.5), timing_size, semi_white(0.85));
+            text_draw(ui, value, vec2(stats_right, r.y + card_h * y), vec2(1., 0.5), timing_size, WHITE);
+        }
     }
     let total = score(stages);
     let bottom = screen.y + screen.h * 0.74;
@@ -181,12 +192,15 @@ pub(super) fn results(ui: &mut Ui, assets: &mut Assets, stages: &[Stage], aborte
     let right = area.right() - 0.28 * (bottom + total_h - rows_top);
     let total_rect = Rect::new(right - 0.68, bottom, 0.68, total_h);
     quad(ui, total_rect, total_h * 0.28, semi_black(0.55));
-    ui.text(format!("{total:07}"))
-        .pos(total_rect.right() - 0.035, total_rect.center().y)
-        .anchor(1., 0.5)
-        .no_baseline()
-        .size(1.1)
-        .draw();
+    text_fit(
+        ui,
+        &format!("{total:07}"),
+        vec2(total_rect.right() - 0.035, total_rect.center().y),
+        vec2(1., 0.5),
+        total_h * 0.40,
+        total_rect.w - 0.07,
+        WHITE,
+    );
     let rank = rank_index(total, all_fc(stages));
     let icon = &assets.ranks[rank];
     let icon_rect = Rect::new(0.84, total_rect.center().y, 0., 0.).feather((screen.h * 0.080).min(0.13));

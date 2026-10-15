@@ -388,6 +388,23 @@ pub(crate) async fn render_regression(painter: &mut prpr::ui::TextPainter) {
         course.render(&mut tm, &mut ui).unwrap();
         crate::practice_tools::qa::capture(&mut ui, &format!("pro15-course-{label}"));
     }
+    // Stress layout with long counts, then restore the real results used by the flow checks.
+    let original: Vec<_> = course.stages.iter().map(|s| (s.result.counts, s.result.early, s.result.late)).collect();
+    for stage in &mut course.stages {
+        stage.result.counts[..4].copy_from_slice(&[2077, 123, 12, 7]);
+        stage.result.early = 2034;
+        stage.result.late = 1730;
+    }
+    for (w, h, label) in [(1280, 548, "phone"), (960, 720, "tablet")] {
+        let mut ui = Ui::new(painter, Some((0, 0, w, h)));
+        course.render(&mut tm, &mut ui).unwrap();
+        crate::practice_tools::qa::capture(&mut ui, &format!("pro15-course-text-stress-{label}"));
+    }
+    for (stage, (counts, early, late)) in course.stages.iter_mut().zip(original) {
+        stage.result.counts = counts;
+        stage.result.early = early;
+        stage.result.late = late;
+    }
     course.transition = Some((tm.real_time() - CourseScene::FADE - 0.01, Destination::Award));
     course.update(&mut tm).unwrap();
     assert!(course.award && course.transition.is_none(), "continue must fade from results into award");

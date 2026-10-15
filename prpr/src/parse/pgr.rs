@@ -408,7 +408,7 @@ fn convert_phigros(pgr: PgrChart, extra: ChartExtra) -> Result<Chart> {
                 .notes_above
                 .iter()
                 .chain(line.notes_below.iter())
-                .map(|note| note.time.not_nan())
+                .map(|note| (note.time + if note.kind == 3 { note.hold_time } else { 0. }).not_nan())
                 .max()
                 .unwrap_or_default()
                 * (60. / line.bpm / 32.))
@@ -430,4 +430,54 @@ fn convert_phigros(pgr: PgrChart, extra: ChartExtra) -> Result<Chart> {
     // them directly against the song time), so no beat conversion is applied.
     chart.block_areas = parse_block_areas(pgr.block_area_list);
     Ok(chart)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn scrolling_distance_continues_through_final_hold_tail() {
+        for bpm in [120., 240.] {
+            for side in ["notesAbove", "notesBelow"] {
+                let mut line = json!({
+                    "bpm": bpm,
+                    "speedEvents": [
+                        {"startTime": 0, "endTime": 128, "value": 1},
+                        {"startTime": 128, "endTime": 1000000000, "value": 2}
+                    ],
+                    "judgeLineDisappearEvents": [{"startTime": 0, "endTime": 1000000000, "start": 1, "end": 1}],
+                    "judgeLineRotateEvents": [{"startTime": 0, "endTime": 1000000000, "start": 0, "end": 0}],
+                    "judgeLineMoveEvents": [{"startTime": 0, "endTime": 1000000000, "start": 0.5, "end": 0.5, "start2": 0.5, "end2": 0.5}],
+                    "notesAbove": [], "notesBelow": []
+                });
+                line[side] = json!([
+                    {"type": 3, "time": 64, "holdTime": 256, "positionX": 0, "speed": 1, "floorPosition": 0},
+                    {"type": 1, "time": 128, "holdTime": 0, "positionX": 0, "speed": 1, "floorPosition": 0}
+                ]);
+                let mut chart =
+                    parse_phigros(&json!({"formatVersion": 3, "offset": 0, "judgeLineList": [line]}).to_string(), ChartExtra::default()).unwrap();
+                let line = &mut chart.lines[0];
+                let r = 1.875 / bpm;
+                let tail_time = 320. * r;
+                let floor_at = |time: f64| time.min(128. * r) + (time - 128. * r).max(0.) * 2.;
+                let (end_time, end_height) = line
+                    .notes
+                    .iter()
+                    .find_map(|note| match note.kind {
+                        NoteKind::Hold { end_time, end_height } => Some((end_time, end_height)),
+                        _ => None,
+                    })
+                    .unwrap();
+                assert_eq!(end_time, tail_time);
+                assert!((end_height * HEIGHT_RATIO - floor_at(tail_time)).abs() < 1e-5);
+                assert_eq!(line.height.keyframes.last().unwrap().time, tail_time + 1.);
+                for time in [64. * r, 128. * r + 1., tail_time - 0.25, tail_time, tail_time + 0.5] {
+                    line.height.set_time(time);
+                    assert!((line.height.now() as f64 * HEIGHT_RATIO - floor_at(time)).abs() < 1e-5);
+                }
+            }
+        }
+    }
 }

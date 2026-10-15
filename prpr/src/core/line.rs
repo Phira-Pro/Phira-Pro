@@ -3,6 +3,7 @@ use super::{
 };
 use crate::{
     ext::{get_viewport, NotNanExt, SafeTexture},
+    info::ChartFormat,
     judge::JudgeStatus,
     ui::Ui,
 };
@@ -323,7 +324,10 @@ impl JudgeLine {
     }
 
     pub fn render(&self, ui: &mut Ui, res: &mut Resource, lines: &[JudgeLine], bpm_list: &mut BpmList, settings: &ChartSettings, id: usize) {
-        let alpha = self.object.alpha.now_opt().unwrap_or(1.0) * res.alpha;
+        let mut alpha = self.object.alpha.now_opt().unwrap_or(1.0) * res.alpha;
+        if res.info.format == Some(ChartFormat::Pgr) {
+            alpha = alpha.max(0.0);
+        }
         let color = self.color.now_opt();
         let line_scaled = (self.object.scale.1.now() - 1.).abs() > 1e-4;
         res.with_model(self.now_transform(res, lines), |res| {

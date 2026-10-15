@@ -799,6 +799,7 @@ impl GameScene {
 
         tracing::info!("game loading: parse chart begins");
         let (mut chart, chart_bytes, chart_format) = Self::load_chart(fs.deref_mut(), &info).await?;
+        info.format = Some(chart_format.clone());
         crate::extensions::chart_loaded(&chart, &info, &config, &chart_bytes);
         tracing::info!("game loading: chart parsed; preparing shaders and resources");
         if chart.has_block_areas() && (!config.block_area_simple || !chart.next_block_areas.is_empty()) {

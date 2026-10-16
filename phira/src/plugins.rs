@@ -1,9 +1,9 @@
 //! Versioned, observer-only Rhai plugins. No native loading, filesystem, network,
 //! account credentials, mutable chart, judgement, score or upload API is exposed.
 use anyhow::{Context, Result};
-use macroquad::prelude::{Rect, Touch, TouchPhase, Vec2};
+use macroquad::prelude::{Color, Rect, Texture2D, Touch, TouchPhase, Vec2};
 use prpr::{
-    ext::RectExt,
+    ext::{RectExt, ScaleType},
     ui::{DRectButton, RectButton, Ui},
 };
 use rhai::{Dynamic, Engine, Scope, AST};
@@ -39,15 +39,19 @@ impl PpsrPanelState {
                 return false;
             }
             match touch.phase {
-                TouchPhase::Moved | TouchPhase::Stationary => {
+                TouchPhase::Moved | TouchPhase::Stationary | TouchPhase::Ended => {
                     if let Some(bounds) = self.bounds {
                         let delta = touch.position - start_touch;
                         let x = (start_position.x + delta.x).clamp(-1.0, 1.0 - bounds.w);
                         let y = (start_position.y + delta.y).clamp(-self.ui_top, (self.ui_top - bounds.h).max(-self.ui_top));
                         self.position = Some(Vec2::new(x, y));
                     }
+                    // Fast desktop drags may deliver down/up together without a moved frame.
+                    if touch.phase == TouchPhase::Ended {
+                        self.drag = None;
+                    }
                 }
-                TouchPhase::Ended | TouchPhase::Cancelled => self.drag = None,
+                TouchPhase::Cancelled => self.drag = None,
                 TouchPhase::Started => {}
             }
             return true;
@@ -370,7 +374,7 @@ fn ppsr_report() -> Option<Value> {
             .filter(|report| report.get("difficulty").and_then(Value::as_f64).is_some())
     })
 }
-pub fn render_ppsr_panel(ui: &mut Ui, t: f32, collapsed: bool, toggle: &mut DRectButton, panel: &mut PpsrPanelState) -> bool {
+pub fn render_ppsr_panel(ui: &mut Ui, t: f32, artwork: Texture2D, collapsed: bool, toggle: &mut DRectButton, panel: &mut PpsrPanelState) -> bool {
     let Some(report) = ppsr_report() else {
         panel.bounds = None;
         panel.drag = None;
@@ -379,32 +383,42 @@ pub fn render_ppsr_panel(ui: &mut Ui, t: f32, collapsed: bool, toggle: &mut DRec
     let parts = report.get("parts").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     let width = 0.72;
     let row_height = 0.056;
-    let height = 0.12 + if collapsed { 0. } else { parts.len().min(10) as f32 * row_height + 0.04 };
+    let height = 0.17 + if collapsed { 0. } else { parts.len().min(10) as f32 * row_height + 0.04 };
     let position = panel.position.unwrap_or(Vec2::new(0.98 - width, ui.top - height - 0.08));
     let rect = Rect::new(position.x.clamp(-1.0, 1.0 - width), position.y.clamp(-ui.top, (ui.top - height).max(-ui.top)), width, height);
     panel.position = Some(Vec2::new(rect.x, rect.y));
     panel.bounds = Some(rect);
     panel.ui_top = ui.top;
-    let header_height = 0.084_f32.min(height);
+    let header_height = 0.15_f32.min(height);
     panel.drag_handle.set(ui, Rect::new(rect.x, rect.y, width - 0.18, header_height));
-    let panel_color = macroquad::prelude::Color::new(0.04, 0.06, 0.08, 0.9);
-    ui.fill_path(&rect.rounded(0.02), panel_color);
-    ui.text(format!("PPSR {:.2}", report["difficulty"].as_f64().unwrap_or_default()))
+    // The host supplies the selected chart's artwork; plugins do not need texture access.
+    ui.fill_path(&rect.rounded(0.02), (artwork, rect, ScaleType::CropCenter, Color::new(1., 1., 1., 0.82)));
+    ui.fill_path(&rect.rounded(0.02), Color::new(0.035, 0.045, 0.075, 0.72));
+    ui.stroke_path(&rect.rounded(0.02), 0.0015, Color::new(1., 1., 1., 0.14));
+    ui.text("PPSR")
         .pos(rect.x + 0.025, rect.y + 0.019)
-        .size(0.38)
+        .size(0.28)
+        .color(Color::new(0.83, 0.88, 0.98, 1.))
         .draw();
-    let toggle_rect = Rect::new(rect.right() - 0.16, rect.y + 0.009, 0.14, 0.06);
+    let difficulty = format!("{:.2}", report["difficulty"].as_f64().unwrap_or_default());
+    let badge = Rect::new(rect.x + 0.025, rect.y + 0.057, 0.25, 0.090);
+    ui.fill_path(&badge.rounded(0.022), Color::new(0.15, 0.20, 0.33, 0.65));
+    ui.stroke_path(&badge.rounded(0.022), 0.0015, Color::new(1., 1., 1., 0.16));
+    let bounds = ui.text(&difficulty).size(1.).no_baseline().measure();
+    let size = (0.058 / bounds.h.max(0.001)).min((badge.w - 0.028) / bounds.w.max(0.001));
+    ui.text(&difficulty).pos(badge.center().x, badge.center().y).anchor(0.5, 0.5).no_baseline().size(size).draw();
+    let toggle_rect = Rect::new(rect.right() - 0.16, rect.y + 0.023, 0.14, 0.06);
     toggle.render_text(ui, toggle_rect, t, if collapsed { "展开" } else { "收起" }, 0.25, false);
     if !collapsed {
         ui.text("细分难度")
-            .pos(rect.x + 0.025, rect.y + 0.105)
+            .pos(rect.x + 0.025, rect.y + 0.167)
             .size(0.29)
             .color(macroquad::prelude::Color::new(1., 1., 1., 0.72))
             .draw();
         for (index, part) in parts.iter().take(10).enumerate() {
             let label = part["label"].as_str().or_else(|| part["key"].as_str()).unwrap_or("—");
             let score = part["score"].as_f64().unwrap_or(1.0).clamp(1.0, 10.0);
-            let y = rect.y + 0.145 + index as f32 * row_height;
+            let y = rect.y + 0.205 + index as f32 * row_height;
             ui.text(label).pos(rect.x + 0.025, y).size(0.27).draw();
             ui.text(format!("{score:.1}/10"))
                 .pos(rect.right() - 0.025, y)
@@ -468,6 +482,23 @@ pub fn render(ui: &mut prpr::ui::Ui, time: f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ppsr_fast_drag_uses_release_position() {
+        let mut panel = PpsrPanelState {
+            position: Some(Vec2::new(0.2, -0.3)),
+            bounds: Some(Rect::new(0.2, -0.3, 0.72, 0.17)),
+            drag: Some((7, Vec2::new(0.3, -0.2), Vec2::new(0.2, -0.3))),
+            ui_top: 0.6,
+            ..Default::default()
+        };
+        let mut release = Touch { id: 8, phase: TouchPhase::Ended, position: Vec2::new(0., 0.1), time: 0. };
+        assert!(!panel.touch(&release), "another finger must not finish the drag");
+        release.id = 7;
+        assert!(panel.touch(&release));
+        let position = panel.position.unwrap();
+        assert!((position.x + 0.1).abs() < 1e-6 && position.y.abs() < 1e-6);
+        assert!(panel.drag.is_none());
+    }
     #[test]
     fn shipped_example_executes_each_documented_hook() {
         let manifest: Manifest = serde_json::from_str(include_str!("../../docs/plugins/examples/density/manifest.json")).unwrap();

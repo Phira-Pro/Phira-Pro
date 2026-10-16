@@ -3363,7 +3363,7 @@ impl Scene for SongScene {
             ui.fill_rect(r, semi_black(0.3));
         }
 
-        crate::plugins::render_ppsr_panel(ui, t, self.ppsr_collapsed, &mut self.ppsr_toggle, &mut self.ppsr_panel);
+        crate::plugins::render_ppsr_panel(ui, t, *self.illu.texture.0, self.ppsr_collapsed, &mut self.ppsr_toggle, &mut self.ppsr_panel);
         self.sf.render(ui, t);
 
         Ok(())

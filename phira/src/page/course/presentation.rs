@@ -107,7 +107,7 @@ fn text_draw(ui: &mut Ui, text: &str, pos: Vec2, anchor: Vec2, size: f32, color:
         .draw();
 }
 fn text_fit(ui: &mut Ui, text: &str, pos: Vec2, anchor: Vec2, height: f32, width: f32, color: Color) {
-    let size = fit_size(ui, text, height, width);
+    let size = fit_size(ui, text, height, width) * 0.9;
     text_draw(ui, text, pos, anchor, size, color);
 }
 pub(super) fn results(ui: &mut Ui, assets: &mut Assets, stages: &[Stage], aborted: bool, saved: bool, buttons: &mut [DRectButton; 4], t: f32) {
@@ -151,7 +151,12 @@ pub(super) fn results(ui: &mut Ui, assets: &mut Assets, stages: &[Stage], aborte
             .size(0.62)
             .max_width(art.w - 0.06)
             .draw();
-        text_fit(ui, &stage.info.level, vec2(art.right() - 0.025, art.y + card_h * 0.08), vec2(1., 0.), card_h * 0.105, art.w * 0.45, WHITE);
+        let level_size = fit_size(ui, &stage.info.level, card_h * 0.105, art.w * 0.45) * 0.9;
+        let level_height = ui.text(&stage.info.level).size(level_size).no_baseline().measure().h;
+        let level_y = art.y + card_h * 0.08;
+        // Follow the sloping artwork edge at the bottom of the text, with a small inset.
+        let level_right = art.right() + skew - slope * (level_y - art.y + level_height) - 0.018;
+        text_draw(ui, &stage.info.level, vec2(level_right, level_y), vec2(1., 0.), level_size, WHITE);
         let stats_x = art.right() + 0.035;
         let stats_right = r.right() - 0.025;
         let stats_w = stats_right - stats_x;
@@ -162,11 +167,11 @@ pub(super) fn results(ui: &mut Ui, assets: &mut Assets, stages: &[Stage], aborte
         let label_size = labels
             .iter()
             .map(|s| fit_size(ui, s, card_h * 0.10, column_w - 0.008))
-            .fold(f32::INFINITY, f32::min);
+            .fold(f32::INFINITY, f32::min) * 0.9;
         let count_size = counts
             .iter()
             .map(|s| fit_size(ui, s, card_h * 0.16, column_w - 0.008))
-            .fold(f32::INFINITY, f32::min);
+            .fold(f32::INFINITY, f32::min) * 0.9;
         for (j, (label, count)) in labels.iter().zip(&counts).enumerate() {
             let x = stats_x + column_w * (j as f32 + 0.5);
             text_draw(ui, count, vec2(x, r.y + card_h * 0.67), vec2(0.5, 0.5), count_size, WHITE);

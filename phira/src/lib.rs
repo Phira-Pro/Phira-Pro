@@ -381,9 +381,13 @@ async fn the_main() -> Result<()> {
     };
 
     init_assets();
+    #[cfg(not(target_os = "ios"))]
+    startup::begin();
+    startup::stage("display driver");
     #[cfg(target_os = "ios")]
     prpr::frame_pacing::install();
 
+    startup::stage("async runtime");
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)
         .enable_all()
@@ -407,11 +411,14 @@ async fn the_main() -> Result<()> {
         .map_err(anyhow::Error::new)
         .and_then(|s| Ok(serde_json::from_str(&s)?))
         .unwrap_or_default();
+    startup::stage("saved data migration");
     data.init().await?;
     set_data(data);
+    startup::stage("plugins");
     plugins::init();
     prpr::practice::tools::register(practice_tools::open);
     prpr::practice::set_storage(std::path::PathBuf::from(&dir).join("practice-bookmarks.json"));
+    startup::stage("display refresh rate");
     #[cfg(any(target_os = "android", target_os = "ios"))]
     set_refresh_rate(get_data().config.preferred_refresh_rate)?;
     startup::stage("network clients");
@@ -718,7 +725,13 @@ fn custom_window_icon() -> Option<miniquad::conf::Icon> {
 pub extern "C" fn quad_main() {
     #[cfg(not(target_os = "android"))]
     startup::install();
-    macroquad::Window::from_config(build_global_window_conf(), async {
+    #[cfg(target_os = "ios")]
+    startup::begin();
+    startup::stage("window configuration");
+    let conf = build_global_window_conf();
+    startup::stage("graphics bootstrap");
+    macroquad::Window::from_config(conf, async {
+        startup::stage("first graphics callback");
         if let Err(err) = the_main().await {
             startup::show_failure(err).await;
         }

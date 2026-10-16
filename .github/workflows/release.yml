@@ -29,6 +29,8 @@ concurrency:
 jobs:
   prepare:
     name: Validate Release and pin source
+    # Diagnostic pre-releases use ios-prerelease.yml and only publish an IPA.
+    if: ${{ github.event_name != 'release' || github.event.release.prerelease != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:

@@ -1,0 +1,71 @@
+name: Build iOS Diagnostic Pre-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing iOS diagnostic pre-release tag
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-prerelease-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.prepare.outputs.sha }}
+      release-id: ${{ steps.prepare.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Validate diagnostic source and pre-release
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE_TAG: ${{ inputs.tag }}
+        run: python scripts/ios_prerelease.py prepare --tag "$PRERELEASE_TAG"
+
+  ios:
+    needs: prepare
+    uses: ./.github/workflows/ios.yml
+    with:
+      source-ref: ${{ needs.prepare.outputs.sha }}
+
+  upload:
+    needs: [prepare, ios]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: PhiraPro-unsigned-ipa
+          path: ios-prerelease-assets
+      - name: Verify and upload only the IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE_TAG: ${{ inputs.tag }}
+          PRERELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+          PRERELEASE_ID: ${{ needs.prepare.outputs.release-id }}
+        run: >-
+          python scripts/ios_prerelease.py upload --tag "$PRERELEASE_TAG"
+          --expected-sha "$PRERELEASE_SHA" --release-id "$PRERELEASE_ID"
+          --directory ios-prerelease-assets

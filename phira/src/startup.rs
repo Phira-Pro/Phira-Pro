@@ -4,12 +4,53 @@ use std::{
     sync::{Mutex, Once},
 };
 
+mod journal;
+
 static STAGE: Mutex<&'static str> = Mutex::new("native bootstrap");
+static JOURNAL: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Write before graphics initialization on iOS, so a native crash can leave a last checkpoint.
+/// Creating a readable document also makes normal installations visible to file sharing.
+pub fn begin() {
+    static BEGIN: Once = Once::new();
+    BEGIN.call_once(|| {
+        let Some(path) = report_path() else { return };
+        let Some(directory) = path.parent() else { return };
+        match journal::prepare(directory, &identity()) {
+            Ok(path) => {
+                if let Ok(mut journal) = JOURNAL.lock() {
+                    *journal = Some(path);
+                }
+                stage("native bootstrap");
+            }
+            Err(error) => miniquad::warn!("Could not create startup journal: {}", error),
+        }
+    });
+}
+
+fn identity() -> String {
+    format!(
+        "Phira Pro {} / build {} / {}\nUTC: {}",
+        crate::PRO_VERSION,
+        env!("PHIRA_BUILD_NUMBER"),
+        env!("GIT_HASH"),
+        chrono::Utc::now().to_rfc3339()
+    )
+}
+
+fn append(message: &str) {
+    if let Ok(journal) = JOURNAL.try_lock() {
+        if let Some(path) = journal.as_ref() {
+            let _ = journal::append(path, &format!("{} {message}", chrono::Utc::now().to_rfc3339()));
+        }
+    }
+}
 
 pub fn stage(name: &'static str) {
     if let Ok(mut stage) = STAGE.lock() {
         *stage = name;
     }
+    append(&format!("Stage: {name}"));
     tracing::info!(stage = name, "startup");
 }
 
@@ -37,7 +78,8 @@ fn report_path() -> Option<PathBuf> {
 
 pub fn report(message: &str) {
     let stage = STAGE.try_lock().map(|stage| *stage).unwrap_or("unknown");
-    let report = format!("Phira Pro {}\nStage: {stage}\n{message}\n", crate::PRO_VERSION);
+    let report = format!("{}\nStage: {stage}\n{message}\n", identity());
+    append(&format!("Error at {stage}: {message}"));
     miniquad::error!("{}", report);
     if let Some(path) = report_path() {
         if let Some(parent) = path.parent() {

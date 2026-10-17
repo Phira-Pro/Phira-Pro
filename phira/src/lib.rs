@@ -33,8 +33,8 @@ mod menu_music;
 mod migrate;
 mod page;
 mod plugins;
-mod ppsr_features;
 mod popup;
+mod ppsr_features;
 mod practice_tools;
 mod rate;
 mod replay;
@@ -95,6 +95,22 @@ pub(crate) fn set_android_refresh_rate(refresh_rate: u16) -> Result<()> {
             Ok(())
         })
         .map_err(anyhow::Error::from)
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn android_display_diagnostics() -> Result<serde_json::Value> {
+    use anyhow::Context;
+    use jni::{jni_sig, jni_str, objects::JObject, vm::JavaVM};
+    let text = JavaVM::singleton()
+        .context("Android Java VM is unavailable")?
+        .attach_current_thread(|env| -> jni::errors::Result<String> {
+            let activity = unsafe { JObject::from_raw(env, ndk_context::android_context().context() as _) };
+            let object = env
+                .call_method(activity, jni_str!("getDisplayDiagnostics"), jni_sig!("()Ljava/lang/String;"), &[])?
+                .l()?;
+            JString::cast_local(env, object)?.try_to_string(env)
+        })?;
+    Ok(serde_json::from_str(&text)?)
 }
 
 #[cfg(target_env = "ohos")]

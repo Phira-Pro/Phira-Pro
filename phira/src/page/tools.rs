@@ -76,7 +76,13 @@ impl Page for ToolsPage {
                     prpr::diagnostics::set_persistent(self.persistent);
                 } else if i == 1 {
                     let c = &get_data().config;
-                    let data = serde_json::json!({"version":crate::PRO_VERSION,"build":env!("PHIRA_BUILD_NUMBER"),"platform":std::env::consts::OS,"viewport":[screen_width(),screen_height()],"requested_refresh_hz":c.preferred_refresh_rate,"maximum_refresh_hz":f32::from_bits(prpr::ui::MAX_DEVICE_REFRESH_RATE.load(std::sync::atomic::Ordering::Relaxed)),"fps_limit":c.desktop_fps_limit,"aspect_ratio":c.aspect_ratio,"sample_count":c.sample_count,"fxaa":c.fxaa,"shader_pre_render":c.shader_pre_render,"noise_glow":c.noise_glow,"noise_refraction":c.noise_refraction,"judge_algorithm":format!("{:?}",c.judge_algorithm),"configured_windows_seconds":c.judge_windows().early,"input":self.sample});
+                    #[allow(unused_mut)] // Android adds the cached platform display state below.
+                    let mut data = serde_json::json!({"version":crate::PRO_VERSION,"build":env!("PHIRA_BUILD_NUMBER"),"platform":std::env::consts::OS,"viewport":[screen_width(),screen_height()],"requested_refresh_hz":c.preferred_refresh_rate,"maximum_refresh_hz":f32::from_bits(prpr::ui::MAX_DEVICE_REFRESH_RATE.load(std::sync::atomic::Ordering::Relaxed)),"fps_limit":c.desktop_fps_limit,"aspect_ratio":c.aspect_ratio,"sample_count":c.sample_count,"fxaa":c.fxaa,"shader_pre_render":c.shader_pre_render,"noise_glow":c.noise_glow,"noise_refraction":c.noise_refraction,"judge_algorithm":format!("{:?}",c.judge_algorithm),"configured_windows_seconds":c.judge_windows().early,"input":self.sample});
+                    #[cfg(target_os = "android")]
+                    {
+                        data["android_display"] =
+                            crate::android_display_diagnostics().unwrap_or_else(|e| serde_json::json!({"error": e.to_string()}));
+                    }
                     crate::replay::request_export_bytes(
                         format!("PhiraPro-diagnostics-{}.json", chrono::Local::now().format("%Y%m%d-%H%M%S")),
                         serde_json::to_vec_pretty(&data)?,
@@ -123,7 +129,9 @@ impl Page for ToolsPage {
             }
             return Ok(true);
         }
-        Ok(self.diagnostic)
+        // MainScene owns the header/back button. Diagnostic sampling happens
+        // independently; it must not consume touches outside its own controls.
+        Ok(false)
     }
     fn render(&mut self, ui: &mut Ui, s: &mut SharedState) -> Result<()> {
         let t = s.t;
@@ -152,7 +160,7 @@ impl Page for ToolsPage {
                 frames.sort_by(f32::total_cmp);
                 let avg = frames.iter().sum::<f32>() / frames.len().max(1) as f32;
                 let p95 = frames.get(frames.len().saturating_sub(1) * 95 / 100).copied().unwrap_or(0.);
-                ui.text(format!("{} · {}×{} · 帧耗时 {:.2}ms / P95 {:.2}ms", std::env::consts::OS, screen_width(), screen_height(), avg, p95))
+                ui.text(format!("{} · {}×{} · 主循环间隔 {:.2}ms / P95 {:.2}ms", std::env::consts::OS, screen_width(), screen_height(), avg, p95))
                     .pos(r.x, r.y + 0.11)
                     .size(0.42)
                     .max_width(r.w)
@@ -161,12 +169,51 @@ impl Page for ToolsPage {
                     .pos(r.x, r.y + 0.17)
                     .size(0.43)
                     .draw();
-                ui.text("多指按住、移动和抬起测试。开启跨页面采样后可返回游玩再导出；记录仅保存在本次运行内存。")
+                let extra = if let Some(state) = &self.sample.display_state {
+                    let recent: Vec<_> = self.sample.display_frames.iter().rev().take(120).collect();
+                    let intervals: Vec<_> = recent.iter().filter_map(|f| f.callback_interval_ms).collect();
+                    let hz = if intervals.is_empty() {
+                        0.
+                    } else {
+                        1000. * intervals.len() as f64 / intervals.iter().sum::<f64>()
+                    };
+                    let work = recent.iter().map(|f| f.glk_display_ms).sum::<f64>() / recent.len().max(1) as f64;
+                    ui.text(format!(
+                        "请求 {} Hz · 显示回调 {:.1} Hz · GLKView.display {:.2}ms · 回显区间 {:.0}/{:.0}/{:.0}",
+                        state.requested_hz, hz, work, state.preferred_range[0], state.preferred_range[1], state.preferred_range[2]
+                    ))
                     .pos(r.x, r.y + 0.23)
+                    .size(0.31)
+                    .max_width(r.w)
+                    .draw();
+                    let thermal = match state.thermal_state {
+                        0 => "正常",
+                        1 => "轻度",
+                        2 => "严重",
+                        _ => "临界",
+                    };
+                    ui.text(format!(
+                        "引导式访问 {} · 低电量 {} · 温控 {} · 恢复 {}/2 · 显示链接 #{}",
+                        if state.guided_access { "开" } else { "关" },
+                        if state.low_power { "开" } else { "关" },
+                        thermal,
+                        state.recovery_attempts,
+                        state.generation
+                    ))
+                    .pos(r.x, r.y + 0.29)
+                    .size(0.31)
+                    .max_width(r.w)
+                    .draw();
+                    0.12
+                } else {
+                    0.
+                };
+                ui.text("多指按住、移动和抬起测试。开启跨页面采样后可返回游玩再导出；记录仅保存在本次运行内存。")
+                    .pos(r.x, r.y + 0.23 + extra)
                     .size(0.32)
                     .max_width(r.w)
                     .draw();
-                let graph = Rect::new(r.x, r.y + 0.30, r.w, 0.16);
+                let graph = Rect::new(r.x, r.y + 0.30 + extra, r.w, 0.16);
                 ui.fill_path(&graph.rounded(0.01), semi_black(0.3));
                 let step = graph.w / self.sample.frames_ms.len().max(1) as f32;
                 for (i, v) in self.sample.frames_ms.iter().enumerate() {
@@ -176,9 +223,16 @@ impl Page for ToolsPage {
                         if *v > 16.7 { ORANGE } else { SKYBLUE },
                     );
                 }
-                for (i, event) in self.sample.events.iter().rev().take(((r.h - 0.50) / 0.045).max(1.) as usize).enumerate() {
+                for (i, event) in self
+                    .sample
+                    .events
+                    .iter()
+                    .rev()
+                    .take(((r.h - 0.50 - extra) / 0.045).max(0.) as usize)
+                    .enumerate()
+                {
                     ui.text(event)
-                        .pos(r.x, r.y + 0.49 + i as f32 * 0.045)
+                        .pos(r.x, r.y + 0.49 + extra + i as f32 * 0.045)
                         .size(0.28)
                         .max_width(r.w)
                         .color(semi_white(0.65))

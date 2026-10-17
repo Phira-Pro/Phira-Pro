@@ -4,6 +4,8 @@ pub mod config;
 pub mod core;
 pub mod course;
 pub mod diagnostics;
+#[cfg(any(target_os = "ios", test))]
+mod display_timing;
 pub mod dir;
 pub mod ext;
 pub mod extensions;

@@ -1,6 +1,7 @@
 package org.flos.phirapro;
 
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.content.pm.ActivityInfo;
 import android.hardware.display.DisplayManager;
 import android.net.Uri;
@@ -8,6 +9,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.ParcelFileDescriptor;
+import android.os.PowerManager;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Display;
@@ -22,6 +24,8 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
 import quad_native.QuadNative;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /** 游戏主 Activity：只做胶水，游戏本体在 libphira.so。 */
 public class MainActivity extends AppCompatActivity {
@@ -37,12 +41,18 @@ public class MainActivity extends AppCompatActivity {
     private DisplayManager displayManager;
     private float requestedFrameRate = 120f;
     private float reportedMaxRefreshRate;
+    private final Handler refreshHandler = new Handler(android.os.Looper.getMainLooper());
+    private final Runnable refreshRetry = () -> {
+        if (view != null && view.hasWindowFocus()) applyRequestedFrameRate(true, "window settled");
+    };
+    private volatile String displayDiagnostics = "{}";
+    private String lastDisplaySummary = "";
     private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
         @Override public void onDisplayAdded(int displayId) {}
         @Override public void onDisplayRemoved(int displayId) {}
         @Override public void onDisplayChanged(int displayId) {
             if (displayId == getWindowManager().getDefaultDisplay().getDisplayId()) {
-                applyRequestedFrameRate();
+                applyRequestedFrameRate(false, "display changed");
             }
         }
     };
@@ -60,7 +70,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(view);
         displayManager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
         displayManager.registerDisplayListener(displayListener, new Handler(getMainLooper()));
-        applyRequestedFrameRate();
+        requestRefreshRateUpdate("create");
 
         WindowInsetsControllerCompat insets = WindowCompat.getInsetsController(getWindow(), view);
         insets.hide(WindowInsetsCompat.Type.statusBars());
@@ -83,7 +93,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         enforceLandscape();
-        applyRequestedFrameRate();
+        requestRefreshRateUpdate("resume");
         Log.i(TAG, "Activity onResume");
         QuadNative.activityOnResume();
         QuadNative.prprActivityOnResume();
@@ -97,6 +107,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onPause() {
+        refreshHandler.removeCallbacks(refreshRetry);
         Log.i(TAG, "Activity onPause");
         if (view != null) view.cancelTouches("activity-paused");
         super.onPause();
@@ -106,6 +117,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        refreshHandler.removeCallbacks(refreshRetry);
         Log.i(TAG, "Activity onDestroy");
         if (displayManager != null) {
             displayManager.unregisterDisplayListener(displayListener);
@@ -126,11 +138,39 @@ public class MainActivity extends AppCompatActivity {
         }
         runOnUiThread(() -> {
             requestedFrameRate = frameRate;
-            applyRequestedFrameRate();
+            requestRefreshRateUpdate("user setting");
         });
     }
 
-    private void applyRequestedFrameRate() {
+    void requestRefreshRateUpdate(String reason) {
+        if (view == null) return;
+        refreshHandler.removeCallbacks(refreshRetry);
+        applyRequestedFrameRate(true, reason);
+        // Window/surface changes may settle after the initial callback. Retry
+        // twice, without a perpetual timer or rearming on display notifications.
+        refreshHandler.postDelayed(refreshRetry, 300);
+        refreshHandler.postDelayed(refreshRetry, 1000);
+    }
+
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (focused) requestRefreshRateUpdate("focus restored");
+        else refreshHandler.removeCallbacks(refreshRetry);
+    }
+
+    @Override public void onConfigurationChanged(Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        requestRefreshRateUpdate("configuration changed");
+    }
+
+    @Override public void onMultiWindowModeChanged(boolean multiWindow) {
+        super.onMultiWindowModeChanged(multiWindow);
+        requestRefreshRateUpdate(multiWindow ? "multi-window" : "fullscreen");
+    }
+
+    public String getDisplayDiagnostics() { return displayDiagnostics; }
+
+    private void applyRequestedFrameRate(boolean force, String reason) {
         Display display = getWindowManager().getDefaultDisplay();
         float maxRefreshRate = display.getRefreshRate();
         float selectedRate = -1f;
@@ -139,35 +179,33 @@ public class MainActivity extends AppCompatActivity {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Display.Mode currentMode = display.getMode();
-            Display.Mode lowestMode = null;
-            for (Display.Mode mode : display.getSupportedModes()) {
+            Display.Mode[] modes = display.getSupportedModes();
+            int[] widths = new int[modes.length];
+            int[] heights = new int[modes.length];
+            float[] rates = new float[modes.length];
+            for (int i = 0; i < modes.length; i++) {
+                Display.Mode mode = modes[i];
                 float rate = mode.getRefreshRate();
+                widths[i] = mode.getPhysicalWidth();
+                heights[i] = mode.getPhysicalHeight();
+                rates[i] = rate;
                 maxRefreshRate = Math.max(maxRefreshRate, rate);
-                if (mode.getPhysicalWidth() != currentMode.getPhysicalWidth()
-                        || mode.getPhysicalHeight() != currentMode.getPhysicalHeight()) {
-                    continue;
-                }
-                if (lowestMode == null || rate < lowestMode.getRefreshRate()) {
-                    lowestMode = mode;
-                }
-                if (rate <= requestedFrameRate && rate > selectedRate) {
-                    selectedMode = mode;
-                    selectedRate = rate;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    for (float alternative : mode.getAlternativeRefreshRates()) maxRefreshRate = Math.max(maxRefreshRate, alternative);
                 }
             }
-            if (selectedMode == null) {
-                selectedMode = lowestMode;
-                if (selectedMode != null) selectedRate = selectedMode.getRefreshRate();
-            }
+            int selected = RefreshRatePolicy.legacyMode(requestedFrameRate, currentMode.getPhysicalWidth(),
+                    currentMode.getPhysicalHeight(), widths, heights, rates);
+            if (selected >= 0) selectedMode = modes[selected];
             if (selectedMode == null) {
                 selectedMode = currentMode;
-                selectedRate = currentMode.getRefreshRate();
             }
+            selectedRate = selectedMode.getRefreshRate();
             selectedModeId = selectedMode.getModeId();
         } else {
             for (float rate : display.getSupportedRefreshRates()) {
                 maxRefreshRate = Math.max(maxRefreshRate, rate);
-                if (rate <= requestedFrameRate && rate > selectedRate) {
+                if (rate <= requestedFrameRate + 0.5f && rate > selectedRate) {
                     selectedRate = rate;
                 }
             }
@@ -185,17 +223,50 @@ public class MainActivity extends AppCompatActivity {
         }
         Window window = getWindow();
         WindowManager.LayoutParams attributes = window.getAttributes();
-        boolean changed = Math.abs(attributes.preferredRefreshRate - selectedRate) > 0.01f;
-        attributes.preferredRefreshRate = selectedRate;
+        float windowRate = RefreshRatePolicy.windowRate(Build.VERSION.SDK_INT, requestedFrameRate, selectedRate);
+        int windowMode = RefreshRatePolicy.windowModeId(Build.VERSION.SDK_INT, selectedModeId);
+        boolean changed = Math.abs(attributes.preferredRefreshRate - windowRate) > 0.01f;
+        attributes.preferredRefreshRate = windowRate;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            changed |= attributes.preferredDisplayModeId != selectedModeId;
-            attributes.preferredDisplayModeId = selectedModeId;
+            changed |= attributes.preferredDisplayModeId != windowMode;
+            attributes.preferredDisplayModeId = windowMode;
         }
-        if (changed) {
+        if (changed || force) {
             window.setAttributes(attributes);
-            Log.i(TAG, "Requested display mode: " + selectedRate + " Hz (target " + requestedFrameRate + " Hz)");
         }
-        if (view != null) view.setTargetFrameRate(selectedRate);
+        // Keep the user's vote intact on Android 11+: a temporary 60 Hz mode
+        // report must not silently replace a persisted 144 Hz request.
+        if (view != null) view.setTargetFrameRate(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ? requestedFrameRate : selectedRate, force);
+        recordDisplayState(display, windowRate, windowMode, maxRefreshRate, reason);
+    }
+
+    private void recordDisplayState(Display display, float windowRate, int windowMode, float maximum, String reason) {
+        try {
+            PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
+            boolean multiWindow = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode();
+            JSONObject state = new JSONObject().put("requested_hz", requestedFrameRate)
+                    .put("reported_display_hz", display.getRefreshRate()).put("reported_maximum_hz", maximum)
+                    .put("window_preferred_hz", windowRate).put("window_mode_id", windowMode)
+                    .put("multi_window", multiWindow).put("low_power", power != null && power.isPowerSaveMode())
+                    .put("surface_valid", view != null && view.getHolder().getSurface().isValid());
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && power != null) state.put("thermal_status", power.getCurrentThermalStatus());
+            JSONArray modes = new JSONArray();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                for (Display.Mode mode : display.getSupportedModes()) {
+                    modes.put(new JSONObject().put("id", mode.getModeId()).put("hz", mode.getRefreshRate())
+                            .put("width", mode.getPhysicalWidth()).put("height", mode.getPhysicalHeight()));
+                }
+            }
+            state.put("supported_modes", modes);
+            String summary = state.toString();
+            if (!summary.equals(lastDisplaySummary)) {
+                Log.i(TAG, "Display state (" + reason + "): " + summary);
+                lastDisplaySummary = summary;
+            }
+            displayDiagnostics = state.put("reason", reason).put("uptime_ms", android.os.SystemClock.uptimeMillis()).toString();
+        } catch (org.json.JSONException error) {
+            Log.w(TAG, "Cannot capture display diagnostics", error);
+        }
     }
 
     /** miniquad 回调。setDecorFitsSystemWindows 是 API 30 才有的，低版本走旧的 setSystemUiVisibility。 */
@@ -220,6 +291,7 @@ public class MainActivity extends AppCompatActivity {
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 window.setDecorFitsSystemWindows(true);
             }
+            requestRefreshRateUpdate("fullscreen preference changed");
         });
     }
 

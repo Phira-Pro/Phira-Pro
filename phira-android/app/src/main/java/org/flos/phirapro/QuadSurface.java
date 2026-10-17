@@ -30,7 +30,9 @@ public class QuadSurface extends SurfaceView
     });
 
     private final MotionFrame motionFrame = new MotionFrame();
-    private float targetFrameRate = 60f;
+    private float targetFrameRate = 120f;
+    private Surface requestedSurface;
+    private float appliedFrameRate = Float.NaN;
 
     private static final class MotionFrame implements TouchEventRouter.Frame {
         MotionEvent event;
@@ -57,11 +59,14 @@ public class QuadSurface extends SurfaceView
     public void surfaceCreated(SurfaceHolder holder) {
         Surface surface = holder.getSurface();
         QuadNative.surfaceOnSurfaceCreated(surface);
-        applyFrameRate(surface);
+        applyFrameRate(surface, true);
+        refreshWindow("surface created");
     }
 
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
+        requestedSurface = null;
+        appliedFrameRate = Float.NaN;
         cancelTouches("surface-destroyed");
         QuadNative.surfaceOnSurfaceDestroyed(holder.getSurface());
     }
@@ -70,21 +75,41 @@ public class QuadSurface extends SurfaceView
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
         Surface surface = holder.getSurface();
         QuadNative.surfaceOnSurfaceChanged(surface, width, height);
-        applyFrameRate(surface);
+        applyFrameRate(surface, true);
+        refreshWindow("surface resized");
     }
 
-    void setTargetFrameRate(float frameRate) {
+    private void refreshWindow(String reason) {
+        if (getContext() instanceof MainActivity) ((MainActivity) getContext()).requestRefreshRateUpdate(reason);
+    }
+
+    void setTargetFrameRate(float frameRate, boolean force) {
         if (Float.isNaN(frameRate) || Float.isInfinite(frameRate) || frameRate <= 0f) {
             throw new IllegalArgumentException("frame rate must be finite and positive");
         }
         targetFrameRate = frameRate;
         Surface surface = getHolder().getSurface();
-        if (surface.isValid()) applyFrameRate(surface);
+        if (surface.isValid()) applyFrameRate(surface, force);
     }
 
-    private void applyFrameRate(Surface surface) {
+    private void applyFrameRate(Surface surface, boolean force) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && surface.isValid()) {
-            surface.setFrameRate(targetFrameRate, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
+            if (!force && requestedSurface == surface && Math.abs(appliedFrameRate - targetFrameRate) < 0.01f) return;
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    surface.setFrameRate(targetFrameRate, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
+                            force ? Surface.CHANGE_FRAME_RATE_ALWAYS : Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+                } else {
+                    surface.setFrameRate(targetFrameRate, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
+                }
+                requestedSurface = surface;
+                appliedFrameRate = targetFrameRate;
+            } catch (IllegalStateException | IllegalArgumentException error) {
+                // A disappearing Surface during resizing must not crash input
+                // or startup; surfaceCreated/resume will reapply the request.
+                requestedSurface = null;
+                Log.w("PhiraPro", "Surface frame-rate request unavailable", error);
+            }
         }
     }
 

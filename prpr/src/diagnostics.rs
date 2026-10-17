@@ -14,6 +14,42 @@ struct Capture {
     cancels: u32,
     persistent: bool,
     session: Option<serde_json::Value>,
+    display_frames: VecDeque<DisplayFrame>,
+    display_events: VecDeque<DisplayEvent>,
+    display_state: Option<DisplayState>,
+}
+#[derive(Clone, Default, serde::Serialize)]
+pub struct DisplayState {
+    pub requested_hz: u16,
+    pub maximum_hz: u16,
+    /// Read back from the link; this remains a preference, not actual Hz.
+    pub preferred_range: [f32; 3],
+    pub paused: bool,
+    pub application_state: isize,
+    pub guided_access: bool,
+    pub low_power: bool,
+    /// NSProcessInfoThermalState: 0 nominal, 1 fair, 2 serious, 3 critical.
+    pub thermal_state: isize,
+    pub recovery_attempts: u8,
+    pub generation: u64,
+}
+#[derive(Clone, Default, serde::Serialize)]
+pub struct DisplayFrame {
+    /// Monotonic seconds since display driver installation (not wall-clock).
+    pub at_seconds: f64,
+    pub timestamp: f64,
+    pub target_timestamp: f64,
+    pub callback_interval_ms: Option<f64>,
+    pub arrival_interval_ms: Option<f64>,
+    pub callback_work_ms: f64,
+    pub glk_display_ms: f64,
+    pub generation: u64,
+}
+#[derive(Clone, serde::Serialize)]
+pub struct DisplayEvent {
+    pub at_seconds: f64,
+    pub event: String,
+    pub state: DisplayState,
 }
 thread_local! {static CAPTURE:RefCell<Capture>=RefCell::default();}
 #[derive(Clone, Default, serde::Serialize)]
@@ -24,6 +60,40 @@ pub struct Snapshot {
     pub max_fingers: usize,
     pub cancels: u32,
     pub last_session: Option<serde_json::Value>,
+    pub display_state: Option<DisplayState>,
+    pub display_frames: Vec<DisplayFrame>,
+    pub display_events: Vec<DisplayEvent>,
+}
+pub fn display_state(at_seconds: f64, event: Option<&str>, state: DisplayState) {
+    CAPTURE.with(|c| {
+        let mut c = c.borrow_mut();
+        if !c.enabled {
+            return;
+        }
+        if let Some(event) = event {
+            c.display_events.push_back(DisplayEvent {
+                at_seconds,
+                event: event.into(),
+                state: state.clone(),
+            });
+            if c.display_events.len() > 256 {
+                c.display_events.pop_front();
+            }
+        }
+        c.display_state = Some(state);
+    });
+}
+pub fn display_frame(frame: DisplayFrame) {
+    CAPTURE.with(|c| {
+        let mut c = c.borrow_mut();
+        if !c.enabled {
+            return;
+        }
+        c.display_frames.push_back(frame);
+        if c.display_frames.len() > 7200 {
+            c.display_frames.pop_front();
+        }
+    });
 }
 pub fn running() -> bool {
     CAPTURE.with(|c| c.borrow().enabled)
@@ -93,6 +163,72 @@ pub fn snapshot() -> Snapshot {
             max_fingers: c.max,
             cancels: c.cancels,
             last_session: c.session.clone(),
+            display_state: c.display_state.clone(),
+            display_frames: c.display_frames.iter().cloned().collect(),
+            display_events: c.display_events.iter().cloned().collect(),
         }
     })
+}
+
+#[cfg(test)]
+mod display_capture_tests {
+    use super::*;
+    #[test]
+    fn display_capture_is_opt_in_bounded_and_clearable() {
+        enable(false);
+        display_frame(DisplayFrame::default());
+        assert!(snapshot().display_frames.is_empty());
+        enable(true);
+        for i in 0..7300 {
+            display_frame(DisplayFrame {
+                at_seconds: i as f64,
+                ..Default::default()
+            });
+        }
+        for i in 0..300 {
+            display_state(
+                i as f64,
+                Some("resume"),
+                DisplayState {
+                    generation: i,
+                    ..Default::default()
+                },
+            );
+        }
+        let sample = snapshot();
+        assert_eq!(sample.display_frames.len(), 7200);
+        assert_eq!(sample.display_frames[0].at_seconds, 100.);
+        assert_eq!(sample.display_events.len(), 256);
+        assert_eq!(sample.display_events[0].at_seconds, 44.);
+        assert_eq!(sample.display_state.unwrap().generation, 299);
+        enable(true);
+        assert!(snapshot().display_frames.is_empty());
+        assert!(snapshot().display_events.is_empty());
+        enable(false);
+    }
+    #[test]
+    fn display_export_separates_preference_from_measured_interval_and_work() {
+        enable(true);
+        display_state(
+            0.,
+            Some("active"),
+            DisplayState {
+                requested_hz: 120,
+                preferred_range: [120.; 3],
+                ..Default::default()
+            },
+        );
+        display_frame(DisplayFrame {
+            timestamp: 30.,
+            target_timestamp: 30. + 1. / 60.,
+            callback_interval_ms: Some(1000. / 60.),
+            glk_display_ms: 2.,
+            ..Default::default()
+        });
+        let value = serde_json::to_value(snapshot()).unwrap();
+        assert_eq!(value["display_state"]["requested_hz"], 120);
+        assert!(value["display_frames"][0]["callback_interval_ms"].as_f64().unwrap() > 16.6);
+        assert_eq!(value["display_frames"][0]["glk_display_ms"], 2.);
+        enable(false);
+    }
 }

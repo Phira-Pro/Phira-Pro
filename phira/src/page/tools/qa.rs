@@ -59,6 +59,20 @@ pub(crate) fn run(painter: &mut prpr::ui::TextPainter, state: &mut SharedState) 
     assert_eq!(page.sample.max_fingers, 3);
     assert_eq!(page.sample.active.len(), 1);
     assert_eq!(page.sample.cancels, 1);
+    // The header belongs to MainScene; neither touch phase may be swallowed.
+    for phase in [TouchPhase::Started, TouchPhase::Ended] {
+        assert!(!page
+            .touch(
+                &Touch {
+                    id: 99,
+                    phase,
+                    position: vec2(-0.94, -0.48),
+                    time: 0.
+                },
+                state
+            )
+            .unwrap());
+    }
     for (w, h, label) in [(1280, 548, "phone"), (960, 720, "tablet")] {
         let mut ui = Ui::new(painter, Some((0, 0, w, h)));
         set_camera(&ui.camera());

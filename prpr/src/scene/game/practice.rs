@@ -1,5 +1,13 @@
 use super::*;
 
+fn control_scale(id: &str) -> f32 {
+    if matches!(id, "practice_scale" | "practice_multiplier" | "practice_range_alpha" | "practice_target_accuracy") {
+        100.
+    } else {
+        1.
+    }
+}
+
 impl GameScene {
     pub(super) fn practice_range_changed(&mut self, tm: &mut TimeManager) -> Result<()> {
         self.practice_loops = 0;
@@ -106,11 +114,7 @@ impl GameScene {
             }
             PracticeAction::Input(id, text) => request_input(&id, InputBox::new().default_text(text)),
             PracticeAction::Value(id, value) => {
-                let value = if matches!(id.as_str(), "practice_scale" | "practice_multiplier" | "practice_range_alpha") {
-                    value * 100.
-                } else {
-                    value
-                };
+                let value = value * control_scale(&id);
                 self.practice_input(tm, &id, &value.to_string())?;
             }
             PracticeAction::Toggle(id) => {
@@ -345,11 +349,7 @@ impl GameScene {
             show_message(tl!("ex-invalid-format")).error();
             return Ok(());
         }
-        let value = if matches!(id, "practice_scale" | "practice_multiplier" | "practice_range_alpha") {
-            value / 100.
-        } else {
-            value
-        };
+        let value = value / control_scale(id);
         let cfg = &mut self.res.config;
         let mut restart = true;
         match id {
@@ -360,7 +360,7 @@ impl GameScene {
                 cfg.practice_ramp = false;
                 cfg.practice.adaptive.enabled = false;
             }
-            "practice_target_accuracy" => cfg.practice.adaptive.accuracy = (value / 100.).clamp(0., 1.),
+            "practice_target_accuracy" => cfg.practice.adaptive.accuracy = value.clamp(0., 1.),
             "practice_consecutive" => cfg.practice.adaptive.consecutive = value.round().clamp(1., 99.) as u32,
             "practice_ramp_start" => cfg.practice_speed_start = value.clamp(0.1, 2.),
             "practice_ramp_step" => cfg.practice_speed_step = value.clamp(0.01, 0.5),
@@ -469,5 +469,26 @@ impl GameScene {
                 head: grade.is_err(),
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::control_scale;
+
+    #[test]
+    fn percentage_controls_step_like_typed_input() {
+        for id in [
+            "practice_scale",
+            "practice_multiplier",
+            "practice_range_alpha",
+            "practice_target_accuracy",
+        ] {
+            let stored = 0.95_f32;
+            let stepped = (stored * control_scale(id) + 1.) / control_scale(id);
+            assert!((stepped - 0.96).abs() < 1e-6);
+        }
+        assert!((95. / control_scale("practice_target_accuracy") - 0.95).abs() < 1e-6);
+        assert_eq!(control_scale("practice_consecutive"), 1.);
     }
 }

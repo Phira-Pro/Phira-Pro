@@ -223,10 +223,29 @@ fn parse_speed_events(r: f64, mut pgr: Vec<PgrSpeedEvent>, max_time: f64) -> Res
     Ok((AnimFloat::new(pgr.iter().map(|it| Keyframe::new(it.start_time * r, it.value, 0)).collect()), AnimFloat::new(kfs)))
 }
 
-fn parse_float_events(r: f64, mut pgr: Vec<PgrEvent>) -> Result<AnimFloat> {
+fn resolve_event_overlaps(mut pgr: Vec<PgrEvent>) -> Vec<PgrEvent> {
+    // preserve earlier events and trim later events
     validate_events!(pgr);
+    let mut end_time = f64::NEG_INFINITY;
+    pgr.retain_mut(|event| {
+        if event.end_time <= end_time {
+            return false;
+        }
+        if event.start_time < end_time {
+            let t = ((end_time - event.start_time) / (event.end_time - event.start_time)) as f32;
+            event.start += (event.end - event.start) * t;
+            event.start2 += (event.end2 - event.start2) * t;
+            event.start_time = end_time;
+        }
+        end_time = event.end_time;
+        true
+    });
+    pgr
+}
+
+fn parse_float_events(r: f64, pgr: Vec<PgrEvent>) -> Result<AnimFloat> {
     let mut kfs = Vec::<Keyframe<f32>>::new();
-    for e in pgr {
+    for e in resolve_event_overlaps(pgr) {
         if !kfs.last().is_some_and(|it| it.value == e.start) {
             kfs.push(Keyframe::new((e.start_time * r).max(0.), e.start, 2));
         }
@@ -236,17 +255,16 @@ fn parse_float_events(r: f64, mut pgr: Vec<PgrEvent>) -> Result<AnimFloat> {
     Ok(AnimFloat::new(kfs))
 }
 
-fn parse_move_events(r: f64, mut pgr: Vec<PgrEvent>) -> Result<AnimVector> {
-    validate_events!(pgr);
+fn parse_move_events(r: f64, pgr: Vec<PgrEvent>) -> Result<AnimVector> {
     let mut kf1 = Vec::<Keyframe<f32>>::new();
     let mut kf2 = Vec::<Keyframe<f32>>::new();
-    for e in pgr {
+    for e in resolve_event_overlaps(pgr) {
         let st = (e.start_time * r).max(0.);
         let en = e.end_time * r;
-        if !kf1.last().is_some_and(|it| it.value == e.start) {
+        if !kf1.last().is_some_and(|it| it.time == st && it.value == e.start) {
             kf1.push(Keyframe::new(st, e.start, 2));
         }
-        if !kf2.last().is_some_and(|it| it.value == e.start2) {
+        if !kf2.last().is_some_and(|it| it.time == st && it.value == e.start2) {
             kf2.push(Keyframe::new(st, e.start2, 2));
         }
         kf1.push(Keyframe::new(en, e.end, 2));
@@ -264,34 +282,15 @@ fn parse_move_events(r: f64, mut pgr: Vec<PgrEvent>) -> Result<AnimVector> {
 }
 
 fn parse_move_events_fv1(r: f64, mut pgr: Vec<PgrEvent>) -> Result<AnimVector> {
-    validate_events!(pgr);
-    let mut kf1 = Vec::<Keyframe<f32>>::new();
-    let mut kf2 = Vec::<Keyframe<f32>>::new();
-    for e in pgr {
-        let st = (e.start_time * r).max(0.);
-        let en = e.end_time * r;
-        if !kf1.last().is_some_and(|it| it.value == e.start) {
-            let start = (e.start - e.start % 1000.) / 1000.;
-            kf1.push(Keyframe::new(st, start, 2));
-        }
-        if !kf2.last().is_some_and(|it| it.value == e.start2) {
-            let start2 = e.start % 1000.;
-            kf2.push(Keyframe::new(st, start2, 2));
-        }
-        let end = (e.end - e.end % 1000.) / 1000.;
-        let end2 = e.end % 1000.;
-        kf1.push(Keyframe::new(en, end, 2));
-        kf2.push(Keyframe::new(en, end2, 2));
+    for e in &mut pgr {
+        e.start2 = e.start % 1000.;
+        e.start = (e.start - e.start2) / 1000. / 880.;
+        e.start2 /= 520.;
+        e.end2 = e.end % 1000.;
+        e.end = (e.end - e.end2) / 1000. / 880.;
+        e.end2 /= 520.;
     }
-    kf1.pop();
-    kf2.pop();
-    for kf in &mut kf1 {
-        kf.value = (-880. + kf.value * 2.) / 880.;
-    }
-    for kf in &mut kf2 {
-        kf.value = (-520. + kf.value * 2.) / 520.;
-    }
-    Ok(AnimVector(AnimFloat::new(kf1), AnimFloat::new(kf2)))
+    parse_move_events(r, pgr)
 }
 
 fn parse_notes(r: f64, mut pgr: Vec<PgrNote>, _speed: &mut AnimFloat, height: &mut AnimFloat, above: bool) -> Result<Vec<Note>> {
@@ -436,6 +435,90 @@ fn convert_phigros(pgr: PgrChart, extra: ChartExtra) -> Result<Chart> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn overlapping_events_preserve_earlier_events_and_trim_later_events() {
+        let events = json!([
+            {"startTime": 0, "endTime": 4, "start": 0.1, "end": 0.5, "start2": 0.2, "end2": 0.6},
+            {"startTime": 0, "endTime": 4, "start": 0.9, "end": 0.9, "start2": 0.9, "end2": 0.9},
+            {"startTime": 1, "endTime": 2, "start": 0.9, "end": 0.9, "start2": 0.9, "end2": 0.9},
+            {"startTime": 2, "endTime": 6, "start": 0.3, "end": 0.9, "start2": 0.4, "end2": 1.0},
+            {"startTime": 3, "endTime": 5, "start": 0.1, "end": 0.1, "start2": 0.1, "end2": 0.1},
+            {"startTime": 6, "endTime": 32, "start": 0.9, "end": 0.9, "start2": 1.0, "end2": 1.0}
+        ]);
+        let mut scalar = parse_float_events(1., serde_json::from_value(events.clone()).unwrap()).unwrap();
+        let mut movement = parse_move_events(1., serde_json::from_value(events.clone()).unwrap()).unwrap();
+        let mut legacy_events: Vec<PgrEvent> = serde_json::from_value(events).unwrap();
+        for event in &mut legacy_events {
+            event.start = (event.start * 880.).round() * 1000. + (event.start2 * 520.).round();
+            event.end = (event.end * 880.).round() * 1000. + (event.end2 * 520.).round();
+            event.start2 = 0.;
+            event.end2 = 0.;
+        }
+        let mut legacy = parse_move_events_fv1(1., legacy_events).unwrap();
+        for track in [&scalar, &movement.0, &movement.1, &legacy.0, &legacy.1] {
+            assert!(track.keyframes.windows(2).all(|pair| pair[0].time <= pair[1].time));
+        }
+        for time in [0., 1., 3.999, 4., 5., 6., 12., 4., 0.5, 5.5] {
+            let (x, y) = if time < 4. {
+                (0.1 + time * 0.1, 0.2 + time * 0.1)
+            } else if time < 6. {
+                (0.3 + (time - 2.) * 0.15, 0.4 + (time - 2.) * 0.15)
+            } else {
+                (0.9, 1.)
+            };
+            scalar.set_time(time);
+            assert!((scalar.now() - x as f32).abs() < 1e-5, "scalar at {time}");
+            for track in [&mut movement, &mut legacy] {
+                track.set_time(time);
+                assert!((track.now().x - (x as f32 * 2. - 1.)).abs() < 1e-5, "x at {time}");
+                assert!((track.now().y - (y as f32 * 2. - 1.)).abs() < 1e-5, "y at {time}");
+            }
+        }
+    }
+
+    #[test]
+    fn fv1_move_events_no_early_start() {
+        let events = json!([
+            {"startTime": 0, "endTime": 1, "start": 440260, "end": 440260},
+            {"startTime": 2, "endTime": 3, "start": 440260, "end": 660390},
+            {"startTime": 3, "endTime": 10, "start": 660390, "end": 660390}
+        ]);
+        let mut movement = parse_move_events_fv1(1., serde_json::from_value(events).unwrap()).unwrap();
+        for (time, position) in [(1.5, 0.), (2., 0.), (2.5, 0.25), (3., 0.5)] {
+            movement.set_time(time);
+            assert_eq!(movement.now(), Vector::new(position, position));
+        }
+    }
+
+    #[test]
+    fn aleph_zero_legacy_no_line_jump() {
+        // judgement line does not jump to center of screen
+        let events = json!([
+            {"startTime": 0, "endTime": 15408, "start": 457052, "end": 457052},
+            {"startTime": 15408, "endTime": 15424, "start": 457052, "end": 440052},
+            {"startTime": 15424, "endTime": 15408, "start": 440260, "end": 440260},
+            {"startTime": 15408, "endTime": 15424, "start": 440260, "end": 440260},
+            {"startTime": 15424, "endTime": 15664, "start": 440052, "end": 422052},
+            {"startTime": 15664, "endTime": 15680, "start": 422052, "end": 440052},
+            {"startTime": 15680, "endTime": 15664, "start": 422052, "end": 440052},
+            {"startTime": 15664, "endTime": 15680, "start": 440260, "end": 440260},
+            {"startTime": 15680, "endTime": 15696, "start": 440052, "end": 422052},
+            {"startTime": 15696, "endTime": 11520000, "start": 422052, "end": 422052}
+        ]);
+        for fps in [10, 60, 120] {
+            let mut movement = parse_move_events_fv1(1.875 / 250., serde_json::from_value(events.clone()).unwrap()).unwrap();
+            for frame in 0..118 * fps {
+                movement.set_time(frame as f64 / fps as f64);
+                assert!((movement.now().y + 0.8).abs() < 1e-6);
+            }
+            for (time, x) in [(115.62, 8.5 / 440.), (117.54, -9. / 440.), (115.62, 8.5 / 440.)] {
+                movement.set_time(time);
+                assert!((movement.now().y + 0.8).abs() < 1e-6, "y at {time}");
+                assert!((movement.now().x - x).abs() < 1e-6, "x at {time}");
+            }
+        }
+    }
 
     #[test]
     fn scrolling_distance_continues_through_final_hold_tail() {

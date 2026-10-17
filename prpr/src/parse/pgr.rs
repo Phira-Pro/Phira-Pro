@@ -246,12 +246,15 @@ fn resolve_event_overlaps(mut pgr: Vec<PgrEvent>) -> Vec<PgrEvent> {
 fn parse_float_events(r: f64, pgr: Vec<PgrEvent>) -> Result<AnimFloat> {
     let mut kfs = Vec::<Keyframe<f32>>::new();
     for e in resolve_event_overlaps(pgr) {
+        let st = (e.start_time * r).max(0.);
+        let en = e.end_time * r;
         if !kfs.last().is_some_and(|it| it.value == e.start) {
-            kfs.push(Keyframe::new((e.start_time * r).max(0.), e.start, 2));
+            kfs.push(Keyframe::new(st, e.start, 2));
         }
-        kfs.push(Keyframe::new(e.end_time * r, e.end, 2));
+        if en > st {
+            kfs.push(Keyframe::new(en, e.end, 2));
+        }
     }
-    kfs.pop();
     Ok(AnimFloat::new(kfs))
 }
 
@@ -267,11 +270,11 @@ fn parse_move_events(r: f64, pgr: Vec<PgrEvent>) -> Result<AnimVector> {
         if !kf2.last().is_some_and(|it| it.time == st && it.value == e.start2) {
             kf2.push(Keyframe::new(st, e.start2, 2));
         }
-        kf1.push(Keyframe::new(en, e.end, 2));
-        kf2.push(Keyframe::new(en, e.end2, 2));
+        if en > st {
+            kf1.push(Keyframe::new(en, e.end, 2));
+            kf2.push(Keyframe::new(en, e.end2, 2));
+        }
     }
-    kf1.pop();
-    kf2.pop();
     for kf in &mut kf1 {
         kf.value = -1. + kf.value * 2.;
     }

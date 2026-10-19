@@ -1,3 +1,4 @@
+use super::L10N_LOCAL;
 use crate::{icons::Icons, menu_music::MenuMusic};
 use anyhow::Result;
 use macroquad::prelude::*;
@@ -191,7 +192,7 @@ impl MusicPanel {
             ui.fill_rect(icon, (*icons.retry, icon, ScaleType::Fit, semi_white(if disabled { 0.25 } else { 0.8 })));
         });
         self.play.render_shadow(ui, play, t, |ui, _| {
-            if music.user_paused || music.duration == 0. {
+            if music.user_paused || music.duration == 0. || music.muted() {
                 let icon = texture_icon_rect(play, *icons.play, PLAY_ARTWORK);
                 ui.fill_rect(icon, (*icons.play, icon, ScaleType::Fit, semi_white(0.9)));
             } else {
@@ -252,9 +253,14 @@ impl MusicPanel {
             }
             let title = if music.title.is_empty() { title_fallback } else { &music.title };
             ui.text(title).pos(r.x + 0.02, r.y + 0.016).size(0.40).max_width(r.w - 0.04).draw();
-            ui.text(format!("{} / {}", timestamp(music.position()), timestamp(music.duration)))
+            let mut time = format!("{} / {}", timestamp(music.position()), timestamp(music.duration));
+            if music.muted() {
+                time.push_str(&format!(" · {}", tl!("music-muted")));
+            }
+            ui.text(time)
                 .pos(r.x + 0.02, r.y + 0.062)
                 .size(0.32)
+                .max_width(r.w - 0.04)
                 .color(semi_white(0.7))
                 .draw();
         });

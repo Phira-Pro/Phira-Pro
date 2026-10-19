@@ -12,3 +12,4 @@ update-desc =
 update-ignore = 忽略該版本
 update-go = 更新
 change-char = 更換角色
+music-muted = 已靜音，點擊播放恢復聲音

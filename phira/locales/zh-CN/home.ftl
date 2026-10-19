@@ -20,3 +20,4 @@ change-char = 更换角色
 
 music-loading = 正在载入音乐…
 music-empty = 暂无可播放的本地音乐
+music-muted = 已静音，点击播放恢复声音

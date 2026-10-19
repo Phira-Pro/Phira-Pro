@@ -20,3 +20,4 @@ change-char = Change Character (Web)
 
 music-loading = Loading music…
 music-empty = No playable local music
+music-muted = Muted; press play to restore sound

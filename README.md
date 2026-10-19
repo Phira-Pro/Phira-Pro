@@ -11,11 +11,11 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows、macOS、Linux 压缩包、Android arm64 APK 或 iOS 未签名 IPA。Windows 解压后运行 `phira-main.exe`，macOS / Linux 运行 `phira-main`；Android 更新时保留应用数据，iOS IPA 需自行签名安装。
 
-当前版本为 **pro.15**（应用内 `0.8.2-pro.15`，build 72），新增设置搜索、备份预检与选择性还原、回放批量管理、画质与问题诊断、练习分析与双回放对照、谱库排序筛选、课题模式与课题成绩历史，以及主页音乐播放列表。课题模式包含三首连续游玩、黑场过渡、Saira 字体结算和五种课题牌子；牌子页取消与确定均返回主页。包含 Rulaifozu 的 PPSR 插件 API 更新及 Terrysquid 的判定与谱面兼容修复，见 [pro.15 更新说明](docs/development/pro-15.md)与 [pro.15 Release](https://github.com/Phira-Pro/Phira-Pro/releases/tag/v0.8.2-pro.15)。
+当前版本为 **pro.16**（应用内 `0.8.2-pro.16`，build 81），新增实时判定详情、Perfect Combo 与音符行为 Mod，接入 RPEN 曲线轨迹、分层噪域与自定义皮肤、谱内 shader、三维摄像机等扩展；修复回放噪域与逐帧特效、HUD 联动、诊断采样、移动端刷新率恢复及主页背景音乐播放。见 [pro.16 更新说明](docs/development/pro-16.md)与 [pro.16 Release](https://github.com/Phira-Pro/Phira-Pro/releases/tag/v0.8.2-pro.16)。
 
 插件接口见 [开发说明](docs/plugins/README.md)，模块职责与审查方法见 [代码审查指南](docs/development/code-review-guide.md)。本版继续包含 [rpe-next 噪域兼容](docs/development/rpe-next-noise.md)、[回放录制修复](docs/development/replays.md)及各平台帧率设置。历史更新见 [pro.14-fix1](docs/development/pro-14-fix1.md)、[pro.14](docs/development/pro-14.md)、[pro.13](docs/development/pro-13.md)和 [pro.12](docs/development/pro-12.md)。版本维护、五个平台构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
 
-当前版本为 **pro.15 / build 74**，课题结算详情字号缩小约 10%，难度等级沿曲绘右侧斜边对齐，适配手机与平板。
+课题模式保留三首连续游玩、黑场过渡、Saira 字体结算和五种课题牌子；课题结算详情与难度等级适配手机、平板。相关功能见 [pro.15 更新说明](docs/development/pro-15.md)。
 
 PPSR 分析浮窗使用当前曲绘的暗色半透明背景，以圆角数字框突出总难度，保留拖动、收起及十项细分难度。
 

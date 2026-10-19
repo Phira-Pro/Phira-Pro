@@ -4,7 +4,7 @@
 
 ## 新增功能
 
-- 设置 → 谱面新增「显示判定详情」。局内在分数、准确率下方逐行右对齐显示当前预设可用档位的数量；顺序为 P+、P、GR、GOOD、OK、MEH、BAD、MISS。颜色依次为 `ffc600`、`f6ffac`、`87c8ff`、`a7edff`、`9fffee`、`ffccb6`、`ff4b4b`、`afafaf`，不透明度 30%。沿用分数 HUD 的显隐、缩放和 attachUI 变换。
+- 设置 → 谱面新增「显示判定详情」。局内在分数、准确率下方逐行右对齐显示当前预设可用档位的数量；顺序为 PERFECT+、PERFECT、GREAT、GOOD、OK、MEH、BAD、MISS。颜色依次为 `ffc600`、`f6ffac`、`87c8ff`、`a7edff`、`9fffee`、`ffccb6`、`ff4b4b`、`afafaf`，不透明度 50%。沿用分数 HUD 的显隐、缩放和 attachUI 变换。
 - 设置 → 谱面新增「显示 Perfect Combo」。仅改变局内连击显示：Perfect+/Perfect 连续累加，其他档位清零；沿用原本至少 3 连击才显示的规则。普通连击、最大连击、分数和准确率计算不变；回放重建判定时同步重建这一显示连击。
 - 单曲 Mods 新增「音符行为」，循环选择原始、Tap、Drag、Flick。复用练习已有的音符/音效转换与缓存重建，和练习偏好分别存储。转换后可正常游玩、结算；通过既有 UNRATED 路径阻止成绩保存和上传，结算详情标注 ALL TAP/ALL DRAG/ALL FLICK。
 
@@ -44,3 +44,9 @@
 ZIP SHA256：`e8cc84ae15529d6d28df1532e0a6f02226159681982387f9946ba4f0cefb6bf9`。
 
 EXE SHA256：`9136f05e8a0e4d031df2855a7d5b5adc1d137e4fe179ee108eaa58e543e84348`。
+
+## 判定详情显示调整
+
+完整显示 PERFECT+、PERFECT、GREAT、GOOD、OK、MEH、BAD、MISS，不透明度由 30% 调整为 50%。复用现有真实 GPU 回归并查看手机、平板、宽屏渲染图，确认完整名称和右对齐显示。Windows 从修改后源码重新构建打包成功。
+
+本次 ZIP SHA256：`7e8760b6beaaabe0bee87bf7717be73b1c92f05cdd1bd2635e6bb7d6309bbc16`。

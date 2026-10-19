@@ -31,7 +31,7 @@ impl Coverage {
                 } else if state == 1 {
                     z.ready && !z.active
                 } else {
-                    !z.ready && !z.active
+                    !z.active && (single || !z.ready)
                 }
             }) {
                 let counts = &mut self.counts[usize::from(z.invert)];
@@ -64,6 +64,7 @@ mod tests {
     use crate::core::{rpe_next_block::contains, Vector};
     fn zone(x: f32, half: f32, invert: bool, state: u8) -> Zone {
         Zone {
+            projection: None,
             line2area: true,
             y_scale: 1.,
             color: [1., 84. / 255., 84. / 255.],
@@ -107,7 +108,7 @@ mod tests {
                                 } else if state == 1 {
                                     z.ready && !z.active
                                 } else {
-                                    !z.ready && !z.active
+                                    !z.active && (single || !z.ready)
                                 }
                             }) {
                                 if contains(z, p, 0.) {

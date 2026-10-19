@@ -41,6 +41,8 @@ mod block_timeline;
 mod chart;
 pub(crate) mod rpe_block;
 pub mod rpe_next_block;
+pub mod rpen_scene;
+pub mod rpen_skin;
 pub use chart::{Chart, ChartExtra, ChartSettings, HitSoundMap};
 
 mod effect;

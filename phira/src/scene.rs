@@ -307,6 +307,9 @@ pub fn parse_warnings_to_string(w: &ParseWarnings) -> Option<String> {
     if w.has_attach_ui {
         warnings.push(format!("- {}", itl!("warning-attach-ui")));
     }
+    if w.has_rpen_features {
+        warnings.push(itl!("warning-rpen-features").into_owned());
+    }
     if warnings.is_empty() {
         None
     } else {
@@ -333,14 +336,19 @@ pub async fn import_chart_to(dir: &Path, local_path: String, file: File) -> Resu
     fs::fix_info_with(fs.as_mut(), &mut info, !has_info_yml)
         .await
         .with_context(|| itl!("invalid-chart"))?;
-    let warnings = if info.use_rpe_170_speed.is_none() || info.use_attach_ui_fix.is_none() {
-        if info.use_attach_ui_fix.is_none() {
-            info.use_attach_ui_fix = Some(true);
-        }
-        lint_chart(fs.as_mut(), &info).await?
+    let mut warnings = lint_chart(fs.as_mut(), &info).await?;
+    // RPEN warnings apply to every import, including packages with an info.yml.
+    if info.use_rpe_170_speed.is_some() {
+        warnings.has_new_speed_events = false;
+    }
+    if info.use_attach_ui_fix.is_some() {
+        warnings.has_attach_ui = false;
     } else {
-        ParseWarnings::default()
-    };
+        info.use_attach_ui_fix = Some(true);
+    }
+    if info.use_rpen.is_none() {
+        info.use_rpen = Some(warnings.has_rpen_features);
+    }
     dir.create("info.yml")?.write_all(serde_yaml::to_string(&info)?.as_bytes())?;
     Ok((
         LocalChart {

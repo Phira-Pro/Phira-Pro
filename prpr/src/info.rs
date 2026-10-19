@@ -49,6 +49,8 @@ pub struct ChartInfo {
     pub force_aspect_ratio: bool,
     pub use_rpe_170_speed: Option<bool>,
     pub use_attach_ui_fix: Option<bool>,
+    /// None auto-enables RPEN extensions; an explicit false selects the legacy parser.
+    pub use_rpen: Option<bool>,
 
     pub created: Option<DateTime<Utc>>,
     pub updated: Option<DateTime<Utc>>,
@@ -90,6 +92,7 @@ impl Default for ChartInfo {
             force_aspect_ratio: false,
             use_rpe_170_speed: None,
             use_attach_ui_fix: None,
+            use_rpen: None,
 
             created: None,
             updated: None,

@@ -38,8 +38,9 @@ pub fn panel_rect(title_left: f32, top: f32, width: f32) -> Rect {
     let bottom_margin = if cfg!(feature = "hykb") { 0.10 } else { 0.04 };
     Rect::new(title_left, top - bottom_margin - 0.08, width, 0.08)
 }
-pub fn music_slot(ui: &Ui, width: f32) -> Rect {
-    let default = panel_rect(crate::page::home_title_left(ui), ui.top, width);
+pub fn music_slot(ui: &Ui) -> Rect {
+    // The default matches the original play button, not its editable HUD slot.
+    let default = panel_rect(crate::page::home_title_left(ui), ui.top, 0.83);
     crate::hud::slot(
         ui,
         "home",
@@ -325,7 +326,7 @@ pub(crate) async fn render_regression(painter: &mut prpr::ui::TextPainter) {
         let title_left = crate::page::home_title_left(&ui);
         crate::page::Fader::new().render_title(&mut ui, 2., crate::page::HOME_LABEL);
         crate::hud::begin_frame();
-        let r = music_slot(&ui, play.w);
+        let r = music_slot(&ui);
         assert!((r.x - title_left).abs() < 1e-6);
         assert!(r.y >= -ui.top && r.bottom() <= ui.top);
         assert!(crate::hud::frame_slots().iter().any(|slot| slot.key == "music" && slot.cap.0));
@@ -444,13 +445,13 @@ pub(crate) async fn render_regression(painter: &mut prpr::ui::TextPainter) {
             editor.touch(&touch);
             editor.render(&mut ui);
             crate::hud::begin_frame();
-            let moved = music_slot(&ui, play.w);
+            let moved = music_slot(&ui);
             assert!((moved.x - r.x - 0.25).abs() < 1e-5 && (moved.y - r.y + 0.15).abs() < 1e-5);
             let stored: serde_json::Value = serde_json::from_slice(&std::fs::read(isolated_hud.saved_path()).unwrap()).unwrap();
             assert!(stored["pages"]["home"]["slots"]["music"].is_object());
             isolated_hud.reload_saved();
             crate::hud::begin_frame();
-            assert_eq!(music_slot(&ui, play.w), moved, "HUD position must survive reloading the saved file");
+            assert_eq!(music_slot(&ui), moved, "HUD position must survive reloading the saved file");
             panel.render(&mut ui, moved, 2., &player, &icons);
             let new_play = control_rects(moved).2;
             for phase in [TouchPhase::Started, TouchPhase::Ended] {

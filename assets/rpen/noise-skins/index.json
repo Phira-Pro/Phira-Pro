@@ -1,0 +1,17 @@
+[
+  {
+    "name": "NoiseField",
+    "files": [
+      "config.json", "main.glsl", "composeActive.glsl", "composeDisabled.glsl", "copy.glsl",
+      "disabled.glsl", "edge.glsl", "glow.glsl", "glowExtract.glsl", "ready.glsl", "touchMask.glsl",
+      "tex/BlockNoise1.png", "tex/FD_Noise.png", "tex/PointNoise.png"
+    ]
+  },
+  {
+    "name": "Ocean",
+    "files": [
+      "config.json", "main.glsl", "composeActive.glsl", "composeDisabled.glsl", "disabled.glsl",
+      "edgeBand.glsl", "ready.glsl", "touchMask.glsl", "tex/Caustics.png", "tex/Flow.png", "tex/Foam.png"
+    ]
+  }
+]

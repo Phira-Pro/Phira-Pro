@@ -319,7 +319,7 @@ impl Track {
 // Standard easing equations, evaluated in f64. The older line tween table has
 // different exponential endpoints and Back/Elastic InOut parameters, so using
 // that table here would change the exported noise geometry.
-fn curve(id: u8, p: f64) -> f64 {
+pub(crate) fn curve(id: u8, p: f64) -> f64 {
     use std::f64::consts::PI;
     let (family, direction) = match id {
         1 => return p,
@@ -423,6 +423,7 @@ fn curve(id: u8, p: f64) -> f64 {
 }
 
 pub struct Area {
+    pub layer: usize,
     center: Position,
     half: Position,
     appear: f64,
@@ -434,6 +435,7 @@ pub struct Area {
 
 #[derive(Clone, PartialEq)]
 pub struct Sample {
+    pub layer: usize,
     pub zone: Zone,
     pub state: u8,
     pub mix: f32,
@@ -471,6 +473,7 @@ impl Area {
             .collect();
         let track = |events, axis, fallback, name: &str| Track::new(events, axis, fallback, center, tempo).with_context(|| name.to_owned());
         Ok(Self {
+            layer: 0,
             center,
             half,
             appear,
@@ -514,6 +517,7 @@ impl Area {
             return None;
         }
         Some(Sample {
+            layer: self.layer,
             state: if active {
                 2
             } else if ready {
@@ -523,6 +527,7 @@ impl Area {
             },
             mix,
             zone: Zone {
+                projection: None,
                 line2area: true,
                 y_scale: 1.5 / aspect,
                 color: [1., 84. / 255., 84. / 255.],
@@ -550,9 +555,9 @@ pub fn contains(zone: &Zone, p: Vector, inset: f32) -> bool {
 }
 
 pub fn blocked(samples: &[Sample], point: Vector, aspect: f32, single: bool) -> bool {
-    let coverage = |inset| {
+    let coverage = |inset, layer| {
         let (mut normal, mut inversions) = (false, 0);
-        for s in samples.iter().filter(|s| s.state == 2) {
+        for s in samples.iter().filter(|s| s.state == 2 && s.layer == layer) {
             if contains(&s.zone, point, inset) {
                 if s.zone.invert {
                     inversions += 1;
@@ -563,7 +568,12 @@ pub fn blocked(samples: &[Sample], point: Vector, aspect: f32, single: bool) -> 
         }
         normal ^ if single { inversions == 1 } else { inversions % 2 == 1 }
     };
-    coverage(0.) && coverage(super::touch_inset_world(aspect))
+    let mut layers: Vec<_> = samples.iter().map(|s| s.layer).collect();
+    layers.sort_unstable();
+    layers.dedup();
+    layers
+        .into_iter()
+        .any(|layer| coverage(0., layer) && coverage(super::touch_inset_world(aspect), layer))
 }
 
 #[cfg(test)]

@@ -1,0 +1,28 @@
+{
+  "META": {"RPEVersion": 240, "offset": 0, "name": "RPEN extensions QA"},
+  "BPMList": [{"bpm": 120, "startTime": [0,0,1]}],
+  "judgeLineList": [{
+    "Name": "trajectory and factor", "Texture": "line.png", "isCover": 1, "bpmfactor": 2,
+    "eventLayers": [{
+      "moveXEvents": [{"startTime":[0,0,1],"endTime":[8,0,1],"start":0,"end":0,"easingType":1,"trajectory":{"version":1,"segments":128,"options":{"xExpression":"150*cos(2*pi*t)","yExpression":"120*sin(2*pi*t)","tangentRotation":true}}}],
+      "moveYEvents": [], "rotateEvents": [],
+      "alphaEvents": [{"startTime":[0,0,1],"endTime":[16,0,1],"start":255,"end":255,"easingType":1}],
+      "speedEvents": [{"startTime":[0,0,1],"endTime":[16,0,1],"start":1,"end":1,"easingType":1}]
+    }],
+    "skewControl": [{"x":-1000000,"skew":0.001,"easing":1},{"x":1000000,"skew":0.001,"easing":1}],
+    "notes":[
+      {"type":1,"above":1,"startTime":[4,0,1],"endTime":[4,0,1],"positionX":150,"yOffset":0,"alpha":255,"size":1,"speed":1,"isFake":0,"visibleTime":9999},
+      {"type":2,"above":1,"startTime":[6,0,1],"endTime":[8,0,1],"positionX":-150,"yOffset":0,"alpha":255,"size":1,"speed":1,"isFake":0,"visibleTime":9999}
+    ]
+  }],
+  "noiseAreaLayers": [{"id":"default","name":"native layer","skin":"","parameters":{}},{"id":"upper","name":"independent inversion","skin":"","parameters":{}}],
+  "blockAreaList": [
+    {"bottomLeft":{"x":-260,"y":-180},"topRight":{"x":260,"y":180},"appearTime":[0,0,1],"disappearTime":[20,0,1],"activeIntervals":[{"startTime":[0,0,1],"endTime":[20,0,1]}],"layerId":"default","isInvert":false},
+    {"bottomLeft":{"x":-100,"y":-90},"topRight":{"x":100,"y":90},"appearTime":[0,0,1],"disappearTime":[20,0,1],"activeIntervals":[{"startTime":[0,0,1],"endTime":[20,0,1]}],"layerId":"upper","isInvert":true}
+  ],
+  "globalEvents": {"version":1,"types":{
+    "spatial-camera/position":{"columns":{"x":{"events":[{"startTime":0,"endTime":8,"start":0,"end":100,"easingType":1}]} }},
+    "spatial-camera/rotation":{"columns":{"yaw":{"events":[{"startTime":0,"endTime":8,"start":0,"end":20,"easingType":1}]},"roll":{"events":[{"startTime":0,"endTime":8,"start":0,"end":15,"easingType":1}]}}},
+    "spatial-camera/lens":{"settings":{"followChart":false},"columns":{"fov":{"events":[{"startTime":0,"endTime":8,"start":48.45549063590834,"end":60,"easingType":1}]}}}
+  }}
+}

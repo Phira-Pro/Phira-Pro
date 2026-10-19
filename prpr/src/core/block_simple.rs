@@ -190,6 +190,7 @@ mod tests {
 
     fn zone(x: f32, y: f32, hx: f32, hy: f32, angle: f32, invert: bool) -> Zone {
         Zone {
+            projection: None,
             line2area: false,
             y_scale: 1.,
             color: super::super::DEFAULT_BLOCK_COLOR,

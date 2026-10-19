@@ -363,7 +363,7 @@ preset-number-22 = 划动触发速度倍率
 preset-number-23 = 划动投影最小位移（world unit）
 preset-switch-0 = 黄键保护
 preset-switch-1 = 红键保护
-preset-switch-2 = 严判
+preset-switch-2 = 全局严格判定
 preset-switch-3 = 全屏判定
 preset-switch-4 = 去除连击分
 preset-switch-5 = 独立 Hold 尾判（扩展）
@@ -427,3 +427,8 @@ color-current-default = 当前（默认）
 practice-debug-display = 调试显示
 practice-debug-performance = 帧率设置
 practice-debug-input = 触点可视化
+
+item-show-judgement-details = 显示判定详情
+item-show-judgement-details-sub = 在分数与准度下方显示当前判定预设的实时数量
+item-show-perfect-combo = 显示 Perfect Combo
+item-show-perfect-combo-sub = 连击仅累计连续 Perfect+ / Perfect；其他判定会中断显示，不改变计分

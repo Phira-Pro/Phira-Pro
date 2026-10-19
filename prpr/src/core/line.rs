@@ -494,7 +494,8 @@ impl JudgeLine {
             ];
             let height_above = p[0].y.max(p[1].y.max(p[2].y.max(p[3].y))) * res.aspect_ratio;
             let height_below = -p[0].y.min(p[1].y.min(p[2].y.min(p[3].y))) * res.aspect_ratio;
-            let agg = !(res.config.practice_active && res.config.practice.view.active())
+            let agg = !res.projected_chart
+                && !(res.config.practice_active && res.config.practice.view.active())
                 && (res.config.aggressive || self.notes.len() > EXTREME_LINE_NOTES);
             for note in self.notes.iter().take(self.cache.not_plain_count).filter(|it| it.above) {
                 note.render(res, &mut config, bpm_list);

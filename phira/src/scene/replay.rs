@@ -57,6 +57,8 @@ pub struct ReplayScene {
     drag: Option<u64>,
     drag_playing: bool,
     pending_seek: Option<f64>,
+    pending_frame_step: bool,
+    block_frame_idx: usize,
     timeline: Rect,
     a: Option<f64>,
     b: Option<f64>,
@@ -77,6 +79,7 @@ impl ReplayScene {
     }
     pub(crate) fn analysis_pause(&mut self) {
         let _ = self.game_scene.music.pause();
+        self.game_scene.sync_replay_block_audio(false);
     }
     pub(crate) fn analysis_contacts(&self, time: f64) -> Vec<String> {
         let mut live = std::collections::BTreeMap::new();
@@ -135,6 +138,7 @@ impl ReplayScene {
         self.speed = rate / self.game_scene.res.config.speed.max(0.05);
         self.game_scene.res.audio.recover_if_needed()?;
         self.sync_music();
+        self.game_scene.sync_replay_block_audio(self.playing);
         Ok(())
     }
     pub(crate) fn analysis_render(&mut self, tm: &mut TimeManager, ui: &mut Ui, target: RenderTarget) -> Result<()> {
@@ -312,6 +316,8 @@ impl ReplayScene {
             drag: None,
             drag_playing: false,
             pending_seek: None,
+            pending_frame_step: false,
+            block_frame_idx: 0,
             timeline: Rect::default(),
             a: None,
             b: None,
@@ -329,6 +335,7 @@ impl ReplayScene {
     fn restart(&mut self) {
         self.selected_error = None;
         self.pending_seek = None;
+        self.pending_frame_step = false;
         self.looping = false;
         self.frame_fallback = false;
         self.rewind_to(0.);
@@ -351,6 +358,7 @@ impl ReplayScene {
 
     /// 把谱面与判定状态重置，并静默快进到 `t`（不产生打击特效）。
     fn rewind_to(&mut self, t: f64) {
+        self.game_scene.sync_replay_block_audio(false);
         {
             let scene = &mut self.game_scene;
             scene.judge.reset();
@@ -362,6 +370,7 @@ impl ReplayScene {
         }
         self.judge_idx = 0;
         self.touch_idx = 0;
+        self.block_frame_idx = 0;
         self.current_touches.clear();
         self.finishing_holds.clear();
         if let Some(checkpoint) = self.checkpoints.iter().rev().find(|c| c.t <= t) {
@@ -373,6 +382,8 @@ impl ReplayScene {
             }
             self.judge_idx = checkpoint.judge_idx;
             self.touch_idx = checkpoint.touch_idx;
+            self.block_frame_idx = self.replay.frames.partition_point(|time| *time <= checkpoint.t);
+            self.game_scene.judge.blocked_finger_ids = checkpoint.blocked_fingers.clone();
             self.current_touches = checkpoint.touches.clone();
             self.finishing_holds = checkpoint.holds.clone();
         }
@@ -387,6 +398,10 @@ impl ReplayScene {
     /// 应用 `t` 时刻之前的所有判定事件到谱面（参照 phira-monitor 的 PlayerView）。
     /// `silent = true` 时不产生打击特效 / 爆炸，用于拖动跳转与回溯快进。
     fn apply_judges(&mut self, t: f64, silent: bool) {
+        self.apply_judges_with_audio(t, silent, !silent);
+    }
+
+    fn apply_judges_with_audio(&mut self, t: f64, silent: bool, audio: bool) {
         while self.judge_idx < self.replay.judges.len() {
             let ev = self.replay.judges[self.judge_idx];
             if ev.t > t {
@@ -428,7 +443,7 @@ impl ReplayScene {
                     judge.record_replay_offset(ev.t, grade, ev.diff as f64);
                 }
             }
-            if !silent
+            if audio
                 && (matches!(ev.kind, 5 | 6) || (matches!(ev.kind, 0 | 1 | 4 | 7 | 8 | 9) && !matches!(note.kind, prpr::core::NoteKind::Hold { .. })))
             {
                 note.hitsound.play(res);
@@ -569,17 +584,78 @@ impl ReplayScene {
     }
 
     fn apply_touches(&mut self, t: f64) {
-        let touches = &self.replay.touches;
-        while self.touch_idx < touches.len() && touches[self.touch_idx].t as f64 <= t {
+        let noise = self.game_scene.chart.has_block_areas();
+        // Replay recorded frame times too: a stationary finger can become
+        // blocked when an animated zone moves underneath it between events.
+        loop {
+            let event_time = self.replay.touches.get(self.touch_idx).map_or(f64::INFINITY, |e| e.t as f64);
+            let frame_time = if noise {
+                self.replay.frames.get(self.block_frame_idx).copied().unwrap_or(f64::INFINITY)
+            } else {
+                f64::INFINITY
+            };
+            let at = event_time.min(frame_time);
+            if at > t || !at.is_finite() {
+                break;
+            }
+            if frame_time < event_time {
+                self.block_frame_idx += 1;
+                self.update_block_touches(at);
+                continue;
+            }
             let index = self.touch_idx;
-            let event = touches[index];
+            let event = self.replay.touches[index];
             self.touch_idx += 1;
             if event.phase == replay::PHASE_UP {
                 self.current_touches.remove(&event.id);
             } else {
+                if event.phase == replay::PHASE_DOWN {
+                    self.game_scene.judge.blocked_finger_ids.remove(&event.id);
+                }
                 self.current_touches.insert(event.id, (vec2(event.x, event.y), index));
             }
+            if noise {
+                self.update_block_touches(at);
+            }
         }
+        self.update_block_touches(t);
+    }
+    fn update_block_touches(&mut self, t: f64) {
+        let touches = self
+            .current_touches
+            .iter()
+            .map(|(&id, &(p, i))| (id, self.touch_position(p, i, t)))
+            .collect::<Vec<_>>();
+        self.game_scene.res.time = t;
+        self.game_scene.update_replay_block_touches(&touches);
+    }
+
+    fn step_to(&mut self, t: f64) {
+        if t >= self.current {
+            self.particle_delta = (t - self.current).max(0.) as f32;
+            self.current = t;
+            return;
+        }
+        // Rebuild only the visible effect tail when stepping backwards. Full
+        // seeks stay silent; this never recommits a score twice or plays old SFX.
+        let lifetime = self.game_scene.res.emitter.emitter.config.lifetime.max(0.5) as f64;
+        let start = (t - lifetime).max(0.);
+        self.rewind_to(start);
+        let mut previous = start;
+        while let Some(event) = self.replay.judges.get(self.judge_idx).filter(|e| e.t <= t).copied() {
+            self.advance_particles((event.t - previous).max(0.) as f32);
+            self.game_scene.res.time = event.t;
+            self.game_scene.tick_replay();
+            self.apply_judges_with_audio(event.t, false, false);
+            previous = event.t;
+        }
+        self.advance_particles((t - previous).max(0.) as f32);
+        self.current = t;
+        self.particle_delta = 0.;
+    }
+    fn advance_particles(&mut self, dt: f32) {
+        self.game_scene.res.emitter.emitter.advance(dt);
+        self.game_scene.res.emitter.emitter_square.advance(dt);
     }
     fn touch_position(&self, mut pos: Vec2, index: usize, t: f64) -> Vec2 {
         if let Some(next) = self.next_touch[index] {
@@ -622,6 +698,7 @@ impl ReplayScene {
             self.looping = false;
         }
         self.pending_seek = Some(t);
+        self.pending_frame_step = false;
     }
     fn checkpoint(&mut self) {
         if !self.checkpoint_step.is_finite() {
@@ -644,6 +721,7 @@ impl ReplayScene {
                 .collect(),
             touches: self.current_touches.clone(),
             holds: self.finishing_holds.clone(),
+            blocked_fingers: self.game_scene.judge.blocked_finger_ids.clone(),
         });
     }
     fn control(&mut self, i: usize) {
@@ -661,6 +739,7 @@ impl ReplayScene {
                 let (target, recorded) =
                     frame_step(&self.replay.frames, self.pending_seek.unwrap_or(self.current), [-10, -1, 1, 10][i - 3], self.end());
                 self.queue_seek(target);
+                self.pending_frame_step = true;
                 self.frame_fallback = !recorded;
             }
             7 => {
@@ -749,6 +828,7 @@ struct Checkpoint {
     notes: Vec<Vec<JudgeStatus>>,
     touches: HashMap<u64, (Vec2, usize)>,
     holds: HashMap<(u32, u32), f64>,
+    blocked_fingers: std::collections::HashSet<u64>,
 }
 fn judge_queue_clear(judge: &prpr::judge::Judge) {
     judge.judgements.borrow_mut().clear();
@@ -768,6 +848,7 @@ impl Scene for ReplayScene {
         self.playing = false;
         self.drag = None;
         let _ = self.game_scene.music.pause();
+        self.game_scene.sync_replay_block_audio(false);
         tm.pause();
         Ok(())
     }
@@ -848,10 +929,14 @@ impl Scene for ReplayScene {
         if self.rate.changed() {
             self.speed = replay::transport::RATES[self.rate.selected()];
         }
-        if let Some(target) = self.pending_seek.take() {
-            self.seek(target);
-        }
         self.particle_delta = 0.;
+        if let Some(target) = self.pending_seek.take() {
+            if std::mem::take(&mut self.pending_frame_step) {
+                self.step_to(target);
+            } else {
+                self.seek(target);
+            }
+        }
         if self.playing {
             self.particle_delta = dt as f32 * self.speed * self.game_scene.res.config.speed;
             let target = self.current + dt * self.speed as f64 * self.game_scene.res.config.speed as f64;
@@ -877,6 +962,7 @@ impl Scene for ReplayScene {
         self.game_scene.tick_replay();
         self.checkpoint();
         self.sync_music();
+        self.game_scene.sync_replay_block_audio(self.playing);
         Ok(())
     }
 

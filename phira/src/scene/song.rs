@@ -1069,7 +1069,7 @@ impl SongScene {
         is_unlock: bool,
     ) -> Result<LocalSceneTask> {
         // Preset judgement mods must survive the per-chart mod assignment below.
-        let mods = mods | (get_data().config.mods & (Mods::STRICT_JUDGE | Mods::FULLSCREEN_JUDGE | Mods::NO_COMBO_SCORE));
+        let mods = get_data().config.chart_mods(mods);
         let mut fs = fs_from_path(local_path)?;
         let can_rated = id.is_some() || local_path.starts_with(':');
         #[cfg(feature = "video")]
@@ -1720,7 +1720,11 @@ impl SongScene {
                 let (btn, clicked) = &mut self.mod_btns[index];
                 if *clicked {
                     *clicked = false;
-                    self.mods.toggle_mod(flag);
+                    if flag == Mods::NOTE_BEHAVIOR {
+                        self.mods.cycle_note_behavior();
+                    } else {
+                        self.mods.toggle_mod(flag);
+                    }
                     // Phira Pro Flash（轻量版）：开启「自动游玩」后本局成绩不可上传
                     // （自动游玩属于 UNRATED），并把所有会影响上传的设置恢复成官方默认。
                     #[cfg(flash)]
@@ -1732,13 +1736,25 @@ impl SongScene {
                         }
                     }
                 }
-                let on = self.mods.contains(flag);
+                let on = self.mods.intersects(flag);
                 let rr = Rect::new(width - 0.24, (row_height - rh) / 2., 0.2, rh);
                 let oh = rr.h;
                 btn.build(ui, rt, rr, |ui, path| {
                     let ct = rr.center();
                     ui.fill_path(&path, if on { WHITE } else { ui.background() });
-                    ui.text(if on { ttl!("switch-on") } else { ttl!("switch-off") })
+                    let label = if flag == Mods::NOTE_BEHAVIOR {
+                        match self.mods.note_behavior() {
+                            prpr::practice::NoteBehavior::Original => tl!("mods-note-original"),
+                            prpr::practice::NoteBehavior::Tap => "Tap".into(),
+                            prpr::practice::NoteBehavior::Drag => "Drag".into(),
+                            prpr::practice::NoteBehavior::Flick => "Flick".into(),
+                        }
+                    } else if on {
+                        ttl!("switch-on")
+                    } else {
+                        ttl!("switch-off")
+                    };
+                    ui.text(label)
                         .pos(ct.x, ct.y)
                         .anchor(0.5, 0.5)
                         .no_baseline()
@@ -1762,12 +1778,23 @@ impl SongScene {
             // Phira Pro Flash（轻量版）：**所有改判 / 降难度 Mod 一律不提供**
             // （严格判定会改判定窗口，全屏判定改判定范围，无失败 / 去连击分改判定与计分规则）。
             if !cfg!(flash) {
-                item(tl!("mods-strict-judge"), Some(tl!("mods-strict-judge-sub")), Mods::STRICT_JUDGE);
+                item(
+                    tl!("mods-strict-judge"),
+                    Some(if get_data().config.mods.contains(Mods::STRICT_JUDGE) {
+                        tl!("mods-strict-global-on")
+                    } else {
+                        tl!("mods-strict-judge-sub")
+                    }),
+                    Mods::STRICT_JUDGE,
+                );
                 item(tl!("mods-fullscreen-judge"), Some(tl!("mods-fullscreen-judge-sub")), Mods::FULLSCREEN_JUDGE);
                 item(tl!("mods-no-fail"), Some(tl!("mods-no-fail-sub")), Mods::NO_FAIL);
                 item(tl!("mods-no-combo-score"), Some(tl!("mods-no-combo-score-sub")), Mods::NO_COMBO_SCORE);
             }
             item(tl!("mods-no-shader"), Some(tl!("mods-no-shader-sub")), Mods::NO_SHADER);
+            if !cfg!(flash) {
+                item(tl!("mods-note-behavior"), Some(tl!("mods-note-behavior-sub")), Mods::NOTE_BEHAVIOR);
+            }
             (width, h + 0.2)
         });
     }

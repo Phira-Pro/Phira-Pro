@@ -62,6 +62,9 @@ impl PlayStatus {
             (Mods::NO_FAIL, "NO FAIL"),
             (Mods::NO_COMBO_SCORE, "NO COMBO SCORE"),
             (Mods::PERFECT_SOUND, "PERFECT SOUND"),
+            (Mods::NOTE_TAP, "ALL TAP"),
+            (Mods::NOTE_DRAG, "ALL DRAG"),
+            (Mods::NOTE_FLICK, "ALL FLICK"),
         ] {
             if c.mods.contains(flag) {
                 options.push(name.to_owned());

@@ -734,7 +734,7 @@ async fn parse_judge_line(
     };
     let mut notes = parse_notes(r, rpe.notes.unwrap_or_default(), fs, &mut height, hitsounds).await?;
     let cache = JudgeLineCache::new(&mut notes);
-    Ok(JudgeLine {
+    let line = JudgeLine {
         object: Object {
             alpha: events_with_factor(r, &event_layers, |it| &it.alpha_events, 1. / 255., "alpha", bezier_map)?,
             rotation: events_with_factor(r, &event_layers, |it| &it.rotate_events, -1., "rotate", bezier_map)?,
@@ -788,6 +788,7 @@ async fn parse_judge_line(
             size: parse_ctrl_events(&rpe.size_control, "size"),
             pos: parse_ctrl_events(&rpe.pos_control, "pos"),
             y: parse_ctrl_events(&rpe.y_control, "y"),
+            skew: AnimFloat::default(),
         }),
         height,
         incline: if let Some(events) = rpe.extended.as_ref().and_then(|e| e.incline_events.as_ref()) {
@@ -878,7 +879,8 @@ async fn parse_judge_line(
         attach_ui: rpe.attach_ui,
 
         cache,
-    })
+    };
+    Ok(line)
 }
 
 fn add_bezier<T>(map: &mut BezierMap, event: &RPEEvent<T>) {
@@ -925,7 +927,19 @@ pub async fn parse_rpe_with_path(
     use_rpe_170_speed: bool,
     chart_path: Option<&str>,
 ) -> Result<Chart> {
-    let rpe: RPEChart = serde_json::from_str(source).with_context(|| ptl!("json-parse-failed"))?;
+    parse_rpe_options(source, fs, extra, use_rpe_170_speed, chart_path, true).await
+}
+
+pub async fn parse_rpe_options(
+    source: &str,
+    fs: &mut dyn FileSystem,
+    extra: ChartExtra,
+    use_rpe_170_speed: bool,
+    chart_path: Option<&str>,
+    use_rpen: bool,
+) -> Result<Chart> {
+    let raw: serde_json::Value = serde_json::from_str(source).with_context(|| ptl!("json-parse-failed"))?;
+    let rpe: RPEChart = serde_json::from_value(super::rpen::legacy_source(&raw)).with_context(|| ptl!("json-parse-failed"))?;
     let speed_mode = if rpe.meta.rpe_version >= 170 {
         SpeedEasingMode::Modern
     } else {
@@ -936,7 +950,8 @@ pub async fn parse_rpe_with_path(
         Some(list) => parse_embedded_blocks(list, &rpe.bpm_list)?,
         None => (super::block_area::load_external(fs, chart_path).await?, Vec::new()),
     };
-    let mut r = BpmList::new(rpe.bpm_list.into_iter().map(|it| (it.start_time.beats(), it.bpm)).collect());
+    let bpms: Vec<_> = rpe.bpm_list.iter().map(|it| (it.start_time.beats(), it.bpm)).collect();
+    let mut r = BpmList::new(bpms.clone());
     fn vec<T>(v: &Option<Vec<T>>) -> impl Iterator<Item = &T> {
         v.iter().flat_map(|it| it.iter())
     }
@@ -978,6 +993,14 @@ pub async fn parse_rpe_with_path(
     let mut block_lifecycles = Vec::new();
     let mut line_texture_map = HashMap::new();
     for (id, rpe) in rpe.judge_line_list.into_iter().enumerate() {
+        let factor = if use_rpen {
+            super::rpen::number(&raw["judgeLineList"][id]["bpmfactor"], 1.)
+        } else {
+            1.
+        };
+        anyhow::ensure!(factor.is_finite() && factor > 0., "invalid bpmfactor on line {id}");
+        let mut line_bpm = BpmList::new(bpms.iter().map(|&(b, v)| (b, v / factor)).collect());
+        let mut trajectory_bpm = BpmList::new(bpms.clone());
         anyhow::ensure!(rpe.anchor.iter().all(|v| v.is_finite()), "Non-finite RPE anchor on line {id}");
         block_anchors.push(rpe.anchor);
         block_lifecycles.push(
@@ -985,15 +1008,29 @@ pub async fn parse_rpe_with_path(
                 .iter()
                 .flatten()
                 .flat_map(|layer| layer.speed_events.iter().flatten())
-                .map(|event| (r.time(&event.start_time), event.start))
+                .map(|event| (line_bpm.time(&event.start_time), event.start))
                 .collect(),
         );
         let name = rpe.name.clone();
         lines.push(
-            parse_judge_line(&mut r, rpe, max_time, speed_mode, fs, use_rpe_170_speed, &bezier_map, &mut hitsounds, &mut line_texture_map)
-                .await
-                .with_context(move || ptl!("judge-line-location-name", "jlid" => id, "name" => name))?,
+            parse_judge_line(
+                &mut line_bpm,
+                rpe,
+                max_time * factor,
+                speed_mode,
+                fs,
+                use_rpe_170_speed,
+                &bezier_map,
+                &mut hitsounds,
+                &mut line_texture_map,
+            )
+            .await
+            .with_context(move || ptl!("judge-line-location-name", "jlid" => id, "name" => name))?,
         );
+        // Trajectory tracks use the global BPM map and apply the line factor once.
+        if use_rpen {
+            super::rpen::apply_motion(&raw["judgeLineList"][id], &mut lines[id], &mut trajectory_bpm, factor)?;
+        }
     }
     fn has_cycle(line: &JudgeLine, lines: &[JudgeLine], visited: &mut Vec<usize>) -> Option<usize> {
         if let Some(parent_index) = line.parent {
@@ -1020,12 +1057,58 @@ pub async fn parse_rpe_with_path(
     // easing IDs. RPE BPM conversion applies only to the RPE line events.
     chart.block_areas = block_areas;
     chart.next_block_areas = next_block_areas;
-    chart.next_single_inversion = rpe.noise_area_options.ignore_triple_inversion;
+    chart.next_single_inversion = rpe.noise_area_options.ignore_triple_inversion || (use_rpen && super::rpen::features(&raw));
+    if use_rpen {
+        let effects = super::rpen::load_effects(&raw, &mut chart.bpm_list.borrow_mut(), fs).await?;
+        for effect in effects {
+            if effect.global {
+                chart.extra.global_effects.push(effect)
+            } else {
+                chart.extra.effects.push(effect)
+            }
+        }
+        if super::rpen::features(&raw) {
+            chart.rpen = Some(crate::core::rpen_scene::Scene::new(&raw, &mut chart.bpm_list.borrow_mut())?);
+        }
+        if let Some(layers) = raw["noiseAreaLayers"].as_array() {
+            anyhow::ensure!(!layers.is_empty() && layers.len() <= 32, "RPEN noise layer count must be 1..32");
+            let ids: Vec<_> = layers
+                .iter()
+                .map(|l| l["id"].as_str().context("invalid noise layer ID"))
+                .collect::<Result<_>>()?;
+            let mut unique = std::collections::HashSet::new();
+            for id in &ids {
+                anyhow::ensure!(unique.insert(*id), "duplicate noise layer ID");
+            }
+            let mut area_index = 0;
+            for area in raw["blockAreaList"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|a| a.get("bottomLeft").is_some())
+            {
+                let id = area["layerId"].as_str().unwrap_or("default");
+                let layer = ids.iter().position(|s| *s == id).with_context(|| format!("missing noise layer {id}"))?;
+                chart.next_block_areas[area_index].layer = layer;
+                area_index += 1;
+            }
+            chart.next_layer_renderers = (0..layers.len()).map(|_| Default::default()).collect();
+            for layer in layers {
+                let mut skin = crate::core::rpen_skin::Skin::load(layer, fs).await?;
+                if let Some(skin) = &mut skin {
+                    skin.time_offset = chart.offset as f64;
+                }
+                chart.next_layer_skins.push(skin);
+            }
+        }
+    }
     Ok(chart)
 }
 
 pub async fn lint(source: &str) -> Result<ParseWarnings> {
-    let rpe: RPEChart = serde_json::from_str(source).with_context(|| ptl!("json-parse-failed"))?;
+    let raw: serde_json::Value = serde_json::from_str(source).with_context(|| ptl!("json-parse-failed"))?;
+    let has_rpen_features = super::rpen::features(&raw);
+    let rpe: RPEChart = serde_json::from_value(super::rpen::legacy_source(&raw)).with_context(|| ptl!("json-parse-failed"))?;
     if let Some(list) = rpe.block_area_list {
         parse_embedded_blocks(list, &rpe.bpm_list)?;
     }
@@ -1041,13 +1124,14 @@ pub async fn lint(source: &str) -> Result<ParseWarnings> {
     Ok(ParseWarnings {
         has_new_speed_events,
         has_attach_ui,
+        has_rpen_features,
     })
 }
 
 #[cfg(test)]
 mod block_area_tests {
     use super::*;
-    use crate::core::{BlockPhase, Zone};
+    use crate::core::{BlockPhase, Vector, Zone};
     use serde_json::{json, Value};
 
     fn chart_json(bpm: f64) -> Value {
@@ -1096,6 +1180,33 @@ mod block_area_tests {
             .build()
             .unwrap()
             .block_on(parse_rpe(&source.to_string(), &mut fs, ChartExtra::default(), false))
+    }
+
+    #[test]
+    fn rpen_opt_out_restores_legacy_timing_geometry_and_controls() {
+        let source = include_str!("../../tests/fixtures/rpen-extensions/chart.json");
+        let directory = tempfile::tempdir().unwrap();
+        let mut fs = crate::fs::ExternalFileSystem(Arc::new(crate::dir::Dir::new(directory.path()).unwrap()));
+        let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let mut enabled = runtime
+            .block_on(parse_rpe_options(source, &mut fs, ChartExtra::default(), true, None, true))
+            .unwrap();
+        let disabled = runtime
+            .block_on(parse_rpe_options(source, &mut fs, ChartExtra::default(), true, None, false))
+            .unwrap();
+        assert_eq!(enabled.lines[0].notes.iter().map(|n| n.time).fold(f64::INFINITY, f64::min), 4.);
+        assert_eq!(disabled.lines[0].notes.iter().map(|n| n.time).fold(f64::INFINITY, f64::min), 2.);
+        enabled.lines[0].object.set_time(2.);
+        assert!(enabled.lines[0].object.translation.0.now().abs() < 1e-5);
+        assert!((enabled.lines[0].object.translation.1.now() - 120. * 2. / 900.).abs() < 1e-5);
+        assert!(!enabled.lines[0].ctrl_obj.borrow().skew.is_default());
+        assert!(disabled.lines[0].ctrl_obj.borrow().skew.is_default());
+        assert_eq!(enabled.next_layer_renderers.len(), 2);
+        assert!(disabled.next_layer_renderers.is_empty());
+        assert!(enabled.touch_blocked(Vector::new(0., 0.), 1., 1.5));
+        assert!(!disabled.touch_blocked(Vector::new(0., 0.), 1., 1.5));
+        assert!(enabled.rpen.is_some());
+        assert!(disabled.rpen.is_none());
     }
 
     #[test]

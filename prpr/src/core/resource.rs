@@ -455,6 +455,7 @@ pub struct Resource {
     pub(crate) snapshot_blit_sources: Vec<(miniquad::RenderPass, bool)>,
 
     pub no_effect: bool,
+    pub projected_chart: bool,
 
     pub note_buffer: RefCell<NoteBuffer>,
 
@@ -585,6 +586,7 @@ impl Resource {
             snapshot_blit_sources: Vec::new(),
 
             no_effect,
+            projected_chart: false,
 
             note_buffer: RefCell::new(NoteBuffer::default()),
 

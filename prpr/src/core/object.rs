@@ -86,6 +86,7 @@ pub struct CtrlObject {
     pub size: AnimFloat,
     pub pos: AnimFloat,
     pub y: AnimFloat,
+    pub skew: AnimFloat,
 }
 
 impl CtrlObject {
@@ -94,5 +95,6 @@ impl CtrlObject {
         self.size.set_time(height);
         self.pos.set_time(height);
         self.y.set_time(height);
+        self.skew.set_time(height);
     }
 }

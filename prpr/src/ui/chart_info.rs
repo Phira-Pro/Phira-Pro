@@ -210,6 +210,14 @@ pub fn render_chart_info(ui: &mut Ui, edit: &mut ChartInfoEdit, width: f32) -> (
         }
         dy!(r.h + s);
 
+        let r = ui.text(tl!("rpen-features")).size(0.47).anchor(1., 0.).draw();
+        let r = Rect::new(0.02, r.y - 0.01, r.h + 0.02, r.h + 0.02);
+        if ui.button("rpenfeatures", r, if info.use_rpen.unwrap_or(true) { "\u{2713}" } else { "" }.to_owned()) {
+            info.use_rpen = Some(!info.use_rpen.unwrap_or(true));
+            edit.updated = true;
+        }
+        dy!(r.h + s);
+
         let r = ui.text(tl!("attach-ui-fix")).size(0.47).anchor(1., 0.).draw();
         let r = Rect::new(0.02, r.y - 0.01, r.h + 0.02, r.h + 0.02);
         let check_str = match info.use_attach_ui_fix {

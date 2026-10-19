@@ -1548,6 +1548,14 @@ impl Page for LibraryPage {
         if chosen != ChartListType::Local {
             r.h -= 0.08;
         }
+        // Course controls have their own HUD slot, independent of list edits.
+        let course_rect = crate::hud::slot_or(
+            ui,
+            "library",
+            "course",
+            crate::hud::Cap(true, false, false),
+            Rect::new(-0.94, ui.content_rect().bottom() - 0.085, 0.20, 0.085),
+        );
         // HUD 自定义：谱面列表整体大框。只支持整体移动 / 缩放，
         // 里面的小格由容器尺寸自动排布（不单独拖动某一格）。
         const SLOT_LIST: crate::hud::SlotDef = crate::hud::SlotDef::centered("list", [0., 0., 1.67, 1.2], crate::hud::Cap(true, true, true));
@@ -1566,19 +1574,19 @@ impl Page for LibraryPage {
             })
         })?;
         s.render_fader(ui, |ui| {
-            self.course_btn.render_text(
-                ui,
-                Rect::new(-0.94, r.bottom() - 0.085, 0.20, 0.085),
-                t,
-                if self.course_selection.is_some() { "退出" } else { "课题模式" },
-                0.36,
-                false,
-            );
+            self.course_btn
+                .render_text(ui, course_rect, t, if self.course_selection.is_some() { "退出" } else { "课题模式" }, 0.36, false);
             if self.course_selection.is_some() {
-                self.course_start
-                    .render_text(ui, Rect::new(-0.94, r.bottom() - 0.19, 0.20, 0.085), t, "开始游玩", 0.36, false);
+                self.course_start.render_text(
+                    ui,
+                    Rect::new(course_rect.x, course_rect.y - 0.105, course_rect.w, course_rect.h),
+                    t,
+                    "开始游玩",
+                    0.36,
+                    false,
+                );
                 ui.text(format!("已选 {} / 3", self.course_selection.as_ref().unwrap().len()))
-                    .pos(-0.84, r.bottom() - 0.23)
+                    .pos(course_rect.center().x, course_rect.y - 0.145)
                     .anchor(0.5, 1.)
                     .size(0.32)
                     .draw();

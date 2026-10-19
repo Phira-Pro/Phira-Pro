@@ -118,17 +118,45 @@ bitflags! {
         const NO_COMBO_SCORE = 0x1000;
         /// Practice cue: sounds follow the chart clock, independent of judgement.
         const PERFECT_SOUND = 0x2000;
+        const NOTE_TAP = 0x4000;
+        const NOTE_DRAG = 0x8000;
+        const NOTE_FLICK = 0x10000;
+        const NOTE_BEHAVIOR = Self::NOTE_TAP.bits() | Self::NOTE_DRAG.bits() | Self::NOTE_FLICK.bits();
 
         const UNRATED = Self::AUTOPLAY.bits()
             | Self::NO_SHADER.bits()
             | Self::FULLSCREEN_JUDGE.bits()
             | Self::NO_FAIL.bits()
             | Self::NO_COMBO_SCORE.bits()
-            | Self::PERFECT_SOUND.bits();
+            | Self::PERFECT_SOUND.bits()
+            | Self::NOTE_BEHAVIOR.bits();
     }
 }
 
 impl Mods {
+    pub fn note_behavior(self) -> crate::practice::NoteBehavior {
+        use crate::practice::NoteBehavior::*;
+        if self.contains(Self::NOTE_TAP) {
+            Tap
+        } else if self.contains(Self::NOTE_DRAG) {
+            Drag
+        } else if self.contains(Self::NOTE_FLICK) {
+            Flick
+        } else {
+            Original
+        }
+    }
+    pub fn cycle_note_behavior(&mut self) {
+        use crate::practice::NoteBehavior::*;
+        let next = self.note_behavior().next();
+        self.remove(Self::NOTE_BEHAVIOR);
+        self.insert(match next {
+            Original => Self::empty(),
+            Tap => Self::NOTE_TAP,
+            Drag => Self::NOTE_DRAG,
+            Flick => Self::NOTE_FLICK,
+        });
+    }
     pub fn toggle_mod(&mut self, flag: Mods) {
         if self.contains(flag) {
             self.remove(flag);
@@ -272,6 +300,8 @@ pub struct Config {
     pub res_pack_path: Option<String>,
     pub sample_count: u32,
     pub show_acc: bool,
+    pub show_judgement_details: bool,
+    pub show_perfect_combo: bool,
     pub show_avg_fps: bool,
     pub speed: f32,
     pub touch_debug: bool,
@@ -443,6 +473,8 @@ impl Default for Config {
             res_pack_path: None,
             sample_count: 1,
             show_acc: false,
+            show_judgement_details: false,
+            show_perfect_combo: false,
             show_avg_fps: false,
             speed: 1.,
             touch_debug: false,
@@ -460,6 +492,11 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Global judgement switches and per-chart mods are independent sources.
+    /// OR applies strictness once, including when both sources enable it.
+    pub fn chart_mods(&self, chart: Mods) -> Mods {
+        chart | (self.mods & (Mods::STRICT_JUDGE | Mods::FULLSCREEN_JUDGE | Mods::NO_COMBO_SCORE))
+    }
     pub(crate) fn clear_legacy_autoplay(&mut self) {
         self.autoplay = None;
     }
@@ -856,6 +893,51 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::{Config, Mods};
+    #[test]
+    fn note_behavior_mod_is_exclusive_unrated_and_separate_from_practice() {
+        use crate::practice::NoteBehavior::*;
+        let mut mods = Mods::FLIP_X;
+        let mut c = Config::default();
+        c.practice.behavior = Flick;
+        for expected in [Tap, Drag, Flick, Original] {
+            mods.cycle_note_behavior();
+            assert_eq!(mods.note_behavior(), expected);
+            assert!(mods.contains(Mods::FLIP_X));
+            assert_eq!((mods & Mods::NOTE_BEHAVIOR).bits().count_ones(), if expected == Original { 0 } else { 1 });
+            assert_eq!(c.is_official_play(mods), expected == Original);
+            assert_eq!(c.practice.behavior, Flick);
+        }
+        c.show_judgement_details = true;
+        c.show_perfect_combo = true;
+        assert!(c.is_official_play(Mods::empty()), "HUD options must not invalidate scores");
+        let restored: Config = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+        assert!(restored.show_judgement_details && restored.show_perfect_combo);
+    }
+    #[test]
+    fn global_and_chart_strict_are_independent_and_never_compound() {
+        for algorithm in [super::JudgeAlgorithm::PhiraPro, super::JudgeAlgorithm::Phigros] {
+            for global in [false, true] {
+                for chart in [false, true] {
+                    let mut saved = Config::default();
+                    saved.judge_algorithm = algorithm;
+                    saved.mods.set(Mods::STRICT_JUDGE, global);
+                    let mut local = Mods::FLIP_X;
+                    local.set(Mods::STRICT_JUDGE, chart);
+                    let mut run = saved.clone();
+                    run.mods = saved.chart_mods(local);
+                    let mut expected = Config::default();
+                    expected.judge_algorithm = algorithm;
+                    expected.mods.set(Mods::STRICT_JUDGE, global || chart);
+                    assert_eq!(run.judge_windows().early, expected.judge_windows().early);
+                    assert_eq!(run.judge_windows().late, expected.judge_windows().late);
+                    assert_eq!(saved.mods.contains(Mods::STRICT_JUDGE), global);
+                    assert_eq!(local.contains(Mods::STRICT_JUDGE), chart);
+                    assert!(run.mods.contains(Mods::FLIP_X));
+                    assert_eq!(run.judge_windows().perfect_plus, 0.016);
+                }
+            }
+        }
+    }
 
     /// 默认配置必须与接入配置前的硬编码窗口完全一致（±80/160/220 ms），否则就是行为变更。
     #[test]

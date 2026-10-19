@@ -355,7 +355,7 @@ impl HomePage {
                         let p = (t - self.board_last_time) / BOARD_TRANSIT_TIME;
                         if p > 1. {
                             self.board_tex_last = None;
-                            ui.fill_path(&path, (**cur, r));
+                            ui.fill_path(&path, (**cur, r, ScaleType::CropCenter));
                         } else if let Some(last) = &self.board_tex_last {
                             let (cur, last) = if self.board_dir { (last, cur) } else { (cur, last) };
                             let p = 1. - (1. - p).powi(3);
@@ -363,11 +363,11 @@ impl HomePage {
                             clip_rounded_rect(ui, r, rad, |ui| {
                                 let mut nr = r;
                                 nr.h = r.h * (1. - p);
-                                ui.fill_rect(nr, (**last, nr));
+                                clip_rounded_rect(ui, nr, rad, |ui| ui.fill_rect(r, (**last, r, ScaleType::CropCenter)));
 
                                 nr.h = r.h * p;
                                 nr.y = r.bottom() - nr.h;
-                                ui.fill_rect(nr, (**cur, nr));
+                                clip_rounded_rect(ui, nr, rad, |ui| ui.fill_rect(r, (**cur, r, ScaleType::CropCenter)));
                             });
                         } else {
                             ui.fill_path(&path, (**cur, r, ScaleType::CropCenter, semi_white(p)));
@@ -410,7 +410,7 @@ impl HomePage {
         let r_respack = crate::hud::slot_or(ui, "home", "respack", crate::hud::Cap(true, true, true), Rect::new(0.4, row_y, 0.29, 0.23));
         let r_msg = crate::hud::slot_or(ui, "home", "msg", crate::hud::Cap(true, false, false), Rect::new(0.71, row_y, 0.11, 0.11));
         let r_settings = crate::hud::slot_or(ui, "home", "settings", crate::hud::Cap(true, false, false), Rect::new(0.71, row_y + 0.12, 0.11, 0.11));
-        let music_rect = music_panel::music_slot(ui, r_play.w);
+        let music_rect = music_panel::music_slot(ui);
         let mat = self.btn_other_3d.now(ui, Rect::new(0., top - 0.4, 0.83, 0.23), t);
         ui.with_gl(mat, |ui| {
             text_and_icon(s, ui, r_event, &mut self.btn_event, tl!("event"), *self.icons.medal);

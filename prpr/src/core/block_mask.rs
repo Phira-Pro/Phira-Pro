@@ -113,11 +113,11 @@ pub(super) struct Masks {
     base_rgba: Vec<u8>,
     coverage_diff: [Vec<i32>; 8],
     blend_steps: HashMap<u32, Option<u8>>,
-    prepared_rows: HashMap<[u32; 6], Box<[(u16, u16, u16)]>>,
+    prepared_rows: HashMap<[u32; 15], Box<[(u16, u16, u16)]>>,
     prepared_dim: (usize, usize, f32),
     prepared_bytes: usize,
     source_bounds: Option<(usize, usize, usize, usize)>,
-    group_index: HashMap<[u32; 6], usize>,
+    group_index: HashMap<[u32; 15], usize>,
     groups: Vec<(Zone, [i32; 8])>,
     next_single: Option<bool>,
     next_coverage: next::Coverage,
@@ -719,15 +719,22 @@ fn noise(uv: [f32; 2]) -> f32 {
     DISPLACE.get_pixel(noise_index(uv[0], DISPLACE.width()), noise_index(uv[1], DISPLACE.height()))[0] as f32 / 255.
 }
 
-fn geometry_key(zone: &Zone) -> [u32; 6] {
-    [
+fn geometry_key(zone: &Zone) -> [u32; 15] {
+    let mut key = [0; 15];
+    key[..6].copy_from_slice(&[
         zone.y_scale.to_bits(),
         zone.center.x.to_bits(),
         zone.center.y.to_bits(),
         zone.half.x.to_bits(),
         zone.half.y.to_bits(),
         zone.angle.to_bits(),
-    ]
+    ]);
+    if let Some(projection) = zone.projection {
+        for (i, v) in projection.iter().enumerate() {
+            key[6 + i] = v.to_bits();
+        }
+    }
+    key
 }
 
 fn contributions(z: &Zone) -> [Option<(usize, f32)>; 4] {
@@ -749,6 +756,67 @@ fn blend_step(opacity: f32) -> Option<u8> {
 }
 
 pub(super) fn raster_rows(width: usize, height: usize, aspect: f32, zone: &Zone, mut write: impl FnMut(usize, usize, usize)) {
+    if let Some(m) = &zone.projection {
+        let (s, c) = zone.angle.sin_cos();
+        let mut poly = vec![(-1., -1.), (1., -1.), (1., 1.), (-1., 1.)]
+            .into_iter()
+            .map(|(x, y)| {
+                let x = x * zone.half.x;
+                let y = y * zone.half.y;
+                m * nalgebra::Vector3::new(zone.center.x + c * x - s * y, zone.center.y + (s * x + c * y) * zone.y_scale, 1.)
+            })
+            .collect::<Vec<_>>();
+        for (boundary, sign) in [(0.001, 1.), (150., -1.)] {
+            let mut next = Vec::new();
+            for i in 0..poly.len() {
+                let a = poly[i];
+                let b = poly[(i + 1) % poly.len()];
+                let da = (a.z - boundary) * sign;
+                let db = (b.z - boundary) * sign;
+                if da >= 0. {
+                    next.push(a)
+                }
+                if (da >= 0.) != (db >= 0.) {
+                    next.push(a + (b - a) * (da / (da - db)));
+                }
+            }
+            poly = next;
+        }
+        if poly.len() < 3 {
+            return;
+        }
+        let points: Vec<_> = poly
+            .iter()
+            .map(|p| ((p.x / p.z + 1.) * width as f32 / 2., (p.y / p.z * aspect + 1.) * height as f32 / 2.))
+            .collect();
+        let low = points.iter().map(|p| p.1).fold(f32::INFINITY, f32::min).ceil().clamp(0., height as f32) as usize;
+        let high = points
+            .iter()
+            .map(|p| p.1)
+            .fold(f32::NEG_INFINITY, f32::max)
+            .ceil()
+            .clamp(0., height as f32) as usize;
+        for y in low..high {
+            let py = y as f32 + 0.5;
+            let mut xs = Vec::new();
+            for i in 0..points.len() {
+                let a = points[i];
+                let b = points[(i + 1) % points.len()];
+                if (a.1 <= py && b.1 > py) || (b.1 <= py && a.1 > py) {
+                    xs.push(a.0 + (b.0 - a.0) * (py - a.1) / (b.1 - a.1));
+                }
+            }
+            xs.sort_by(f32::total_cmp);
+            if let (Some(a), Some(b)) = (xs.first(), xs.last()) {
+                let a = (a - 0.5).ceil().clamp(0., width as f32) as usize;
+                let b = (b - 0.5).ceil().clamp(0., width as f32) as usize;
+                if a < b {
+                    write(y, a, b);
+                }
+            }
+        }
+        return;
+    }
     if zone.half.x <= 0. || zone.half.y <= 0. {
         return;
     }
@@ -805,6 +873,25 @@ fn dilate(source: &[u64], dest: &mut [u64], width: usize, height: usize) {
 mod tests {
     use super::*;
     use crate::core::Vector;
+
+    #[test]
+    fn skin_word_has_active_disabled_ready_bits_in_protocol_order() {
+        let center = (20 * 40 + 20) * 4;
+        let mut z = zone(0., 0., 0.5, 0.5, 0., false);
+        for (active, ready, word) in [(true, false, 1), (false, false, 4), (false, true, 20)] {
+            z.active = active;
+            z.ready = ready;
+            assert_eq!(super::super::skin_mask(40, 40, 1., &[z.clone()])[center], word);
+            z.invert = true;
+            assert_eq!(super::super::skin_mask(40, 40, 1., &[z.clone()])[center], word * 2);
+            assert_eq!(
+                super::super::skin_mask(40, 40, 1., &[z.clone(), z.clone()])[center],
+                0,
+                "two inversion masks are excluded rather than toggled"
+            );
+            z.invert = false;
+        }
+    }
 
     #[test]
     fn next_official_effect_masks_equal_native_masks_for_each_single_area_phase() {
@@ -1054,6 +1141,7 @@ mod tests {
 
     fn zone(x: f32, y: f32, half_x: f32, half_y: f32, angle: f32, invert: bool) -> Zone {
         Zone {
+            projection: None,
             line2area: false,
             y_scale: 1.,
             color: super::super::DEFAULT_BLOCK_COLOR,

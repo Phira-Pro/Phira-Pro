@@ -1,6 +1,8 @@
 #![allow(unused)]
 
 prpr_l10n::tl_file!("game");
+#[path = "game/judgement_details.rs"]
+mod judgement_details;
 #[path = "game/lifecycle.rs"]
 mod lifecycle;
 #[path = "game/practice.rs"]
@@ -476,6 +478,8 @@ mod debug_overlay_tests {
 fn combo_label(config: &crate::config::Config) -> &str {
     if config.autoplay() {
         "AUTOPLAY"
+    } else if config.show_perfect_combo {
+        "PERFECT COMBO"
     } else if !config.combo_text.is_empty() {
         config.combo_text.as_str()
     } else {
@@ -730,7 +734,15 @@ impl GameScene {
         let format = Self::infer_chart_format(info, &bytes);
         let mut chart = match format {
             ChartFormat::Rpe => {
-                parse_rpe_with_path(&String::from_utf8_lossy(&bytes), fs, extra, info.use_rpe_170_speed.unwrap_or_default(), Some(&info.chart)).await
+                crate::parse::parse_rpe_options(
+                    &String::from_utf8_lossy(&bytes),
+                    fs,
+                    extra,
+                    info.use_rpe_170_speed.unwrap_or_default(),
+                    Some(&info.chart),
+                    info.use_rpen.unwrap_or(true),
+                )
+                .await
             }
             ChartFormat::Pgr => {
                 let (chart, owned) = crate::parse::parse_phigros_loading(std::mem::take(&mut bytes), extra).await?;
@@ -850,7 +862,7 @@ impl GameScene {
             player.as_ref().and_then(|it| it.avatar.clone()),
             background,
             illustration,
-            chart.extra.effects.is_empty() && effects.is_empty(),
+            chart.extra.effects.is_empty() && effects.is_empty() && !chart.has_rpen_skins(),
         )
         .await
         .context("Failed to load resources")?;
@@ -895,7 +907,7 @@ impl GameScene {
         } else {
             Vec::new()
         };
-        let mut practice_originals = if mode == GameMode::Exercise {
+        let mut practice_originals = if mode == GameMode::Exercise || res.config.mods.intersects(Mods::NOTE_BEHAVIOR) {
             OriginalNotes::capture(&chart)
         } else {
             OriginalNotes(Vec::new())
@@ -930,6 +942,8 @@ impl GameScene {
         };
         if mode == GameMode::Exercise {
             practice_originals.apply(&mut chart, res.config.practice.behavior);
+        } else if res.config.mods.intersects(Mods::NOTE_BEHAVIOR) {
+            practice_originals.apply(&mut chart, res.config.mods.note_behavior());
         }
         let practice_schedule = if mode == GameMode::Exercise {
             Self::correct_schedule(&chart, &res, total_offset)
@@ -1122,7 +1136,13 @@ impl GameScene {
             && Judge::get_touches_in(res.camera.viewport.unwrap_or(res.last_vp)).iter().any(|touch| {
                 touch.phase == TouchPhase::Started && {
                     let p = touch.position;
-                    let p = Point::new(p.x, p.y);
+                    let mut p = Point::new(p.x, p.y);
+                    if self.chart.camera_follows_chart() {
+                        let Some(inverse) = self.chart.camera_screen_matrix(res.time, res.aspect_ratio).try_inverse() else {
+                            return false;
+                        };
+                        p = inverse.transform_point(&p);
+                    }
                     (pause_center - p).norm() < 0.05
                 }
             })
@@ -1180,6 +1200,16 @@ impl GameScene {
                             .color(Color { a: c.a * 0.7, ..c })
                             .draw_using(&PGR_FONT);
                     }
+                    if res.config.show_judgement_details {
+                        judgement_details::draw(
+                            ui,
+                            res.config.judge_grading,
+                            self.judge.counts(),
+                            score_right,
+                            score_top + h + if res.config.show_acc { 0.045 } else { 0. },
+                            c.a,
+                        );
+                    }
                 });
 
             self.chart.with_element(
@@ -1196,13 +1226,18 @@ impl GameScene {
                     );
                 },
             );
-            if self.judge.combo() >= 3 {
+            let displayed_combo = if res.config.show_perfect_combo {
+                self.judge.perfect_combo()
+            } else {
+                self.judge.combo()
+            };
+            if displayed_combo >= 3 {
                 if legacy_aui {
                     let combo_top = top + eps * 2. - (1. - p) * 0.4;
                     let btm = self
                         .chart
                         .with_element(ui, res, UIElement::ComboNumber, None, (0., combo_top + unit_h / 2.), |ui, c| {
-                            ui.text(self.judge.combo().to_string())
+                            ui.text(displayed_combo.to_string())
                                 .pos(0., combo_top)
                                 .anchor(0.5, 0.)
                                 .color(c)
@@ -1220,7 +1255,7 @@ impl GameScene {
                                 .draw_using(&PGR_FONT);
                         });
                 } else {
-                    let combo = self.judge.combo().to_string();
+                    let combo = displayed_combo.to_string();
                     let ct = ui.text(&combo).size(1.0).measure().center();
                     let combo_y = top + eps * 2. - (1. - p) * 0.4 + ct.y;
                     let btm = self.chart.with_element(ui, res, UIElement::ComboNumber, None, (0., combo_y), |ui, c| {
@@ -1527,6 +1562,42 @@ impl GameScene {
     /// Replay transport can freeze effects while paused or after a discontinuous seek.
     pub fn set_replay_frame_delta(&mut self, delta: f32) {
         self.replay_frame_delta = Some(delta.max(0.));
+    }
+
+    /// Recorded contacts use the same animated coverage and sticky blocking as
+    /// live input. Hiding the replay's finger markers must not disable this.
+    pub fn update_replay_block_touches(&mut self, touches: &[(u64, Vec2)]) {
+        self.judge.blocked_finger_ids.retain(|id| touches.iter().any(|p| p.0 == *id));
+        self.chart.blocked_touches.clear();
+        if !self.chart.has_block_areas() || touches.is_empty() {
+            return;
+        }
+        if touches.iter().any(|(id, _)| !self.judge.blocked_finger_ids.contains(id)) {
+            self.chart.prepare_rpe_input_time(self.res.time);
+            self.chart.update_block_input(&self.res, self.res.time);
+        }
+        for &(id, position) in touches {
+            let position = vec2(if self.res.config.flip_x() { -position.x } else { position.x }, position.y);
+            let Some(position) = self.chart.unproject_touch(position, self.res.time, self.res.aspect_ratio) else {
+                continue;
+            };
+            let point = Vector::new(position.x, -position.y);
+            if self.judge.blocked_finger_ids.contains(&id) || self.chart.touch_blocked(point, self.res.time, self.res.aspect_ratio) {
+                self.judge.blocked_finger_ids.insert(id);
+                self.chart.blocked_touches.push((id, point));
+            }
+        }
+    }
+
+    pub fn sync_replay_block_audio(&mut self, playing: bool) {
+        if playing {
+            self.block_audio.sync(
+                &mut self.music,
+                (!self.res.config.block_area_simple || !self.chart.next_block_areas.is_empty()) && !self.chart.blocked_touches.is_empty(),
+            );
+        } else {
+            self.block_audio.suspend(&mut self.music);
+        }
     }
 
     fn tweak_offset(&mut self, ui: &mut Ui, ita: bool) {
@@ -2159,7 +2230,11 @@ impl Scene for GameScene {
             ..Default::default()
         });
         clear_background(BLACK);
-        draw_background(*res.background);
+        if self.chart.camera_follows_chart() {
+            ui.with_gl(self.chart.camera_model(res.time, res.aspect_ratio, true), |_| draw_background(*res.background));
+        } else {
+            draw_background(*res.background);
+        }
         pop_camera_state();
 
         let chart_target_vp = if res.chart_target.is_some() {
@@ -2205,6 +2280,16 @@ impl Scene for GameScene {
             self.gl.quad_gl.retain_render_pass_on_flush(None);
         }
 
+        let mut particle_projection = self.chart.camera_screen_matrix(res.time, res.aspect_ratio);
+        if res.config.flip_x() {
+            let flip = Matrix::new_nonuniform_scaling(&Vector::new(-1., 1.));
+            particle_projection = flip * particle_projection * flip;
+        }
+        self.gl.quad_gl.push_model_matrix(if res.projected_chart {
+            crate::core::rpen_scene::clip_model(&particle_projection)
+        } else {
+            Mat4::IDENTITY
+        });
         self.bad_notes.retain(|dummy| dummy.render(res));
         let t = tm.real_time();
         let real_dt = (t - std::mem::replace(&mut self.last_update_time, t)) as f32;
@@ -2212,6 +2297,8 @@ impl Scene for GameScene {
         if res.config.particle {
             res.emitter.draw(dt);
         }
+        self.gl.flush();
+        self.gl.quad_gl.pop_model_matrix();
         crate::core::hide_cover::draw(res);
         // Keep HUD/pause controls in the same framebuffer as the chart. A
         // camera reset to res.camera would draw them directly to the screen,
@@ -2229,7 +2316,12 @@ impl Scene for GameScene {
         self.chart.render_block_overlay(&mut self.res);
         // Noise affects the chart, never HUD text or application controls.
         set_camera(&hud_camera);
-        self.draw_gameplay_ui(tm, ui)?;
+        if self.chart.camera_follows_chart() {
+            let matrix = self.chart.camera_model(self.res.time, self.res.aspect_ratio, true);
+            ui.with_gl(matrix, |ui| self.draw_gameplay_ui(tm, ui))?;
+        } else {
+            self.draw_gameplay_ui(tm, ui)?;
+        }
 
         if self.mode == GameMode::TweakOffset {
             push_camera_state();

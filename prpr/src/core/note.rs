@@ -111,10 +111,11 @@ fn draw_tex_pts(res: &Resource, texture: Texture2D, order: i8, p: [Point; 4], co
             point
         }
     });
-    if visible[0].x.min(visible[1].x.min(visible[2].x.min(visible[3].x))) > 1.
-        || visible[0].x.max(visible[1].x.max(visible[2].x.max(visible[3].x))) < -1.
-        || visible[0].y.min(visible[1].y.min(visible[2].y.min(visible[3].y))) > 1.
-        || visible[0].y.max(visible[1].y.max(visible[2].y.max(visible[3].y))) < -1.
+    if !res.projected_chart
+        && (visible[0].x.min(visible[1].x.min(visible[2].x.min(visible[3].x))) > 1.
+            || visible[0].x.max(visible[1].x.max(visible[2].x.max(visible[3].x))) < -1.
+            || visible[0].y.min(visible[1].y.min(visible[2].y.min(visible[3].y))) > 1.
+            || visible[0].y.max(visible[1].y.max(visible[2].y.max(visible[3].y))) < -1.)
     {
         return;
     }
@@ -232,7 +233,16 @@ impl Note {
         } else {
             scale.y = 1.0;
         };
-        self.object.now_rotation().append_nonuniform_scaling(&scale).append_translation(&tr)
+        let mut shear = Matrix::identity();
+        if !matches!(self.kind, NoteKind::Hold { .. }) {
+            // RPEN skew is positionX * distanceControl (degrees), not a line rotation.
+            let slope = (self.object.translation.0.now() * 675. * ctrl_obj.skew.now_opt().unwrap_or(0.))
+                .to_radians()
+                .tan()
+                * if self.above { -1. } else { 1. };
+            shear[(0, 1)] = if scale.x.abs() > 1e-9 { slope * scale.y / scale.x } else { 0. };
+        }
+        self.object.now_rotation().append_nonuniform_scaling(&scale).append_translation(&tr) * shear
     }
 
     pub fn render(&self, res: &mut Resource, config: &mut RenderConfig, bpm_list: &mut BpmList) {

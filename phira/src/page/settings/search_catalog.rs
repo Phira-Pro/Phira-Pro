@@ -38,6 +38,8 @@
     (1, "item-preferred-sample-rate"),
     (1, "item-audio-buffer-size"),
     (2, "item-show-acc"),
+    (2, "item-show-judgement-details"),
+    (2, "item-show-perfect-combo"),
     (2, "item-ap-fc-indicator"),
     (2, "item-show-avg-fps"),
     (2, "item-dc-pause"),

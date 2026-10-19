@@ -8,7 +8,7 @@ use std::{
 struct Capture {
     enabled: bool,
     frames: VecDeque<f32>,
-    events: VecDeque<String>,
+    events: VecDeque<InputEvent>,
     active: HashMap<u64, Vec2>,
     max: usize,
     cancels: u32,
@@ -17,6 +17,18 @@ struct Capture {
     display_frames: VecDeque<DisplayFrame>,
     display_events: VecDeque<DisplayEvent>,
     display_state: Option<DisplayState>,
+}
+#[derive(Clone, Copy)]
+struct InputEvent {
+    at: f64,
+    id: u64,
+    phase: TouchPhase,
+    position: Vec2,
+}
+impl InputEvent {
+    fn text(&self) -> String {
+        format!("{:.6} ID={} {:?} x={:.1} y={:.1}", self.at, self.id, self.phase, self.position.x, self.position.y)
+    }
 }
 #[derive(Clone, Default, serde::Serialize)]
 pub struct DisplayState {
@@ -105,8 +117,30 @@ pub fn set_persistent(value: bool) {
     CAPTURE.with(|c| {
         let mut c = c.borrow_mut();
         c.persistent = value;
-        c.enabled = true;
     });
+}
+/// Start/resume or stop without destroying the recorded session.
+pub fn set_running(value: bool) {
+    CAPTURE.with(|c| {
+        let mut c = c.borrow_mut();
+        c.enabled = value;
+        c.active.clear();
+    });
+}
+/// Clear data without implicitly starting a stopped sampler.
+pub fn clear() {
+    CAPTURE.with(|c| {
+        let mut c = c.borrow_mut();
+        let (enabled, persistent) = (c.enabled, c.persistent);
+        *c = Capture {
+            enabled,
+            persistent,
+            ..Capture::default()
+        };
+    });
+}
+pub fn active_touches() -> Vec<(u64, [f32; 2])> {
+    CAPTURE.with(|c| c.borrow().active.iter().map(|(id, p)| (*id, [p.x, p.y])).collect())
 }
 pub fn session(config: &crate::config::Config, info: &crate::info::ChartInfo) {
     CAPTURE.with(|c|{let mut c=c.borrow_mut();if c.enabled{c.session=Some(serde_json::json!({"chart":info.name,"algorithm":format!("{:?}",config.judge_algorithm),"configured_windows_seconds":config.judge_windows().early,"speed":config.speed,"mods":config.mods.bits(),"sample_count":config.sample_count,"noise_glow":config.noise_glow,"noise_refraction":config.noise_refraction}));}});
@@ -133,8 +167,12 @@ pub fn frame(events: &[Touch]) {
             c.frames.pop_front();
         }
         for t in events {
-            c.events
-                .push_back(format!("{:.6} ID={} {:?} x={:.1} y={:.1}", get_time(), t.id, t.phase, t.position.x, t.position.y));
+            c.events.push_back(InputEvent {
+                at: get_time(),
+                id: t.id,
+                phase: t.phase,
+                position: t.position,
+            });
             if c.events.len() > 20000 {
                 c.events.pop_front();
             }
@@ -154,18 +192,35 @@ pub fn frame(events: &[Touch]) {
     });
 }
 pub fn snapshot() -> Snapshot {
+    capture(7200, 20000, 7200, true)
+}
+/// Small live preview; full logs and JSON session data are copied only on export.
+pub fn preview() -> Snapshot {
+    capture(240, 12, 120, false)
+}
+fn capture(frames: usize, events: usize, display: usize, full: bool) -> Snapshot {
     CAPTURE.with(|c| {
         let c = c.borrow();
         Snapshot {
-            frames_ms: c.frames.iter().copied().collect(),
-            events: c.events.iter().cloned().collect(),
+            frames_ms: c.frames.iter().skip(c.frames.len().saturating_sub(frames)).copied().collect(),
+            events: c
+                .events
+                .iter()
+                .skip(c.events.len().saturating_sub(events))
+                .map(InputEvent::text)
+                .collect(),
             active: c.active.iter().map(|(id, p)| (*id, [p.x, p.y])).collect(),
             max_fingers: c.max,
             cancels: c.cancels,
-            last_session: c.session.clone(),
+            last_session: if full { c.session.clone() } else { None },
             display_state: c.display_state.clone(),
-            display_frames: c.display_frames.iter().cloned().collect(),
-            display_events: c.display_events.iter().cloned().collect(),
+            display_frames: c
+                .display_frames
+                .iter()
+                .skip(c.display_frames.len().saturating_sub(display))
+                .cloned()
+                .collect(),
+            display_events: if full { c.display_events.iter().cloned().collect() } else { Vec::new() },
         }
     })
 }
@@ -173,6 +228,42 @@ pub fn snapshot() -> Snapshot {
 #[cfg(test)]
 mod display_capture_tests {
     use super::*;
+    #[test]
+    fn stopping_is_explicit_and_preview_does_not_copy_the_full_log() {
+        enable(false);
+        clear();
+        set_persistent(true);
+        assert!(!running(), "cross-page preference must not start capture");
+        clear();
+        assert!(!running(), "clear must not start capture");
+        set_running(true);
+        CAPTURE.with(|c| {
+            let mut c = c.borrow_mut();
+            for i in 0..2000 {
+                c.frames.push_back(i as f32);
+                c.events.push_back(InputEvent {
+                    at: i as f64,
+                    id: 7,
+                    phase: TouchPhase::Moved,
+                    position: vec2(i as f32, 20.),
+                });
+            }
+        });
+        set_running(false);
+        let p = preview();
+        assert_eq!(p.frames_ms.len(), 240);
+        assert_eq!(p.events.len(), 12);
+        assert_eq!(snapshot().events.len(), 2000);
+        display_frame(DisplayFrame::default());
+        assert!(snapshot().display_frames.is_empty());
+        set_running(true);
+        assert_eq!(snapshot().events.len(), 2000, "resume preserves existing data");
+        clear();
+        assert!(running());
+        assert!(snapshot().events.is_empty());
+        set_persistent(false);
+        set_running(false);
+    }
     #[test]
     fn display_capture_is_opt_in_bounded_and_clearable() {
         enable(false);

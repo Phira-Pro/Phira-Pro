@@ -10,6 +10,7 @@ use objc2_ui_kit::{
     UIAccessibilityGuidedAccessStatusDidChangeNotification, UIAccessibilityIsGuidedAccessEnabled, UIApplication,
     UIApplicationDidBecomeActiveNotification, UIApplicationDidEnterBackgroundNotification, UIApplicationState,
     UIApplicationWillEnterForegroundNotification, UIApplicationWillResignActiveNotification, UIScreen, UIView, UIViewController,
+    UIWindowDidBecomeKeyNotification,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -125,6 +126,14 @@ fn make_link(target: &FrameTarget, hz: u16, paused: bool) -> Retained<CADisplayL
     // SAFETY: Driver and the link retain target; selector is defined below.
     let link = unsafe { CADisplayLink::displayLinkWithTarget_selector(target, sel!(renderFrame:)) };
     link.setPaused(paused);
+    configure_link(&link, hz);
+    // SAFETY: Driver and all selector callbacks stay on the main thread.
+    unsafe {
+        link.addToRunLoop_forMode(&NSRunLoop::mainRunLoop(), NSRunLoopCommonModes);
+    }
+    link
+}
+fn configure_link(link: &CADisplayLink, hz: u16) {
     if link.respondsToSelector(sel!(setPreferredFrameRateRange:)) {
         link.setPreferredFrameRateRange(CAFrameRateRange {
             minimum: hz as f32,
@@ -135,11 +144,6 @@ fn make_link(target: &FrameTarget, hz: u16, paused: bool) -> Retained<CADisplayL
         #[allow(deprecated)]
         link.setPreferredFramesPerSecond(hz as isize);
     }
-    // SAFETY: Driver and all selector callbacks stay on the main thread.
-    unsafe {
-        link.addToRunLoop_forMode(&NSRunLoop::mainRunLoop(), NSRunLoopCommonModes);
-    }
-    link
 }
 thread_local! { static DRIVER: RefCell<Option<Driver>> = const { RefCell::new(None) }; }
 
@@ -210,6 +214,14 @@ define_class!(
                     set_paused(true);
                 } else if &*name == UIApplicationDidBecomeActiveNotification {
                     set_paused(false);
+                } else if &*name == UIWindowDidBecomeKeyNotification {
+                    // Ignore keyboard/other windows becoming key. iPad slide-over
+                    // can restore our key window without an application transition.
+                    if let (Some(object), Some(window)) = (notification.object(), self.ivars().view.window()) {
+                        if Retained::as_ptr(&object).cast::<()>() == Retained::as_ptr(&window).cast::<()>() {
+                            set_paused(false);
+                        }
+                    }
                 }
             }
             DRIVER.with(|driver| {
@@ -267,6 +279,7 @@ pub fn install() {
                 UIApplicationWillEnterForegroundNotification,
                 UIApplicationDidBecomeActiveNotification,
                 UIAccessibilityGuidedAccessStatusDidChangeNotification,
+                UIWindowDidBecomeKeyNotification,
             ] {
                 center.addObserver_selector_name_object(&target, sel!(lifecycleChanged:), Some(name), None);
             }
@@ -303,7 +316,12 @@ pub fn set_paused(paused: bool) {
                 d.rebuild("resume: new display link", true);
             } else {
                 own_controller(&d.controller, None);
-                d.sample_state(Some("active callback (already resumed)"));
+                let hz = REQUESTED.load(Ordering::Relaxed).min(maximum(d.target.mtm())).max(1);
+                configure_link(&d.link, hz);
+                // Re-arm after overlays/control center as well as full background
+                // transitions; a previous exhausted recovery budget is not sticky.
+                d.recovery.reset(d.now(), true);
+                d.sample_state(Some("focus restored: refresh request renewed"));
             }
         }
     });

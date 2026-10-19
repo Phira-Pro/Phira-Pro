@@ -18,7 +18,8 @@ impl Recovery {
         };
     }
 
-    /// A stable low callback rate with spare rendering time may be a stale link.
+    /// A stable low callback rate may be a stale link. Presentation can block
+    /// inside GLKView.display, so allow one probe even when measured work is high.
     /// Allow two rebuilds per activation/request, with a two-second warmup each.
     pub fn observe(&mut self, now: f64, interval: f64, work: f64, requested: u16, power_limited: bool) -> bool {
         if !interval.is_finite() || !(0.001..=0.1).contains(&interval) || !work.is_finite() || work < 0. {
@@ -36,7 +37,7 @@ impl Recovery {
         }
         let hz = self.frames as f64 / self.elapsed;
         let spare = self.work / (self.frames as f64) < 0.8 / requested.max(1) as f64;
-        let rebuild = self.attempts < 2 && !power_limited && spare && hz < requested as f64 * 0.8;
+        let rebuild = self.attempts < 2 && !power_limited && (spare || self.attempts == 0) && hz < requested as f64 * 0.9;
         self.elapsed = 0.;
         self.work = 0.;
         self.frames = 0;
@@ -65,10 +66,15 @@ mod tests {
         assert_eq!(feed(&mut r, 20., 60., 0.002, false), 2);
     }
     #[test]
-    fn healthy_busy_or_system_limited_links_are_not_rebuilt() {
-        for (hz, work, limited) in [(120., 0.002, false), (60., 0.015, false), (60., 0.002, true)] {
+    fn healthy_or_system_limited_links_are_not_rebuilt() {
+        for (hz, work, limited) in [(120., 0.002, false), (60., 0.002, true)] {
             assert_eq!(feed(&mut Recovery::default(), 0., hz, work, limited), 0);
         }
+    }
+    #[test]
+    fn presentation_wait_at_eighty_gets_one_probe_not_an_endless_reset() {
+        assert_eq!(feed(&mut Recovery::default(), 0., 80., 0.012, false), 1);
+        assert_eq!(feed(&mut Recovery::default(), 0., 80., 0.002, false), 2);
     }
     #[test]
     fn pause_gaps_and_invalid_samples_do_not_trigger_recovery() {

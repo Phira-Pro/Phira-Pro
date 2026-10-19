@@ -17,6 +17,8 @@ pub struct ToolsPage {
     scroll: Scroll,
     last_sample: f32,
     persistent: bool,
+    frame_mean: f32,
+    frame_p95: f32,
 }
 impl ToolsPage {
     pub fn new(diagnostic: bool) -> Self {
@@ -27,6 +29,8 @@ impl ToolsPage {
             scroll: Scroll::new(),
             last_sample: f32::NEG_INFINITY,
             persistent: prpr::diagnostics::persistent(),
+            frame_mean: 0.,
+            frame_p95: 0.,
         }
     }
 }
@@ -35,14 +39,12 @@ impl Page for ToolsPage {
         if self.diagnostic { "问题诊断" } else { "画质设置" }.into()
     }
     fn enter(&mut self, _: &mut SharedState) -> Result<()> {
-        if self.diagnostic && !prpr::diagnostics::running() {
-            prpr::diagnostics::enable(true);
-        }
+        self.last_sample = f32::NEG_INFINITY;
         Ok(())
     }
     fn exit(&mut self) -> Result<()> {
         if self.diagnostic && !prpr::diagnostics::persistent() {
-            prpr::diagnostics::enable(false);
+            prpr::diagnostics::set_running(false);
         }
         Ok(())
     }
@@ -50,7 +52,11 @@ impl Page for ToolsPage {
         self.scroll.update(s.t);
         if self.diagnostic {
             if s.t - self.last_sample >= 0.2 {
-                self.sample = prpr::diagnostics::snapshot();
+                self.sample = prpr::diagnostics::preview();
+                let mut frames = self.sample.frames_ms.clone();
+                frames.sort_by(f32::total_cmp);
+                self.frame_mean = frames.iter().sum::<f32>() / frames.len().max(1) as f32;
+                self.frame_p95 = frames.get(frames.len().saturating_sub(1) * 95 / 100).copied().unwrap_or(0.);
                 self.last_sample = s.t;
             }
             crate::replay::poll_export();
@@ -70,14 +76,15 @@ impl Page for ToolsPage {
             }
             if self.diagnostic {
                 if i == 0 {
-                    prpr::diagnostics::enable(true);
+                    prpr::diagnostics::clear();
                 } else if i == 2 {
                     self.persistent = !self.persistent;
                     prpr::diagnostics::set_persistent(self.persistent);
                 } else if i == 1 {
+                    let sample = prpr::diagnostics::snapshot();
                     let c = &get_data().config;
                     #[allow(unused_mut)] // Android adds the cached platform display state below.
-                    let mut data = serde_json::json!({"version":crate::PRO_VERSION,"build":env!("PHIRA_BUILD_NUMBER"),"platform":std::env::consts::OS,"viewport":[screen_width(),screen_height()],"requested_refresh_hz":c.preferred_refresh_rate,"maximum_refresh_hz":f32::from_bits(prpr::ui::MAX_DEVICE_REFRESH_RATE.load(std::sync::atomic::Ordering::Relaxed)),"fps_limit":c.desktop_fps_limit,"aspect_ratio":c.aspect_ratio,"sample_count":c.sample_count,"fxaa":c.fxaa,"shader_pre_render":c.shader_pre_render,"noise_glow":c.noise_glow,"noise_refraction":c.noise_refraction,"judge_algorithm":format!("{:?}",c.judge_algorithm),"configured_windows_seconds":c.judge_windows().early,"input":self.sample});
+                    let mut data = serde_json::json!({"version":crate::PRO_VERSION,"build":env!("PHIRA_BUILD_NUMBER"),"platform":std::env::consts::OS,"viewport":[screen_width(),screen_height()],"sampling":prpr::diagnostics::running(),"requested_refresh_hz":c.preferred_refresh_rate,"maximum_refresh_hz":f32::from_bits(prpr::ui::MAX_DEVICE_REFRESH_RATE.load(std::sync::atomic::Ordering::Relaxed)),"fps_limit":c.desktop_fps_limit,"aspect_ratio":c.aspect_ratio,"sample_count":c.sample_count,"fxaa":c.fxaa,"shader_pre_render":c.shader_pre_render,"noise_glow":c.noise_glow,"noise_refraction":c.noise_refraction,"judge_algorithm":format!("{:?}",c.judge_algorithm),"configured_windows_seconds":c.judge_windows().early,"input":sample});
                     #[cfg(target_os = "android")]
                     {
                         data["android_display"] =
@@ -87,7 +94,10 @@ impl Page for ToolsPage {
                         format!("PhiraPro-diagnostics-{}.json", chrono::Local::now().format("%Y%m%d-%H%M%S")),
                         serde_json::to_vec_pretty(&data)?,
                     );
+                } else if i == 3 {
+                    prpr::diagnostics::set_running(!prpr::diagnostics::running());
                 }
+                self.last_sample = f32::NEG_INFINITY;
             } else {
                 let c = &mut get_data_mut().config;
                 match i {
@@ -142,11 +152,19 @@ impl Page for ToolsPage {
                 b.invalidate();
             }
             if self.diagnostic {
-                self.buttons[0].render_text(ui, Rect::new(r.x, r.y, 0.25, 0.08), t, "清空采样", 0.4, false);
-                self.buttons[1].render_text(ui, Rect::new(r.right() - 0.30, r.y, 0.30, 0.08), t, "导出诊断", 0.4, false);
+                self.buttons[0].render_text(ui, Rect::new(r.x + 0.32, r.y, 0.25, 0.08), t, "清空采样", 0.36, false);
+                self.buttons[1].render_text(ui, Rect::new(r.right() - 0.28, r.y, 0.28, 0.08), t, "导出诊断", 0.36, false);
+                self.buttons[3].render_text(
+                    ui,
+                    Rect::new(r.x, r.y, 0.29, 0.08),
+                    t,
+                    if prpr::diagnostics::running() { "停止采样" } else { "开始采样" },
+                    0.36,
+                    prpr::diagnostics::running(),
+                );
                 self.buttons[2].render_text(
                     ui,
-                    Rect::new(r.center().x - 0.23, r.y, 0.46, 0.08),
+                    Rect::new(r.x + 0.60, r.y, 0.45, 0.08),
                     t,
                     if self.persistent {
                         "跨页面采样：开"
@@ -156,15 +174,19 @@ impl Page for ToolsPage {
                     0.34,
                     self.persistent,
                 );
-                let mut frames = self.sample.frames_ms.clone();
-                frames.sort_by(f32::total_cmp);
-                let avg = frames.iter().sum::<f32>() / frames.len().max(1) as f32;
-                let p95 = frames.get(frames.len().saturating_sub(1) * 95 / 100).copied().unwrap_or(0.);
-                ui.text(format!("{} · {}×{} · 主循环间隔 {:.2}ms / P95 {:.2}ms", std::env::consts::OS, screen_width(), screen_height(), avg, p95))
-                    .pos(r.x, r.y + 0.11)
-                    .size(0.42)
-                    .max_width(r.w)
-                    .draw();
+                ui.text(format!(
+                    "{} · {}×{} · 主循环间隔 {:.2}ms / P95 {:.2}ms · {}",
+                    std::env::consts::OS,
+                    screen_width(),
+                    screen_height(),
+                    self.frame_mean,
+                    self.frame_p95,
+                    if prpr::diagnostics::running() { "采样中" } else { "已停止" }
+                ))
+                .pos(r.x, r.y + 0.11)
+                .size(0.42)
+                .max_width(r.w)
+                .draw();
                 ui.text(format!("当前 {} 指 · 最多 {} 指 · 系统取消 {} 次", self.sample.active.len(), self.sample.max_fingers, self.sample.cancels))
                     .pos(r.x, r.y + 0.17)
                     .size(0.43)
@@ -238,7 +260,7 @@ impl Page for ToolsPage {
                         .color(semi_white(0.65))
                         .draw();
                 }
-                for (id, p) in &self.sample.active {
+                for (id, p) in prpr::diagnostics::active_touches() {
                     let x = p[0] / screen_width() * 2. - 1.;
                     let y = (p[1] / screen_height() * 2. - 1.) * ui.top;
                     ui.fill_circle(x, y, 0.035, Color::new(0.3, 0.8, 1., 0.5));

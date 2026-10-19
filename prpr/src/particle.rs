@@ -796,6 +796,11 @@ impl Emitter {
         }
     }
 
+    /// Advance a reconstructed replay effect without drawing an intermediate frame.
+    pub fn advance(&mut self, dt: f32) {
+        self.update(unsafe { get_internal_gl() }.quad_context, dt.max(0.));
+    }
+
     pub fn draw(&mut self, pos: Vec2, dt: f32) {
         let mut gl = unsafe { get_internal_gl() };
 

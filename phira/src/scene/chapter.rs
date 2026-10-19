@@ -258,6 +258,7 @@ impl Scene for ChapterScene {
                     force_aspect_ratio: false,
                     use_rpe_170_speed: Some(false),
                     use_attach_ui_fix: Some(true),
+                    use_rpen: None,
 
                     created: None,
                     updated: None,

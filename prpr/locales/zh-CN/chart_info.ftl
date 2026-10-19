@@ -31,3 +31,5 @@ rpe-170-speed = 新速度缓动
 attach-ui-fix = UI 绑定修复
 
 illegal-input = 非法输入
+
+rpen-features = RPEN特性

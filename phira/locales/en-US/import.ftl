@@ -30,3 +30,5 @@ deeplink-dl-failed = Download failed
 deeplink-too-large = The file exceeds the maximum size allowed for link import (100 MiB)
 deeplink-opening = Opening chart...
 deeplink-open-failed = Failed to open the chart
+
+warning-rpen-features = This chart uses new RPEN features. Support is in early testing and may display incorrectly. You can disable "RPEN Features" in chart information.

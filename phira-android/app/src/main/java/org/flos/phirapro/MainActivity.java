@@ -41,9 +41,10 @@ public class MainActivity extends AppCompatActivity {
     private DisplayManager displayManager;
     private float requestedFrameRate = 120f;
     private float reportedMaxRefreshRate;
+    private boolean activityResumed;
     private final Handler refreshHandler = new Handler(android.os.Looper.getMainLooper());
     private final Runnable refreshRetry = () -> {
-        if (view != null && view.hasWindowFocus()) applyRequestedFrameRate(true, "window settled");
+        if (view != null && activityResumed) applyRequestedFrameRate(true, "window settled");
     };
     private volatile String displayDiagnostics = "{}";
     private String lastDisplaySummary = "";
@@ -92,6 +93,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        activityResumed = true;
         enforceLandscape();
         requestRefreshRateUpdate("resume");
         Log.i(TAG, "Activity onResume");
@@ -107,6 +109,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onPause() {
+        activityResumed = false;
         refreshHandler.removeCallbacks(refreshRetry);
         Log.i(TAG, "Activity onPause");
         if (view != null) view.cancelTouches("activity-paused");
@@ -154,8 +157,12 @@ public class MainActivity extends AppCompatActivity {
 
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
-        if (focused) requestRefreshRateUpdate("focus restored");
-        else refreshHandler.removeCallbacks(refreshRetry);
+        if (activityResumed) requestRefreshRateUpdate(focused ? "focus restored" : "visible under overlay");
+    }
+
+    @Override public void onTopResumedActivityChanged(boolean topResumed) {
+        super.onTopResumedActivityChanged(topResumed);
+        if (activityResumed) requestRefreshRateUpdate(topResumed ? "top resumed" : "multi-resume under overlay");
     }
 
     @Override public void onConfigurationChanged(Configuration configuration) {
@@ -236,7 +243,8 @@ public class MainActivity extends AppCompatActivity {
         }
         // Keep the user's vote intact on Android 11+: a temporary 60 Hz mode
         // report must not silently replace a persisted 144 Hz request.
-        if (view != null) view.setTargetFrameRate(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ? requestedFrameRate : selectedRate, force);
+        if (view != null) view.setTargetFrameRate(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ? requestedFrameRate : selectedRate,
+                force, force && view.hasWindowFocus());
         recordDisplayState(display, windowRate, windowMode, maxRefreshRate, reason);
     }
 

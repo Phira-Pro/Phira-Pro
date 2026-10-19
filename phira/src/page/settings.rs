@@ -1416,6 +1416,8 @@ impl AudioList {
 
 struct ChartList {
     show_acc_btn: DRectButton,
+    show_judgement_details_btn: DRectButton,
+    show_perfect_combo_btn: DRectButton,
     ap_fc_indicator_btn: DRectButton,
     show_avg_fps_btn: DRectButton,
     dc_pause_btn: DRectButton,
@@ -1454,6 +1456,8 @@ impl ChartList {
     pub fn new() -> Self {
         Self {
             show_acc_btn: DRectButton::new(),
+            show_judgement_details_btn: DRectButton::new(),
+            show_perfect_combo_btn: DRectButton::new(),
             ap_fc_indicator_btn: DRectButton::new(),
             show_avg_fps_btn: DRectButton::new(),
             dc_pause_btn: DRectButton::new(),
@@ -1493,6 +1497,14 @@ impl ChartList {
         let config = &mut data.config;
         if self.show_acc_btn.touch(touch, t) {
             config.show_acc ^= true;
+            return Ok(Some(true));
+        }
+        if self.show_judgement_details_btn.touch(touch, t) {
+            config.show_judgement_details ^= true;
+            return Ok(Some(true));
+        }
+        if self.show_perfect_combo_btn.touch(touch, t) {
+            config.show_perfect_combo ^= true;
             return Ok(Some(true));
         }
         if self.ap_fc_indicator_btn.touch(touch, t) {
@@ -1647,6 +1659,14 @@ impl ChartList {
         item! {
             render_title(ui, tl!("item-show-acc"), None);
             render_switch(ui, rr, t, &mut self.show_acc_btn, config.show_acc);
+        }
+        item! {
+            render_title(ui, tl!("item-show-judgement-details"), Some(tl!("item-show-judgement-details-sub")));
+            render_switch(ui, rr, t, &mut self.show_judgement_details_btn, config.show_judgement_details);
+        }
+        item! {
+            render_title(ui, tl!("item-show-perfect-combo"), Some(tl!("item-show-perfect-combo-sub")));
+            render_switch(ui, rr, t, &mut self.show_perfect_combo_btn, config.show_perfect_combo);
         }
         item! {
             render_title(ui, tl!("item-ap-fc-indicator"), Some(tl!("item-ap-fc-indicator-sub")));

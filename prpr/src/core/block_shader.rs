@@ -50,6 +50,7 @@ pub const DEFAULT_BLOCK_COLOR: [f32; 3] = [1., 84. / 255., 84. / 255.];
 /// A resolved rectangle (axis-aligned in its own space).
 #[derive(Clone, PartialEq)]
 pub struct Zone {
+    pub projection: Option<super::Matrix>,
     pub line2area: bool,
     /// Post-rotation vertical stretch for Line2Area; native rectangles use one.
     pub y_scale: f32,
@@ -80,6 +81,7 @@ impl Zone {
         let active = phase == BlockPhase::Active;
         let fades_in = !area.is_active(area.appear_time);
         Some(Self {
+            projection: None,
             line2area: area.rpe_canvas,
             y_scale: tr.y_scale,
             color: DEFAULT_BLOCK_COLOR,
@@ -101,7 +103,8 @@ impl Zone {
 impl Zone {
     /// Compare coverage state independently of animated RGB.
     pub fn same_mask(&self, other: &Self) -> bool {
-        self.center == other.center
+        self.projection == other.projection
+            && self.center == other.center
             && self.line2area == other.line2area
             && self.y_scale == other.y_scale
             && self.half == other.half
@@ -204,15 +207,16 @@ struct FrameTextures {
 
 thread_local! {
     static FRAME: RefCell<FrameTextures> = RefCell::new(FrameTextures::default());
-    static NEXT_FRAME: RefCell<FrameTextures> = RefCell::new(FrameTextures::default());
 }
 
 /// Independent texture/cache state, sharing the original native materials.
 #[derive(Default)]
-pub(crate) struct BlockRenderer;
+pub struct BlockRenderer {
+    frame: RefCell<FrameTextures>,
+}
 impl BlockRenderer {
     pub fn reset(&mut self) {
-        NEXT_FRAME.with(|frame| frame.borrow_mut().touch.reset());
+        self.frame.borrow_mut().touch.reset();
     }
     pub fn draw_next(&self, res: &mut Resource, aspect: f32, zones: &[Zone], single: bool, disabled: bool, touches: &[(u64, Vector)], flip_x: bool) {
         let projection = unsafe { get_internal_gl() }.quad_gl.get_projection_matrix();
@@ -224,8 +228,45 @@ impl BlockRenderer {
             })
             .collect();
         touches.sort_by_key(|(id, _)| *id);
-        NEXT_FRAME.with(|frame| draw_layer_frame(res, aspect, zones, res.time as f32, disabled, &touches, frame, Some(single)));
+        draw_layer_frame(res, aspect, zones, res.time as f32, disabled, &touches, &self.frame, Some(single));
     }
+}
+
+/// RPEN skin protocol: six independent coverage bits, including Ready in Disabled.
+pub(crate) fn skin_mask(width: usize, height: usize, aspect: f32, zones: &[Zone]) -> Vec<u8> {
+    let stride = width + 1;
+    let mut result = vec![0; width * height * 4];
+    for state in 0..3 {
+        let mut normal = vec![0_i32; stride * height];
+        let mut inverse = vec![0_i32; stride * height];
+        for z in zones.iter().filter(|z| match state {
+            0 => z.active,
+            1 => !z.active,
+            _ => z.ready && !z.active,
+        }) {
+            let counts = if z.invert { &mut inverse } else { &mut normal };
+            mask::raster_rows(width, height, aspect, z, |y, a, b| {
+                counts[y * stride + a] += 1;
+                counts[y * stride + b] -= 1;
+            });
+        }
+        for y in 0..height {
+            let (mut n, mut s) = (0, 0);
+            for x in 0..width {
+                n += normal[y * stride + x];
+                s += inverse[y * stride + x];
+                let i = (y * width + x) * 4;
+                if n > 0 {
+                    result[i] |= 1 << (2 * state)
+                }
+                if s == 1 {
+                    result[i] |= 2 << (2 * state)
+                }
+                result[i + 3] = 255;
+            }
+        }
+    }
+    result
 }
 
 fn support_scissor(uv: [f32; 4], aspect: f32, viewport: (i32, i32, i32, i32), target_height: f32) -> Option<(i32, i32, i32, i32)> {

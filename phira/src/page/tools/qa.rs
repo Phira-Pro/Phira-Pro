@@ -35,7 +35,10 @@ pub(crate) fn run(painter: &mut prpr::ui::TextPainter, state: &mut SharedState) 
     drop(ui);
     crate::get_data_mut().config = saved;
     let mut page = ToolsPage::new(true);
+    prpr::diagnostics::set_running(false);
     page.enter(state).unwrap();
+    assert!(!prpr::diagnostics::running());
+    prpr::diagnostics::set_running(true);
     let events = [10, 11, 12].map(|id| Touch {
         id,
         phase: TouchPhase::Started,

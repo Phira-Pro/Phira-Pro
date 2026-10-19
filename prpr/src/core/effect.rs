@@ -32,6 +32,12 @@ impl UniformValue for f32 {
 impl UniformValue for Vec2 {
     const UNIFORM_TYPE: UniformType = UniformType::Float2;
 }
+impl UniformValue for Vec3 {
+    const UNIFORM_TYPE: UniformType = UniformType::Float3;
+}
+impl UniformValue for i32 {
+    const UNIFORM_TYPE: UniformType = UniformType::Int1;
+}
 
 impl UniformValue for Color {
     const UNIFORM_TYPE: UniformType = UniformType::Float4;
@@ -93,6 +99,18 @@ impl Effect {
                 let value = caps.get(3).unwrap().as_str();
                 Ok(match type_name {
                     "float" => Box::new((name, value.parse::<f32>()?)),
+                    "int" => Box::new((name, value.parse::<i32>()?)),
+                    "bool" => Box::new((name, i32::from(value.trim() == "true" || value.trim() == "1"))),
+                    "vec3" => {
+                        let v = value
+                            .split(',')
+                            .map(|v| v.trim().parse::<f32>())
+                            .collect::<std::result::Result<Vec<_>, _>>()?;
+                        if v.len() != 3 {
+                            bail!("Expected x,y,z");
+                        }
+                        Box::new((name, vec3(v[0], v[1], v[2])))
+                    }
                     "vec2" => Box::new((name, {
                         let (x, y) = value.split_once(',').ok_or_else(|| anyhow!("Expected x,y"))?;
                         vec2(x.trim().parse()?, y.trim().parse()?)

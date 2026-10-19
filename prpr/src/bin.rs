@@ -304,6 +304,7 @@ impl BinaryData for CtrlObject {
             size: r.read()?,
             pos: r.read()?,
             y: r.read()?,
+            skew: Default::default(),
         })
     }
 

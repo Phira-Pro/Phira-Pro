@@ -388,6 +388,7 @@ pub(crate) struct JudgeInner {
     diffs: Vec<f64>,
 
     combo: u32,
+    perfect_combo: u32,
     max_combo: u32,
     counts: [u32; 8],
     num_of_notes: u32,
@@ -414,6 +415,7 @@ impl JudgeInner {
             diffs: Vec::new(),
 
             combo: 0,
+            perfect_combo: 0,
             max_combo: 0,
             counts: [0; 8],
             num_of_notes,
@@ -509,6 +511,11 @@ impl JudgeInner {
             self.late_kind[what as usize] += 1;
         }
         self.counts[what as usize] += 1;
+        self.perfect_combo = if matches!(what, Perfect | PerfectPlus) {
+            self.perfect_combo + 1
+        } else {
+            0
+        };
         // 血条：Perfect+ / Perfect 回血，Good 微增，Bad 小扣，Miss 大扣。
         let base = match what {
             PerfectPlus => 0.02,
@@ -537,6 +544,7 @@ impl JudgeInner {
 
     pub fn reset(&mut self) {
         self.combo = 0;
+        self.perfect_combo = 0;
         self.max_combo = 0;
         self.counts = [0; 8];
         self.diffs.clear();
@@ -620,6 +628,9 @@ impl JudgeInner {
     pub fn combo(&self) -> u32 {
         self.combo
     }
+    pub fn perfect_combo(&self) -> u32 {
+        self.perfect_combo
+    }
 
     pub fn counts(&self) -> [u32; 8] {
         self.counts
@@ -638,6 +649,30 @@ pub fn timing_mean_square(offsets: &[f64], misses: u32, notes: u32) -> f64 {
 mod tests {
     use super::{judgement_of_offset, JudgeInner, JudgeStatus, Judgement, MAX_RECENT_HITS};
     use crate::config::JudgeWindows;
+
+    #[test]
+    fn perfect_combo_is_a_display_streak_without_changing_score_or_max_combo() {
+        use Judgement::*;
+        for breaker in [Great, Good, Ok, Meh, Bad, Miss] {
+            let mut j = JudgeInner::new(6);
+            j.commit(PerfectPlus, 0.);
+            j.commit(Perfect, 0.);
+            assert_eq!(j.perfect_combo(), 2);
+            j.commit(breaker, 0.);
+            assert_eq!(j.perfect_combo(), 0);
+            j.commit(Perfect, 0.);
+            assert_eq!(j.perfect_combo(), 1);
+            if matches!(breaker, Great | Good | Ok | Meh) {
+                assert_eq!(j.combo(), 4);
+                assert_eq!(j.result(false).max_combo, 4);
+            }
+            let copy = j.clone();
+            assert_eq!(copy.perfect_combo(), 1);
+            assert_eq!(copy.score(false), j.score(false));
+            j.reset();
+            assert_eq!(j.perfect_combo(), 0);
+        }
+    }
 
     #[test]
     fn hold_score_and_replay_preserve_success_until_tail() {
@@ -1576,6 +1611,16 @@ impl Judge {
             }
         }
         // Phigros 9th-chapter block areas: a touch that lands inside an active
+        if chart.rpen.as_ref().is_some_and(|r| r.camera.is_some()) {
+            touches.retain_mut(|touch| {
+                let Some(p) = chart.unproject_touch(touch.position, t, res.aspect_ratio) else {
+                    return false;
+                };
+                touch.position = p;
+                true
+            });
+        }
+        // Phigros 9th-chapter block areas: a touch that lands inside an active
         // zone (`enableTime <= t < disableTime`) is removed from the touch list,
         // so the notes underneath it are never hit and end up as misses.
         let rpe_input_prepared = chart.prepare_rpe_input_time(t);
@@ -2283,6 +2328,9 @@ impl Judge {
     #[inline]
     pub fn combo(&self) -> u32 {
         self.inner.combo()
+    }
+    pub fn perfect_combo(&self) -> u32 {
+        self.inner.perfect_combo()
     }
 
     #[inline]

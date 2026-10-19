@@ -57,6 +57,9 @@ pub struct Chart {
     /// rpe-next canvas/beat blocks; not native percentage/second blocks.
     pub next_block_areas: Vec<super::rpe_next_block::Area>,
     pub next_single_inversion: bool,
+    pub rpen: Option<super::rpen_scene::Scene>,
+    pub next_layer_renderers: Vec<super::block_shader::BlockRenderer>,
+    pub next_layer_skins: Vec<Option<super::rpen_skin::Skin>>,
     next_block_frame: RefCell<(Option<(f64, f32, usize)>, Vec<super::rpe_next_block::Sample>)>,
     next_block_renderer: super::block_shader::BlockRenderer,
     /// Chart-space positions of touches blocked by the zones this frame.
@@ -114,6 +117,9 @@ impl Chart {
             block_areas: Vec::new(),
             next_block_areas: Vec::new(),
             next_single_inversion: false,
+            rpen: None,
+            next_layer_renderers: Vec::new(),
+            next_layer_skins: Vec::new(),
             next_block_frame: RefCell::default(),
             next_block_renderer: Default::default(),
             blocked_touches: Vec::new(),
@@ -164,6 +170,12 @@ impl Chart {
     pub fn reset(&mut self) {
         self.next_block_frame.get_mut().0 = None;
         self.next_block_renderer.reset();
+        for renderer in &mut self.next_layer_renderers {
+            renderer.reset();
+        }
+        for skin in self.next_layer_skins.iter().flatten() {
+            skin.reset();
+        }
         self.blocked_touches.clear();
         let cache = self.block_frame.get_mut();
         cache.key = None;
@@ -186,6 +198,7 @@ impl Chart {
     }
 
     pub fn update(&mut self, res: &mut Resource) {
+        res.projected_chart = self.rpen.as_ref().is_some_and(|r| r.camera.is_some());
         for line in &mut self.lines {
             line.object.set_time(res.time);
         }
@@ -213,7 +226,7 @@ impl Chart {
         }
     }
 
-    pub(crate) fn has_block_areas(&self) -> bool {
+    pub fn has_block_areas(&self) -> bool {
         !self.block_areas.is_empty() || !self.rpe_block_markers.is_empty() || !self.next_block_areas.is_empty()
     }
 
@@ -288,16 +301,23 @@ impl Chart {
             // use the existing postprocess after notes/HUD, not editor flat fill.
             let next = self.next_block_samples(res.time, res.aspect_ratio);
             if !next.is_empty() {
-                let zones: Vec<_> = next.iter().map(|s| s.zone.clone()).collect();
-                self.next_block_renderer
-                    .draw_next(res, res.aspect_ratio, &zones, self.next_single_inversion, true, &[], false);
+                self.draw_next_layers(res, &next, true);
             }
+            let projection = self.camera_matrix(res.time, res.aspect_ratio);
+            let gl = unsafe { get_internal_gl() }.quad_gl;
+            gl.push_model_matrix(if res.projected_chart {
+                super::rpen_scene::clip_model(&projection)
+            } else {
+                crate::ext::nalgebra_to_glm(&projection)
+            });
             let mut guard = self.bpm_list.borrow_mut();
             for id in &self.order {
                 self.lines[*id].render(ui, res, &self.lines, &mut guard, &self.settings, *id);
             }
             drop(guard);
             res.note_buffer.borrow_mut().draw_all();
+            unsafe { get_internal_gl() }.flush();
+            unsafe { get_internal_gl() }.quad_gl.pop_model_matrix();
             if res.config.sample_count > 1 {
                 unsafe { get_internal_gl() }.flush();
                 if let Some(target) = &res.chart_target {
@@ -332,11 +352,88 @@ impl Chart {
             }
             if !self.next_block_areas.is_empty() {
                 let next = self.next_block_samples(res.time, res.aspect_ratio);
-                let zones: Vec<_> = next.iter().map(|s| s.zone.clone()).collect();
-                self.next_block_renderer
-                    .draw_next(res, res.aspect_ratio, &zones, self.next_single_inversion, false, &self.blocked_touches, flip_x);
+                self.draw_next_layers(res, &next, false);
             }
         });
+    }
+
+    pub fn camera_matrix(&self, time: f64, aspect: f32) -> Matrix {
+        self.rpen
+            .as_ref()
+            .and_then(|r| r.camera.as_ref())
+            .map_or_else(Matrix::identity, |c| c.matrix(time, aspect))
+    }
+    pub fn camera_screen_matrix(&self, time: f64, aspect: f32) -> Matrix {
+        self.rpen
+            .as_ref()
+            .and_then(|r| r.camera.as_ref())
+            .map_or_else(Matrix::identity, |c| c.screen_matrix(time, aspect))
+    }
+    pub fn camera_model(&self, time: f64, aspect: f32, screen: bool) -> Mat4 {
+        if self.rpen.as_ref().is_none_or(|r| r.camera.is_none()) {
+            return Mat4::IDENTITY;
+        }
+        super::rpen_scene::clip_model(&if screen {
+            self.camera_screen_matrix(time, aspect)
+        } else {
+            self.camera_matrix(time, aspect)
+        })
+    }
+    pub fn camera_follows_chart(&self) -> bool {
+        self.rpen.as_ref().and_then(|r| r.camera.as_ref()).is_some_and(|c| c.follow_chart)
+    }
+    /// Input has already had the X mirror removed. Return None outside visible depth.
+    pub fn unproject_touch(&self, point: Vec2, time: f64, aspect: f32) -> Option<Vec2> {
+        let matrix = self.camera_screen_matrix(time, aspect);
+        let inverse = matrix.try_inverse()?;
+        let p = inverse * nalgebra::Vector3::new(point.x, point.y, 1.);
+        if !p.iter().all(|v| v.is_finite()) || p.z.abs() < 1e-6 {
+            return None;
+        }
+        let p = nalgebra::Vector3::new(p.x / p.z, p.y / p.z, 1.);
+        let depth = (matrix * p).z;
+        (depth >= 0.001 && depth <= 150.).then_some(vec2(p.x, p.y))
+    }
+    pub fn has_rpen_skins(&self) -> bool {
+        self.next_layer_skins.iter().any(Option::is_some)
+    }
+    fn draw_next_layers(&self, res: &mut Resource, next: &[super::rpe_next_block::Sample], disabled: bool) {
+        let matrix = self.camera_matrix(res.time, res.aspect_ratio);
+        let touches: Vec<_> = self
+            .blocked_touches
+            .iter()
+            .filter_map(|&(id, p)| {
+                let p = matrix * nalgebra::Vector3::new(p.x, p.y, 1.);
+                (p.z >= 0.001 && p.z <= 150.).then_some((id, Vector::new(p.x / p.z, p.y / p.z)))
+            })
+            .collect();
+        if self.next_layer_renderers.is_empty() {
+            let zones: Vec<_> = next.iter().map(|s| s.zone.clone()).collect();
+            self.next_block_renderer.draw_next(
+                res,
+                res.aspect_ratio,
+                &zones,
+                self.next_single_inversion,
+                disabled,
+                if disabled { &[] } else { &touches },
+                res.config.flip_x(),
+            );
+        } else {
+            for (id, renderer) in self.next_layer_renderers.iter().enumerate() {
+                let zones: Vec<_> = next.iter().filter(|s| s.layer == id).map(|s| s.zone.clone()).collect();
+                if !res.no_effect {
+                    if let Some(skin) = self.next_layer_skins.get(id).and_then(Option::as_ref) {
+                        if !disabled && skin.render(res, &zones, &touches) {
+                            continue;
+                        }
+                        if disabled && !skin.failed() {
+                            continue;
+                        }
+                    }
+                }
+                renderer.draw_next(res, res.aspect_ratio, &zones, true, disabled, if disabled { &[] } else { &touches }, res.config.flip_x());
+            }
+        }
     }
 
     /// Evaluated coverage shared by rendering and read-only diagnostic tools.
@@ -364,6 +461,12 @@ impl Chart {
                 zone.color = color;
                 Some(zone)
             }));
+            if self.rpen.as_ref().is_some_and(|r| r.camera.is_some()) {
+                let projection = self.camera_matrix(res.time, res.aspect_ratio);
+                for zone in zones {
+                    zone.projection = Some(projection);
+                }
+            }
             cache.key = Some(key);
         }
         drop(cache);
@@ -389,6 +492,12 @@ impl Chart {
         if cache.0 != Some(key) {
             cache.1.clear();
             cache.1.extend(self.next_block_areas.iter().filter_map(|area| area.sample(time, aspect)));
+            if self.rpen.as_ref().is_some_and(|r| r.camera.is_some()) {
+                let projection = self.camera_matrix(time, aspect);
+                for sample in &mut cache.1 {
+                    sample.zone.projection = Some(projection);
+                }
+            }
             cache.0 = Some(key);
         }
         drop(cache);

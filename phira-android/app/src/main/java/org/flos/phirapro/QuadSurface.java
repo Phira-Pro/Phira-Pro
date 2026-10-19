@@ -83,22 +83,25 @@ public class QuadSurface extends SurfaceView
         if (getContext() instanceof MainActivity) ((MainActivity) getContext()).requestRefreshRateUpdate(reason);
     }
 
-    void setTargetFrameRate(float frameRate, boolean force) {
+    void setTargetFrameRate(float frameRate, boolean force, boolean allowNonSeamless) {
         if (Float.isNaN(frameRate) || Float.isInfinite(frameRate) || frameRate <= 0f) {
             throw new IllegalArgumentException("frame rate must be finite and positive");
         }
         targetFrameRate = frameRate;
         Surface surface = getHolder().getSurface();
-        if (surface.isValid()) applyFrameRate(surface, force);
+        if (surface.isValid()) applyFrameRate(surface, force, allowNonSeamless);
     }
 
     private void applyFrameRate(Surface surface, boolean force) {
+        applyFrameRate(surface, force, hasWindowFocus());
+    }
+    private void applyFrameRate(Surface surface, boolean force, boolean allowNonSeamless) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && surface.isValid()) {
             if (!force && requestedSurface == surface && Math.abs(appliedFrameRate - targetFrameRate) < 0.01f) return;
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     surface.setFrameRate(targetFrameRate, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
-                            force ? Surface.CHANGE_FRAME_RATE_ALWAYS : Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+                            allowNonSeamless ? Surface.CHANGE_FRAME_RATE_ALWAYS : Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
                 } else {
                     surface.setFrameRate(targetFrameRate, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
                 }

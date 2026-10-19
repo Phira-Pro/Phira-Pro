@@ -364,7 +364,7 @@ preset-number-22 = Flick speed multiplier
 preset-number-23 = Flick minimum projection delta (world units)
 preset-switch-0 = Drag protection
 preset-switch-1 = Flick protection
-preset-switch-2 = Strict judgement
+preset-switch-2 = Global strict judgement
 preset-switch-3 = Fullscreen judgement
 preset-switch-4 = Remove combo score
 preset-switch-5 = Separate Hold tail (extension)
@@ -428,3 +428,8 @@ color-current-default = Current (default)
 practice-debug-display = Diagnostic display
 practice-debug-performance = Frame rate
 practice-debug-input = Touch visualization
+
+item-show-judgement-details = Show judgement counts
+item-show-judgement-details-sub = Show live counts below the score and accuracy for the active preset
+item-show-perfect-combo = Show Perfect Combo
+item-show-perfect-combo-sub = Count consecutive Perfect+ / Perfect only; other grades reset the display, without changing scoring

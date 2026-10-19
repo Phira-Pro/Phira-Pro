@@ -106,6 +106,63 @@ fn pixel(image: &Image, x: i32, y: i32) -> &[u8] {
     &image.bytes[i..i + 3]
 }
 
+async fn pro16_hud_and_behavior(path: &std::path::Path, info: &ChartInfo, painter: &mut TextPainter) {
+    use prpr::practice::NoteBehavior;
+    let mut scene = local(ReplayScene::new(path.to_owned())).await.unwrap();
+    scene.controls_visible = false;
+    let mut tm = TimeManager::default();
+    Scene::enter(&mut scene, &mut tm, None).unwrap();
+    scene.seek(1.5);
+    let c = &mut scene.game_scene.res.config;
+    c.show_acc = true;
+    c.show_judgement_details = true;
+    c.show_perfect_combo = true;
+    c.judge_grading.detailed = true;
+    scene.game_scene.judge.reset();
+    for (grade, count) in [
+        (TJ::Great, 50),
+        (TJ::Good, 30),
+        (TJ::Ok, 10),
+        (TJ::Meh, 5),
+        (TJ::PerfectPlus, 1000),
+        (TJ::Perfect, 800),
+    ] {
+        for _ in 0..count {
+            scene.game_scene.judge.commit(1.5, grade, 0, 0, 0.);
+        }
+    }
+    assert_eq!(scene.game_scene.judge.perfect_combo(), 1800);
+    for (w, h, name) in [(960, 720, "tablet"), (1280, 720, "wide"), (1280, 548, "phone")] {
+        let on = screenshot(painter, &mut scene, &mut tm, w, h, &format!("pro16-live-counts-{name}"));
+        scene.game_scene.res.config.show_judgement_details = false;
+        let off = screenshot(painter, &mut scene, &mut tm, w, h, &format!("pro16-live-counts-{name}-off"));
+        assert!(on.bytes.chunks_exact(4).zip(off.bytes.chunks_exact(4)).filter(|(a, b)| a != b).count() > 100, "live grade counts must render");
+        scene.game_scene.res.config.show_judgement_details = true;
+    }
+    for (flag, behavior) in [
+        (Mods::NOTE_TAP, NoteBehavior::Tap),
+        (Mods::NOTE_DRAG, NoteBehavior::Drag),
+        (Mods::NOTE_FLICK, NoteBehavior::Flick),
+    ] {
+        let mut c = Config::default();
+        c.mods = flag;
+        c.practice.behavior = NoteBehavior::Original;
+        let fs = fs_from_path("renamed-chart").unwrap();
+        let game = local(GameScene::new(GameMode::Normal, info.clone(), c, fs, None, BLACK_TEXTURE.clone(), BLACK_TEXTURE.clone(), None, None, None))
+            .await
+            .unwrap();
+        assert!(game.chart.lines.iter().flat_map(|l| &l.notes).all(|n| match behavior {
+            NoteBehavior::Tap => matches!(n.kind, prpr::core::NoteKind::Click),
+            NoteBehavior::Drag => matches!(n.kind, prpr::core::NoteKind::Drag),
+            NoteBehavior::Flick => matches!(n.kind, prpr::core::NoteKind::Flick),
+            _ => false,
+        }));
+        assert!(!game.res.config.is_official_play(game.res.config.mods));
+        assert!(!game.res.config.practice_active);
+    }
+    println!("pro.16: live grade counts at three aspects, Perfect Combo and all three normal-play note conversions passed");
+}
+
 async fn gameplay_aspect_regression(info: ChartInfo, painter: &mut TextPainter) {
     let mut config = Config::default();
     config.volume_music = 0.;
@@ -943,6 +1000,8 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
 
 #[path = "range_render.rs"]
 mod practice_range_qa;
+#[path = "rpen_qa.rs"]
+mod rpen_qa;
 
 // Exercise the recorder through the real GameScene state machine. Constructed
 // replay tapes cannot catch a fade-out clearing the live recording.
@@ -1094,6 +1153,7 @@ fn production_replay_transport_import_and_aspects() {
                 played_unlock: false,
             });
             crate::set_data(data);
+            rpen_qa::run(isolated.path(), &mut painter).await;
             gameplay_aspect_regression(info.clone(), &mut painter).await;
             practice_speed_and_markers_regression(info.clone(), &mut painter).await;
             practice_lifecycle_and_noise_layers(info.clone(), &mut painter).await;
@@ -1173,6 +1233,7 @@ fn production_replay_transport_import_and_aspects() {
             );
             replay::library::bind(&path, "renamed-chart", true).unwrap();
             replay_skin_regression(&path).await;
+            pro16_hud_and_behavior(&path, &info, &mut painter).await;
             let board = replay::library::board_records("local:renamed-chart");
             assert_eq!(board.len(), 1);
             assert!(board[0].replay_imported);
@@ -1183,6 +1244,94 @@ fn production_replay_transport_import_and_aspects() {
             let source_clock = clock.clone();
             let mut tm = TimeManager::manual(Box::new(move || source_clock.get()));
             Scene::enter(&mut scene, &mut tm, None).unwrap();
+            // Frame stepping must preserve visible hit effects in both directions.
+            let original_frames = scene.replay.frames.clone();
+            let original_note = scene.replay.judges[0].note;
+            scene.replay.judges[0].note = scene.game_scene.chart.lines[0]
+                .notes
+                .iter()
+                .position(|n| matches!(n.kind, prpr::core::NoteKind::Click))
+                .unwrap() as u32;
+            scene.replay.frames = vec![0., 0.99, 1.017, 1.04];
+            scene.game_scene.res.config.particle = true;
+            for (from, button, target, name) in [(0.99, 5, 1.017, "forward"), (1.04, 4, 1.017, "backward")] {
+                scene.seek(from);
+                screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, &format!("frame-fx-{name}-before"));
+                scene.control(button);
+                Scene::update(&mut scene, &mut tm).unwrap();
+                assert_eq!(scene.current, target);
+                let on = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, &format!("frame-fx-{name}"));
+                scene.game_scene.res.config.particle = false;
+                let off = screenshot(&mut painter, &mut scene, &mut tm, 1280, 720, &format!("frame-fx-{name}-off"));
+                assert!(
+                    on.bytes.chunks_exact(4).zip(off.bytes.chunks_exact(4)).filter(|(a, b)| a != b).count() > 20,
+                    "{name} frame step must render actual hit particles"
+                );
+                assert_eq!(scene.game_scene.judge.counts()[4], 1);
+                scene.game_scene.res.config.particle = true;
+            }
+            scene.replay.frames = original_frames;
+            scene.replay.judges[0].note = original_note;
+            scene.checkpoints.clear();
+
+            // A held contact becomes blocked while the region is active, stays
+            // blocked after it vanishes, and is cleared on release/ID reuse.
+            scene.game_scene.chart.block_areas.push(prpr::core::BlockArea {
+                rpe_canvas: false,
+                top_right: Vector::new(1., 1.),
+                bottom_left: Vector::new(0., 0.),
+                appear_time: 1.1,
+                enable_time: 1.2,
+                disable_time: 2.,
+                disappear_time: 2.1,
+                is_subtract: false,
+                rotate_events: vec![],
+                move_events: vec![],
+                scale_events: vec![],
+            });
+            scene.fingers = false;
+            scene.replay.frames.push(1.5);
+            scene.replay.frames.sort_by(f64::total_cmp);
+            scene.seek(3.5);
+            assert_eq!(scene.game_scene.chart.blocked_touches.len(), 2, "seek must replay blocking before the area disappeared");
+            scene.seek(1.5);
+            assert_eq!(scene.game_scene.chart.blocked_touches.len(), 2, "hidden finger markers must not hide noise interaction");
+            scene.checkpoint();
+            scene.seek(4.5);
+            assert_eq!(scene.game_scene.chart.blocked_touches.len(), 1);
+            scene.seek(5.5);
+            assert!(scene.game_scene.chart.blocked_touches.is_empty());
+            scene.seek(3.5);
+            assert_eq!(scene.game_scene.chart.blocked_touches.len(), 2, "checkpoint must retain sticky blocking");
+            scene.game_scene.chart.block_areas.clear();
+            scene.replay.frames.retain(|t| *t != 1.5);
+            scene.checkpoints.clear();
+            scene.seek(0.);
+            scene.fingers = true;
+            // Retain an isolated, importable fixture for native desktop QA.
+            let preview_root = std::path::Path::new("target/replay-qa/desktop-fixture");
+            chart_fixture(preview_root, "custom/replay-regression");
+            let chart_path = preview_root.join("data/charts/custom/replay-regression/chart.json");
+            let mut chart_json: serde_json::Value = serde_json::from_slice(&std::fs::read(&chart_path).unwrap()).unwrap();
+            chart_json["blockAreaList"] = serde_json::json!([{
+                "topRightPercentage":{"x":1.,"y":1.}, "bottomLeftPercentage":{"x":0.,"y":0.}, "appearTime":0., "enableTime":0.2,
+                "disableTime":5., "disappearTime":5.5, "isSubtract":false
+            }]);
+            std::fs::write(&chart_path, serde_json::to_vec(&chart_json).unwrap()).unwrap();
+            let mut preview = tape.clone();
+            preview.chart = Some(ChartRef::Local("custom/replay-regression".into()));
+            preview.meta.id = "native-replay-noise-frame-qa".into();
+            preview.meta.fingerprint = None;
+            preview.meta.audio_fingerprint = None;
+            preview.meta.result = None;
+            preview.judges.truncate(1);
+            preview.judges[0].note = scene.game_scene.chart.lines[0]
+                .notes
+                .iter()
+                .position(|n| matches!(n.kind, prpr::core::NoteKind::Click))
+                .unwrap() as u32;
+            preview.frames = (0..=720).map(|i| i as f64 / 60.).collect();
+            replay::save(&preview, &preview_root.join("native-replay.ppr")).unwrap();
             // Exercise rendered hit regions, not only control() calls.
             scene.expanded = true;
             scene.seek(0.017);

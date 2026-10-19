@@ -336,3 +336,8 @@ color-current-default = 目前（預設）
 practice-debug-display = 除錯顯示
 practice-debug-performance = 幀率設定
 practice-debug-input = 觸點視覺化
+
+item-show-judgement-details = 顯示判定詳情
+item-show-judgement-details-sub = 在分數與準度下方顯示目前判定預設的即時數量
+item-show-perfect-combo = 顯示 Perfect Combo
+item-show-perfect-combo-sub = 連擊僅累計連續 Perfect+ / Perfect；其他判定中斷顯示，不改變計分

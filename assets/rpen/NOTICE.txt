@@ -1,0 +1,3 @@
+RPEN shader presets and NoiseField/Ocean skin resources from kclg-YSJ/rpe-next, commit 1ee0fc3e3e434696f00cbb51d4107379913a6490.
+These files retain the PolyForm Noncommercial License 1.0.0; see LICENSE-RPEN.txt.
+Source: https://github.com/kclg-YSJ/rpe-next

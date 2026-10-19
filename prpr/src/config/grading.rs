@@ -27,6 +27,16 @@ impl Default for JudgeGrading {
     }
 }
 impl JudgeGrading {
+    /// Stable IDs in display order, filtered by the active scoring preset.
+    pub fn visible_grades(&self) -> impl Iterator<Item = usize> {
+        let g = *self;
+        [4, 0, 5, 1, 6, 7, 2, 3].into_iter().filter(move |id| match id {
+            4 => g.perfect_plus,
+            5 | 6 | 7 => g.detailed || g.mania,
+            2 => !g.mania,
+            _ => true,
+        })
+    }
     pub fn color(&self, id: usize, fallback: macroquad::prelude::Color) -> macroquad::prelude::Color {
         self.colors
             .get(id)
@@ -56,6 +66,20 @@ impl JudgeGrading {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn live_grade_order_follows_preset() {
+        let mut g = JudgeGrading::default();
+        assert_eq!(g.visible_grades().collect::<Vec<_>>(), [4, 0, 1, 2, 3]);
+        g.perfect_plus = false;
+        assert_eq!(g.visible_grades().collect::<Vec<_>>(), [0, 1, 2, 3]);
+        g.detailed = true;
+        assert_eq!(g.visible_grades().collect::<Vec<_>>(), [0, 5, 1, 6, 7, 2, 3]);
+        g.perfect_plus = true;
+        assert_eq!(g.visible_grades().collect::<Vec<_>>(), [4, 0, 5, 1, 6, 7, 2, 3]);
+        g.mania = true;
+        g.perfect_plus = false;
+        assert_eq!(g.visible_grades().collect::<Vec<_>>(), [0, 5, 1, 6, 7, 3]);
+    }
     #[test]
     fn colors_roundtrip_and_legacy_settings_keep_resource_pack_fallbacks() {
         let mut g = JudgeGrading::default();

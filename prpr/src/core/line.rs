@@ -505,7 +505,7 @@ impl JudgeLine {
                     continue;
                 }
                 let speed = self.notes[*index].speed;
-                let limit = height_above as f64 / speed;
+                let limit = if speed == 0. { f64::INFINITY } else { height_above as f64 / speed };
                 for note in self.notes[*index..].iter() {
                     if !note.above || speed != note.speed {
                         break;
@@ -525,7 +525,7 @@ impl JudgeLine {
                         continue;
                     }
                     let speed = self.notes[*index].speed;
-                    let limit = height_below as f64 / speed;
+                    let limit = if speed == 0. { f64::INFINITY } else { height_below as f64 / speed };
                     for note in self.notes[*index..].iter() {
                         if speed != note.speed {
                             break;

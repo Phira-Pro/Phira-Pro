@@ -19,12 +19,58 @@ fn note_head_base(height: f64, line_height: f64, speed: f64, aspect: f32, holdin
 
 #[cfg(test)]
 mod debug_geometry_tests {
+    use super::*;
+    use crate::core::{AnimFloat, Keyframe};
+
     #[test]
     fn head_tracks_scroll_and_stays_on_line_after_hold_start() {
         assert_eq!(super::note_head_base(4., 2., 3., 2., false), 3.);
         assert_eq!(super::note_head_base(4., 3., 3., 2., false), 1.5);
         assert_eq!(super::note_head_base(4., 2., -3., 2., false), -3.);
         assert_eq!(super::note_head_base(4., 5., 3., 2., true), 0.);
+    }
+
+    #[test]
+    fn zero_speed_notes_evaluate_distance_controls_at_a_finite_fixed_position() {
+        let mut note = Note {
+            object: Object::default(),
+            kind: NoteKind::Click,
+            hitsound: HitSound::Click,
+            time: 1.,
+            height: 4.,
+            speed: 0.,
+            color: WHITE,
+            fx_color: None,
+            judge_area: 1.,
+            above: true,
+            multiple_hint: false,
+            fake: false,
+            judge: JudgeStatus::NotJudged,
+        };
+        let curve = AnimFloat::new(vec![Keyframe::new(0., 1., 2), Keyframe::new(100., 2., 2)]);
+        let mut controls = CtrlObject {
+            alpha: curve.clone(),
+            size: curve.clone(),
+            pos: curve.clone(),
+            y: curve.clone(),
+            skew: curve,
+        };
+        for speed in [0., -0.] {
+            note.speed = speed;
+            for line_height in [-100., 0., 100.] {
+                note.init_ctrl_obj(&mut controls, line_height);
+                for track in [&controls.alpha, &controls.size, &controls.pos, &controls.y, &controls.skew] {
+                    assert_eq!(track.time, 0.);
+                    assert_eq!(track.now(), 1.);
+                }
+            }
+        }
+        note.object.translation.1 = AnimFloat::fixed(0.2);
+        note.init_ctrl_obj(&mut controls, 100.);
+        assert!((controls.alpha.time - 90.).abs() < 0.001);
+        note.speed = 2.;
+        note.init_ctrl_obj(&mut controls, 2.);
+        assert!((controls.alpha.time - 945.).abs() < 0.001, "nonzero speed keeps its original distance semantics");
     }
 }
 
@@ -200,7 +246,15 @@ impl Note {
     }
 
     fn init_ctrl_obj(&self, ctrl_obj: &mut CtrlObject, line_height: f64) {
-        ctrl_obj.set_height((self.height - line_height + self.object.translation.1.now() as f64 / self.speed) * RPE_HEIGHT as f64 / 2.);
+        let offset = self.object.translation.1.now() as f64;
+        // A zero-speed note is fixed to its line: its scroll distance is zero.
+        // In particular, the usual 0 / 0 offset must not poison all controls.
+        let distance = if self.speed == 0. {
+            offset
+        } else {
+            self.height - line_height + offset / self.speed
+        };
+        ctrl_obj.set_height(distance * RPE_HEIGHT as f64 / 2.);
     }
 
     fn visual_speed(&self, res: &Resource, ctrl_obj: &CtrlObject) -> f64 {

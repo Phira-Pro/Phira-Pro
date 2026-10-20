@@ -25,6 +25,9 @@ mod phigros;
 #[cfg(test)]
 #[path = "judge/rpe_next_tests.rs"]
 mod rpe_next_tests;
+#[cfg(test)]
+#[path = "judge/stationary_tests.rs"]
+mod stationary_tests;
 mod touch_frame;
 /// Perfect+（Perfect+）的默认窗口。比 Perfect 更严格，且不参与准确率/分数计算。
 pub const LIMIT_PERFECT_PLUS: f64 = 0.016;

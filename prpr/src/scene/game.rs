@@ -479,11 +479,36 @@ fn combo_label(config: &crate::config::Config) -> &str {
     if config.autoplay() {
         "AUTOPLAY"
     } else if config.show_perfect_combo {
-        "PERFECT COMBO"
+        // The bundled Phigros font draws a box for U+0020. Its NBSP has a
+        // positive advance and no outline, preserving the intended word gap.
+        "PERFECT\u{a0}COMBO"
     } else if !config.combo_text.is_empty() {
         config.combo_text.as_str()
     } else {
         "COMBO"
+    }
+}
+
+#[cfg(test)]
+mod combo_label_tests {
+    use super::*;
+    use glyph_brush::ab_glyph::{Font, FontArc, ScaleFont};
+
+    #[test]
+    fn perfect_combo_gap_is_blank_in_the_actual_gameplay_font() {
+        let font = FontArc::try_from_slice(include_bytes!("../../../assets/phigros.ttf")).unwrap();
+        let mut config = Config::default();
+        config.show_perfect_combo = true;
+        let label = combo_label(&config);
+        assert_eq!(label.replace('\u{a0}', " "), "PERFECT COMBO");
+        for c in label.chars().filter(|c| c.is_whitespace()) {
+            let id = font.glyph_id(c);
+            assert_ne!(id.0, 0);
+            assert!(font.outline(id).is_none(), "the separator must have no visible outline");
+            assert!(font.as_scaled(32.).h_advance(id) > 0.);
+        }
+        config.mods.insert(Mods::AUTOPLAY);
+        assert_eq!(combo_label(&config), "AUTOPLAY");
     }
 }
 

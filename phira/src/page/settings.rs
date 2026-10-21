@@ -57,6 +57,10 @@ const REFRESH_RATES: [u16; 2] = [60, 120];
 const DESKTOP_FPS_LIMITS: [u16; 10] = [0, 60, 120, 144, 165, 185, 200, 240, 360, 480];
 #[cfg(all(test, target_os = "windows"))]
 mod qa;
+#[cfg(all(test, target_os = "windows"))]
+pub(crate) fn verify_background_blur(painter: &mut prpr::ui::TextPainter) {
+    qa::background_blur_regression(painter);
+}
 
 /// 主题预设的显示名。
 fn ui_preset_name(i: usize) -> String {
@@ -1432,6 +1436,7 @@ struct ChartList {
     flow_speed_slider: Slider,
     /// 上/下隐强度：音符出现/消失的高度，0 为官方表现。
     fade_strength_slider: Slider,
+    background_blur_slider: Slider,
     /// 「自定义游玩宽高比」开关。
     custom_aspect_btn: DRectButton,
     /// 打开游玩宽高比输入框。
@@ -1470,6 +1475,7 @@ impl ChartList {
             size_slider: Slider::new(0.8..1.2, 0.005),
             flow_speed_slider: Slider::new(0.5..4.0, 0.01),
             fade_strength_slider: Slider::new(0.0..1.0, 0.05),
+            background_blur_slider: Slider::new(0.0..1.0, 0.01),
             custom_aspect_btn: DRectButton::new(),
             aspect_btn: DRectButton::new(),
             offset_indicator_btn: DRectButton::new(),
@@ -1547,6 +1553,9 @@ impl ChartList {
             return Ok(wt);
         }
         if let wt @ Some(_) = self.fade_strength_slider.touch(touch, t, &mut config.fade_strength) {
+            return Ok(wt);
+        }
+        if let wt @ Some(_) = self.background_blur_slider.touch(touch, t, &mut config.gameplay_background_blur) {
             return Ok(wt);
         }
         // 自定义游玩宽高比：开关直接切换「覆盖 / 跟随谱面」，数值行打开输入框。
@@ -1723,6 +1732,10 @@ impl ChartList {
         item! {
             render_title(ui, tl!("item-note-size"), None);
             self.size_slider.render(ui, rr, t, config.note_scale, format!("{:.3}", config.note_scale));
+        }
+        item! {
+            render_title(ui, tl!("item-gameplay-background-blur"), None);
+            self.background_blur_slider.render(ui, rr, t, config.gameplay_background_blur, format!("{:.2}", config.gameplay_background_blur));
         }
         item! {
             render_title(ui, tl!("item-custom-aspect"), Some(tl!("item-custom-aspect-sub")));

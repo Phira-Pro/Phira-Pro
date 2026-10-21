@@ -119,6 +119,7 @@ pub struct Data {
     pub read_tos_and_policy: bool,
     pub terms_modified: Option<String>,
     pub ignored_version: Option<semver::Version>,
+    pub ignored_pro_release: Option<String>,
     pub character: Option<Character>,
 
     pub enable_anys: bool,

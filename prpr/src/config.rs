@@ -195,6 +195,7 @@ pub struct Config {
     pub loudness: f32,
     pub fixed_background: bool,
     pub background_dim: f32,
+    pub gameplay_background_blur: f32,
     pub hide_upper_color: u32,
     pub hide_lower_color: u32,
     pub hide_upper_image: Option<String>,
@@ -402,6 +403,7 @@ impl Default for Config {
             loudness: 1.,
             fixed_background: false,
             background_dim: 0.60,
+            gameplay_background_blur: 0.5,
             hide_upper_color: 0,
             hide_lower_color: 0,
             hide_upper_image: None,
@@ -842,6 +844,11 @@ impl Config {
     }
 
     pub fn init(&mut self) {
+        self.gameplay_background_blur = if self.gameplay_background_blur.is_finite() {
+            self.gameplay_background_blur.clamp(0., 1.)
+        } else {
+            0.5
+        };
         if !self.judge_grading.perfect_plus {
             self.theoretical_score = false;
         }

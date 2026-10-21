@@ -433,3 +433,5 @@ item-show-judgement-details = Show judgement counts
 item-show-judgement-details-sub = Show live counts below the score and accuracy for the active preset
 item-show-perfect-combo = Show Perfect Combo
 item-show-perfect-combo-sub = Count consecutive Perfect+ / Perfect only; other grades reset the display, without changing scoring
+
+item-gameplay-background-blur = Gameplay background blur

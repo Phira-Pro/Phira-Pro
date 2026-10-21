@@ -432,3 +432,5 @@ item-show-judgement-details = 显示判定详情
 item-show-judgement-details-sub = 在分数与准度下方显示当前判定预设的实时数量
 item-show-perfect-combo = 显示 Perfect Combo
 item-show-perfect-combo-sub = 连击仅累计连续 Perfect+ / Perfect；其他判定会中断显示，不改变计分
+
+item-gameplay-background-blur = 游玩背景模糊

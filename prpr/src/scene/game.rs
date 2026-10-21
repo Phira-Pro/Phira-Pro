@@ -817,6 +817,17 @@ impl GameScene {
         update_fn: Option<UpdateFn>,
         save_fn: Option<SaveFn>,
     ) -> Result<Self> {
+        let background = if (config.gameplay_background_blur - 0.5).abs() > 0.0001 {
+            match fs.load_file(&info.illustration).await {
+                Ok(bytes) => {
+                    let image = crate::loading_cpu::illustration_with_blur(bytes, config.gameplay_background_blur).await?;
+                    Texture2D::from_rgba8(image.width as _, image.height as _, &image.blurred).into()
+                }
+                Err(_) => background,
+            }
+        } else {
+            background
+        };
         if config.fixed_background {
             info.background_dim = config.background_dim.clamp(0., 1.);
         }
@@ -1568,11 +1579,11 @@ impl GameScene {
     /// 曲名/分数等 HUD 由 `render` 内的 `ui()` 正常绘制，此处只补状态机之外的那部分。
     pub fn tick_replay(&mut self) {
         let counts = self.judge.counts();
-        self.res.judge_line_color = if counts[2] + counts[3] == 0 && self.res.config.ap_fc_indicator {
-            if counts[1] + counts[5] + counts[6] + counts[7] == 0 {
-                self.res.res_pack.info.color_perfect()
-            } else {
-                self.res.res_pack.info.color_good()
+        self.res.judge_line_color = if self.res.config.ap_fc_indicator {
+            match crate::judge::combo_state(&counts) {
+                0 => self.res.res_pack.info.color_perfect(),
+                1 => self.res.res_pack.info.color_good(),
+                _ => WHITE,
             }
         } else {
             WHITE
@@ -2004,11 +2015,11 @@ impl Scene for GameScene {
             update(self.res.time, &mut self.res, &mut self.judge);
         }
         let counts = self.judge.counts();
-        self.res.judge_line_color = if counts[2] + counts[3] == 0 && self.res.config.ap_fc_indicator {
-            if counts[1] + counts[5] + counts[6] + counts[7] == 0 {
-                self.res.res_pack.info.color_perfect()
-            } else {
-                self.res.res_pack.info.color_good()
+        self.res.judge_line_color = if self.res.config.ap_fc_indicator {
+            match crate::judge::combo_state(&counts) {
+                0 => self.res.res_pack.info.color_perfect(),
+                1 => self.res.res_pack.info.color_good(),
+                _ => WHITE,
             }
         } else {
             WHITE

@@ -440,9 +440,6 @@ impl LibraryPage {
                     charts.reverse();
                 }
             } else {
-                if cfg!(closed) {
-                    charts.push(ChartDisplayItem::new(None, None));
-                }
                 charts.extend(
                     charts_local
                         .iter()
@@ -450,6 +447,7 @@ impl LibraryPage {
                         .map(|it| ChartDisplayItem::new(Some((*it).clone()), None)),
                 )
             }
+            charts.insert(0, ChartDisplayItem::new(None, None));
             list.view.set(s.t, charts);
         }
     }
@@ -968,7 +966,7 @@ impl Page for LibraryPage {
                 list.view.selection_limit = Some(3);
             }
         }
-        if cfg!(closed) && self.tabs.selected_mut().view.clicked_special {
+        if self.tabs.selected_mut().view.clicked_special {
             let icons = Arc::clone(&self.icons);
             self.next_page_task = Some(Box::pin(async move { Ok(NextPage::Overlay(Box::new(CollectionPage::new(icons).await?))) }));
             self.tabs.selected_mut().view.clicked_special = false;

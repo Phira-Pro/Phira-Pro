@@ -52,6 +52,7 @@
     (2, "item-flow-speed"),
     (2, "item-fade-strength"),
     (2, "item-note-size"),
+    (2, "item-gameplay-background-blur"),
     (2, "item-custom-aspect"),
     (2, "item-aspect-ratio"),
     (2, "item-offset-indicator"),

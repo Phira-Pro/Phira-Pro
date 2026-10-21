@@ -3,6 +3,58 @@ use super::*;
 use prpr::ext::BLACK_TEXTURE;
 use prpr::ui::TextPainter;
 
+pub(crate) fn background_blur_regression(painter: &mut TextPainter) {
+    let mut list = ChartList::new();
+    get_data_mut().config.gameplay_background_blur = 0.5;
+    let mut draw = |list: &mut ChartList| {
+        let mut ui = Ui::new(painter, Some((0, 0, 1280, 720)));
+        set_camera(&ui.camera());
+        clear_background(Color::new(0.10, 0.13, 0.18, 1.));
+        ui.scope(|ui| {
+            ui.dx(-0.8);
+            ui.dy(-0.05);
+            render_title(ui, tl!("item-gameplay-background-blur"), None);
+            let value = get_data().config.gameplay_background_blur;
+            list.background_blur_slider.render(ui, right_rect(1.6), 2., value, format!("{value:.2}"));
+        });
+        unsafe { get_internal_gl() }.flush();
+    };
+    draw(&mut list);
+    for (from, to, expected) in [(0.504, 0.348, 0.), (0.348, 0.660, 1.)] {
+        for (phase, x) in [(TouchPhase::Started, from), (TouchPhase::Moved, to), (TouchPhase::Ended, to)] {
+            list.touch(
+                &Touch {
+                    id: 981,
+                    phase,
+                    position: vec2(x, 0.025),
+                    time: 0.,
+                },
+                2.,
+            )
+            .unwrap();
+        }
+        assert!((get_data().config.gameplay_background_blur - expected).abs() < 0.001);
+        draw(&mut list);
+    }
+    for phase in [TouchPhase::Started, TouchPhase::Ended] {
+        list.touch(
+            &Touch {
+                id: 982,
+                phase,
+                position: vec2(0.282, 0.025),
+                time: 0.,
+            },
+            2.,
+        )
+        .unwrap();
+    }
+    assert!((get_data().config.gameplay_background_blur - 0.99).abs() < 0.001);
+    save_data().unwrap();
+    let data: crate::data::Data = serde_json::from_slice(&std::fs::read(format!("{}/data.json", dir::root().unwrap())).unwrap()).unwrap();
+    assert!((data.config.gameplay_background_blur - 0.99).abs() < 0.001);
+    get_data_mut().config.gameplay_background_blur = 0.5;
+}
+
 pub(super) fn center(button: &DRectButton) -> Vec2 {
     let mut sum = Vec2::ZERO;
     let mut count = 0;

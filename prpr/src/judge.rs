@@ -206,6 +206,18 @@ pub enum Judgement {
 /// 局内 early/late 判定条保留的最近命中数。
 pub const MAX_RECENT_HITS: usize = 24;
 
+/// Both perfect grades preserve AP; lower successful grades preserve only FC.
+pub fn combo_state(counts: &[u32; 8]) -> u8 {
+    use Judgement::*;
+    if [Bad, Miss].iter().any(|grade| counts[*grade as usize] != 0) {
+        2
+    } else if [Great, Good, Ok, Meh].iter().any(|grade| counts[*grade as usize] != 0) {
+        1
+    } else {
+        0
+    }
+}
+
 /// 把一个时间偏移（秒，负=偏早）按判定窗口折算成判定等级；超出 bad 窗即 Miss。
 ///
 /// 尾判（mania 风格的松手判定）也走这套口径。
@@ -652,6 +664,23 @@ pub fn timing_mean_square(offsets: &[f64], misses: u32, notes: u32) -> f64 {
 mod tests {
     use super::{judgement_of_offset, JudgeInner, JudgeStatus, Judgement, MAX_RECENT_HITS};
     use crate::config::JudgeWindows;
+
+    #[test]
+    fn both_perfect_grades_preserve_gold_and_lower_grades_change_line_state() {
+        let mut counts = [0; 8];
+        counts[Judgement::Perfect as usize] = 100;
+        counts[Judgement::PerfectPlus as usize] = 200;
+        assert_eq!(super::combo_state(&counts), 0);
+        for grade in [Judgement::Great, Judgement::Good, Judgement::Ok, Judgement::Meh] {
+            counts[grade as usize] = 1;
+            assert_eq!(super::combo_state(&counts), 1);
+            counts[grade as usize] = 0;
+        }
+        for grade in [Judgement::Bad, Judgement::Miss] {
+            counts[grade as usize] = 1;
+            assert_eq!(super::combo_state(&counts), 2);
+        }
+    }
 
     #[test]
     fn perfect_combo_is_a_display_streak_without_changing_score_or_max_combo() {
@@ -2140,6 +2169,19 @@ impl Judge {
             }
         }
         for (judgement, line_id, id, diff) in judgements {
+            // Special notes have no tap timing offset. Store successful hits in
+            // the highest enabled perfect grade, including Phigros-engine events.
+            let judgement = if matches!(chart.lines[line_id].notes[id as usize].kind, NoteKind::Drag | NoteKind::Flick)
+                && matches!(judgement, Judgement::Perfect | Judgement::PerfectPlus)
+            {
+                if res.config.judge_grading.perfect_plus {
+                    Judgement::PerfectPlus
+                } else {
+                    Judgement::Perfect
+                }
+            } else {
+                judgement
+            };
             let judgement = if res.config.judge_grading.mania && matches!(judgement, Judgement::Bad) {
                 Judgement::Miss
             } else {

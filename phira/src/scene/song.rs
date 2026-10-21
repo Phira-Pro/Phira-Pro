@@ -1,4 +1,5 @@
 prpr_l10n::tl_file!("song");
+mod pack;
 
 #[cfg(feature = "video")]
 use super::UnlockScene;
@@ -443,6 +444,7 @@ pub struct SongScene {
     autocomplete_task: Option<Task<Result<String>>>,
 
     export_task: Option<mpsc::Receiver<Result<()>>>,
+    pack_view: Option<pack::PackView>,
 }
 
 impl SongScene {
@@ -491,6 +493,7 @@ impl SongScene {
             illu,
 
             first_in: true,
+            pack_view: None,
 
             back_btn: RectButton::new(),
             play_btn: DRectButton::new(),
@@ -2282,6 +2285,11 @@ impl Scene for SongScene {
             self.next_scene = Some(NextScene::PopWithResult(Box::new(false)));
             return Ok(true);
         }
+        if let Some(pack) = &mut self.pack_view {
+            if pack.view.touch(touch, t, tm.real_time() as _)? {
+                return Ok(true);
+            }
+        }
         if self.scene_task.is_none() && self.next_scene.is_none() && self.play_btn.touch(touch, t) {
             if self.local_path.is_some() {
                 self.launch(GameMode::Normal, false)?;
@@ -2352,6 +2360,7 @@ impl Scene for SongScene {
     }
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
+        self.update_pack(tm)?;
         let t = tm.now() as f32;
         self.menu.update(t);
         self.fav_menu.update(t);
@@ -2647,7 +2656,9 @@ impl Scene for SongScene {
             }
         }
         if self.should_delete.fetch_and(false, Ordering::Relaxed) {
-            self.next_scene = Some(NextScene::PopWithResult(Box::new(true)));
+            if !self.delete_pack_chart(tm)? {
+                self.next_scene = Some(NextScene::PopWithResult(Box::new(true)));
+            }
         }
         if self.fav_menu.changed() {
             let selected = self.fav_menu.selected();
@@ -3167,14 +3178,28 @@ impl Scene for SongScene {
         if self.tr_start.is_nan() && self.background.lock().unwrap().is_some() && !get_data().prefer_reduced_motion {
             self.tr_start = rt;
         }
-
+        self.sync_pack_card();
         Ok(())
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
         set_camera(&ui.camera());
         let t = tm.now() as f32;
-        ui.fill_rect(ui.screen_rect(), (*self.illu.texture.1, ui.screen_rect()));
+        if let Some(pack) = &self.pack_view {
+            if let Some(previous) = &pack.old_background {
+                ui.fill_rect(ui.screen_rect(), (**previous, ui.screen_rect()));
+                let fade = if get_data().prefer_reduced_motion {
+                    1.
+                } else {
+                    ((t - pack.background_time) / 0.35).clamp(0., 1.)
+                };
+                ui.alpha(fade, |ui| ui.fill_rect(ui.screen_rect(), (*pack.background, ui.screen_rect())));
+            } else {
+                ui.fill_rect(ui.screen_rect(), (*pack.background, ui.screen_rect()));
+            }
+        } else {
+            ui.fill_rect(ui.screen_rect(), (*self.illu.texture.1, ui.screen_rect()));
+        }
         ui.fill_rect(ui.screen_rect(), semi_black(0.55));
 
         let r = ui.back_rect();
@@ -3182,22 +3207,29 @@ impl Scene for SongScene {
         ui.fill_rect(r, (*self.icons.back, r, ScaleType::Fit));
 
         let alpha = fade_in_time().map_or(1., |tt| ((t - self.fade_start) / tt).clamp(-1., 0.) + 1.);
-        ui.alpha::<Result<()>>(alpha, |ui| {
+        ui.alpha::<Result<()>>(if self.pack_view.is_some() { 1. } else { alpha }, |ui| {
             let r = ui
-                .text(&self.info.name)
-                .max_width(0.57 - r.right())
+                .text(self.pack_view.as_ref().map_or(self.info.name.as_str(), |p| p.title.as_str()))
+                .max_width(if self.pack_view.is_some() { 0.40 - r.right() } else { 0.57 - r.right() })
                 .size(1.2)
                 .pos(r.right() + 0.02, r.y)
                 .draw();
-            ui.text(&self.info.composer)
-                .size(0.5)
-                .pos(r.x + 0.02, r.bottom() + 0.03)
-                .color(semi_white(0.8))
-                .draw();
+            if self.pack_view.is_none() {
+                ui.text(&self.info.composer)
+                    .size(0.5)
+                    .pos(r.x + 0.02, r.bottom() + 0.03)
+                    .color(semi_white(0.8))
+                    .draw();
+            }
+            if self.pack_view.is_some() {
+                self.render_pack_body(ui, t);
+            }
 
             // bottom bar
+            let pack_scale = if self.pack_view.is_some() { pack::scale(ui.top) } else { 1. };
             let s = 0.25;
-            let r = Rect::new(-0.94, ui.top - s - 0.06, s, s);
+            let s = if self.pack_view.is_some() { 0.20 * pack_scale } else { s };
+            let r = Rect::new(if self.pack_view.is_some() { 0.015 } else { -0.94 }, ui.top - s - 0.06, s, s);
             let icon = self.record.as_ref().map_or(0, |it| icon_index(it.score as _, it.full_combo));
             ui.fill_rect(r, (*self.rank_icons[icon], r, ScaleType::Fit));
             let score = self.record.as_ref().map(|it| it.score).unwrap_or_default();
@@ -3206,16 +3238,18 @@ impl Scene for SongScene {
                 .text(format!("{score:07}"))
                 .pos(r.right() + 0.01, r.center().y)
                 .anchor(0., 1.)
-                .size(1.2)
+                .size(if self.pack_view.is_some() { 0.95 * pack_scale } else { 1.2 })
                 .draw();
             ui.text(format!("{:.2}%", accuracy * 100.))
                 .pos(r.x, r.bottom() + 0.01)
                 .anchor(0., 0.)
-                .size(0.7)
+                .size(0.7 * pack_scale)
                 .color(semi_white(0.7))
                 .draw();
 
-            if self.info.id.is_some() {
+            if self.pack_view.is_some() {
+                self.ldb_btn.set(ui, Rect::new(0.015, ui.top - s - 0.06, 0.65, s + 0.01));
+            } else if self.info.id.is_some() {
                 let entry = Rect::new(r.x, r.y - 0.135, 0.41, 0.115);
                 leaderboard_view::rank_lines(ui, entry, "", &Self::ldb_rank_text(self.ldb_official_rank), &Self::ldb_rank_text(self.ldb_pro_rank));
                 self.ldb_btn.set(ui, entry);
@@ -3233,7 +3267,7 @@ impl Scene for SongScene {
             }
 
             // play button
-            let w = 0.26;
+            let w = if self.pack_view.is_some() { 0.20 * pack_scale } else { 0.26 };
             let pad = 0.08;
             let r = Rect::new(1. - pad - w, ui.top - pad - w, w, w);
             self.play_btn.render_shadow(ui, r, t, |ui, path| {

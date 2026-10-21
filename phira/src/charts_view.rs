@@ -111,6 +111,11 @@ pub struct ChartsView {
 
     pub multi_select: Option<Vec<ChartRef>>,
     pub selection_limit: Option<usize>,
+    /// Embedded browsers reuse these exact cards but select without navigating.
+    pub select_on_click: bool,
+    pub picked: Option<ChartItem>,
+    pub highlighted: Option<ChartRef>,
+    pub fixed_layout: Option<(u32, f32)>,
 }
 
 impl ChartsView {
@@ -144,6 +149,10 @@ impl ChartsView {
 
             multi_select: None,
             selection_limit: None,
+            select_on_click: false,
+            picked: None,
+            highlighted: None,
+            fixed_layout: None,
         }
     }
 
@@ -222,6 +231,12 @@ impl ChartsView {
                 if let Some(chart) = &item.chart {
                     if item.btn.touch(touch, t) {
                         item.long_touch.reset();
+                        if self.select_on_click {
+                            button_hit();
+                            self.picked = Some(chart.clone());
+                            self.highlighted = Some(chart.to_bare_ref());
+                            return Ok(true);
+                        }
                         if let Some(after) = self.edit_move_state.take() {
                             button_hit();
                             movement = Some((id, after));
@@ -317,6 +332,9 @@ impl ChartsView {
                         return Ok(true);
                     }
                 } else if item.btn.touch(touch, t) {
+                    if self.multi_select.is_some() || CHOOSE_COVER.load(Ordering::Relaxed) {
+                        return Ok(true);
+                    }
                     self.editing_chart = None;
                     self.edit_move_state = None;
                     button_hit_large();
@@ -447,6 +465,10 @@ impl ChartsView {
         // HUD 自定义：谱面列表的「列数 / 格高」由设置覆盖（默认值与原来一致）。
         self.row_num = crate::hud::param("library", "cols", 4.).round().clamp(1., 12.) as u32;
         self.row_height = crate::hud::param("library", "row_h", 0.3).clamp(0.12, 0.6);
+        if let Some((columns, height)) = self.fixed_layout {
+            self.row_num = columns;
+            self.row_height = height;
+        }
         let content_size = (r.w, r.h);
         let range = self.charts_display_range(content_size);
         let Some(charts) = &mut self.charts else {
@@ -504,7 +526,7 @@ impl ChartsView {
                                         let chart_ref = chart.to_bare_ref();
                                         set.iter().position(|it| it == &chart_ref)
                                     });
-                                    if selected.is_some() {
+                                    if selected.is_some() || self.highlighted.as_ref().is_some_and(|r| r == &chart.to_bare_ref()) {
                                         ui.fill_path(&r.feather(0.008).rounded(0.003), selected_color);
                                     }
 

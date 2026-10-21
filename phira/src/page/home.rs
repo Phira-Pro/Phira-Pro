@@ -18,7 +18,6 @@ use crate::{
 };
 use ::rand::{random, thread_rng, Rng};
 use anyhow::{bail, Context, Result};
-use chrono::NaiveDate;
 use image::DynamicImage;
 use inputbox::{InputBox, InputMode};
 use macroquad::prelude::*;
@@ -49,14 +48,6 @@ const BOARD_SWITCH_TIME: f32 = 4.;
 const BOARD_TRANSIT_TIME: f32 = 1.2;
 
 type BoldFontUpdateTask = Task<Result<Option<(FontArc, String)>>>;
-
-#[derive(Deserialize)]
-struct Version {
-    version: semver::Version,
-    date: NaiveDate,
-    description: String,
-    url: String,
-}
 
 pub struct HomePage {
     icons: Arc<Icons>,
@@ -90,7 +81,7 @@ pub struct HomePage {
     has_new_task: Option<Task<Result<bool>>>,
     has_new: bool,
 
-    check_update_task: Option<Task<Result<Option<Version>>>>,
+    check_update_task: Option<Task<Result<Option<crate::updates::Release>>>>,
     check_bold_font_update_task: Option<BoldFontUpdateTask>,
 
     btn_play_3d: ThreeD,
@@ -149,11 +140,6 @@ impl HomePage {
             None
         };
 
-        let flavor = match load_file("flavor").await.map(String::from_utf8) {
-            Ok(Ok(flavor)) => flavor.trim().to_owned(),
-            _ => "none".to_owned(),
-        };
-
         let mut res = Self {
             icons: Arc::clone(&icons),
 
@@ -184,12 +170,11 @@ impl HomePage {
             has_new_task: None,
             has_new: false,
 
-            check_update_task: Some(Task::new(async move {
-                Ok(recv_raw(Client::get("/check-update").query(&[("version", env!("CARGO_PKG_VERSION")), ("flavor", &flavor)]))
-                    .await?
-                    .json()
-                    .await?)
-            })),
+            check_update_task: if get_data().config.offline_mode {
+                None
+            } else {
+                Some(Task::new(crate::updates::check()))
+            },
             check_bold_font_update_task: {
                 let cksum = BOLD_FONT_CKSUM.with(|it| it.borrow().clone());
                 Some(Task::new(async move {
@@ -760,10 +745,10 @@ impl Page for HomePage {
                         warn!("fail to check update {:?}", err);
                     }
                     Ok(Some(ver)) => {
-                        if get_data().ignored_version.as_ref().is_none_or(|it| it < &ver.version) {
+                        if get_data().ignored_pro_release.as_deref() != Some(ver.tag_name.as_str()) {
                             Dialog::plain(
-                                tl!("update", "version" => ver.version.to_string()),
-                                tl!("update-desc", "date" => ver.date.to_string(), "desc" => ver.description),
+                                tl!("update", "version" => ver.tag_name.trim_start_matches('v').to_string()),
+                                tl!("update-desc", "date" => ver.published_at.as_deref().unwrap_or("").get(..10).unwrap_or("").to_string(), "desc" => ver.body.as_deref().unwrap_or("新版本已发布")),
                             )
                             .buttons(vec![
                                 ttl!("cancel").into_owned(),
@@ -773,11 +758,11 @@ impl Page for HomePage {
                             .listener(move |_dialog, pos| {
                                 match pos {
                                     1 => {
-                                        get_data_mut().ignored_version = Some(ver.version.clone());
+                                        get_data_mut().ignored_pro_release = Some(ver.tag_name.clone());
                                         let _ = save_data();
                                     }
                                     2 => {
-                                        let _ = open_url(&ver.url);
+                                        let _ = open_url(&ver.html_url);
                                     }
                                     _ => {}
                                 }

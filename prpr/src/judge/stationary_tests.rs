@@ -164,6 +164,9 @@ fn stationary_notes_render_and_accept_manual_hits() {
                                 }
                                 assert_eq!(judge.combo(), 1, "manual stationary {algorithm:?} {w}x{h} {above}/{kind}/{speed}");
                                 assert!(judge.score(false) > 0);
+                                if kind == 3 || kind == 4 {
+                                    assert_eq!(judge.counts()[Judgement::PerfectPlus as usize], 1, "special-note top grade {algorithm:?}");
+                                }
                                 input(TouchPhase::Ended, position);
                                 res.time += 0.01;
                                 judge.update(&mut res, &mut chart, &mut bad);

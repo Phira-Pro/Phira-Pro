@@ -18,11 +18,12 @@ use std::{
 };
 
 const MAX_PACKAGE: u64 = 2 << 20;
+pub const MAX_CHART_JSON_SIZE: usize = 32 << 20;
 const MAX_ASSET_SIZE: u64 = 8 << 20;
 const MAX_ASSETS_SIZE: usize = 8 << 20;
 const MAX_EXPANDED_PACKAGE: u64 = 10 << 20;
 const MAX_INDEX_SIZE: usize = 24 << 20;
-pub const DEFAULT_OPERATION_LIMIT: u64 = 5_000_000;
+pub const DEFAULT_OPERATION_LIMIT: u64 = 20_000_000;
 static OPERATION_LIMIT: AtomicU64 = AtomicU64::new(DEFAULT_OPERATION_LIMIT);
 /// Public interface name; the numeric manifest field is its compatibility version.
 pub const API_NAME: &str = "Phira Pro Plugin API";
@@ -222,10 +223,7 @@ fn verify(m: &Manifest, script: &str) -> Result<()> {
     anyhow::ensure!(!m.id.is_empty() && m.id.len() <= 80 && m.id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)), "插件 ID 无效");
     anyhow::ensure!(!m.name.trim().is_empty() && m.name.len() <= 160 && m.version.len() <= 80 && m.description.len() <= 2048, "插件名称或描述无效");
     anyhow::ensure!(m.settings.is_object() && serde_json::to_vec(&m.settings)?.len() <= 16 << 10, "插件 settings 必须是小于 16KiB 的 JSON 对象");
-    anyhow::ensure!(
-        m.assets.is_object() && serde_json::to_vec(&m.assets)?.len() <= MAX_ASSETS_SIZE,
-        "插件 assets 必须是小于 8MiB 的 JSON 对象"
-    );
+    anyhow::ensure!(m.assets.is_object() && serde_json::to_vec(&m.assets)?.len() <= MAX_ASSETS_SIZE, "插件 assets 必须是小于 8MiB 的 JSON 对象");
     anyhow::ensure!(m.api >= 2 || m.asset_files.is_empty(), "只有 API v2 插件可以声明 assetFiles");
     for (key, name) in &m.asset_files {
         anyhow::ensure!(
@@ -290,8 +288,7 @@ fn install_package(path: &Path, index: &Path) -> Result<()> {
     anyhow::ensure!(actual == expected, "插件包只允许 manifest.json、main.rhai 和 Manifest 声明的 JSON 资源文件");
     let script = entry(&mut zip, "main.rhai", MAX_PACKAGE)?;
     for (key, name) in &manifest.asset_files {
-        let asset: Value = serde_json::from_str(&entry(&mut zip, name, MAX_ASSET_SIZE)?)
-            .with_context(|| format!("插件资源不是有效 JSON：{name}"))?;
+        let asset: Value = serde_json::from_str(&entry(&mut zip, name, MAX_ASSET_SIZE)?).with_context(|| format!("插件资源不是有效 JSON：{name}"))?;
         manifest.assets.as_object_mut().unwrap().insert(key.clone(), asset);
     }
     anyhow::ensure!(serde_json::to_vec(&manifest.assets)?.len() <= MAX_ASSETS_SIZE, "插件 assets 超过 8MiB");
@@ -414,8 +411,9 @@ fn chart_loaded(chart: &prpr::core::Chart, info: &prpr::info::ChartInfo, config:
             notes.push(json!({"line":line,"index":index,"time":n.time,"end_time":end,"kind":kind,"above":n.above,"speed":n.speed}));
         }}
         notes.sort_by(|a,b| a["time"].as_f64().unwrap().total_cmp(&b["time"].as_f64().unwrap()));
-        let raw: Value = if raw.len() <= 4 << 20 { serde_json::from_slice(raw).unwrap_or(Value::Null) } else { Value::Null };
-        let ctx = json!({"api":API_VERSION,"name":info.name,"level":info.level,"difficulty":info.difficulty,"note_count":count,"truncated":count>notes.len(),"notes":notes,"raw":raw,"speed":config.speed,"flow_speed":config.flow_speed});
+        let raw_truncated = raw.len() > MAX_CHART_JSON_SIZE;
+        let raw: Value = if !raw_truncated { serde_json::from_slice(raw).unwrap_or(Value::Null) } else { Value::Null };
+        let ctx = json!({"api":API_VERSION,"name":info.name,"level":info.level,"difficulty":info.difficulty,"note_count":count,"truncated":count>notes.len(),"notes":notes,"raw":raw,"raw_truncated":raw_truncated,"speed":config.speed,"flow_speed":config.flow_speed});
         for r in runtime.iter_mut() { if let Some(v) = invoke(r,"on_chart", &ctx,"chart.read") { r.report=v; } }
     });
 }
@@ -506,8 +504,34 @@ fn selected_chart_report() -> Option<(String, Value)> {
             .filter(eligible)
             .find(|r| r.plugin.manifest.id == PPSR_PLUGIN_ID)
             .or_else(|| runtime.iter().filter(eligible).next())?;
-        let title = plugin.report.get("title").and_then(Value::as_str).unwrap_or(&plugin.plugin.manifest.name).to_owned();
+        let title = plugin
+            .report
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or(&plugin.plugin.manifest.name)
+            .to_owned();
         Some((title, plugin.report.clone()))
+    })
+}
+fn selected_chart_error() -> Option<(String, String)> {
+    RUNTIME.with(|runtime| {
+        runtime.borrow().iter().find_map(|r| {
+            let selected_hook = r.plugin.manifest.api >= 2
+                && r.plugin.manifest.permissions.iter().any(|permission| permission == "chart.read")
+                && r.ast
+                    .iter_functions()
+                    .any(|function| function.name == "on_chart_selected" && function.params.len() == 2);
+            if !selected_hook {
+                return None;
+            }
+            let error = r.error.as_ref()?;
+            let message = if error.contains("Too many operations") {
+                "插件计算超出操作预算，已暂停。可在插件管理中提高操作数上限，然后刷新或重新启用插件。"
+            } else {
+                "插件分析失败，已暂停。请在插件管理中查看详情并刷新或重新启用插件。"
+            };
+            Some((r.plugin.manifest.name.clone(), message.to_owned()))
+        })
     })
 }
 pub fn render_plugin_difficulty_panel(
@@ -518,11 +542,33 @@ pub fn render_plugin_difficulty_panel(
     toggle: &mut DRectButton,
     panel: &mut PpsrPanelState,
 ) -> bool {
-    let Some((title, report)) = selected_chart_report() else {
+    let selected = selected_chart_report();
+    if selected.is_none() {
+        if let Some((title, message)) = selected_chart_error() {
+            let width = 0.72;
+            let height = 0.18;
+            let position = panel.position.unwrap_or(Vec2::new(0.98 - width, ui.top - height - 0.08));
+            let rect = Rect::new(position.x.clamp(-1.0, 1.0 - width), position.y.clamp(-ui.top, (ui.top - height).max(-ui.top)), width, height);
+            panel.position = Some(Vec2::new(rect.x, rect.y));
+            panel.bounds = Some(rect);
+            panel.drag = None;
+            ui.fill_path(&rect.rounded(0.02), (artwork, rect, ScaleType::CropCenter, Color::new(1., 1., 1., 0.82)));
+            ui.fill_path(&rect.rounded(0.02), Color::new(0.055, 0.035, 0.055, 0.82));
+            ui.stroke_path(&rect.rounded(0.02), 0.002, Color::new(1., 0.36, 0.48, 0.8));
+            ui.text(title).pos(rect.x + 0.025, rect.y + 0.018).size(0.28).draw();
+            ui.text(message)
+                .pos(rect.x + 0.025, rect.y + 0.075)
+                .max_width(width - 0.05)
+                .size(0.25)
+                .color(Color::new(1., 0.86, 0.86, 1.))
+                .draw();
+            return true;
+        }
         panel.bounds = None;
         panel.drag = None;
         return false;
-    };
+    }
+    let (title, report) = selected.unwrap();
     let parts = report.get("parts").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     let width = 0.72;
     let row_height = 0.056;
@@ -630,6 +676,21 @@ pub fn render(ui: &mut prpr::ui::Ui, time: f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Build the archive from tracked examples, so a clean checkout can run tests
+    // without separately downloaded/generated plugin ZIPs.
+    fn write_example_package(package: &std::path::Path, example: &str, files: &[&str]) {
+        use std::io::Write;
+        let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../docs/plugins/examples")
+            .join(example);
+        let mut archive = zip::ZipWriter::new(std::fs::File::create(package).unwrap());
+        for file in files {
+            archive.start_file(*file, zip::write::SimpleFileOptions::default()).unwrap();
+            archive.write_all(&std::fs::read(source.join(file)).unwrap()).unwrap();
+        }
+        archive.finish().unwrap();
+    }
     #[test]
     fn operation_limit_rejects_invalid_values_and_persists_default() {
         for input in ["", "0", "-1", "1.5", "+12", "12x", "18446744073709551616"] {
@@ -706,13 +767,8 @@ mod tests {
             error: None,
             frame_tick: -1,
         };
-        let report = invoke(
-            &mut runtime,
-            "on_chart_selected",
-            &json!({"chart_data":null,"raw":{"sentinel":true}}),
-            "chart.read",
-        )
-        .unwrap_or_else(|| panic!("PDE-R selected-chart callback suspended: {:?}", runtime.error));
+        let report = invoke(&mut runtime, "on_chart_selected", &json!({"chart_data":null,"raw":{"sentinel":true}}), "chart.read")
+            .unwrap_or_else(|| panic!("PDE-R selected-chart callback suspended: {:?}", runtime.error));
         assert_eq!(report["failed"], true);
         assert!(report["text"].as_str().unwrap().contains("原始"));
         assert!(runtime.error.is_none());
@@ -736,8 +792,7 @@ mod tests {
             error: None,
             frame_tick: -1,
         };
-        let mut chart_data: Value =
-            serde_json::from_str(include_str!("../../prpr/tests/fixtures/rpe-next/chart.json")).unwrap();
+        let mut chart_data: Value = serde_json::from_str(include_str!("../../prpr/tests/fixtures/rpe-next/chart.json")).unwrap();
         let notes = chart_data["judgeLineList"][0]["notes"].as_array_mut().unwrap();
         let template = notes[0].clone();
         for beat in 20..28 {
@@ -746,13 +801,8 @@ mod tests {
             note["endTime"] = json!([beat, 0, 1]);
             notes.push(note);
         }
-        let report = invoke(
-            &mut runtime,
-            "on_chart_selected",
-            &json!({"chart_data":chart_data}),
-            "chart.read",
-        )
-        .unwrap_or_else(|| panic!("PDE-R feature/model callback suspended: {:?}", runtime.error));
+        let report = invoke(&mut runtime, "on_chart_selected", &json!({"chart_data":chart_data}), "chart.read")
+            .unwrap_or_else(|| panic!("PDE-R feature/model callback suspended: {:?}", runtime.error));
         assert_ne!(report["failed"], true, "PDE-R rejected a supported RPE chart: {report:?}");
         assert_eq!(report["features"], 106);
         assert_eq!(report["feature_map"].as_object().unwrap().len(), 106);
@@ -764,7 +814,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let package = dir.path().join("pde-r.zip");
         let index = dir.path().join("plugins/index.json");
-        std::fs::write(&package, include_bytes!("../../docs/plugins/Phira-Pro-PDE-R.zip")).unwrap();
+        write_example_package(&package, "pde-r", &["manifest.json", "main.rhai", "model.json"]);
         install_package(&package, &index).unwrap();
         let installed = read_index_at(&index).unwrap();
         assert_eq!(installed.len(), 1);
@@ -942,10 +992,7 @@ mod tests {
             .iter()
             .map(|name| ((*name).to_owned(), json!([0.])))
             .collect::<serde_json::Map<_, _>>();
-        let directions = names
-            .iter()
-            .map(|name| ((*name).to_owned(), json!(1)))
-            .collect::<serde_json::Map<_, _>>();
+        let directions = names.iter().map(|name| ((*name).to_owned(), json!(1))).collect::<serde_json::Map<_, _>>();
         let mut part_profile = serde_json::Map::new();
         for key in [
             "density", "stream", "jack", "chord", "travel", "reach", "hold", "reading", "burst", "repeat",
@@ -995,13 +1042,8 @@ mod tests {
             error: None,
             frame_tick: -1,
         };
-        let report = invoke(
-            &mut runtime,
-            "on_chart_selected",
-            &ppsr_ctx(&ppsr_names(), vec![json!(0.); 187]),
-            "chart.read",
-        )
-        .unwrap_or_else(|| panic!("PPSR callback suspended: {:?}", runtime.error));
+        let report = invoke(&mut runtime, "on_chart_selected", &ppsr_ctx(&ppsr_names(), vec![json!(0.); 187]), "chart.read")
+            .unwrap_or_else(|| panic!("PPSR callback suspended: {:?}", runtime.error));
         assert_eq!(report["difficulty"], 10.06);
         let parts = report["parts"].as_array().unwrap();
         assert_eq!(parts.len(), 10);
@@ -1012,13 +1054,7 @@ mod tests {
         let mut official_ctx = ppsr_ctx(&ppsr_names(), vec![json!(0.); 187]);
         official_ctx["difficulty"] = json!(16.68);
         official_ctx["chart_set"] = json!("phigros");
-        let official_report = invoke(
-            &mut runtime,
-            "on_chart_selected",
-            &official_ctx,
-            "chart.read",
-        )
-        .expect("official PPSR callback");
+        let official_report = invoke(&mut runtime, "on_chart_selected", &official_ctx, "chart.read").expect("official PPSR callback");
         assert!((official_report["difficulty"].as_f64().unwrap() - 16.68).abs() < 1e-9);
     }
     #[test]
@@ -1083,10 +1119,7 @@ mod tests {
         .unwrap_or_else(|| panic!("PPSR model callback suspended: {:?}", runtime.error));
         let difficulty = report["difficulty"].as_f64().unwrap();
         let expected = 1.6317731664795476;
-        assert!(
-            difficulty.is_finite() && (difficulty - expected).abs() < 1e-9,
-            "unexpected frozen-model parity result: {difficulty}"
-        );
+        assert!(difficulty.is_finite() && (difficulty - expected).abs() < 1e-9, "unexpected frozen-model parity result: {difficulty}");
         let parts = report["parts"].as_array().unwrap();
         assert_eq!(parts.len(), 10);
         assert!(parts.iter().all(|part| (1.0..=10.0).contains(&part["score"].as_f64().unwrap())));
@@ -1161,7 +1194,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let package = dir.path().join("ppsr.zip");
         let index = dir.path().join("plugins/index.json");
-        std::fs::write(&package, include_bytes!("../../docs/plugins/Phira-Pro-PPSR.zip")).unwrap();
+        write_example_package(&package, "ppsr", &["manifest.json", "main.rhai", "model.json", "profile.json"]);
         install_package(&package, &index).unwrap();
         let installed = read_index_at(&index).unwrap();
         assert_eq!(installed.len(), 1);

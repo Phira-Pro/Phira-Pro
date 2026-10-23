@@ -176,6 +176,7 @@ pub struct MainScene {
     icon_back: SafeTexture,
 
     pages: Vec<Box<dyn Page>>,
+    multiplayer: crate::mp::overlay::MultiplayerOverlay,
     course_home_fade: Option<f64>,
 
     idle_fps: IdleFps,
@@ -261,6 +262,8 @@ impl MainScene {
 
     async fn new_inner(fallback: FontArc) -> Result<Self> {
         let state = SharedState::new(fallback).await?;
+        let icons = Arc::new(Icons::new().await?);
+        let multiplayer = crate::mp::overlay::MultiplayerOverlay::new(Arc::clone(&icons)).await?;
         Ok(Self {
             state,
 
@@ -271,6 +274,7 @@ impl MainScene {
             icon_back: TEX_ICON_BACK.with(|it| it.borrow().clone().unwrap()),
 
             pages: Vec::new(),
+            multiplayer,
             course_home_fade: None,
 
             import_task: None,
@@ -282,7 +286,7 @@ impl MainScene {
             deeplink_chart: None,
             deeplink_scene: None,
 
-            icons: Arc::new(Icons::new().await?),
+            icons,
 
             batch_import_confirm: Arc::default(),
             batch_import: None,
@@ -326,6 +330,7 @@ impl Scene for MainScene {
         self.state.menu_music.set_active(self.pages.last().is_some_and(|it| it.can_play_bgm()))?;
         self.state.update(tm);
         self.pages.last_mut().unwrap().enter(&mut self.state)?;
+        self.multiplayer.enter(&mut self.state)?;
         Ok(())
     }
 
@@ -375,6 +380,9 @@ impl Scene for MainScene {
         s.update(tm);
         if crate::hud::edit_active() {
             return Ok(crate::hud::editor_touch(touch));
+        }
+        if self.multiplayer.touch(touch, s)? {
+            return Ok(true);
         }
         if self.pages.last_mut().unwrap().touch(touch, s)? {
             return Ok(true);
@@ -436,6 +444,7 @@ impl Scene for MainScene {
         UI_AUDIO.with(|it| it.borrow_mut().recover_if_needed())?;
         let s = &mut self.state;
         s.update(tm);
+        self.multiplayer.update(s)?;
         if s.fader.transiting() {
             let pos = self.pages.len() - 2;
             self.pages[pos].update(s)?;
@@ -923,6 +932,9 @@ impl Scene for MainScene {
         self.pages.last_mut().unwrap().render_top(ui, s)?;
         if crate::hud::edit_active() {
             crate::hud::editor_render(ui);
+        } else {
+            let background = TEX_BACKGROUND_BLUR.with(|it| it.borrow().clone().unwrap());
+            self.multiplayer.render(ui, s, &background)?;
         }
 
         if self.import_task.is_some() {
@@ -953,6 +965,11 @@ impl Scene for MainScene {
     }
 
     fn next_scene(&mut self, _tm: &mut TimeManager) -> NextScene {
+        let multiplayer = self.multiplayer.next_scene();
+        if !matches!(multiplayer, NextScene::None) {
+            self.state.menu_music.leave();
+            return multiplayer;
+        }
         if let Some(next) = self.deeplink_scene.take() {
             self.state.menu_music.leave();
             return next;

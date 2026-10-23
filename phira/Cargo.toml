@@ -32,6 +32,7 @@ daachorse = "3.0.2"
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
 futures-util = { workspace = true }
 hex = { workspace = true }
+half = "2.7.1"
 http = { workspace = true }
 image = { workspace = true, default-features = false, features = [
     "bmp",
@@ -76,7 +77,7 @@ sha2 = { workspace = true }
 smallvec = "1.15.1"
 tap = "1.0.1"
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "net", "io-util", "time", "macros"] }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 url = { workspace = true }

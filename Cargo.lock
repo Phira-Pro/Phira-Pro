@@ -3419,6 +3419,7 @@ dependencies = [
  "fluent",
  "fluent-syntax",
  "futures-util",
+ "half",
  "hex",
  "http",
  "image",

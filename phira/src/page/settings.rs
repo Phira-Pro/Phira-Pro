@@ -546,6 +546,8 @@ fn reset_all_settings() {
     {
         let data = get_data_mut();
         data.config = defaults.config;
+        data.multiplayer_enabled = defaults.multiplayer_enabled;
+        data.multiplayer_button_position = None;
         data.judge_preset_id = None;
         // 语言回到「跟随系统」，下面 sync_data() 会立刻生效。
         data.language = None;
@@ -630,6 +632,7 @@ struct GeneralList {
     theme_lang: Option<String>,
     cache_btn: DRectButton,
     offline_btn: DRectButton,
+    multiplayer_btn: DRectButton,
     server_status_btn: DRectButton,
     /// 打开「API 地址」输入（自建 / 私服用）。
     api_url_btn: DRectButton,
@@ -701,6 +704,7 @@ impl GeneralList {
             theme_lang: None,
             cache_btn: DRectButton::new(),
             offline_btn: DRectButton::new(),
+            multiplayer_btn: DRectButton::new(),
             server_status_btn: DRectButton::new(),
             api_url_btn: DRectButton::new(),
             web_url_btn: DRectButton::new(),
@@ -919,6 +923,10 @@ impl GeneralList {
         }
         if self.offline_btn.touch(touch, t) {
             config.offline_mode ^= true;
+            return Ok(Some(true));
+        }
+        if self.multiplayer_btn.touch(touch, t) {
+            data.multiplayer_enabled ^= true;
             return Ok(Some(true));
         }
         if self.server_status_btn.touch(touch, t) {
@@ -1166,6 +1174,10 @@ impl GeneralList {
         item! {
             render_title(ui, tl!("item-offline"), Some(tl!("item-offline-sub")));
             render_switch(ui, rr, t, &mut self.offline_btn, config.offline_mode);
+        }
+        item! {
+            render_title(ui, tl!("item-multiplayer"), Some(tl!("item-multiplayer-sub")));
+            render_switch(ui, rr, t, &mut self.multiplayer_btn, data.multiplayer_enabled);
         }
         item! {
             render_title(ui, tl!("item-server-status"), Some(tl!("item-server-status-sub")));

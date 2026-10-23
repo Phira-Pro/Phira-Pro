@@ -1957,25 +1957,28 @@ impl Scene for GameScene {
                                     }
                                 }
                             }
-                            Some(NextScene::Overlay(Box::new(EndingScene::new(
-                                self.res.background.clone(),
-                                self.res.illustration.clone(),
-                                self.res.player.clone(),
-                                self.res.icons.clone(),
-                                self.res.icon_retry.clone(),
-                                self.res.icon_proceed.clone(),
-                                self.res.mod_icons.clone(),
-                                self.res.info.clone(),
-                                self.judge.result(self.res.config.has_mod(Mods::NO_COMBO_SCORE)),
-                                &self.res.config,
-                                self.res.res_pack.ending.clone(),
-                                self.upload_fn.as_ref().map(Arc::clone),
-                                self.player.as_ref().map(|it| it.rks),
-                                historic_best,
-                                record_data,
-                                self.best_record.clone(),
-                                if self.res.config.show_avg_fps { self.get_avg_fps() } else { None },
-                            )?)))
+                            Some(NextScene::Overlay(Box::new(
+                                EndingScene::new(
+                                    self.res.background.clone(),
+                                    self.res.illustration.clone(),
+                                    self.res.player.clone(),
+                                    self.res.icons.clone(),
+                                    self.res.icon_retry.clone(),
+                                    self.res.icon_proceed.clone(),
+                                    self.res.mod_icons.clone(),
+                                    self.res.info.clone(),
+                                    self.judge.result(self.res.config.has_mod(Mods::NO_COMBO_SCORE)),
+                                    &self.res.config,
+                                    self.res.res_pack.ending.clone(),
+                                    self.upload_fn.as_ref().map(Arc::clone),
+                                    self.player.as_ref().map(|it| it.rks),
+                                    historic_best,
+                                    record_data,
+                                    self.best_record.clone(),
+                                    if self.res.config.show_avg_fps { self.get_avg_fps() } else { None },
+                                )?
+                                .with_retry(self.mode != GameMode::NoRetry),
+                            )))
                         }
                         GameMode::Course => Some(NextScene::PopWithResult(Box::new(self.judge.result(true)))),
                         GameMode::TweakOffset => Some(NextScene::PopWithResult(Box::new(None::<f32>))),

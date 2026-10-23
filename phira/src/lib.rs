@@ -31,6 +31,7 @@ mod images;
 mod login;
 mod menu_music;
 mod migrate;
+pub(crate) mod mp;
 mod page;
 mod plugins;
 mod popup;

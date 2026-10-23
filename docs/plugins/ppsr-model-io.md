@@ -4,7 +4,7 @@ This contract applies to the replaceable `model.json` and `profile.json` assets 
 
 ## Feature extraction ownership
 
-Plugin API v2 supports algorithm-specific feature extraction: `on_chart_selected` receives the local chart's parsed JSON object as `ctx.chart_data` when the source is at most 4 MiB. A plugin may parse it and build any feature vector in its own Rhai script; feature names and dimensions are not shared between plugins. The [PDE-R example](./examples/pde-r/) demonstrates a separate 106-feature algorithm and model.
+Plugin API v2 supports algorithm-specific feature extraction: `on_chart_selected` receives the local chart's parsed JSON object as `ctx.chart_data` when the source is at most 32 MiB. Oversized source sets `ctx.raw_truncated` to true. A plugin may parse it and build any feature vector in its own Rhai script; feature names and dimensions are not shared between plugins. The [PDE-R example](./examples/pde-r/) demonstrates a separate 106-feature algorithm and model.
 
 This PPSR v2 package currently uses a legacy compatibility path: the host creates its exact 187-value vector and the plugin performs model inference and breakdown mapping. The host only runs that PPSR extractor when `phira-pro.ppsr` is enabled; unrelated plugins receive `chart_data` without PPSR feature computation. Thus replacing this package's model/profile does not replace the PPSR feature algorithm. Moving PPSR's 187-feature implementation into its own Rhai package remains separate work.
 
@@ -56,7 +56,7 @@ The root object must use `format: "phira-ppsr-model"`, `version: 2`, `featureVer
 
 Each tree node is either a leaf `{ "leaf": number }`, or a split `{ "feature": integer, "threshold": number, "left": node, "right": node }`. A split goes left when `x[feature] <= threshold`, otherwise right. A learner prediction is `base + lr * sum(tree leaf values)`. The raw prediction is the arithmetic mean of learner predictions. Apply `deshrink.slope * raw + deshrink.intercept`, then add the tail increment. For each tail index whose input is above its positive `xMax`, the increment is `coef * shape(input / xMax - 1)`, where `shape` is `log(1 + u)` for `"log"`, `u` for `"linear"`, or `(exp(expK * u) - 1) / expK` for `"exp"`; multiply the sum by `gain`, clamp it to at least zero, and apply the positive `maxAdd` cap when present.
 
-Do not change tree representation, learner averaging, deshrink order, tail handling, or feature order when replacing the model. The selected-chart callback uses the user-configurable Rhai operation budget, defaulting to 5,000,000 operations; `on_frame` remains fixed at 25,000.
+Do not change tree representation, learner averaging, deshrink order, tail handling, or feature order when replacing the model. The selected-chart callback uses the user-configurable Rhai operation budget, defaulting to 20,000,000 operations; `on_frame` remains fixed at 25,000.
 
 ## `profile.json`
 

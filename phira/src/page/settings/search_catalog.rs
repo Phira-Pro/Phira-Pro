@@ -13,6 +13,7 @@
     (0, "item-ui-theme"),
     (0, "item-fullscreen"),
     (0, "item-offline"),
+    (0, "item-multiplayer"),
     (0, "item-server-status"),
     (0, "item-api-url"),
     (0, "item-web-url"),

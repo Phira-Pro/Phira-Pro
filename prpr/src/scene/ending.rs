@@ -72,6 +72,7 @@ pub struct EndingScene {
     best_record: Option<SimpleRecord>,
 
     btn_retry: DRectButton,
+    allow_retry: bool,
     btn_proceed: DRectButton,
     btn_apply: DRectButton,
     btn_detail: RectButton,
@@ -163,6 +164,7 @@ impl EndingScene {
             best_record,
 
             btn_retry: DRectButton::new(),
+            allow_retry: true,
             btn_proceed: DRectButton::new(),
             btn_apply: DRectButton::new(),
             btn_detail: RectButton::new(),
@@ -188,6 +190,13 @@ thread_local! {
     static RE_UPLOAD: RefCell<bool> = RefCell::default();
 }
 
+impl EndingScene {
+    pub(crate) fn with_retry(mut self, allowed: bool) -> Self {
+        self.allow_retry = allowed;
+        self
+    }
+}
+
 impl Scene for EndingScene {
     fn enter(&mut self, tm: &mut TimeManager, target: Option<RenderTarget>) -> Result<()> {
         tm.reset();
@@ -210,7 +219,7 @@ impl Scene for EndingScene {
 
     fn touch(&mut self, tm: &mut TimeManager, touch: &Touch) -> Result<bool> {
         let t = tm.now() as f32;
-        if self.btn_retry.touch(touch, t) {
+        if self.allow_retry && self.btn_retry.touch(touch, t) {
             if self.upload_task.is_some() {
                 show_message(tl!("still-uploading"));
             } else {
@@ -740,17 +749,21 @@ impl Scene for EndingScene {
             });
 
             r.x -= r.w + 0.02;
-            self.btn_retry.render_shadow(ui, r, t, |ui, path| {
-                ui.fill_path(&path, Color::from_hex_rgb(0x78909c));
-                let ir = Rect::new(r.x + 0.05, r.center().y, 0., 0.).feather(0.03);
-                ui.fill_rect(ir, (*self.icon_retry, ir));
-                ui.text(tl!("retry"))
-                    .pos((ir.right() + r.right() - 0.01) / 2., r.center().y)
-                    .anchor(0.5, 0.5)
-                    .no_baseline()
-                    .size(0.44)
-                    .draw_using(&BOLD_FONT);
-            });
+            if self.allow_retry {
+                self.btn_retry.render_shadow(ui, r, t, |ui, path| {
+                    ui.fill_path(&path, Color::from_hex_rgb(0x78909c));
+                    let ir = Rect::new(r.x + 0.05, r.center().y, 0., 0.).feather(0.03);
+                    ui.fill_rect(ir, (*self.icon_retry, ir));
+                    ui.text(tl!("retry"))
+                        .pos((ir.right() + r.right() - 0.01) / 2., r.center().y)
+                        .anchor(0.5, 0.5)
+                        .no_baseline()
+                        .size(0.44)
+                        .draw_using(&BOLD_FONT);
+                });
+            } else {
+                self.btn_retry.invalidate();
+            }
 
             // Keep the original position on tablets. Only move up if the actual grade grid overlaps.
             r.x -= r.w + 0.02;

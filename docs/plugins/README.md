@@ -44,9 +44,9 @@ with ZipFile("ppsr.zip", "w", ZIP_DEFLATED) as archive:
 - `api`：1；`name`、`level`、`difficulty`：谱面信息；`speed`、`flow_speed`：本局设置；`operation_limit`：当前非帧回调的操作预算。
 - `note_count`：非假音符总数；`notes`：按头部时间升序排列，最多 50,000 项；`truncated` 明确指出是否截断。分析算法必须检查此标志，不能把截断结果当完整谱面。
 - 每个音符含 `line`、`index`（原始判定线／音符索引，从 0 开始）、`time`、`end_time`（谱面秒，未加音频偏移，非 Hold 等于 time）、`kind`（`tap` / `drag` / `flick` / `hold`）、`above`、`speed`。
-- `raw`：解析原谱面 JSON；原数据超过 4MiB 或并非 JSON 时为 JSON null（Rhai 中通常为 unit）。它保留编辑器字段，需自行检测谱面格式。标准化 notes 暂不提供逐时刻坐标、判定线动画、噪域求值接口。
+- `raw`：解析原谱面 JSON；原数据超过 32 MiB 或并非合法 JSON 时为 JSON null（Rhai 中通常为 unit），超限时另有 `raw_truncated: true`。它保留编辑器字段，需自行检测谱面格式。标准化 notes 暂不提供逐时刻坐标、判定线动画、噪域求值接口。
 
-`on_chart_selected` 提供 `api`、谱面 `name` / `level` / `difficulty`、`format`（`rpe` / `pec` / `pgr` / `pbc`）、`chart_set`（内置章节谱为 `phigros`，其余本地谱为 `phira`）、`chart_data` 和 `operation_limit`。`chart_data` 是原始谱面文件解析出的 JSON 对象；文件超过 4 MiB、不是 JSON 或不是对象时为 JSON null。`operation_limit` 是当前非帧回调的 Rhai 操作预算；用户可在插件管理页调整。该原始输入允许每个插件在自身 Rhai 脚本中实现不同的音符解析、特征定义与模型适配；宿主不要求不同算法共用特征列。`assets` 是 Manifest 固定缓存，适合随插件携带模型和算法配置。模型插件的推荐模型元数据、特征 schema 和预测报告结构见 [模型插件 I/O 规范](./model-io.md)。
+`on_chart_selected` 提供 `api`、谱面 `name` / `level` / `difficulty`、`format`（`rpe` / `pec` / `pgr` / `pbc`）、`chart_set`（内置章节谱为 `phigros`，其余本地谱为 `phira`）、`chart_data` 和 `operation_limit`。`chart_data` 是原始谱面文件解析出的 JSON 对象；源文件超过 32 MiB 时为 JSON null，并通过 `raw_truncated: true` 明示大小限制；不合法 JSON 或顶层非对象也会返回 null。`raw_truncated` 为 false 不代表文件一定是合法 JSON。`operation_limit` 是当前非帧回调的 Rhai 操作预算，默认 20,000,000；用户可在插件管理页调整。该原始输入允许每个插件在自身 Rhai 脚本中实现不同的音符解析、特征定义与模型适配；宿主不要求不同算法共用特征列。`assets` 是 Manifest 固定缓存，适合随插件携带模型和算法配置。模型插件的推荐模型元数据、特征 schema 和预测报告结构见 [模型插件 I/O 规范](./model-io.md)。
 
 PPSR v2 的现有安装包还依赖兼容字段：`feature_version`、`v2_feature_version`、`feature_names`、`features`（严格排序的 187 个数值）、`note_total`、`mech_total`、`duration` 和 `fake_ratio`。这组特征仍由宿主的 PPSR 提取器生成，且仅当安装并启用了 ID 为 `phira-pro.ppsr` 的插件时才计算；其他插件只收到原始 `chart_data`，不触发 PPSR 特征计算。新插件应自行提取特征，并不要依赖 PPSR 专用列。谱面分析只针对宿主可从本机读取的谱面；线上预览、尚未下载的谱面不能在进入游戏前分析。分析通过异步任务推进，报告保存在内存，返回 SongScene 后仍可供 PPSR 专用面板显示。
 
@@ -54,7 +54,7 @@ PPSR v2 的现有安装包还依赖兼容字段：`feature_version`、`v2_featur
 
 `on_result` 参数采用 camelCase：`score`、`accuracy`（0～1）、`fullCombo`、`maxCombo`、`numOfNotes`、`counts`（PERFECT 含 Perfect+ / GOOD / BAD / MISS）、`gradeCounts`、`grading`、`hist`、`std`（秒）。可选字段可能为 null；`gradeCounts` 索引为 PERFECT=0、GOOD=1、BAD=2、MISS=3、PERFECT+=4、GREAT=5、OK=6、MEH=7。
 
-`on_chart` / `on_result` 返回对象由管理页「详情」显示。可约定 `{ algorithm: "ppsr", difficulty: 12.34, text: "…" }`：这些字段供作者组织结果，核心不会将其写入官服定数、PB、RKS 或上传内容。插件系统本身不内置 PPSR，也没有自动替换内置难度的注册接口；PPSR 作为独立插件随本目录单独分发。
+`on_chart` / `on_result` 返回对象由管理页「详情」显示。`on_chart_selected` 若返回 `difficulty`，共用面板标题优先读取返回对象的 `title` 字符串，没有该字段时显示 Manifest 插件名称。可约定 `{ algorithm: "ppsr", difficulty: 12.34, text: "…" }`：这些字段供作者组织结果，核心不会将其写入官服定数、PB、RKS 或上传内容。插件系统本身不内置 PPSR，也没有自动替换内置难度的注册接口；PPSR 作为独立插件随本目录单独分发。
 
 ## 个性化显示
 
@@ -68,6 +68,6 @@ PPSR v2 的现有安装包还依赖兼容字段：`feature_version`、`v2_featur
 
 ## 执行限制与错误
 
-没有原生动态库、文件系统、网络、系统命令、账户数据、触摸注入或判定／成绩修改接口。禁用文件模块导入；`print` 和 `debug` 不输出。谱面和结算回调默认最多 5,000,000 个操作，可在插件管理页调整；非法值回退到默认值。帧回调仍固定最多 25,000 个操作。调用深度 32，表达式深度 64/32，变量／函数最多 256，字符串数据最多 8MiB，数组和 Map 各最多 1,000,000 项（Rhai 对嵌套容器递归累加计数），JSON 返回值最多 32KiB。操作计数不是墙钟时间保证；这些限制用于控制脚本开销，复杂算法应自行优化。
+没有原生动态库、文件系统、网络、系统命令、账户数据、触摸注入或判定／成绩修改接口。禁用文件模块导入；`print` 和 `debug` 不输出。谱面和结算回调默认最多 20,000,000 个操作，可在插件管理页调整；非法值回退到默认值。帧回调仍固定最多 25,000 个操作。操作超限或回调报错会暂停插件；选谱页会显示失败提示，插件管理页「详情」保留错误原因，刷新或重新启用可恢复。调用深度 32，表达式深度 64/32，变量／函数最多 256，字符串数据最多 8MiB，数组和 Map 各最多 1,000,000 项（Rhai 对嵌套容器递归累加计数），JSON 返回值最多 32KiB。操作计数不是墙钟时间保证；这些限制用于控制脚本开销，复杂算法应自行优化。
 
 回调出错、超限或返回非 JSON 数据时，该插件暂停执行，管理页显示原因。修改设置、停用后再启用或刷新可重新加载。插件的文件读写与安装均使用应用的数据目录；插件本身不能访问该目录。开发时请在副本配置中验证耗时与错误行为。

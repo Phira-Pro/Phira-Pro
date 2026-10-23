@@ -683,7 +683,8 @@ impl SongScene {
             let mut fs = fs_from_path(&path)?;
             let info = fs::load_info(fs.as_mut()).await?;
             let bytes = fs.load_file(&info.chart).await?;
-            let chart_data = if bytes.len() <= 4 << 20 {
+            let raw_truncated = bytes.len() > crate::plugins::MAX_CHART_JSON_SIZE;
+            let chart_data = if !raw_truncated {
                 match serde_json::from_slice::<serde_json::Value>(&bytes) {
                     Ok(value) if value.is_object() => value,
                     _ => serde_json::Value::Null,
@@ -713,6 +714,7 @@ impl SongScene {
             object.insert("format".into(), serde_json::to_value(format)?);
             object.insert("chart_set".into(), json!(chart_set));
             object.insert("chart_data".into(), chart_data);
+            object.insert("raw_truncated".into(), json!(raw_truncated));
             Ok(payload)
         }));
     }
@@ -1094,8 +1096,30 @@ impl SongScene {
         record: Option<SimpleRecord>,
         is_unlock: bool,
     ) -> Result<LocalSceneTask> {
+        Self::launch_with_context(id, local_path, mods, mode, background_output, record, is_unlock, None)
+    }
+
+    pub(crate) fn multiplayer_launch(id: i32, local_path: &str, context: crate::mp::game_bridge::GameContext) -> Result<LocalSceneTask> {
+        Self::launch_with_context(Some(id), local_path, Mods::empty(), GameMode::NoRetry, None, None, false, Some(context))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn launch_with_context(
+        id: Option<i32>,
+        local_path: &str,
+        mods: Mods,
+        mode: GameMode,
+        background_output: Option<Arc<Mutex<Option<SafeTexture>>>>,
+        record: Option<SimpleRecord>,
+        is_unlock: bool,
+        multiplayer: Option<crate::mp::game_bridge::GameContext>,
+    ) -> Result<LocalSceneTask> {
         // Preset judgement mods must survive the per-chart mod assignment below.
-        let mods = get_data().config.chart_mods(mods);
+        let mut mods = get_data().config.chart_mods(mods);
+        let mut run_config = get_data().config.clone();
+        if let Some(context) = &multiplayer {
+            context.configure(&mut run_config, &mut mods);
+        }
         let mut fs = fs_from_path(local_path)?;
         let can_rated = id.is_some() || local_path.starts_with(':');
         #[cfg(feature = "video")]
@@ -1103,24 +1127,28 @@ impl SongScene {
         // 是否计入成绩：与上传闸门同口径——本局未改动判定 / 玩法（`is_official_play`）、
         // 非离线、且谱面可计成绩。
         let rated = {
-            let config = &get_data().config;
+            let config = &run_config;
             !config.offline_mode && can_rated && config.is_official_play(mods)
         };
         if !rated && can_rated && mode == GameMode::Normal {
             show_message(tl!("warn-unrated")).warn();
         }
         // Phira Pro：回放录制。仅在正常游玩（非自动）时挂载。
-        let replay_rec = if mode == GameMode::Normal && !get_data().config.autoplay() {
+        let replay_rec = if matches!(mode, GameMode::Normal | GameMode::NoRetry) && !run_config.autoplay() {
             let chart = match id {
                 Some(id) => Some(crate::replay::ChartRef::Id(id)),
                 None => Some(crate::replay::ChartRef::Local(local_path.to_owned())),
             };
-            let cfg = get_data().config.clone();
+            let cfg = run_config.clone();
             Some(crate::replay::recorder(chart, cfg.offset, cfg.speed, mods.bits() as u32))
         } else {
             None
         };
-        let update_fn: Option<UpdateFn> = replay_rec;
+        let update_fn: Option<UpdateFn> = if let Some(context) = &multiplayer {
+            context.wrap_update(replay_rec)
+        } else {
+            replay_rec
+        };
 
         let save_fn: Option<SaveFn> = Some(Box::new({
             let local_path = local_path.to_string();
@@ -1186,6 +1214,11 @@ impl SongScene {
             }
         }));
 
+        let save_fn = if let Some(context) = &multiplayer {
+            context.wrap_save(save_fn)
+        } else {
+            save_fn
+        };
         let practice_source = local_path.to_owned();
         Ok(Some(Box::pin(async move {
             let mut info = fs::load_info(fs.as_mut()).await?;
@@ -1193,7 +1226,7 @@ impl SongScene {
             if update_fn.is_some() {
                 crate::replay::library::record_identity(fs.as_mut(), &info).await?;
             }
-            let mut config = get_data().config.clone();
+            let mut config = run_config;
             config.practice_local_path = Some(practice_source);
             config.player_name = get_data()
                 .me
@@ -1202,9 +1235,7 @@ impl SongScene {
                 .unwrap_or_else(|| tl!("guest").into_owned());
             config.res_pack_path = get_data().selected_respack_path()?;
             config.mods = mods;
-            // 联机对战必须保证公平：把任何改动过的判定 / 玩法选项临时还原成官方默认值
-            // （自动游玩 / 全屏判定 / 严格判定 / 判定窗口 / 晚按补偿 / 黄红键保护 / 尾判 /
-            // 血条倍率 / 降速 / 键盘模式等）。只作用于本局用的配置副本，不动玩家保存的设置。
+            // Multiplayer supplies its per-game rules through GameContext above.
             let preload = LoadingScene::load(fs.as_mut(), &info.illustration).await?;
             if let Some(output) = background_output {
                 *output.lock().unwrap() = Some(preload.1.clone());
@@ -3447,14 +3478,7 @@ impl Scene for SongScene {
             ui.fill_rect(r, semi_black(0.3));
         }
 
-        crate::plugins::render_plugin_difficulty_panel(
-            ui,
-            t,
-            *self.illu.texture.0,
-            self.ppsr_collapsed,
-            &mut self.ppsr_toggle,
-            &mut self.ppsr_panel,
-        );
+        crate::plugins::render_plugin_difficulty_panel(ui, t, *self.illu.texture.0, self.ppsr_collapsed, &mut self.ppsr_toggle, &mut self.ppsr_panel);
         self.sf.render(ui, t);
 
         Ok(())

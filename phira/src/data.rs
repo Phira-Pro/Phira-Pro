@@ -102,6 +102,9 @@ fn default_anys_gateway() -> String {
 #[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Data {
+    pub multiplayer_address: String,
+    pub multiplayer_enabled: bool,
+    pub multiplayer_button_position: Option<[f32; 2]>,
     pub judge_presets: Vec<crate::judgement_presets::JudgePreset>,
     pub judge_preset_id: Option<String>,
     pub me: Option<User>,

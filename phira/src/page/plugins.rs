@@ -63,7 +63,7 @@ impl PluginManager {
             0.34,
             false,
         );
-        ui.text("正整数；非法输入恢复默认 5000000。帧回调固定 25000。")
+        ui.text(format!("正整数；非法输入恢复默认 {}。帧回调固定 25000。", crate::plugins::DEFAULT_OPERATION_LIMIT))
             .pos(a.x + 0.69, a.y + 0.14)
             .max_width((a.w - 0.69).max(0.1))
             .size(0.27)

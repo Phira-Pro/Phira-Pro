@@ -25,7 +25,7 @@ Phira Pro 插件是以 `.zip` 导入的 **Rhai 脚本**，通过版本化的 **P
 
 1. 应用启动时 `plugins::init()` 读取用户数据目录下的 `plugins/index.json`，编译已启用脚本，并注册 `prpr::extensions` 的图表观察者。
 2. `GameScene` 完成图表解析后，插件收到只读的标准化谱面摘要和可选原始 JSON；回放、练习等使用 `GameScene` 的流程也会经过此加载通知。
-3. 对已在本机可读取的谱面，SongScene 将不超过 4 MiB 的 JSON 谱面原文放入 `chart_data` 并调用 `on_chart_selected`。一般插件在自己的 Rhai 脚本中解析谱面、提取自有特征并运行自带模型；插件之间不要求特征名或维度相同。为兼容既有 PPSR v2 包，只有其 ID 插件启用时宿主才额外生成并提供 PPSR 的 187 维特征。返回 `difficulty` 的选谱插件共用可拖动、可折叠难度面板；若同时有多个可显示结果，PPSR 优先，其他算法仍可在插件详情中查看。游玩时详情页暂停，面板自然隐藏。
+3. 对已在本机可读取的谱面，SongScene 将不超过 32 MiB 的 JSON 谱面原文放入 `chart_data` 并调用 `on_chart_selected`；超限时 `chart_data` 为 null 且 `raw_truncated` 为 true。一般插件在自己的 Rhai 脚本中解析谱面、提取自有特征并运行自带模型；插件之间不要求特征名或维度相同。为兼容既有 PPSR v2 包，只有其 ID 插件启用时宿主才额外生成并提供 PPSR 的 187 维特征。返回 `difficulty` 的选谱插件共用可拖动、可折叠难度面板；标题取回调返回的 `title`，缺失时回落到 Manifest 名称；若同时有多个可显示结果，PPSR 优先，其他算法仍可在插件详情中查看。游玩时详情页暂停，面板自然隐藏。
 4. 正常流程产出并保存本地 `SimpleRecord` 时，插件可收到结算回调。是否上传成绩与插件报告无关。
 5. 应用绘制阶段最多每秒调用一次帧回调（5 Hz）；返回的 HUD 数据在后续绘制帧重复绘制，直到下次更新。
 
@@ -36,7 +36,7 @@ Phira Pro 插件是以 `.zip` 导入的 **Rhai 脚本**，通过版本化的 **P
 | 回调 | 权限 | 能做什么 | 关键边界 |
 | --- | --- | --- | --- |
 | `on_chart(ctx, settings)` | `chart.read` | 分析谱面元信息、有限数量的标准化音符、可解析的原始 JSON，以及本局 `speed` / `flow_speed`。 | 不提供实时坐标、判定线动画或噪域求值 API；`notes` 最多 50,000 条，必须检查 `truncated`。 |
-| `on_chart_selected(ctx, settings)` | `chart.read` | v2：详情页选中可在本机读取的谱面后读取 `chart_data` 和元信息；脚本可以自行解析、计算特征，并读取 `ctx.assets` 中随插件固定的模型。 | 线上预览但未下载的谱面不触发；原文 JSON 仅在 4 MiB 内提供。只有旧版 PPSR 插件使用宿主生成的 187 维兼容向量。 |
+| `on_chart_selected(ctx, settings)` | `chart.read` | v2：详情页选中可在本机读取的谱面后读取 `chart_data`、`raw_truncated` 和元信息；脚本可以自行解析、计算特征，并读取 `ctx.assets` 中随插件固定的模型。 | 线上预览但未下载的谱面不触发；源文件超过 32 MiB 时原文 JSON 为 null 并设置 `raw_truncated`。只有旧版 PPSR 插件使用宿主生成的 187 维兼容向量。 |
 | `on_result(ctx, settings)` | `result.read` | 分析本地 `SimpleRecord` 中的分数、判定统计、直方图等数据。 | 只在已有本地记录保存流程调用；练习或该流程未生成记录的对局没有回调。 |
 | `on_frame(ctx, settings)` | `overlay.draw` | 读取当前应用时间和 FPS，返回最多 8 条文本 HUD。 | 每秒最多执行 5 次；只画字、不接收触摸，不能读取或控制游戏输入。 |
 
@@ -61,7 +61,7 @@ Phira Pro 插件是以 `.zip` 导入的 **Rhai 脚本**，通过版本化的 **P
 - 通用 v2 插件从 `chart_data` 获取原始 JSON，可定义完全不同的音符解析和特征算法。只有启用旧版 `phira-pro.ppsr` 插件时，宿主才额外提供 PPSR 特定的 187 项兼容向量（114 个基础列、66 个 PPSR-v2 列和 7 个派生输入）；PPSR 仍需保持 `feature_names` 与配套模型一致。可替换模型和分项画像的格式见 [PPSR 模型 I/O 规范](./ppsr-model-io.md)。
 - `PDE-R` 插件是当前自有特征算法的端到端示例：自己的 Rhai 脚本直接从 `chart_data` 建立 106 项特征向量，不依赖 PPSR 特征提取器，模型缓存放在自己的插件资源中。
 - 第三方模型推荐遵循 [通用模型插件 I/O 规范](./model-io.md)：算法自定义并版本化特征 schema，模型资产明确标识格式与版本，回调返回有限 `difficulty` 和可解释的可选 `parts`；不要把 PPSR 的 187 维向量误认为 API 通用要求。
-- 原始谱面 JSON 仅在源数据不超过 4 MiB 且可解析为 JSON 时提供，否则为 JSON `null`。
+- 原始谱面 JSON 仅在源数据不超过 32 MiB 且可解析为 JSON 对象时提供，否则为 JSON `null`；源文件超限时 `raw_truncated` 为 true。
 - 管理页将脚本和设置保存到应用数据目录 `plugins/index.json`；插件本身没有访问该目录的能力。
 
 ## 沙箱及失败语义
@@ -70,12 +70,12 @@ Rhai 禁止文件模块导入，且不注册原生动态加载、文件系统、
 
 主要执行限制：
 
-- 谱面和结算回调：默认最多 5,000,000 次 Rhai 操作，可在插件管理页调整，配置单独保存在 `plugins/operation_limit.json`；非法值回退默认值。帧回调仍固定最多 25,000 次。
+- 谱面和结算回调：默认最多 20,000,000 次 Rhai 操作，可在插件管理页调整，配置单独保存在 `plugins/operation_limit.json`；非法值回退默认值。帧回调仍固定最多 25,000 次。选谱回调失败会在详情页显示状态，错误原因也保存在插件管理页。
 - 调用深度 32；表达式深度限制 64 / 32；变量和函数各最多 256。
 - 字符串最多 8 MiB；数组与 Map 各最多 1,000,000 项（Rhai 对嵌套容器递归计数）。
-- `on_chart` 的标准化音符上限为 50,000；`on_chart` 原始 JSON 与 `on_chart_selected.chart_data` 均限制在 4 MiB。
+- `on_chart` 的标准化音符上限为 50,000；`on_chart` 原始 JSON 与 `on_chart_selected.chart_data` 均限制在 32 MiB。
 
-选谱和谱面回调的 `ctx.operation_limit` 提供当前非帧预算，插件可用于成本预估；该值不会放宽 Rhai 的实际硬限制。操作数限制不等于墙钟时间保证。回调发生错误、超限或返回非 JSON 值后，该插件会暂停，错误通过管理页报告；刷新或重新启用可重新加载。不要吞掉宿主端错误或把错误结果伪装成成功分析。
+选谱和谱面回调的 `ctx.operation_limit` 提供当前非帧预算，插件可用于成本预估；该值不会放宽 Rhai 的实际硬限制。操作数限制不等于墙钟时间保证。回调发生错误、超限或返回非 JSON 值后，该插件会暂停；选谱回调失败会在详情页给出状态，完整错误通过管理页报告；刷新或重新启用可重新加载。不要吞掉宿主端错误或把错误结果伪装成成功分析。
 
 ## Agent 修改准则
 

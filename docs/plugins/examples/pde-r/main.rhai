@@ -1305,7 +1305,7 @@ fn analyze_chart(ctx) {
     let operation_limit = if ctx.contains("operation_limit") {
         ctx["operation_limit"].to_int()
     } else {
-        5000000
+        20000000
     };
     let estimate_limit = operation_limit - operation_limit / 20;
     if estimate > estimate_limit {

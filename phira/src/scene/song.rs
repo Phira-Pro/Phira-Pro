@@ -678,18 +678,41 @@ impl SongScene {
         } else {
             "phira"
         };
+        let use_ppsr_features = crate::plugins::chart_selected_ppsr_features_needed();
         self.ppsr_analysis_task = Some(Box::pin(async move {
             let mut fs = fs_from_path(&path)?;
             let info = fs::load_info(fs.as_mut()).await?;
-            let (chart, _, format) = GameScene::load_chart_for_analysis(fs.as_mut(), &info).await?;
-            let mut payload = crate::ppsr_features::extract(&chart, &info)?;
-            let object = payload.as_object_mut().context("PPSR feature extractor returned a non-object")?;
+            let bytes = fs.load_file(&info.chart).await?;
+            let chart_data = if bytes.len() <= 4 << 20 {
+                match serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    Ok(value) if value.is_object() => value,
+                    _ => serde_json::Value::Null,
+                }
+            } else {
+                serde_json::Value::Null
+            };
+            let format = info.format.clone();
+            let mut payload = if use_ppsr_features {
+                let (chart, _, _) = GameScene::load_chart_for_analysis(fs.as_mut(), &info).await?;
+                crate::ppsr_features::extract(&chart, &info)?
+            } else {
+                json!({
+                    "api": crate::plugins::API_VERSION,
+                    "name": info.name,
+                    "level": info.level,
+                    "difficulty": info.difficulty,
+                    "chart_data": chart_data,
+                    "chart_set": chart_set
+                })
+            };
+            let object = payload.as_object_mut().context("selected-chart payload is not an object")?;
             object.insert("api".into(), json!(crate::plugins::API_VERSION));
             object.insert("name".into(), json!(info.name));
             object.insert("level".into(), json!(info.level));
             object.insert("difficulty".into(), json!(info.difficulty));
             object.insert("format".into(), serde_json::to_value(format)?);
             object.insert("chart_set".into(), json!(chart_set));
+            object.insert("chart_data".into(), chart_data);
             Ok(payload)
         }));
     }
@@ -2370,8 +2393,8 @@ impl Scene for SongScene {
             match result {
                 Ok(payload) => crate::plugins::chart_selected(&payload),
                 Err(err) => {
-                    warn!(?err, "failed to analyze selected chart with PPSR");
-                    show_error(err.context("PPSR 谱面分析失败"));
+                    warn!(?err, "failed to analyze selected chart with plugins");
+                    show_error(err.context("谱面插件分析失败"));
                 }
             }
         }
@@ -3424,7 +3447,14 @@ impl Scene for SongScene {
             ui.fill_rect(r, semi_black(0.3));
         }
 
-        crate::plugins::render_ppsr_panel(ui, t, *self.illu.texture.0, self.ppsr_collapsed, &mut self.ppsr_toggle, &mut self.ppsr_panel);
+        crate::plugins::render_plugin_difficulty_panel(
+            ui,
+            t,
+            *self.illu.texture.0,
+            self.ppsr_collapsed,
+            &mut self.ppsr_toggle,
+            &mut self.ppsr_panel,
+        );
         self.sf.render(ui, t);
 
         Ok(())

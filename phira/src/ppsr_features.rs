@@ -1,9 +1,10 @@
 //! PPSR unified-model feature extraction.
 //!
 //! The base feature names and their order follow `services/chartFeatures.js`
-//! (`modelFeatureNames`), and the seven appended values follow
-//! `services/ppsrMoe.js` (`extraValues`). This module deliberately does not
-//! cache or modify chart data.
+//! (`modelFeatureNames`); the 66 added columns follow
+//! `services/chartFeaturesV2.js`, and the seven model inputs follow
+//! `services/ppsrMoe.js` (`extraValues`). This module does not cache or modify
+//! chart data.
 
 use std::collections::{HashMap, HashSet};
 
@@ -14,7 +15,25 @@ use prpr::{
 
 pub const FEATURE_VERSION: u8 = 2;
 pub const BASE_FEATURE_COUNT: usize = 114;
+pub const V2_FEATURE_COUNT: usize = 66;
 pub const AUGMENTED_FEATURE_COUNT: usize = 7;
+pub const MODEL_FEATURE_COUNT: usize = BASE_FEATURE_COUNT + V2_FEATURE_COUNT + AUGMENTED_FEATURE_COUNT;
+
+pub const V2_FEATURE_NAMES: [&str; V2_FEATURE_COUNT] = [
+    "h_holdCount", "h_holdPerSec", "h_holdLenMean", "h_holdLenP90", "h_holdLenMax", "h_holdConcurrentMax",
+    "h_holdConcurrentMean", "h_holdConcurrentP90", "h_holdBusyRatio", "h_holdMultiRatio", "h_holdTripleRatio",
+    "h_holdStartChordMax", "h_holdReleasePerSec", "h_holdReleaseChordMax", "h_holdTapDuringRatio",
+    "h_holdTapOverlapMax", "h_holdMoveRatio", "h_holdMoveSpeedP95", "h_holdMoveSpeedMax", "h_holdPathPerSec",
+    "h_holdMovingConcurrentMax", "h_holdMovingTimeRatio", "h_holdEndDropP90", "f_forcedRatio", "f_freeFingersMin",
+    "f_busyFingersMax", "f_busyFingersMean", "f_holdHogRatio", "f_travelP95", "f_travelMax", "f_speedP95",
+    "f_speedMax", "p_handNpsMax", "p_handNpsMin", "p_handBalance", "p_handChordMax", "p_sameHandStreamMax",
+    "p_sameHandJackRatio", "p_handSpeedP95Max", "p_handTravelPerSec", "b_bpm", "b_bpmChanges",
+    "b_beatIntervalP50", "b_beatIntervalP90", "b_beatIntervalCv", "b_offGridRatio", "b_subdivEntropy",
+    "b_notePerBeatMax", "b_longHoldCrossBeatRatio", "pat_entropy", "pat_bigramEntropy", "pat_trigramEntropy",
+    "pat_4gramRepeatRatio", "pat_8gramRepeatRatio", "pat_sectionRepeatRatio", "pat_sectionDistinctRatio",
+    "pat_periodicity", "pat_periodLag", "pat_kindEntropy", "pat_chordEntropy", "d_npsEntropy", "d_npsGini",
+    "d_top10sShare", "d_peakCount", "d_trend", "d_burstP99",
+];
 
 pub const BASE_FEATURE_NAMES: [&str; BASE_FEATURE_COUNT] = [
     "g1_npsAvg",
@@ -217,23 +236,46 @@ pub struct NoteCounts {
 #[derive(Debug, Clone)]
 pub struct PpsrFeaturePayload {
     pub version: u8,
-    pub feature_names: &'static [&'static str; BASE_FEATURE_COUNT],
     /// Exact source-model order; all values have been rounded to four decimals.
     pub features: [f64; BASE_FEATURE_COUNT],
+    pub v2_features: [f64; V2_FEATURE_COUNT],
     pub metadata: PpsrMetadata,
 }
 
 impl PpsrFeaturePayload {
-    /// Produce the compact Rhai payload. `features` is ordered exactly as the
-    /// source `cache.names` vector; augmentation stays with the calling script.
+    /// Produce the model vector in the exact source cache order.
     pub fn to_json(&self) -> serde_json::Value {
+        let fake_ratio = round4(self.metadata.fake_total as f64 / self.metadata.note_total.max(1) as f64);
+        let duration = self.metadata.duration;
+        let extras = [
+            self.metadata.note_total as f64,
+            self.metadata.mech_total as f64,
+            duration,
+            fake_ratio,
+            (1.0 + self.metadata.note_total as f64).ln(),
+            (1.0 + duration).ln(),
+            if duration > 0.0 { self.metadata.note_total as f64 / duration } else { 0.0 },
+        ];
+        let mut features = Vec::with_capacity(MODEL_FEATURE_COUNT);
+        features.extend(self.features);
+        features.extend(self.v2_features);
+        features.extend(extras);
+        let feature_names = BASE_FEATURE_NAMES
+            .iter()
+            .chain(V2_FEATURE_NAMES.iter())
+            .chain(AUGMENTED_FEATURE_NAMES.iter())
+            .copied()
+            .collect::<Vec<_>>();
         serde_json::json!({
             "version": self.version,
-            "features": self.features.to_vec(),
+            "feature_version": FEATURE_VERSION,
+            "v2_feature_version": 1,
+            "feature_names": feature_names,
+            "features": features,
             "note_total": self.metadata.note_total,
             "mech_total": self.metadata.mech_total,
             "duration": self.metadata.duration,
-            "fake_ratio": round4(self.metadata.fake_total as f64 / self.metadata.note_total.max(1) as f64),
+            "fake_ratio": fake_ratio,
             "metadata": {
                 "duration_source": "last_non_fake_note_end_fallback",
                 "fake_total": self.metadata.fake_total,
@@ -286,6 +328,7 @@ struct NoteRow {
     end: f64,
     kind: Kind,
     ax: f64,
+    ay: f64,
     width: f64,
     line: usize,
     raw_t: f64,
@@ -375,12 +418,12 @@ struct SegmentMetrics {
 }
 
 /// Stable plugin entry point. The returned `features` member is a numeric
-/// array in the exact 114-column order used by the unified-model cache.
+/// array in the exact 187-column order used by the PPSR v2 model cache.
 pub fn extract(chart: &Chart, info: &ChartInfo) -> anyhow::Result<serde_json::Value> {
     extract_typed(chart, info).map(|payload| payload.to_json()).map_err(anyhow::Error::new)
 }
 
-/// Extract the 114 base model features and metadata needed by the caller.
+/// Extract the 180 chart features and seven model inputs needed by the caller.
 ///
 /// `Chart` does not store the raw file's optional `duration`. Per the source
 /// extractor's `chart.duration || lastNoteTime`, this uses the maximum end time
@@ -441,12 +484,13 @@ fn extract_inner(chart: &Chart, info: &ChartInfo, aspect: f64) -> Result<PpsrFea
             let (world_x, world_y, rot) = line_pose_at(&samplers, line_index, raw_t, aspect);
             let raw_ax = world_x + raw_x * rot.cos();
             let raw_ay = -world_y + raw_x * rot.sin();
-            let _ = (raw_ay, above); // Y and side are retained by the source stream but not modeled.
+            let _ = above;
             notes.push(NoteRow {
                 t: round6(raw_t),
                 end: round6(raw_end),
                 kind,
                 ax: round6(raw_ax),
+                ay: round6(raw_ay),
                 width: round6(width),
                 line: line_index,
                 raw_t,
@@ -478,8 +522,17 @@ fn extract_inner(chart: &Chart, info: &ChartInfo, aspect: f64) -> Result<PpsrFea
             actual: present,
         });
     }
+    let v2_values = compute_v2_features(&notes, &samplers, chart, aspect, duration);
+    let present_v2 = V2_FEATURE_NAMES.iter().filter(|name| v2_values.contains_key(**name)).count();
+    if present_v2 != V2_FEATURE_COUNT {
+        return Err(FeatureError::FeatureNameCountMismatch {
+            expected: V2_FEATURE_COUNT,
+            actual: present_v2,
+        });
+    }
     let ordered = BASE_FEATURE_NAMES.map(|name| round4(values[name]));
     let groups = build_groups(&ordered);
+    let v2_ordered = V2_FEATURE_NAMES.map(|name| round4(v2_values[name]));
 
     let mut limitations = vec![String::from(
         "Chart/ChartInfo omit raw chart.duration and the format-specific loader maxTime; the chartNotes.js last-non-fake-note-end fallback is used and can omit trailing silence or a later fake note.",
@@ -492,8 +545,8 @@ fn extract_inner(chart: &Chart, info: &ChartInfo, aspect: f64) -> Result<PpsrFea
 
     Ok(PpsrFeaturePayload {
         version: FEATURE_VERSION,
-        feature_names: &BASE_FEATURE_NAMES,
         features: ordered,
+        v2_features: v2_ordered,
         metadata: PpsrMetadata {
             duration: round4(duration),
             duration_source: DurationSource::LastNonFakeNoteEndFallback,
@@ -839,6 +892,629 @@ fn compute_features(
         put(name, value);
     }
     (f, segment_count)
+}
+
+#[derive(Clone, Copy, Default)]
+struct HoldPath {
+    path: f64,
+    max_speed: f64,
+    move_ratio: f64,
+    end_ax: f64,
+}
+
+fn compute_v2_features(
+    notes: &[NoteRow],
+    lines: &[LineSampler<'_>],
+    chart: &Chart,
+    aspect: f64,
+    duration: f64,
+) -> HashMap<&'static str, f64> {
+    let mut values = HashMap::with_capacity(V2_FEATURE_COUNT);
+    let mut put = |name, value| {
+        values.insert(name, finite_or_zero(value));
+    };
+    let holds: Vec<_> = notes.iter().filter(|note| note.kind == Kind::Hold).collect();
+    let mech: Vec<_> = notes.iter().filter(|note| note.is_mech()).collect();
+    let mut hold_paths = Vec::with_capacity(holds.len());
+    let mut hold_lengths = Vec::with_capacity(holds.len());
+    let mut hold_speeds = Vec::new();
+    let mut hold_path_sum = 0.0;
+    let mut hold_moving_time = 0.0;
+    let mut hold_length_sum = 0.0;
+    for hold in &holds {
+        let path = hold_path(hold, lines, aspect);
+        let length = (hold.end - hold.t).max(0.0);
+        hold_length_sum += length;
+        hold_lengths.push(length);
+        hold_path_sum += path.path;
+        hold_moving_time += path.move_ratio * length;
+        if path.max_speed > 0.0 {
+            hold_speeds.push(path.max_speed);
+        }
+        hold_paths.push(path);
+    }
+    hold_lengths.sort_by(f64::total_cmp);
+    hold_speeds.sort_by(f64::total_cmp);
+
+    let mut hold_events = Vec::with_capacity(holds.len() * 4);
+    for (index, hold) in holds.iter().enumerate() {
+        hold_events.push((hold.t, 1_i32, false));
+        hold_events.push((hold.end, -1_i32, false));
+        if hold_paths[index].path > 0.1 || hold_paths[index].max_speed > 0.5 {
+            hold_events.push((hold.t, 1_i32, true));
+            hold_events.push((hold.end, -1_i32, true));
+        }
+    }
+    hold_events.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+    let mut active = 0_i32;
+    let mut moving_active = 0_i32;
+    let mut previous = hold_events.first().map_or(0.0, |event| event.0);
+    let mut weighted_concurrency = Vec::new();
+    let mut busy_time = 0.0;
+    let mut multi_time = 0.0;
+    let mut triple_time = 0.0;
+    let mut moving_time = 0.0;
+    let mut concurrent_max = 0;
+    let mut moving_concurrent_max = 0;
+    for (time, delta, moving) in hold_events {
+        let span = time - previous;
+        if span > 0.0 {
+            weighted_concurrency.push((active.max(0) as f64, span));
+            if active >= 1 {
+                busy_time += span;
+            }
+            if active >= 2 {
+                multi_time += span;
+            }
+            if active >= 3 {
+                triple_time += span;
+            }
+            if moving_active >= 1 {
+                moving_time += span;
+            }
+        }
+        if moving {
+            moving_active += delta;
+        } else {
+            active += delta;
+        }
+        concurrent_max = concurrent_max.max(active.max(0) as usize);
+        moving_concurrent_max = moving_concurrent_max.max(moving_active.max(0) as usize);
+        previous = time;
+    }
+    let total_duration = duration.max(1e-9);
+    let weight_sum: f64 = weighted_concurrency.iter().map(|item| item.1).sum();
+    let concurrency_mean = if weight_sum > 0.0 {
+        weighted_concurrency.iter().map(|item| item.0 * item.1).sum::<f64>() / weight_sum
+    } else {
+        0.0
+    };
+    let concurrency_p90 = weighted_percentile(&weighted_concurrency, 0.9);
+    let mut starts: Vec<_> = holds.iter().map(|hold| hold.t).collect();
+    let mut ends: Vec<_> = holds.iter().map(|hold| hold.end).collect();
+    starts.sort_by(f64::total_cmp);
+    ends.sort_by(f64::total_cmp);
+    let start_chord_max = grouped_count_max(&starts, CHORD_DT);
+    let release_chord_max = grouped_count_max(&ends, CHORD_DT);
+
+    let mut mech_times: Vec<_> = mech.iter().map(|note| note.t).collect();
+    mech_times.sort_by(f64::total_cmp);
+    let hold_tap_overlap_max = holds
+        .iter()
+        .map(|hold| {
+            let lo = upper_bound(&mech_times, hold.t + 0.001);
+            let hi = upper_bound(&mech_times, hold.end);
+            hi.saturating_sub(lo) as f64 / (hold.end - hold.t).max(0.001)
+        })
+        .fold(0.0, f64::max);
+    let non_holds: Vec<_> = notes.iter().filter(|note| note.kind != Kind::Hold).collect();
+    let hold_tap_during = non_holds
+        .iter()
+        .filter(|note| upper_bound(&starts, note.t) > lower_bound(&ends, note.t))
+        .count();
+    let mut side_times = [Vec::new(), Vec::new()];
+    for note in &mech {
+        side_times[side(note.ax)].push(note.t);
+    }
+    for times in &mut side_times {
+        times.sort_by(f64::total_cmp);
+    }
+    let mut hold_end_gaps: Vec<_> = holds
+        .iter()
+        .filter_map(|hold| {
+            let times = &side_times[side(hold.ax)];
+            let index = upper_bound(times, hold.end + 1e-6);
+            times.get(index).map(|time| time - hold.end)
+        })
+        .collect();
+    hold_end_gaps.sort_by(f64::total_cmp);
+    let hold_end_drop_p90 = percentile_sorted(&hold_end_gaps, 0.9);
+
+    put("h_holdCount", holds.len() as f64);
+    put("h_holdPerSec", holds.len() as f64 / total_duration);
+    put("h_holdLenMean", if holds.is_empty() { 0.0 } else { hold_length_sum / holds.len() as f64 });
+    put("h_holdLenP90", percentile_sorted(&hold_lengths, 0.9));
+    put("h_holdLenMax", hold_lengths.last().copied().unwrap_or(0.0));
+    put("h_holdConcurrentMax", concurrent_max as f64);
+    put("h_holdConcurrentMean", concurrency_mean);
+    put("h_holdConcurrentP90", concurrency_p90);
+    put("h_holdBusyRatio", busy_time / total_duration);
+    put("h_holdMultiRatio", multi_time / total_duration);
+    put("h_holdTripleRatio", triple_time / total_duration);
+    put("h_holdStartChordMax", start_chord_max as f64);
+    put("h_holdReleasePerSec", holds.len() as f64 / total_duration);
+    put("h_holdReleaseChordMax", release_chord_max as f64);
+    put("h_holdTapDuringRatio", ratio(hold_tap_during, non_holds.len()));
+    put("h_holdTapOverlapMax", hold_tap_overlap_max);
+    put("h_holdMoveRatio", if hold_length_sum > 0.0 { hold_moving_time / hold_length_sum } else { 0.0 });
+    put("h_holdMoveSpeedP95", percentile_sorted(&hold_speeds, 0.95));
+    put("h_holdMoveSpeedMax", hold_speeds.last().copied().unwrap_or(0.0));
+    put("h_holdPathPerSec", hold_path_sum / total_duration);
+    put("h_holdMovingConcurrentMax", moving_concurrent_max as f64);
+    put("h_holdMovingTimeRatio", moving_time / total_duration);
+    put("h_holdEndDropP90", hold_end_drop_p90);
+
+    let mut fingers = FINGER_REST;
+    let mut free_at = [f64::NEG_INFINITY; 4];
+    let mut last_time = [f64::NEG_INFINITY; 4];
+    let mut travels = Vec::with_capacity(mech.len());
+    let mut finger_speeds = Vec::new();
+    let mut forced = 0;
+    let mut free_min = 4_usize;
+    let mut busy_max = 0_usize;
+    let mut busy_integral = 0.0;
+    let mut hold_hog_time = 0.0;
+    let mut last_note_time: Option<f64> = None;
+    for note in &mech {
+        if let Some(last) = last_note_time {
+            let span = (note.t - last).max(0.0);
+            let busy = free_at.iter().filter(|&&time| time > last + 1e-6).count();
+            busy_integral += busy as f64 * span;
+            if busy >= 3 {
+                hold_hog_time += span;
+            }
+        }
+        let mut pick = None;
+        let mut nearest = 0;
+        let mut nearest_distance = f64::INFINITY;
+        let mut pick_distance = f64::INFINITY;
+        for finger in 0..4 {
+            let distance = (fingers[finger] - note.ax).abs();
+            if distance < nearest_distance {
+                nearest_distance = distance;
+                nearest = finger;
+            }
+            if free_at[finger] <= note.t + 1e-6 && distance < pick_distance - 1e-9 {
+                pick_distance = distance;
+                pick = Some(finger);
+            }
+        }
+        let finger = if let Some(index) = pick {
+            index
+        } else {
+            forced += 1;
+            nearest
+        };
+        let free_count = free_at.iter().filter(|&&time| time <= note.t + 1e-6).count();
+        free_min = free_min.min(free_count);
+        busy_max = busy_max.max(4 - free_count);
+        let travel = (fingers[finger] - note.ax).abs();
+        let dt = note.t - last_time[finger];
+        travels.push(travel);
+        let mut movement = travel;
+        let mut movement_time = dt;
+        if note.kind == Kind::Hold && note.end > note.t {
+            let path = hold_path(note, lines, aspect);
+            movement += path.path;
+            movement_time = dt.max(note.end - note.t);
+            fingers[finger] = path.end_ax;
+            free_at[finger] = note.end;
+            last_time[finger] = note.end;
+        } else {
+            fingers[finger] = note.ax;
+            free_at[finger] = note.t + 0.02;
+            last_time[finger] = note.t;
+        }
+        if dt.is_finite() && dt > 0.001 {
+            finger_speeds.push(travel / dt);
+        }
+        if movement_time > 0.001 && movement > 0.0 {
+            finger_speeds.push(movement / movement_time);
+        }
+        last_note_time = Some(note.t);
+    }
+    travels.sort_by(f64::total_cmp);
+    finger_speeds.sort_by(f64::total_cmp);
+    put("f_forcedRatio", ratio(forced, mech.len()));
+    put("f_freeFingersMin", free_min as f64);
+    put("f_busyFingersMax", busy_max as f64);
+    put("f_busyFingersMean", busy_integral / total_duration);
+    put("f_holdHogRatio", hold_hog_time / total_duration);
+    put("f_travelP95", percentile_sorted(&travels, 0.95));
+    put("f_travelMax", travels.last().copied().unwrap_or(0.0));
+    put("f_speedP95", percentile_sorted(&finger_speeds, 0.95));
+    put("f_speedMax", finger_speeds.last().copied().unwrap_or(0.0));
+
+    let mut hand_notes = [Vec::new(), Vec::new()];
+    for note in &mech {
+        hand_notes[side(note.ax)].push(*note);
+    }
+    let mut hand_nps = [0.0; 2];
+    let mut hand_speed_p95 = [0.0; 2];
+    let mut hand_chord_max = 0;
+    let mut hand_travel = 0.0;
+    for hand in 0..2 {
+        let list = &hand_notes[hand];
+        if list.is_empty() {
+            continue;
+        }
+        hand_nps[hand] = list.len() as f64 / total_duration;
+        let mut speeds = Vec::new();
+        let mut travel = 0.0;
+        for pair in list.windows(2) {
+            let dt = pair[1].t - pair[0].t;
+            if dt <= 0.001 {
+                continue;
+            }
+            let distance = (pair[1].ax - pair[0].ax).abs();
+            travel += distance;
+            speeds.push(distance / dt);
+        }
+        hand_travel += travel;
+        speeds.sort_by(f64::total_cmp);
+        hand_speed_p95[hand] = percentile_sorted(&speeds, 0.95);
+        hand_chord_max = hand_chord_max.max(grouped_note_count_max(list, CHORD_DT));
+    }
+    let max_hand_nps = hand_nps[0].max(hand_nps[1]);
+    let min_hand_nps = hand_nps[0].min(hand_nps[1]);
+    let mut same_hand_stream_max = 0;
+    let mut stream_run = 1;
+    let mut jack_pairs = 0;
+    let mut same_hand_pairs = 0;
+    for pair in mech.windows(2) {
+        let dt = pair[1].t - pair[0].t;
+        if side(pair[0].ax) == side(pair[1].ax) && dt > 0.0005 {
+            same_hand_pairs += 1;
+            stream_run += 1;
+            same_hand_stream_max = same_hand_stream_max.max(stream_run);
+            if dt <= 0.2 && (pair[1].ax - pair[0].ax).abs() <= 0.06 {
+                jack_pairs += 1;
+            }
+        } else {
+            stream_run = 1;
+        }
+    }
+    put("p_handNpsMax", max_hand_nps);
+    put("p_handNpsMin", min_hand_nps);
+    put("p_handBalance", if max_hand_nps > 0.0 { min_hand_nps / max_hand_nps } else { 0.0 });
+    put("p_handChordMax", hand_chord_max as f64);
+    put("p_sameHandStreamMax", same_hand_stream_max as f64);
+    put("p_sameHandJackRatio", ratio(jack_pairs, same_hand_pairs));
+    put("p_handSpeedP95Max", hand_speed_p95[0].max(hand_speed_p95[1]));
+    put("p_handTravelPerSec", hand_travel / total_duration);
+
+    let bpm_points = chart.bpm_list.borrow().elements().to_vec();
+    let bpm = bpm_points.first().map_or(120.0, |point| point.2);
+    let beat_at = |time: f64| {
+        let point = bpm_points.iter().take_while(|point| point.1 <= time).last();
+        if let Some((beat, start_time, bpm)) = point {
+            beat + (time - start_time) * bpm / 60.0
+        } else if let Some((beat, start_time, bpm)) = bpm_points.first() {
+            beat + (time - start_time) * bpm / 60.0
+        } else {
+            time * bpm / 60.0
+        }
+    };
+    let beats: Vec<_> = mech.iter().map(|note| beat_at(note.t)).collect();
+    let mut beat_intervals = Vec::new();
+    for pair in beats.windows(2) {
+        let gap = pair[1] - pair[0];
+        if gap > 1e-6 {
+            beat_intervals.push(gap);
+        }
+    }
+    beat_intervals.sort_by(f64::total_cmp);
+    let mean_interval = mean(&beat_intervals);
+    let beat_cv = if mean_interval > 0.0 { stdev(&beat_intervals) / mean_interval } else { 0.0 };
+    let off_grid = beats
+        .iter()
+        .filter(|&&beat| {
+            let fraction = beat - beat.floor();
+            [0.0, 0.25, 0.5, 0.75, 1.0]
+                .iter()
+                .map(|&grid| (fraction - grid).abs())
+                .fold(f64::INFINITY, f64::min)
+                > 0.06
+        })
+        .count();
+    let subdivisions = [0.125, 0.25, 0.5, 1.0, 2.0, 4.0];
+    let mut subdivision_counts = vec![0.0; subdivisions.len() + 1];
+    for gap in &beat_intervals {
+        let index = subdivisions
+            .iter()
+            .position(|unit| ((gap - unit) / unit).abs() <= 0.2)
+            .unwrap_or(subdivisions.len());
+        subdivision_counts[index] += 1.0;
+    }
+    let mut per_beat = HashMap::<i64, usize>::new();
+    for beat in &beats {
+        *per_beat.entry((beat + 1e-6).floor() as i64).or_default() += 1;
+    }
+    let hold_cross_beat = holds.iter().filter(|hold| beat_at(hold.end) - beat_at(hold.t) >= 1.0 - 1e-6).count();
+    put("b_bpm", if mech.is_empty() { 0.0 } else { bpm });
+    put("b_bpmChanges", bpm_points.len().saturating_sub(1) as f64);
+    put("b_beatIntervalP50", percentile_sorted(&beat_intervals, 0.5));
+    put("b_beatIntervalP90", percentile_sorted(&beat_intervals, 0.9));
+    put("b_beatIntervalCv", beat_cv);
+    put("b_offGridRatio", ratio(off_grid, beats.len()));
+    put("b_subdivEntropy", normalized_entropy(&subdivision_counts));
+    put("b_notePerBeatMax", per_beat.values().copied().max().unwrap_or(0) as f64);
+    put("b_longHoldCrossBeatRatio", ratio(hold_cross_beat, holds.len()));
+
+    add_pattern_features(&mut values, notes, &mech, duration);
+    add_density_features(&mut values, notes, &mech, duration);
+    values
+}
+
+fn hold_path(note: &NoteRow, lines: &[LineSampler<'_>], aspect: f64) -> HoldPath {
+    let length = (note.end - note.t).max(0.0);
+    if length <= 0.0 || note.line >= lines.len() {
+        return HoldPath { end_ax: note.ax, ..HoldPath::default() };
+    }
+    let samples = 40_usize.min(2_usize.max((length / 0.05).ceil() as usize));
+    let step = length / samples as f64;
+    let mut previous: Option<(f64, f64)> = None;
+    let mut path = 0.0;
+    let mut moving_time = 0.0;
+    let mut max_speed = 0.0_f64;
+    let mut end_ax = note.ax;
+    for index in 0..=samples {
+        let time = note.t + step * index as f64;
+        let (line_x, line_y, rotation) = line_pose_at(lines, note.line, time, aspect);
+        let ax = line_x + note.raw_x * rotation.cos();
+        let ay = -line_y + note.raw_x * rotation.sin();
+        if let Some((prev_x, prev_y)) = previous {
+            if step > 1e-9 {
+                let distance = (ax - prev_x).hypot(ay - prev_y);
+                path += distance;
+                if distance > 0.02 {
+                    moving_time += step;
+                }
+                max_speed = max_speed.max(distance / step);
+            }
+        }
+        previous = Some((ax, ay));
+        end_ax = ax;
+    }
+    HoldPath { path, max_speed, move_ratio: moving_time / length, end_ax }
+}
+
+fn grouped_count_max(times: &[f64], threshold: f64) -> usize {
+    let mut maximum = 0;
+    let mut start = 0;
+    for end in 1..=times.len() {
+        if end < times.len() && times[end] - times[start] <= threshold {
+            continue;
+        }
+        maximum = maximum.max(end - start);
+        start = end;
+    }
+    maximum
+}
+
+fn grouped_note_count_max(notes: &[&NoteRow], threshold: f64) -> usize {
+    let times: Vec<_> = notes.iter().map(|note| note.t).collect();
+    grouped_count_max(&times, threshold)
+}
+
+fn weighted_percentile(items: &[(f64, f64)], q: f64) -> f64 {
+    let mut sorted: Vec<_> = items.iter().copied().filter(|item| item.1 > 0.0).collect();
+    sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let total: f64 = sorted.iter().map(|item| item.1).sum();
+    if total <= 0.0 {
+        return 0.0;
+    }
+    let mut accumulated = 0.0;
+    for (value, weight) in sorted {
+        accumulated += weight;
+        if accumulated / total >= q {
+            return value;
+        }
+    }
+    0.0
+}
+
+fn percentile_sorted(values: &[f64], q: f64) -> f64 {
+    percentile(values, q)
+}
+
+fn normalized_entropy(counts: &[f64]) -> f64 {
+    let total: f64 = counts.iter().sum();
+    if total <= 0.0 {
+        return 0.0;
+    }
+    let nonzero = counts.iter().filter(|&&count| count > 0.0).count();
+    if nonzero <= 1 {
+        return 0.0;
+    }
+    let entropy = counts
+        .iter()
+        .filter(|&&count| count > 0.0)
+        .map(|count| {
+            let p = count / total;
+            -p * p.ln()
+        })
+        .sum::<f64>();
+    entropy / (nonzero as f64).ln()
+}
+
+fn mean(values: &[f64]) -> f64 {
+    if values.is_empty() { 0.0 } else { values.iter().sum::<f64>() / values.len() as f64 }
+}
+
+fn stdev(values: &[f64]) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let average = mean(values);
+    (values.iter().map(|value| (value - average).powi(2)).sum::<f64>() / values.len() as f64).sqrt()
+}
+
+fn add_pattern_features(values: &mut HashMap<&'static str, f64>, notes: &[NoteRow], mech: &[&NoteRow], duration: f64) {
+    let mut result = [
+        ("pat_entropy", 0.0), ("pat_bigramEntropy", 0.0), ("pat_trigramEntropy", 0.0),
+        ("pat_4gramRepeatRatio", 0.0), ("pat_8gramRepeatRatio", 0.0), ("pat_sectionRepeatRatio", 0.0),
+        ("pat_sectionDistinctRatio", 0.0), ("pat_periodicity", 0.0), ("pat_periodLag", 0.0),
+        ("pat_kindEntropy", 0.0), ("pat_chordEntropy", 0.0),
+    ];
+    if mech.len() >= 3 {
+        let mut tokens = Vec::new();
+        let mut kind_counts = vec![0.0; 5];
+        for pair in mech.windows(2) {
+            let dt = pair[1].t - pair[0].t;
+            if dt <= 0.0005 {
+                continue;
+            }
+            let dx = pair[1].ax - pair[0].ax;
+            let kind = match pair[1].kind { Kind::Click => 0, Kind::Hold => 1, Kind::Flick => 2, Kind::Drag => 3 };
+            kind_counts[kind] += 1.0;
+            tokens.push(format!(
+                "{}:{}:{}",
+                (dt / DT_BUCKET + 0.5).floor().min(40.0) as i32,
+                ((dx / DX_BUCKET + 0.5).floor() as i32).clamp(-40, 40),
+                kind
+            ));
+        }
+        let mut token_counts = HashMap::<String, usize>::new();
+        for token in &tokens {
+            *token_counts.entry(token.clone()).or_default() += 1;
+        }
+        result[0].1 = normalized_entropy(&token_counts.values().map(|&count| count as f64).collect::<Vec<_>>());
+        result[9].1 = normalized_entropy(&kind_counts);
+        let ngram_counts = |n: usize| {
+            let mut counts = HashMap::<String, usize>::new();
+            if tokens.len() >= n {
+                for start in 0..=tokens.len() - n {
+                    *counts.entry(tokens[start..start + n].join("|")).or_default() += 1;
+                }
+            }
+            counts
+        };
+        result[1].1 = normalized_entropy(&ngram_counts(2).values().map(|&count| count as f64).collect::<Vec<_>>());
+        result[2].1 = normalized_entropy(&ngram_counts(3).values().map(|&count| count as f64).collect::<Vec<_>>());
+        for (result_index, n) in [(3, 4), (4, 8)] {
+            if tokens.len() >= n {
+                let mut seen = HashSet::new();
+                let total = tokens.len() - n + 1;
+                let mut repeated = 0;
+                for start in 0..total {
+                    if !seen.insert(tokens[start..start + n].join("|")) {
+                        repeated += 1;
+                    }
+                }
+                result[result_index].1 = repeated as f64 / total as f64;
+            }
+        }
+        let mut sections = HashMap::<i64, Vec<&NoteRow>>::new();
+        for note in mech {
+            sections.entry((note.t / 10.0).floor() as i64).or_default().push(note);
+        }
+        let mut hashes = Vec::new();
+        let mut section_ids: Vec<_> = sections.keys().copied().collect();
+        section_ids.sort_unstable();
+        for section in section_ids {
+            let list = &sections[&section];
+            if list.len() < 4 {
+                continue;
+            }
+            let mut sequence = Vec::new();
+            for pair in list.windows(2) {
+                let dt = pair[1].t - pair[0].t;
+                if dt > 0.0005 {
+                    sequence.push(format!(
+                        "{}:{}",
+                        (dt / DT_BUCKET + 0.5).floor() as i32,
+                        ((pair[1].ax - pair[0].ax) / DX_BUCKET + 0.5).floor() as i32
+                    ));
+                }
+            }
+            if sequence.len() >= 4 {
+                hashes.push(sequence.join("|"));
+            }
+        }
+        if !hashes.is_empty() {
+            let unique: HashSet<_> = hashes.iter().collect();
+            result[5].1 = (hashes.len() - unique.len()) as f64 / hashes.len() as f64;
+            result[6].1 = unique.len() as f64 / hashes.len() as f64;
+        }
+        let bins = ((duration / 0.5).floor() as usize).max(1);
+        let mut density = vec![0.0; bins];
+        for note in mech {
+            density[((note.t / 0.5).floor() as usize).min(bins - 1)] += 1.0;
+        }
+        let average = mean(&density);
+        let centered: Vec<_> = density.iter().map(|count| count - average).collect();
+        let variance: f64 = centered.iter().map(|value| value * value).sum();
+        if variance > 1e-9 {
+            for lag in 2..=16.min(bins / 2) {
+                let dot: f64 = (0..bins - lag).map(|index| centered[index] * centered[index + lag]).sum();
+                let correlation = dot / variance;
+                if correlation > result[7].1 {
+                    result[7].1 = correlation;
+                    result[8].1 = lag as f64 * 0.5;
+                }
+            }
+        }
+        let mut chord_counts = vec![0.0; 9];
+        let mut start = 0;
+        for end in 1..=notes.len() {
+            if end < notes.len() && notes[end].t - notes[start].t <= CHORD_DT {
+                continue;
+            }
+            chord_counts[(end - start).min(8)] += 1.0;
+            start = end;
+        }
+        result[10].1 = normalized_entropy(&chord_counts);
+    }
+    values.extend(result);
+}
+
+fn add_density_features(values: &mut HashMap<&'static str, f64>, notes: &[NoteRow], mech: &[&NoteRow], duration: f64) {
+    let seconds = (duration.ceil() as usize).max(1);
+    let mut per_second = vec![0.0; seconds];
+    for note in notes {
+        per_second[(note.t.floor().max(0.0) as usize).min(seconds - 1)] += 1.0;
+    }
+    let total: f64 = per_second.iter().sum();
+    let mut sorted = per_second.clone();
+    sorted.sort_by(f64::total_cmp);
+    let gini = if total > 0.0 {
+        sorted.iter().enumerate().map(|(i, count)| (2.0 * (i + 1) as f64 - seconds as f64 - 1.0) * count).sum::<f64>()
+            / (seconds as f64 * total)
+    } else {
+        0.0
+    };
+    let top_sum: f64 = sorted.iter().rev().take(10).sum();
+    let max_count = sorted.last().copied().unwrap_or(0.0);
+    let peak_count = if max_count > 0.0 { per_second.iter().filter(|&&count| count >= max_count * 0.8).count() } else { 0 };
+    let third = (seconds / 3).max(1);
+    let head = mean(&per_second[..third.min(seconds)]);
+    let tail = mean(&per_second[seconds.saturating_sub(third)..]);
+    let mut bursts = Vec::with_capacity(mech.len());
+    let mut start = 0;
+    for end in 0..mech.len() {
+        while mech[end].t - mech[start].t > WINDOW_BAD {
+            start += 1;
+        }
+        bursts.push((end - start + 1) as f64);
+    }
+    bursts.sort_by(f64::total_cmp);
+    values.insert("d_npsEntropy", normalized_entropy(&per_second));
+    values.insert("d_npsGini", gini);
+    values.insert("d_top10sShare", if total > 0.0 { top_sum / total } else { 0.0 });
+    values.insert("d_peakCount", peak_count as f64);
+    values.insert("d_trend", if head > 0.0 { tail / head } else { 0.0 });
+    values.insert("d_burstP99", percentile_sorted(&bursts, 0.99));
 }
 
 fn build_segments(notes: &[NoteRow], duration: f64) -> (Vec<SegmentMetrics>, usize, f64) {
@@ -1420,6 +2096,20 @@ fn upper_bound(sorted: &[f64], value: f64) -> usize {
     low
 }
 
+fn lower_bound(sorted: &[f64], value: f64) -> usize {
+    let mut low = 0;
+    let mut high = sorted.len();
+    while low < high {
+        let mid = (low + high) / 2;
+        if sorted[mid] < value {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    low
+}
+
 fn side(x: f64) -> usize {
     usize::from(x >= HAND_SPLIT)
 }
@@ -1467,6 +2157,7 @@ mod tests {
             end,
             kind,
             ax,
+            ay: 0.0,
             width: 1.0,
             line: 0,
             raw_t: t,
@@ -1478,6 +2169,8 @@ mod tests {
     #[test]
     fn model_order_and_synthetic_feature_output_are_stable() {
         assert_eq!(BASE_FEATURE_NAMES.len(), 114);
+        assert_eq!(V2_FEATURE_NAMES.len(), 66);
+        assert_eq!(MODEL_FEATURE_COUNT, 187);
         assert_eq!(BASE_FEATURE_NAMES[0], "g1_npsAvg");
         assert_eq!(BASE_FEATURE_NAMES[77], "g10_period2RunMax");
         assert_eq!(BASE_FEATURE_NAMES[78], "seg_npsMean");
@@ -1517,6 +2210,13 @@ mod tests {
         assert_eq!(BASE_FEATURE_NAMES.iter().filter(|name| !features.contains_key(**name)).count(), 0);
         let ordered = BASE_FEATURE_NAMES.map(|name| round4(features[name]));
         assert_eq!(ordered.len(), BASE_FEATURE_COUNT);
+        let no_lines = [];
+        let chart = Chart::new(0.0, vec![], BpmList::new(vec![(0.0, 120.0)]), ChartSettings::default(), ChartExtra::default(), HashMap::new());
+        let v2 = compute_v2_features(&notes, &no_lines, &chart, 16.0 / 9.0, 2.0);
+        assert_eq!(V2_FEATURE_NAMES.iter().filter(|name| !v2.contains_key(**name)).count(), 0);
+        assert_eq!(round4(v2["h_holdCount"]), 1.0);
+        assert_eq!(round4(v2["h_holdConcurrentMax"]), 1.0);
+        assert_eq!(round4(v2["p_handNpsMax"]), 1.0);
     }
 
     #[test]
@@ -1575,8 +2275,8 @@ mod tests {
         let feature_values = std::array::from_fn(|index| index as f64);
         let payload = PpsrFeaturePayload {
             version: FEATURE_VERSION,
-            feature_names: &BASE_FEATURE_NAMES,
             features: feature_values,
+            v2_features: std::array::from_fn(|index| 114.0 + index as f64),
             metadata: PpsrMetadata {
                 duration: 12.5,
                 duration_source: DurationSource::LastNonFakeNoteEndFallback,
@@ -1599,9 +2299,13 @@ mod tests {
         };
         let json = payload.to_json();
         let values = json["features"].as_array().unwrap();
-        assert_eq!(values.len(), 114);
+        assert_eq!(values.len(), MODEL_FEATURE_COUNT);
         assert_eq!(values[0].as_f64(), Some(0.0));
         assert_eq!(values[113].as_f64(), Some(113.0));
+        assert_eq!(values[114].as_f64(), Some(114.0));
+        assert_eq!(values[179].as_f64(), Some(179.0));
+        assert_eq!(values[180].as_f64(), Some(4.0));
+        assert_eq!(json["feature_names"].as_array().unwrap().len(), MODEL_FEATURE_COUNT);
         assert_eq!(json["note_total"], 4);
         assert_eq!(json["mech_total"], 3);
         assert_eq!(json["duration"], 12.5);
@@ -1630,7 +2334,7 @@ mod tests {
         let chart = Chart::new(0.0, vec![line], BpmList::new(vec![(0.0, 120.0)]), ChartSettings::default(), ChartExtra::default(), HashMap::new());
         let info = ChartInfo::default();
         let payload = extract(&chart, &info).unwrap();
-        assert_eq!(payload["features"].as_array().unwrap().len(), 114);
+        assert_eq!(payload["features"].as_array().unwrap().len(), MODEL_FEATURE_COUNT);
         assert!(payload["features"].as_array().unwrap().iter().all(|value| value.is_number()));
         assert_eq!(payload["note_total"], 2);
         assert_eq!(payload["mech_total"], 2);

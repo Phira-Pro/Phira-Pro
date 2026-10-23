@@ -14,6 +14,7 @@ pub struct PluginManager {
     rows: Vec<[DRectButton; 4]>,
     import: DRectButton,
     refresh: DRectButton,
+    operation_limit: DRectButton,
     scroll: Scroll,
     waiting: bool,
     settings_id: Option<String>,
@@ -25,6 +26,7 @@ impl PluginManager {
             rows: vec![],
             import: DRectButton::new(),
             refresh: DRectButton::new(),
+            operation_limit: DRectButton::new(),
             scroll: Scroll::new(),
             waiting: false,
             settings_id: None,
@@ -52,11 +54,26 @@ impl PluginManager {
             .max_width(a.w)
             .color(semi_white(0.7))
             .draw();
-        self.scroll.size((a.w, (a.h - 0.15).max(0.1)));
+        ui.text("脚本操作数上限").pos(a.x, a.y + 0.14).size(0.34).color(semi_white(0.8)).draw();
+        self.operation_limit.render_text(
+            ui,
+            Rect::new(a.x + 0.31, a.y + 0.125, 0.35, 0.065),
+            t,
+            &format!("{}", crate::plugins::operation_limit()),
+            0.34,
+            false,
+        );
+        ui.text("正整数；非法输入恢复默认 5000000。帧回调固定 25000。")
+            .pos(a.x + 0.69, a.y + 0.14)
+            .max_width((a.w - 0.69).max(0.1))
+            .size(0.27)
+            .color(semi_white(0.65))
+            .draw();
+        self.scroll.size((a.w, (a.h - 0.23).max(0.1)));
         let reports = crate::plugins::reports();
         ui.scope(|ui| {
             ui.dx(a.x);
-            ui.dy(a.y + 0.15);
+            ui.dy(a.y + 0.23);
             self.scroll.render(ui, |ui| {
                 let w = a.w;
                 let mut y = 0.;
@@ -129,9 +146,9 @@ impl Page for PluginManager {
                 }
             }
         }
-        if self.settings_id.is_some() {
-            if let Some((id, text)) = take_input() {
-                if id == "plugin_settings" {
+        if let Some((id, text)) = take_input() {
+            match id.as_str() {
+                "plugin_settings" if self.settings_id.is_some() => {
                     let plugin = self.settings_id.take().unwrap();
                     let result = serde_json::from_str(&text)
                         .map_err(anyhow::Error::from)
@@ -140,9 +157,13 @@ impl Page for PluginManager {
                         show_error(e);
                     }
                     self.reload();
-                } else {
-                    return_input(id, text);
                 }
+                "plugin_operation_limit" => match crate::plugins::set_operation_limit(&text) {
+                    Ok(true) => {}
+                    Ok(false) => show_error(anyhow::anyhow!("操作数上限必须是正整数；已恢复默认值 {}", crate::plugins::DEFAULT_OPERATION_LIMIT)),
+                    Err(error) => show_error(error),
+                },
+                _ => return_input(id, text),
             }
         }
         Ok(())
@@ -156,6 +177,10 @@ impl Page for PluginManager {
         if self.refresh.touch(touch, s.t) {
             crate::plugins::reload();
             self.reload();
+            return Ok(true);
+        }
+        if self.operation_limit.touch(touch, s.t) {
+            request_input("plugin_operation_limit", inputbox::InputBox::new().default_text(crate::plugins::operation_limit().to_string()));
             return Ok(true);
         }
         if self.scroll.touch(touch, s.t) {

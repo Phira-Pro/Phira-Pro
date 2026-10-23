@@ -7,14 +7,20 @@ fn tree_value(tree, x) {
     node["leaf"]
 }
 
-fn model_value(model, x) {
-    let learner = model["learner"];
-    let value = learner["base"];
-    for tree in learner["trees"] {
-        value += learner["lr"] * tree_value(tree, x);
+fn raw_value(model, x) {
+    let models = model["bag"]["models"];
+    if models.len() == 0 { throw "PPSR 模型没有 bag learner"; }
+    let total = 0.0;
+    for model_index in 0..models.len() {
+        let learner = models[model_index];
+        if learner["featureCount"] != x.len() { throw "PPSR learner 特征数不匹配"; }
+        let value = learner["base"];
+        for tree in learner["trees"] {
+            value += learner["lr"] * tree_value(tree, x);
+        }
+        total += value;
     }
-    let deshrink = model["deshrink"];
-    deshrink["slope"] * value + deshrink["intercept"]
+    total / models.len()
 }
 
 fn shape_value(u, tail) {
@@ -31,47 +37,60 @@ fn shape_value(u, tail) {
 }
 
 fn predict(model, x) {
-    let value = model_value(model, x);
+    let raw = raw_value(model, x);
+    let deshrink = model["deshrink"];
+    let value = deshrink["slope"] * raw + deshrink["intercept"];
     let tail = model["tail"];
     let add = 0.0;
     for i in 0..tail["idx"].len() {
         let index = tail["idx"][i];
-        let v = x[index];
+        let feature = x[index];
         let maximum = tail["xMax"][i];
-        if v > maximum && maximum > 0.0 {
-            add += tail["coef"][i] * shape_value(v / maximum - 1.0, tail);
+        if feature > maximum && maximum > 0.0 {
+            add += tail["coef"][i] * shape_value(feature / maximum - 1.0, tail);
         }
     }
     let gained_add = add * tail["gain"];
-    if gained_add > 0.0 && tail["maxAdd"] > 0.0 {
-        value + if gained_add > tail["maxAdd"] { tail["maxAdd"] } else { gained_add }
+    if gained_add > 0.0 {
+        value + if tail["maxAdd"] > 0.0 && gained_add > tail["maxAdd"] { tail["maxAdd"] } else { gained_add }
     } else {
-        value + if gained_add > 0.0 { gained_add } else { 0.0 }
+        value
     }
 }
 
 fn part_of(name) {
-    if name.starts_with("g1_") { return "density"; }
-    if name.starts_with("g2_") { return "stream"; }
-    if name.starts_with("g3_") { return "jack"; }
-    if name.starts_with("g4_") { return "chord"; }
-    if name.starts_with("g5_") {
-        return if name.contains("hand") { "reach" } else { "travel" };
+    if name.starts_with("g1_") || (name.starts_with("d_") && name != "d_burstP99") { return "density"; }
+    if name.starts_with("g2_") || name.starts_with("p_handNps") || name == "p_handBalance" || name == "p_sameHandStreamMax" {
+        return "stream";
     }
-    if name.starts_with("g6_") { return "hold"; }
-    if name.starts_with("g7_") { return "reading"; }
-    if name.starts_with("g8_") { return "burst"; }
-    if name.starts_with("g9_") { return "reach"; }
-    if name.starts_with("g10_") { return "repeat"; }
-    if name.starts_with("seg_handSpeedP95") || name.starts_with("seg_handTravel") || name.starts_with("seg_handJump") {
+    if name.starts_with("g3_") || name == "p_sameHandJackRatio" { return "jack"; }
+    if name.starts_with("g4_") || name == "p_handChordMax" || name.starts_with("h_holdStartChord") ||
+        name == "h_holdReleaseChordMax" || name == "pat_chordEntropy" {
+        return "chord";
+    }
+    if name.starts_with("g5_") && !name.contains("hand") || name.starts_with("seg_speedP95") ||
+        name == "f_travelP95" || name == "f_travelMax" || name == "f_speedP95" || name == "f_speedMax" ||
+        name.starts_with("h_holdMove") || name == "h_holdPathPerSec" {
+        return "travel";
+    }
+    if name.starts_with("g5_hand") || name.starts_with("g9_") ||
+        name.starts_with("seg_handSpeedP95") || name.starts_with("seg_handTravel") || name.starts_with("seg_handJump") ||
+        name.starts_with("f_") || name == "p_handSpeedP95Max" || name == "p_handTravelPerSec" {
         return "reach";
     }
-    if name.starts_with("seg_speedP95") { return "travel"; }
+    if name.starts_with("g6_") || name.starts_with("h_") || name == "b_longHoldCrossBeatRatio" {
+        return "hold";
+    }
+    if name.starts_with("g7_") || name.starts_with("b_") { return "reading"; }
+    if name.starts_with("g8_") || name == "d_burstP99" { return "burst"; }
+    if name.starts_with("g10_") || name.starts_with("pat_") || name.starts_with("seg_patternRepeat") {
+        return "repeat";
+    }
     if name.starts_with("seg_jackRatio") { return "jack"; }
     if name.starts_with("seg_chordRatio") { return "chord"; }
-    if name.starts_with("seg_patternRepeat") { return "repeat"; }
     if name.starts_with("seg_burstMax") { return "burst"; }
-    "density"
+    if name.starts_with("seg_") { return "density"; }
+    "baseline"
 }
 
 fn feature_index(names, wanted) {
@@ -98,98 +117,85 @@ fn percentile(distribution, value) {
 fn on_chart_selected(ctx, settings) {
     let model = ctx.assets.model;
     let profile = ctx.assets.profile;
-    let base_features = ctx.features;
-    if base_features.len() != model.names.len() {
-        throw "PPSR 特征版本与模型缓存不匹配";
+    let x = ctx.features;
+    let names = model.names;
+    if model.format != "phira-ppsr-model" || model.version != 2 ||
+        ctx.feature_version != model.featureVersion || ctx.v2_feature_version != model.v2FeatureVersion ||
+        x.len() != names.len() || names.len() != 187 || ctx.feature_names.len() != names.len() {
+        throw "PPSR 特征版本或维数与模型缓存不匹配";
+    }
+    if profile.format != "phira-ppsr-profile" || profile.version != 1 ||
+        profile.featureVersion != model.featureVersion || profile.v2FeatureVersion != model.v2FeatureVersion ||
+        profile.modelTag != model.modelTag || profile.names.len() != names.len() {
+        throw "PPSR 分项画像与模型版本不匹配";
+    }
+    for i in 0..names.len() {
+        if ctx.feature_names[i] != names[i] || profile.names[i] != names[i] {
+            throw "PPSR 模型或分项画像特征顺序与宿主不匹配";
+        }
     }
 
-    let x = base_features;
-    x.push(ctx.note_total);
-    x.push(ctx.mech_total);
-    x.push(ctx.duration);
-    x.push(ctx.fake_ratio);
-    x.push(ln(1.0 + ctx.note_total));
-    x.push(ln(1.0 + ctx.duration));
-    x.push(if ctx.duration > 0.0 { ctx.note_total / ctx.duration } else { 0.0 });
-
     let model_difficulty = predict(model, x);
-    let difficulty = if ctx.chart_set == "phigros" && ctx.difficulty > 0.0 { ctx.difficulty } else { model_difficulty };
+    let official = ctx.chart_set == "phigros" && ctx.difficulty > 0.0;
+    let difficulty = if official { ctx.difficulty } else { model_difficulty };
     let keys = ["density", "stream", "jack", "chord", "travel", "reach", "hold", "reading", "burst", "repeat"];
-    let labels = ["底力", "间隔", "键型复杂度", "多指", "位移", "协调", "长条锁手", "读谱", "爆发", "重复度"];
-    let headlines = [
-        "g1_npsMech1sMax", "g2_streakMax", "g3_jackRunMax", "g4_chordMax", "g5_speedP95",
-        "g9_handTravel2sMax", "g6_holdOverlapDensityMax", "g7_lineCount", "g8_burstMax", "g10_bigramRepeatRatio"
-    ];
-    let units = ["/s", " 连", " 连", " 键", " 屏/s", " 屏", "", " 条", " 键", "%"];
-    let value_labels = ["峰值按键", "最长连打", "最长同指", "最大同押", "手速 P95", "2 秒最大行程", "重叠密度峰值", "判定线", "0.22s 内", "形态重复率"];
-    let factors = [10.0, 1.0, 1.0, 1.0, 100.0, 100.0, 10.0, 1.0, 1.0, 10.0];
+    let labels = ["谱面密度 / 底力", "纵连与交互", "Jack / Trill", "多押与和弦", "位移与手速", "手序与指位",
+        "长条占用", "节奏切分", "短时爆发", "谱型重复"];
+    let headlines = ["g1_npsMech1sMax", "g2_streakMax", "g3_jackRunMax", "g4_chordMax", "g5_speedP95",
+        "g9_handTravel2sMax", "h_holdConcurrentMax", "b_offGridRatio", "g8_burstMax", "pat_4gramRepeatRatio"];
+    let units = ["/s", " 连", " 连", " 键", " 屏/s", " 屏", " 条", "%", " 键 / 0.22s", "%"];
+    let value_labels = ["机械键峰值", "最长连续段", "最长同指段", "最大同刻多押", "位移速度 P95", "2 秒最大手部行程",
+        "最大同时按住", "非四分拍网格率", "0.22 秒窗口峰值", "4-gram 重复率"];
+    let scales = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 100.0, 1.0, 100.0];
+    let sums = #{
+        density: 0.0, stream: 0.0, jack: 0.0, chord: 0.0, travel: 0.0,
+        reach: 0.0, hold: 0.0, reading: 0.0, burst: 0.0, repeat: 0.0
+    };
+    let counts = #{
+        density: 0, stream: 0, jack: 0, chord: 0, travel: 0,
+        reach: 0, hold: 0, reading: 0, burst: 0, repeat: 0
+    };
+    for j in 0..names.len() {
+        let key = part_of(names[j]);
+        if key != "baseline" {
+            let distribution = profile.features[names[j]];
+            if distribution.len() == 0 { throw "PPSR 分项特征画像为空"; }
+            let raw_rank = percentile(distribution, x[j]);
+            let direction = profile.directions[names[j]];
+            sums[key] += if direction < 0 { 1.0 - raw_rank } else { raw_rank };
+            counts[key] += 1;
+        }
+    }
     let parts = [];
-    let sum = 0.0;
-    let median = profile.median;
-    let median_notes = median["meta_noteTotal"];
-    let median_mech = median["meta_mechTotal"];
-    let median_duration = median["meta_duration"];
-    let median_fake_ratio = median["meta_fakeRatio"];
-
     for i in 0..keys.len() {
         let key = keys[i];
-        let response_x = [];
-        for j in 0..model.augNames.len() {
-            let name = model.augNames[j];
-            if j < model.names.len() && part_of(name) == key {
-                response_x.push(x[j]);
-            } else if name == "x_noteTotal" {
-                response_x.push(median_notes);
-            } else if name == "x_mechTotal" {
-                response_x.push(median_mech);
-            } else if name == "x_duration" {
-                response_x.push(median_duration);
-            } else if name == "x_fakeRatio" {
-                response_x.push(median_fake_ratio);
-            } else if name == "x_logNoteTotal" {
-                response_x.push(ln(1.0 + median_notes));
-            } else if name == "x_logDuration" {
-                response_x.push(ln(1.0 + median_duration));
-            } else if name == "x_meanNps" {
-                response_x.push(if median_duration > 0.0 { median_notes / median_duration } else { 0.0 });
-            } else {
-                response_x.push(median[name]);
-            }
-        }
-        let response = predict(model, response_x);
+        let measure = sums[key] / counts[key];
         let distribution = profile.parts[key];
-        let hold_index = feature_index(model.names, "g6_holdOverlapDensityMax");
+        let hold_index = feature_index(names, "h_holdCount");
         let absent = key == "hold" && x[hold_index] == 0.0;
-        let rank = if absent { 0.0 } else { percentile(distribution, response) };
-        let floor = if distribution.len() > 0 { distribution[0] } else { response };
-        let contribute = if absent { floor - profile.base } else { response - profile.base };
-        sum += contribute;
-
-        let headline_index = feature_index(model.names, headlines[i]);
-        let scale = if key == "repeat" { 100.0 } else { 1.0 };
-        let value = x[headline_index] * scale;
-        let factor = factors[i];
-        let rounded_value = (value * factor + 0.5).floor() / factor;
+        let rank = if absent { 0.0 } else { percentile(distribution, measure) };
+        let value_index = feature_index(names, headlines[i]);
+        let scale = scales[i];
+        let shown_value = (x[value_index] * scale * 10.0 + 0.5).floor() / 10.0;
         parts.push(#{
             key: key,
             label: labels[i],
             score: 1.0 + rank * 9.0,
             percentile: rank,
-            contribute: contribute,
+            contribute: (rank - 0.5) * 2.0,
             absent: absent,
-            absentHint: if absent { "这张谱没有任何重叠的长条，长条锁手无从谈起" } else { () },
-            value: rounded_value,
+            value: shown_value,
             unit: units[i],
             valueLabel: value_labels[i]
         });
     }
-
     #{
-        algorithm: "PPSR unified",
+        algorithm: "PPSR v2",
+        model: model.modelTag,
         difficulty: difficulty,
+        source: if official { "official" } else { "model" },
         parts: parts,
         baseline: profile.base,
-        residual: difficulty - profile.base - sum,
         note_total: ctx.note_total,
         duration: ctx.duration
     }

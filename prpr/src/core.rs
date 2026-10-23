@@ -148,6 +148,11 @@ impl BpmList {
         BpmList { elements, cursor: 0 }
     }
 
+    /// Read-only (beat, time, BPM) keyframes for chart analysis.
+    pub fn elements(&self) -> &[(f64, f64, f64)] {
+        &self.elements
+    }
+
     /// Get the time in seconds for a given beats
     #[inline]
     pub fn time_beats(&mut self, beats: f64) -> f64 {

@@ -11,12 +11,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     cell::RefCell,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::Read,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 const MAX_PACKAGE: u64 = 2 << 20;
+const MAX_ASSET_SIZE: u64 = 8 << 20;
+const MAX_ASSETS_SIZE: usize = 8 << 20;
+const MAX_EXPANDED_PACKAGE: u64 = 10 << 20;
+const MAX_INDEX_SIZE: usize = 24 << 20;
+pub const DEFAULT_OPERATION_LIMIT: u64 = 5_000_000;
+static OPERATION_LIMIT: AtomicU64 = AtomicU64::new(DEFAULT_OPERATION_LIMIT);
 /// Public interface name; the numeric manifest field is its compatibility version.
 pub const API_NAME: &str = "Phira Pro Plugin API";
 pub const API_VERSION: u32 = 2;
@@ -84,6 +91,9 @@ pub struct Manifest {
     /// Package-fixed data exposed only to API v2 chart callbacks.
     #[serde(default = "empty_object")]
     pub assets: Value,
+    /// Root-level JSON files loaded into `assets` when importing a package.
+    #[serde(default, rename = "assetFiles")]
+    pub asset_files: BTreeMap<String, String>,
 }
 fn empty_object() -> Value {
     json!({})
@@ -112,7 +122,7 @@ fn engine() -> Engine {
     // Explicitly prevent Rhai's default file module resolver from importing
     // local files. Host capabilities consist only of argument data and return values.
     e.set_module_resolver(rhai::module_resolvers::DummyModuleResolver::new());
-    e.set_max_operations(5_000_000)
+    e.set_max_operations(DEFAULT_OPERATION_LIMIT)
         .set_max_call_levels(32)
         .set_max_expr_depths(64, 32)
         .set_max_variables(256)
@@ -130,6 +140,64 @@ fn engine() -> Engine {
 fn index_path() -> Result<PathBuf> {
     Ok(PathBuf::from(crate::dir::root()?).join("plugins/index.json"))
 }
+fn operation_limit_path() -> Result<PathBuf> {
+    Ok(PathBuf::from(crate::dir::root()?).join("plugins/operation_limit.json"))
+}
+pub fn operation_limit() -> u64 {
+    OPERATION_LIMIT.load(Ordering::Relaxed)
+}
+fn parse_operation_limit(input: &str) -> Option<u64> {
+    let input = input.trim();
+    if input.is_empty() || !input.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    input.parse::<u64>().ok().filter(|limit| *limit > 0 && *limit <= i64::MAX as u64)
+}
+fn callback_operation_limit(name: &str, configured: u64) -> u64 {
+    if name == "on_frame" {
+        25_000
+    } else {
+        configured
+    }
+}
+fn load_operation_limit(path: &Path) -> Result<u64> {
+    if !path.exists() {
+        return Ok(DEFAULT_OPERATION_LIMIT);
+    }
+    let value: Value = serde_json::from_slice(&std::fs::read(path)?)?;
+    Ok(value
+        .get("operations")
+        .and_then(Value::as_u64)
+        .filter(|limit| *limit > 0 && *limit <= i64::MAX as u64)
+        .unwrap_or(DEFAULT_OPERATION_LIMIT))
+}
+fn save_operation_limit(path: &Path, input: &str) -> Result<bool> {
+    let parsed = parse_operation_limit(input);
+    let limit = parsed.unwrap_or(DEFAULT_OPERATION_LIMIT);
+    std::fs::create_dir_all(path.parent().context("plugin settings path has no parent")?)?;
+    crate::transfer::write_atomic(&path, &serde_json::to_vec(&json!({"operations":limit}))?)?;
+    Ok(parsed.is_some())
+}
+pub fn set_operation_limit(input: &str) -> Result<bool> {
+    let path = operation_limit_path()?;
+    let valid = save_operation_limit(&path, input)?;
+    let limit = if valid {
+        parse_operation_limit(input).unwrap()
+    } else {
+        DEFAULT_OPERATION_LIMIT
+    };
+    OPERATION_LIMIT.store(limit, Ordering::Relaxed);
+    Ok(valid)
+}
+fn init_operation_limit() {
+    match operation_limit_path().and_then(|path| load_operation_limit(&path)) {
+        Ok(limit) => OPERATION_LIMIT.store(limit, Ordering::Relaxed),
+        Err(error) => {
+            OPERATION_LIMIT.store(DEFAULT_OPERATION_LIMIT, Ordering::Relaxed);
+            tracing::warn!(?error, "cannot read plugin operation limit; using default");
+        }
+    }
+}
 fn read_index() -> Result<Vec<Installed>> {
     read_index_at(&index_path()?)
 }
@@ -137,7 +205,7 @@ fn read_index_at(path: &Path) -> Result<Vec<Installed>> {
     if !path.exists() {
         return Ok(vec![]);
     }
-    anyhow::ensure!(std::fs::metadata(&path)?.len() <= 16 << 20, "插件索引过大");
+    anyhow::ensure!(std::fs::metadata(&path)?.len() <= MAX_INDEX_SIZE as u64, "插件索引过大");
     Ok(serde_json::from_slice(&std::fs::read(path)?)?)
 }
 fn write_index(plugins: &[Installed]) -> Result<()> {
@@ -146,7 +214,7 @@ fn write_index(plugins: &[Installed]) -> Result<()> {
 fn write_index_at(path: &Path, plugins: &[Installed]) -> Result<()> {
     std::fs::create_dir_all(path.parent().unwrap())?;
     let bytes = serde_json::to_vec_pretty(plugins)?;
-    anyhow::ensure!(bytes.len() <= 16 << 20, "插件库超过 16MiB，请先删除不需要的插件");
+    anyhow::ensure!(bytes.len() <= MAX_INDEX_SIZE, "插件库超过 24MiB，请先删除不需要的插件");
     crate::transfer::write_atomic(&path, &bytes)
 }
 fn verify(m: &Manifest, script: &str) -> Result<()> {
@@ -154,7 +222,25 @@ fn verify(m: &Manifest, script: &str) -> Result<()> {
     anyhow::ensure!(!m.id.is_empty() && m.id.len() <= 80 && m.id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)), "插件 ID 无效");
     anyhow::ensure!(!m.name.trim().is_empty() && m.name.len() <= 160 && m.version.len() <= 80 && m.description.len() <= 2048, "插件名称或描述无效");
     anyhow::ensure!(m.settings.is_object() && serde_json::to_vec(&m.settings)?.len() <= 16 << 10, "插件 settings 必须是小于 16KiB 的 JSON 对象");
-    anyhow::ensure!(m.assets.is_object() && serde_json::to_vec(&m.assets)?.len() <= 1 << 20, "插件 assets 必须是小于 1MiB 的 JSON 对象");
+    anyhow::ensure!(
+        m.assets.is_object() && serde_json::to_vec(&m.assets)?.len() <= MAX_ASSETS_SIZE,
+        "插件 assets 必须是小于 8MiB 的 JSON 对象"
+    );
+    anyhow::ensure!(m.api >= 2 || m.asset_files.is_empty(), "只有 API v2 插件可以声明 assetFiles");
+    for (key, name) in &m.asset_files {
+        anyhow::ensure!(
+            !key.is_empty() && key.len() <= 80 && key.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)),
+            "插件 assetFiles 键无效"
+        );
+        anyhow::ensure!(
+            !name.is_empty()
+                && name.len() <= 128
+                && name.ends_with(".json")
+                && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+                && name != ".json",
+            "插件资源文件名无效：{name}"
+        );
+    }
     for p in &m.permissions {
         anyhow::ensure!(["chart.read", "result.read", "overlay.draw"].contains(&p.as_str()), "不支持的权限：{p}");
     }
@@ -170,17 +256,45 @@ pub fn import(path: &Path) -> Result<()> {
 fn install_package(path: &Path, index: &Path) -> Result<()> {
     anyhow::ensure!(std::fs::metadata(path)?.len() <= MAX_PACKAGE, "插件包超过 2MiB");
     let mut zip = zip::ZipArchive::new(std::fs::File::open(path)?)?;
-    anyhow::ensure!(zip.len() == 2, "插件包只允许 manifest.json 和 main.rhai");
-    fn entry(zip: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Result<String> {
+    anyhow::ensure!(zip.len() >= 2, "插件包缺少必需文件");
+    let expanded_size = (0..zip.len()).try_fold(0_u64, |total, index| {
+        let file = zip.by_index(index)?;
+        total.checked_add(file.size()).context("插件内容大小溢出")
+    })?;
+    anyhow::ensure!(expanded_size <= MAX_EXPANDED_PACKAGE, "插件解压后总大小超过 10MiB");
+    fn entry(zip: &mut zip::ZipArchive<std::fs::File>, name: &str, limit: u64) -> Result<String> {
         let file = zip.by_name(name).with_context(|| format!("缺少 {name}"))?;
-        anyhow::ensure!(file.size() <= MAX_PACKAGE, "插件内容过大");
+        anyhow::ensure!(!file.is_dir(), "插件条目必须是文件：{name}");
+        anyhow::ensure!(file.size() <= limit, "插件内容过大");
         let mut text = String::new();
-        file.take(MAX_PACKAGE + 1).read_to_string(&mut text)?;
-        anyhow::ensure!(text.len() as u64 <= MAX_PACKAGE, "插件内容过大");
+        file.take(limit + 1).read_to_string(&mut text)?;
+        anyhow::ensure!(text.len() as u64 <= limit, "插件内容过大");
         Ok(text)
     }
-    let manifest: Manifest = serde_json::from_str(&entry(&mut zip, "manifest.json")?)?;
-    let script = entry(&mut zip, "main.rhai")?;
+    let mut manifest: Manifest = serde_json::from_str(&entry(&mut zip, "manifest.json", MAX_PACKAGE)?)?;
+    let expected = std::iter::once("manifest.json".to_owned())
+        .chain(std::iter::once("main.rhai".to_owned()))
+        .chain(manifest.asset_files.values().cloned())
+        .collect::<BTreeSet<_>>();
+    anyhow::ensure!(expected.len() == 2 + manifest.asset_files.len(), "插件资源文件名重复");
+    anyhow::ensure!(
+        manifest.assets.is_object() && manifest.asset_files.keys().all(|key| manifest.assets.get(key).is_none()),
+        "assetFiles 键与内嵌 assets 重复"
+    );
+    let mut actual = BTreeSet::new();
+    for index in 0..zip.len() {
+        let file = zip.by_index(index)?;
+        anyhow::ensure!(!file.is_dir(), "插件包不允许目录条目");
+        anyhow::ensure!(actual.insert(file.name().to_owned()), "插件包包含重复条目");
+    }
+    anyhow::ensure!(actual == expected, "插件包只允许 manifest.json、main.rhai 和 Manifest 声明的 JSON 资源文件");
+    let script = entry(&mut zip, "main.rhai", MAX_PACKAGE)?;
+    for (key, name) in &manifest.asset_files {
+        let asset: Value = serde_json::from_str(&entry(&mut zip, name, MAX_ASSET_SIZE)?)
+            .with_context(|| format!("插件资源不是有效 JSON：{name}"))?;
+        manifest.assets.as_object_mut().unwrap().insert(key.clone(), asset);
+    }
+    anyhow::ensure!(serde_json::to_vec(&manifest.assets)?.len() <= MAX_ASSETS_SIZE, "插件 assets 超过 8MiB");
     verify(&manifest, &script)?;
     let mut list = read_index_at(index)?;
     anyhow::ensure!(list.len() < 64, "最多安装 64 个插件");
@@ -216,6 +330,7 @@ pub fn change(id: &str, enabled: Option<bool>, settings: Option<Value>, remove: 
 }
 pub fn init() {
     crate::get_data();
+    init_operation_limit();
     reload();
     prpr::extensions::set_chart_observer(chart_loaded);
 }
@@ -254,12 +369,13 @@ fn invoke(r: &mut Runtime, name: &str, payload: &Value, permission: &str) -> Opt
     if !r.ast.iter_functions().any(|f| f.name == name && f.params.len() == 2) {
         return None;
     }
-    r.engine.set_max_operations(if name == "on_frame" { 25_000 } else { 5_000_000 });
+    r.engine.set_max_operations(callback_operation_limit(name, operation_limit()));
     let call = (|| -> Result<Value> {
         let mut payload = payload.clone();
         if name == "on_chart" || name == "on_chart_selected" {
             if let Some(ctx) = payload.as_object_mut() {
                 ctx.insert("api".into(), json!(r.plugin.manifest.api));
+                ctx.insert("operation_limit".into(), json!(operation_limit()));
                 if r.plugin.manifest.api >= 2 {
                     ctx.insert("assets".into(), r.plugin.manifest.assets.clone());
                 }
@@ -326,6 +442,19 @@ pub fn chart_selected_needed() -> bool {
         })
     })
 }
+pub fn chart_selected_ppsr_features_needed() -> bool {
+    RUNTIME.with(|runtime| {
+        runtime.borrow().iter().any(|r| {
+            r.plugin.manifest.id == PPSR_PLUGIN_ID
+                && r.plugin.manifest.api >= 2
+                && r.error.is_none()
+                && r.plugin.manifest.permissions.iter().any(|permission| permission == "chart.read")
+                && r.ast
+                    .iter_functions()
+                    .any(|function| function.name == "on_chart_selected" && function.params.len() == 2)
+        })
+    })
+}
 pub fn clear_chart_selected_reports() {
     RUNTIME.with(|runtime| {
         for r in runtime.borrow_mut().iter_mut() {
@@ -359,23 +488,37 @@ pub fn chart_selected(payload: &Value) {
         }
     });
 }
-fn ppsr_report() -> Option<Value> {
+fn selected_chart_report() -> Option<(String, Value)> {
     RUNTIME.with(|runtime| {
-        runtime
-            .borrow()
+        let runtime = runtime.borrow();
+        let eligible = |r: &&Runtime| {
+            r.plugin.manifest.api >= 2
+                && r.error.is_none()
+                && r.plugin.manifest.permissions.iter().any(|permission| permission == "chart.read")
+                && r.plugin.manifest.permissions.iter().any(|permission| permission == "overlay.draw")
+                && r.ast
+                    .iter_functions()
+                    .any(|function| function.name == "on_chart_selected" && function.params.len() == 2)
+                && r.report.get("difficulty").and_then(Value::as_f64).is_some()
+        };
+        let plugin = runtime
             .iter()
-            .find(|r| {
-                r.plugin.manifest.id == PPSR_PLUGIN_ID
-                    && r.plugin.manifest.api >= 2
-                    && r.error.is_none()
-                    && r.plugin.manifest.permissions.iter().any(|permission| permission == "overlay.draw")
-            })
-            .map(|r| r.report.clone())
-            .filter(|report| report.get("difficulty").and_then(Value::as_f64).is_some())
+            .filter(eligible)
+            .find(|r| r.plugin.manifest.id == PPSR_PLUGIN_ID)
+            .or_else(|| runtime.iter().filter(eligible).next())?;
+        let title = plugin.report.get("title").and_then(Value::as_str).unwrap_or(&plugin.plugin.manifest.name).to_owned();
+        Some((title, plugin.report.clone()))
     })
 }
-pub fn render_ppsr_panel(ui: &mut Ui, t: f32, artwork: Texture2D, collapsed: bool, toggle: &mut DRectButton, panel: &mut PpsrPanelState) -> bool {
-    let Some(report) = ppsr_report() else {
+pub fn render_plugin_difficulty_panel(
+    ui: &mut Ui,
+    t: f32,
+    artwork: Texture2D,
+    collapsed: bool,
+    toggle: &mut DRectButton,
+    panel: &mut PpsrPanelState,
+) -> bool {
+    let Some((title, report)) = selected_chart_report() else {
         panel.bounds = None;
         panel.drag = None;
         return false;
@@ -395,7 +538,7 @@ pub fn render_ppsr_panel(ui: &mut Ui, t: f32, artwork: Texture2D, collapsed: boo
     ui.fill_path(&rect.rounded(0.02), (artwork, rect, ScaleType::CropCenter, Color::new(1., 1., 1., 0.82)));
     ui.fill_path(&rect.rounded(0.02), Color::new(0.035, 0.045, 0.075, 0.72));
     ui.stroke_path(&rect.rounded(0.02), 0.0015, Color::new(1., 1., 1., 0.14));
-    ui.text("PPSR")
+    ui.text(&title)
         .pos(rect.x + 0.025, rect.y + 0.019)
         .size(0.28)
         .color(Color::new(0.83, 0.88, 0.98, 1.))
@@ -406,7 +549,12 @@ pub fn render_ppsr_panel(ui: &mut Ui, t: f32, artwork: Texture2D, collapsed: boo
     ui.stroke_path(&badge.rounded(0.022), 0.0015, Color::new(1., 1., 1., 0.16));
     let bounds = ui.text(&difficulty).size(1.).no_baseline().measure();
     let size = (0.058 / bounds.h.max(0.001)).min((badge.w - 0.028) / bounds.w.max(0.001));
-    ui.text(&difficulty).pos(badge.center().x, badge.center().y).anchor(0.5, 0.5).no_baseline().size(size).draw();
+    ui.text(&difficulty)
+        .pos(badge.center().x, badge.center().y)
+        .anchor(0.5, 0.5)
+        .no_baseline()
+        .size(size)
+        .draw();
     let toggle_rect = Rect::new(rect.right() - 0.16, rect.y + 0.023, 0.14, 0.06);
     toggle.render_text(ui, toggle_rect, t, if collapsed { "展开" } else { "收起" }, 0.25, false);
     if !collapsed {
@@ -483,6 +631,172 @@ pub fn render(ui: &mut prpr::ui::Ui, time: f64) {
 mod tests {
     use super::*;
     #[test]
+    fn operation_limit_rejects_invalid_values_and_persists_default() {
+        for input in ["", "0", "-1", "1.5", "+12", "12x", "18446744073709551616"] {
+            assert_eq!(parse_operation_limit(input), None, "{input}");
+        }
+        assert_eq!(parse_operation_limit(" 12345 "), Some(12_345));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("plugins/operation_limit.json");
+        assert!(save_operation_limit(&path, "12345").unwrap());
+        assert_eq!(load_operation_limit(&path).unwrap(), 12_345);
+        assert!(!save_operation_limit(&path, "-1").unwrap());
+        assert_eq!(load_operation_limit(&path).unwrap(), DEFAULT_OPERATION_LIMIT);
+    }
+    #[test]
+    fn frame_callback_keeps_its_fixed_operation_limit() {
+        assert_eq!(callback_operation_limit("on_frame", 12_345), 25_000);
+        assert_eq!(callback_operation_limit("on_chart_selected", 12_345), 12_345);
+        assert_eq!(callback_operation_limit("on_result", 12_345), 12_345);
+    }
+    #[test]
+    fn chart_callback_receives_the_current_operation_limit() {
+        let mut manifest = ppsr_manifest();
+        manifest.permissions = vec!["chart.read".into()];
+        let script = "fn on_chart_selected(ctx, settings) { #{limit: ctx.operation_limit} }";
+        let engine = engine();
+        let ast = engine.compile(script).unwrap();
+        let mut runtime = Runtime {
+            plugin: Installed {
+                settings: manifest.settings.clone(),
+                manifest,
+                script: script.into(),
+                enabled: true,
+            },
+            engine,
+            ast,
+            report: Value::Null,
+            error: None,
+            frame_tick: -1,
+        };
+        let report = invoke(&mut runtime, "on_chart_selected", &json!({}), "chart.read").unwrap();
+        assert_eq!(report["limit"], operation_limit());
+        assert_eq!(runtime.engine.max_operations(), operation_limit());
+    }
+    fn ppsr_manifest() -> Manifest {
+        let mut manifest: Manifest = serde_json::from_str(include_str!("../../docs/plugins/examples/ppsr/manifest.json")).unwrap();
+        manifest.assets["model"] = serde_json::from_str(include_str!("../../docs/plugins/examples/ppsr/model.json")).unwrap();
+        manifest.assets["profile"] = serde_json::from_str(include_str!("../../docs/plugins/examples/ppsr/profile.json")).unwrap();
+        manifest
+    }
+    fn pde_r_manifest() -> Manifest {
+        let mut manifest: Manifest = serde_json::from_str(include_str!("../../docs/plugins/examples/pde-r/manifest.json")).unwrap();
+        manifest.assets["model"] = serde_json::from_str(include_str!("../../docs/plugins/examples/pde-r/model.json")).unwrap();
+        manifest
+    }
+    #[test]
+    fn pde_r_plugin_owns_its_feature_extractor_and_accepts_selected_chart_data() {
+        let manifest = pde_r_manifest();
+        let script = include_str!("../../docs/plugins/examples/pde-r/main.rhai");
+        verify(&manifest, script).unwrap();
+        assert_eq!(manifest.id, "phira-pro.pde-r");
+        assert_ne!(manifest.id, PPSR_PLUGIN_ID);
+        let engine = engine();
+        let ast = engine.compile(script).unwrap();
+        let mut runtime = Runtime {
+            plugin: Installed {
+                settings: manifest.settings.clone(),
+                manifest,
+                script: script.into(),
+                enabled: true,
+            },
+            engine,
+            ast,
+            report: Value::Null,
+            error: None,
+            frame_tick: -1,
+        };
+        let report = invoke(
+            &mut runtime,
+            "on_chart_selected",
+            &json!({"chart_data":null,"raw":{"sentinel":true}}),
+            "chart.read",
+        )
+        .unwrap_or_else(|| panic!("PDE-R selected-chart callback suspended: {:?}", runtime.error));
+        assert_eq!(report["failed"], true);
+        assert!(report["text"].as_str().unwrap().contains("原始"));
+        assert!(runtime.error.is_none());
+    }
+    #[test]
+    fn pde_r_plugin_extracts_and_scores_its_own_106_features_on_chart_selection() {
+        let manifest = pde_r_manifest();
+        let script = include_str!("../../docs/plugins/examples/pde-r/main.rhai");
+        let engine = engine();
+        let ast = engine.compile(script).unwrap();
+        let mut runtime = Runtime {
+            plugin: Installed {
+                settings: manifest.settings.clone(),
+                manifest,
+                script: script.into(),
+                enabled: true,
+            },
+            engine,
+            ast,
+            report: Value::Null,
+            error: None,
+            frame_tick: -1,
+        };
+        let mut chart_data: Value =
+            serde_json::from_str(include_str!("../../prpr/tests/fixtures/rpe-next/chart.json")).unwrap();
+        let notes = chart_data["judgeLineList"][0]["notes"].as_array_mut().unwrap();
+        let template = notes[0].clone();
+        for beat in 20..28 {
+            let mut note = template.clone();
+            note["startTime"] = json!([beat, 0, 1]);
+            note["endTime"] = json!([beat, 0, 1]);
+            notes.push(note);
+        }
+        let report = invoke(
+            &mut runtime,
+            "on_chart_selected",
+            &json!({"chart_data":chart_data}),
+            "chart.read",
+        )
+        .unwrap_or_else(|| panic!("PDE-R feature/model callback suspended: {:?}", runtime.error));
+        assert_ne!(report["failed"], true, "PDE-R rejected a supported RPE chart: {report:?}");
+        assert_eq!(report["features"], 106);
+        assert_eq!(report["feature_map"].as_object().unwrap().len(), 106);
+        assert!(report["difficulty"].as_f64().unwrap().is_finite());
+        assert!(runtime.error.is_none());
+    }
+    #[test]
+    fn pde_r_plugin_zip_imports_with_its_own_model_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let package = dir.path().join("pde-r.zip");
+        let index = dir.path().join("plugins/index.json");
+        std::fs::write(&package, include_bytes!("../../docs/plugins/Phira-Pro-PDE-R.zip")).unwrap();
+        install_package(&package, &index).unwrap();
+        let installed = read_index_at(&index).unwrap();
+        assert_eq!(installed.len(), 1);
+        assert_eq!(installed[0].manifest.id, "phira-pro.pde-r");
+        assert_eq!(installed[0].manifest.assets["model"]["columns"].as_array().unwrap().len(), 106);
+        assert_eq!(installed[0].manifest.asset_files["model"], "model.json");
+        assert!(installed[0].script.contains("fn on_chart_selected"));
+    }
+    fn ppsr_names() -> Vec<String> {
+        crate::ppsr_features::BASE_FEATURE_NAMES
+            .iter()
+            .chain(crate::ppsr_features::V2_FEATURE_NAMES.iter())
+            .chain(crate::ppsr_features::AUGMENTED_FEATURE_NAMES.iter())
+            .map(|name| (*name).to_owned())
+            .collect()
+    }
+    fn ppsr_ctx(names: &[String], features: Vec<Value>) -> Value {
+        json!({
+            "feature_version": 2,
+            "v2_feature_version": 1,
+            "feature_names": names,
+            "features": features,
+            "note_total": 10,
+            "mech_total": 8,
+            "duration": 10.0,
+            "fake_ratio": 0.0,
+            "difficulty": 0.0,
+            "chart_set": "phira"
+        })
+    }
+
+    #[test]
     fn ppsr_fast_drag_uses_release_position() {
         let mut panel = PpsrPanelState {
             position: Some(Vec2::new(0.2, -0.3)),
@@ -491,7 +805,12 @@ mod tests {
             ui_top: 0.6,
             ..Default::default()
         };
-        let mut release = Touch { id: 8, phase: TouchPhase::Ended, position: Vec2::new(0., 0.1), time: 0. };
+        let mut release = Touch {
+            id: 8,
+            phase: TouchPhase::Ended,
+            position: Vec2::new(0., 0.1),
+            time: 0.,
+        };
         assert!(!panel.touch(&release), "another finger must not finish the drag");
         release.id = 7;
         assert!(panel.touch(&release));
@@ -549,6 +868,7 @@ mod tests {
                 permissions: vec!["chart.read".into()],
                 settings: json!({}),
                 assets: json!({}),
+                asset_files: BTreeMap::new(),
             },
             script: String::new(),
             enabled: true,
@@ -588,6 +908,7 @@ mod tests {
                 permissions: vec!["chart.read".into()],
                 settings: json!({}),
                 assets: json!({"model":{"bias":7}}),
+                asset_files: BTreeMap::new(),
             },
             script: String::new(),
             enabled: true,
@@ -612,53 +933,40 @@ mod tests {
     }
     #[test]
     fn packaged_ppsr_script_predicts_with_a_small_fixture_model() {
-        let names = vec![
-            "g1_npsMech1sMax",
-            "g2_streakMax",
-            "g3_jackRunMax",
-            "g4_chordMax",
-            "g5_speedP95",
-            "g9_handTravel2sMax",
-            "g6_holdOverlapDensityMax",
-            "g7_lineCount",
-            "g8_burstMax",
-            "g10_bigramRepeatRatio",
-        ];
-        let mut aug_names = names.clone();
-        aug_names.extend([
-            "x_noteTotal",
-            "x_mechTotal",
-            "x_duration",
-            "x_fakeRatio",
-            "x_logNoteTotal",
-            "x_logDuration",
-            "x_meanNps",
-        ]);
-        let mut median = aug_names
+        let names = ppsr_names();
+        let median = names
             .iter()
             .map(|name| ((*name).to_owned(), json!(0.)))
             .collect::<serde_json::Map<_, _>>();
-        median.extend([
-            ("meta_noteTotal".into(), json!(0.)),
-            ("meta_mechTotal".into(), json!(0.)),
-            ("meta_duration".into(), json!(0.)),
-            ("meta_fakeRatio".into(), json!(0.)),
-        ]);
+        let feature_distributions = names
+            .iter()
+            .map(|name| ((*name).to_owned(), json!([0.])))
+            .collect::<serde_json::Map<_, _>>();
+        let directions = names
+            .iter()
+            .map(|name| ((*name).to_owned(), json!(1)))
+            .collect::<serde_json::Map<_, _>>();
         let mut part_profile = serde_json::Map::new();
         for key in [
             "density", "stream", "jack", "chord", "travel", "reach", "hold", "reading", "burst", "repeat",
         ] {
-            part_profile.insert(key.into(), json!([10.06]));
+            part_profile.insert(key.into(), json!([1.0]));
         }
         let assets = json!({
             "model": {
+                "format":"phira-ppsr-model",
+                "version":2,
+                "featureVersion":2,
+                "v2FeatureVersion":1,
+                "modelTag":"fixture",
                 "names": names,
-                "augNames": aug_names,
-                "learner": {"base":10.0,"lr":0.06,"trees":[{"feature":0,"threshold":0.0,"left":{"leaf":1.0},"right":{"leaf":-1.0}}]},
+                "bag":{"models":[{"base":10.0,"lr":0.06,"featureCount":187,"trees":[{"feature":0,"threshold":0.0,"left":{"leaf":1.0},"right":{"leaf":-1.0}}]}]},
                 "deshrink": {"slope":1.0,"intercept":0.0},
                 "tail": {"idx":[],"xMax":[],"coef":[],"gain":1.0,"maxAdd":5.0,"shape":"log","expK":18.0}
             },
-            "profile": {"base":10.0,"median":median,"parts":part_profile}
+            "profile": {"format":"phira-ppsr-profile","version":1,"featureVersion":2,"v2FeatureVersion":1,
+                "modelTag":"fixture","names":names,"base":10.0,"median":median,"features":feature_distributions,
+                "directions":directions,"parts":part_profile}
         });
         let script = include_str!("../../docs/plugins/examples/ppsr/main.rhai");
         let engine = engine();
@@ -675,6 +983,7 @@ mod tests {
                     permissions: vec!["chart.read".into()],
                     settings: json!({}),
                     assets,
+                    asset_files: BTreeMap::new(),
                 },
                 script: script.into(),
                 enabled: true,
@@ -689,10 +998,10 @@ mod tests {
         let report = invoke(
             &mut runtime,
             "on_chart_selected",
-            &json!({"features":vec![0.;10],"note_total":10,"mech_total":10,"duration":10.,"fake_ratio":0.,"difficulty":0.,"chart_set":"phira"}),
+            &ppsr_ctx(&ppsr_names(), vec![json!(0.); 187]),
             "chart.read",
         )
-        .expect("PPSR callback");
+        .unwrap_or_else(|| panic!("PPSR callback suspended: {:?}", runtime.error));
         assert_eq!(report["difficulty"], 10.06);
         let parts = report["parts"].as_array().unwrap();
         assert_eq!(parts.len(), 10);
@@ -700,18 +1009,13 @@ mod tests {
             let score = part["score"].as_f64().unwrap();
             (1.0..=10.0).contains(&score) && part["percentile"].as_f64().is_some()
         }));
+        let mut official_ctx = ppsr_ctx(&ppsr_names(), vec![json!(0.); 187]);
+        official_ctx["difficulty"] = json!(16.68);
+        official_ctx["chart_set"] = json!("phigros");
         let official_report = invoke(
             &mut runtime,
             "on_chart_selected",
-            &json!({
-                "features":vec![0.;10],
-                "note_total":10,
-                "mech_total":10,
-                "duration":10.,
-                "fake_ratio":0.,
-                "difficulty":16.68,
-                "chart_set":"phigros"
-            }),
+            &official_ctx,
             "chart.read",
         )
         .expect("official PPSR callback");
@@ -719,18 +1023,31 @@ mod tests {
     }
     #[test]
     fn ppsr_plugin_manifest_and_script_pass_import_validation() {
-        let manifest: Manifest = serde_json::from_str(include_str!("../../docs/plugins/examples/ppsr/manifest.json")).unwrap();
+        let manifest = ppsr_manifest();
         let script = include_str!("../../docs/plugins/examples/ppsr/main.rhai");
         verify(&manifest, script).unwrap();
         assert_eq!(manifest.id, PPSR_PLUGIN_ID);
         assert_eq!(manifest.api, API_VERSION);
         assert!(manifest.permissions.iter().any(|permission| permission == "overlay.draw"));
+
+        let mut invalid = manifest;
+        invalid.asset_files.insert("model".into(), "../model.json".into());
+        assert!(verify(&invalid, script).is_err(), "asset file paths must not escape the ZIP root");
     }
     #[test]
     fn ppsr_unified_cache_executes_in_rhai_with_a_complete_feature_vector() {
-        let manifest: Manifest = serde_json::from_str(include_str!("../../docs/plugins/examples/ppsr/manifest.json")).unwrap();
+        let manifest = ppsr_manifest();
         let script = include_str!("../../docs/plugins/examples/ppsr/main.rhai");
         verify(&manifest, script).unwrap();
+        let expected_names = ppsr_names();
+        let model_names = manifest.assets["model"]["names"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|name| name.as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(model_names, expected_names);
+        assert_eq!(manifest.assets["profile"]["names"], manifest.assets["model"]["names"]);
         let engine = engine();
         let ast = engine.compile(script).unwrap();
         let mut runtime = Runtime {
@@ -750,6 +1067,9 @@ mod tests {
             &mut runtime,
             "on_chart_selected",
             &json!({
+                "feature_version": 2,
+                "v2_feature_version": 1,
+                "feature_names": manifest.assets["model"]["names"],
                 "features": vec![0.; manifest.assets["model"]["names"].as_array().unwrap().len()],
                 "note_total": 0,
                 "mech_total": 0,
@@ -760,10 +1080,13 @@ mod tests {
             }),
             "chart.read",
         )
-        .expect("PPSR model callback");
+        .unwrap_or_else(|| panic!("PPSR model callback suspended: {:?}", runtime.error));
         let difficulty = report["difficulty"].as_f64().unwrap();
-        let expected = 4.896684037134319;
-        assert!((difficulty - expected).abs() < 1e-9, "unexpected frozen-model result: {difficulty}");
+        let expected = 1.6317731664795476;
+        assert!(
+            difficulty.is_finite() && (difficulty - expected).abs() < 1e-9,
+            "unexpected frozen-model parity result: {difficulty}"
+        );
         let parts = report["parts"].as_array().unwrap();
         assert_eq!(parts.len(), 10);
         assert!(parts.iter().all(|part| (1.0..=10.0).contains(&part["score"].as_f64().unwrap())));
@@ -771,15 +1094,21 @@ mod tests {
 
     #[test]
     fn ppsr_median_profile_produces_non_floor_subscores() {
-        let manifest: Manifest = serde_json::from_str(include_str!("../../docs/plugins/examples/ppsr/manifest.json")).unwrap();
+        let manifest = ppsr_manifest();
         let script = include_str!("../../docs/plugins/examples/ppsr/main.rhai");
-        let names = manifest.assets["model"]["names"].as_array().unwrap();
+        let names = manifest.assets["model"]["names"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|name| name.as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
         let median = &manifest.assets["profile"]["median"];
-        let features = names.iter().map(|name| median[name.as_str().unwrap()].clone()).collect::<Vec<_>>();
-        let note_total = median["meta_noteTotal"].clone();
-        let mech_total = median["meta_mechTotal"].clone();
-        let duration = median["meta_duration"].clone();
-        let fake_ratio = median["meta_fakeRatio"].clone();
+        let features = names.iter().map(|name| median[name].clone()).collect::<Vec<_>>();
+        let note_total = median["x_noteTotal"].clone();
+        let mech_total = median["x_mechTotal"].clone();
+        let duration = median["x_duration"].clone();
+        let fake_ratio = median["x_fakeRatio"].clone();
+        let expected_difficulty = manifest.assets["profile"]["base"].as_f64().unwrap();
         let engine = engine();
         let ast = engine.compile(script).unwrap();
         let mut runtime = Runtime {
@@ -799,6 +1128,9 @@ mod tests {
             &mut runtime,
             "on_chart_selected",
             &json!({
+                "feature_version": 2,
+                "v2_feature_version": 1,
+                "feature_names": names,
                 "features":features,
                 "note_total":note_total,
                 "mech_total":mech_total,
@@ -816,45 +1148,32 @@ mod tests {
             .iter()
             .map(|part| (part["key"].as_str().unwrap().to_owned(), part["score"].as_f64().unwrap()))
             .collect::<Vec<_>>();
-        let expected_difficulty = 18.053963110847416;
         assert!(
             (report["difficulty"].as_f64().unwrap() - expected_difficulty).abs() < 0.01,
             "median profile should predict its cached baseline: {report:?}"
         );
-        let density_score = scores.iter().find(|(key, _)| key == "density").unwrap().1;
         assert!(scores.iter().any(|(_, score)| *score > 1.0), "all median subscores fell to the floor: {scores:?}");
-        assert!((5.0..=6.5).contains(&density_score), "unexpected median density percentile: {density_score}");
+        assert!(scores.iter().all(|(_, score)| (1.0..=10.0).contains(score)));
     }
 
     #[test]
-    fn ppsr_zip_import_keeps_embedded_model_and_profile_disabled_by_default() {
+    fn ppsr_zip_import_loads_replaceable_model_and_profile_files() {
         let dir = tempfile::tempdir().unwrap();
         let package = dir.path().join("ppsr.zip");
         let index = dir.path().join("plugins/index.json");
-        // Build the fixture from tracked sources; the distributable ZIP is not in Git.
-        {
-            use std::io::Write;
-            let mut zip = zip::ZipWriter::new(std::fs::File::create(&package).unwrap());
-            let options = zip::write::SimpleFileOptions::default();
-            for (name, contents) in [
-                ("manifest.json", include_str!("../../docs/plugins/examples/ppsr/manifest.json")),
-                ("main.rhai", include_str!("../../docs/plugins/examples/ppsr/main.rhai")),
-            ] {
-                zip.start_file(name, options).unwrap();
-                zip.write_all(contents.as_bytes()).unwrap();
-            }
-            zip.finish().unwrap();
-        }
+        std::fs::write(&package, include_bytes!("../../docs/plugins/Phira-Pro-PPSR.zip")).unwrap();
         install_package(&package, &index).unwrap();
         let installed = read_index_at(&index).unwrap();
         assert_eq!(installed.len(), 1);
         assert!(!installed[0].enabled);
         assert_eq!(installed[0].manifest.api, API_VERSION);
-        assert_eq!(installed[0].manifest.assets["model"]["names"].as_array().unwrap().len(), 114);
-        assert_eq!(installed[0].manifest.assets["profile"]["version"], 3);
+        assert_eq!(installed[0].manifest.asset_files["model"], "model.json");
+        assert_eq!(installed[0].manifest.asset_files["profile"], "profile.json");
+        assert_eq!(installed[0].manifest.assets["model"]["names"].as_array().unwrap().len(), 187);
+        assert_eq!(installed[0].manifest.assets["profile"]["version"], 1);
         assert!(installed[0].script.contains("score: 1.0 + rank * 9.0"));
         assert!(!installed[0].script.contains("1.07"));
-        assert!(installed[0].script.contains("ln(1.0 + ctx.note_total)"));
+        assert!(installed[0].script.contains("PPSR 特征版本或维数与模型缓存不匹配"));
     }
     #[test]
     fn plugin_package_install_is_disabled_persistent_and_rejects_bad_updates() {

@@ -203,7 +203,11 @@ pub(super) async fn run(
         packet=incoming.recv()=>{
             let packet=packet.context("联机接收任务已结束")??;let (event,_tail)=protocol::decode(&packet)?;
             match event {
-                Event::Pong=>{waiting_pong=None;},
+                Event::Pong=>{
+                    if let Some(sent) = waiting_pong.take() {
+                        state.lock().unwrap().rtt_ms = Some(sent.elapsed().as_secs_f32() * 1000.);
+                    }
+                },
                 Event::Reply(tag,result)=>{
                     let Some(p)=pending.take() else {bail!("收到没有对应请求的联机响应 {tag}");};
                     ensure!(p.req.response_tag()==tag,"联机响应与未决请求不匹配");

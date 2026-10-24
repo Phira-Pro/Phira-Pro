@@ -3,6 +3,7 @@
 // MultiplayerMatchSubScreen / ParticipantPanel / MultiplayerMatchFooter.
 use super::{protocol::Phase, room::Snapshot};
 use crate::{
+    client::UserManager,
     get_data,
     icons::Icons,
     page::{local_illustration, Illustration},
@@ -139,7 +140,7 @@ impl RoomView {
                 .pos(r.center().x, r.center().y)
                 .anchor(0.5, 0.5)
                 .no_baseline()
-                .size(if primary { 0.44 } else { 0.34 })
+                .size(0.34)
                 .max_width(r.w - 0.025)
                 .color(if enabled { WHITE } else { semi_white(0.35) })
                 .draw_using(&BOLD_FONT);
@@ -191,10 +192,11 @@ impl RoomView {
         } else {
             ("未连接", MUTED)
         };
-        let badge = Rect::new(close.x - 0.25, close.y + 0.01, 0.22, 0.042);
+        let badge = Rect::new(close.x - 0.49, close.y + 0.01, 0.46, 0.042);
         ui.fill_path(&badge.rounded(0.021), Color::from_hex_rgb(0x3e3644));
         ui.fill_circle(badge.x + 0.021, badge.center().y, 0.005, Color::from_hex_rgb(color));
-        ui.text(status)
+        let latency = s.rtt_ms.map(|ms| format!(" · {ms:.0} ms")).unwrap_or_default();
+        ui.text(format!("{status}{latency}"))
             .pos(badge.x + 0.04, badge.center().y)
             .anchor(0., 0.5)
             .no_baseline()
@@ -269,7 +271,7 @@ impl RoomView {
             .max_width(0.7)
             .color(Color::from_hex_rgb(MUTED))
             .draw();
-        let ready = Rect::new(l.footer.right() - 0.53, l.footer.y, 0.53, l.footer.h);
+        let ready = Rect::new(l.footer.right() - 0.23, l.footer.y + 0.008, 0.23, 0.069);
         let (id, label) = match room.phase {
             Phase::Selecting if room.host => (5, "准备并开始"),
             Phase::Waiting if room.ready => (6, "取消准备"),
@@ -329,9 +331,8 @@ impl RoomView {
                     let row = Rect::new(0., y, area.w, 0.077);
                     let me = s.me.as_ref().is_some_and(|me| me.id == user.id);
                     ui.fill_path(&row.rounded(0.01), Color::from_hex_rgb(if me { 0x49384a } else { 0x3b3541 }));
-                    ui.fill_circle(0.038, y + 0.038, 0.025, Color::from_hex_rgb(if me { PINK } else { 0x685d74 }));
-                    let icon = Rect::new(0.023, y + 0.023, 0.03, 0.03);
-                    ui.fill_rect(icon, (*self.icons.user, icon));
+                    UserManager::request(user.id);
+                    ui.avatar(0.038, y + 0.038, 0.025, 0., UserManager::opt_avatar(user.id, &self.icons.user));
                     ui.text(&user.name)
                         .pos(0.077, y + 0.012)
                         .size(0.34)
@@ -393,10 +394,10 @@ impl RoomView {
                 .draw();
         }
         let by = r.bottom() - 0.071;
-        self.button(ui, 4, Rect::new(r.x + 0.018, by, 0.26, 0.05), t, "选择谱面 ID", false, usable && room.host && room.phase == Phase::Selecting);
+        self.button(ui, 4, Rect::new(r.x + 0.018, by, 0.26, 0.05), t, "选择谱面", false, usable && room.host && room.phase == Phase::Selecting);
         let w = (r.w - 0.31) / 2.;
-        self.button(ui, 8, Rect::new(r.x + 0.29, by, w, 0.05), t, if room.locked { "已锁房" } else { "锁房" }, false, usable && room.host);
-        self.button(ui, 9, Rect::new(r.x + 0.30 + w, by, w, 0.05), t, if room.cycle { "轮换开" } else { "轮换关" }, false, usable && room.host);
+        self.button(ui, 8, Rect::new(r.x + 0.29, by, w, 0.05), t, if room.locked { "解锁房间" } else { "锁定房间" }, false, usable && room.host);
+        self.button(ui, 9, Rect::new(r.x + 0.30 + w, by, w, 0.05), t, if room.cycle { "循环开" } else { "循环关" }, false, usable && room.host);
     }
     fn chat(&mut self, ui: &mut Ui, r: Rect, s: &Snapshot, usable: bool, t: f32) {
         Self::section(ui, r, "房间聊天", "");

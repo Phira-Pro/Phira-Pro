@@ -177,6 +177,7 @@ pub struct MainScene {
 
     pages: Vec<Box<dyn Page>>,
     multiplayer: crate::mp::overlay::MultiplayerOverlay,
+    multiplayer_picker_return_page: Option<crate::hud::PageId>,
     course_home_fade: Option<f64>,
 
     idle_fps: IdleFps,
@@ -275,6 +276,7 @@ impl MainScene {
 
             pages: Vec::new(),
             multiplayer,
+            multiplayer_picker_return_page: None,
             course_home_fade: None,
 
             import_task: None,
@@ -445,11 +447,28 @@ impl Scene for MainScene {
         let s = &mut self.state;
         s.update(tm);
         self.multiplayer.update(s)?;
+        if self.multiplayer.take_chart_picker_request() {
+            let picker = crate::page::LibraryPage::new_multiplayer_picker(Arc::clone(&self.icons), s.icons.clone())?;
+            self.multiplayer_picker_return_page = Some(crate::hud::cur_page());
+            self.pages.push(Box::new(picker));
+            self.pages.last_mut().unwrap().enter(s)?;
+            crate::hud::set_cur_page(crate::hud::PageId::Library);
+        }
         if s.fader.transiting() {
             let pos = self.pages.len() - 2;
             self.pages[pos].update(s)?;
         }
         self.pages.last_mut().unwrap().update(s)?;
+        if let Some(chart) = self.pages.last_mut().unwrap().take_multiplayer_chart() {
+            self.pages.pop().unwrap().exit()?;
+            self.pages.last_mut().unwrap().enter(s)?;
+            self.multiplayer.chart_selected(chart);
+        }
+        if self.multiplayer_picker_return_page.is_some()
+            && !self.pages.last().unwrap().is_multiplayer_chart_picker()
+        {
+            crate::hud::set_cur_page(self.multiplayer_picker_return_page.take().unwrap());
+        }
         if !s.fader.transiting() {
             match self.pages.last_mut().unwrap().next_page() {
                 NextPage::Overlay(mut sub) => {

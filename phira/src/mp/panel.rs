@@ -47,6 +47,7 @@ pub struct MultiplayerPage {
     game: Option<GameContext>,
     return_pending: bool,
     last_error: Option<String>,
+    chart_picker_requested: bool,
 }
 impl MultiplayerPage {
     pub fn new(icons: Arc<Icons>) -> Self {
@@ -66,10 +67,17 @@ impl MultiplayerPage {
             game: None,
             return_pending: false,
             last_error: None,
+            chart_picker_requested: false,
         }
     }
     pub fn take_close_request(&mut self) -> bool {
         std::mem::take(&mut self.close_requested)
+    }
+    pub fn take_chart_picker_request(&mut self) -> bool {
+        std::mem::take(&mut self.chart_picker_requested)
+    }
+    pub fn select_chart(&mut self, id: i32) {
+        self.request(Request::Select(id));
     }
     pub fn shutdown(&self) {
         if let Some(s) = &self.session {
@@ -227,7 +235,10 @@ impl Page for MultiplayerPage {
             }
             2 => request_input("mp_create", InputBox::new()),
             3 => request_input("mp_join", InputBox::new()),
-            4 => request_input("mp_chart", InputBox::new()),
+            4 => {
+                self.chart_picker_requested = true;
+                self.close_requested = true;
+            }
             5 => {
                 if let Err(e) = self.begin_prepare() {
                     show_error(e);

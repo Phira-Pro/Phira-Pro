@@ -113,6 +113,8 @@ pub struct ChartsView {
     pub selection_limit: Option<usize>,
     /// Embedded browsers reuse these exact cards but select without navigating.
     pub select_on_click: bool,
+    /// In the multiplayer picker a long press opens safe chart settings without enabling play.
+    pub multiplayer_picker: bool,
     pub picked: Option<ChartItem>,
     pub highlighted: Option<ChartRef>,
     pub fixed_layout: Option<(u32, f32)>,
@@ -150,6 +152,7 @@ impl ChartsView {
             multi_select: None,
             selection_limit: None,
             select_on_click: false,
+            multiplayer_picker: false,
             picked: None,
             highlighted: None,
             fixed_layout: None,
@@ -368,12 +371,39 @@ impl ChartsView {
         let refreshed = self.can_refresh && self.scroll.y_scroller.pulled;
         self.chart_menu.update(t);
         self.scroll.update(t);
-        if self.allow_multi_select && self.multi_select.is_none() {
+        if (self.allow_multi_select || self.multiplayer_picker) && self.multi_select.is_none() {
             if let Some(charts) = &mut self.charts {
                 for (id, item) in charts.iter_mut().enumerate() {
                     if item.chart.is_some() && item.btn.update_long_touch(t, &mut item.long_touch) {
                         self.scroll.y_scroller.halt();
                         self.editing_chart = Some(id);
+                        if self.multiplayer_picker {
+                            let chart = item.chart.as_ref().unwrap().clone();
+                            item.btn.inner.cancel();
+                            let local_path = chart.local_path.clone().or_else(|| {
+                                chart.info.id.map(|id| format!("download/{id}"))
+                            }).filter(|path| {
+                                dir::charts().ok().is_some_and(|dir| Path::new(&format!("{dir}/{path}")).exists())
+                            });
+                            let mods = local_path.as_ref().and_then(|path| {
+                                get_data().charts.iter().find(|it| &it.local_path == path).map(|it| it.mods)
+                            }).unwrap_or_default();
+                            let mut scene = SongScene::new(
+                                chart.clone(), local_path, Arc::clone(&self.icons), self.rank_icons.clone(), mods,
+                            );
+                            scene.prevent_play();
+                            self.transit = Some(TransitState {
+                                id: id as _,
+                                rect: None,
+                                chart,
+                                start_time: t,
+                                next_scene: Some(NextScene::Overlay(Box::new(scene))),
+                                back: false,
+                                done: false,
+                                delete: false,
+                            });
+                            break;
+                        }
                         let mut options = vec![tl!("select").into_owned()];
                         if self.allow_edit {
                             options.extend([

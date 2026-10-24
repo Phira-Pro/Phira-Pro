@@ -550,6 +550,14 @@ pub enum NextPage {
 pub trait Page {
     fn label(&self) -> Cow<'static, str>;
 
+    /// One-shot result for the multiplayer chart picker. Other pages leave it empty.
+    fn take_multiplayer_chart(&mut self) -> Option<i32> {
+        None
+    }
+    fn is_multiplayer_chart_picker(&self) -> bool {
+        false
+    }
+
     fn can_play_bgm(&self) -> bool {
         true
     }

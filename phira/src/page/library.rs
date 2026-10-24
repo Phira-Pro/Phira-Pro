@@ -169,6 +169,7 @@ pub struct LibraryPage {
     export_task: Option<mpsc::Receiver<Result<()>>>,
     export_progress: Arc<AtomicU32>,
     export_total: usize,
+    multiplayer_picker: bool,
 }
 
 impl LibraryPage {
@@ -270,7 +271,18 @@ impl LibraryPage {
             export_task: None,
             export_progress: Arc::default(),
             export_total: 0,
+            multiplayer_picker: false,
         })
+    }
+
+    pub fn new_multiplayer_picker(icons: Arc<Icons>, rank_icons: [SafeTexture; 8]) -> Result<Self> {
+        let mut page = Self::new(icons, rank_icons)?;
+        page.multiplayer_picker = true;
+        let view = &mut page.tabs.selected_mut().view;
+        view.select_on_click = true;
+        view.multiplayer_picker = true;
+        view.allow_multi_select = false;
+        Ok(page)
     }
 }
 
@@ -704,6 +716,24 @@ mod ohos_export {
 }
 
 impl Page for LibraryPage {
+    fn is_multiplayer_chart_picker(&self) -> bool {
+        self.multiplayer_picker
+    }
+
+    fn take_multiplayer_chart(&mut self) -> Option<i32> {
+        if !self.multiplayer_picker {
+            return None;
+        }
+        let picked = self.tabs.selected_mut().view.picked.take()?;
+        match picked.info.id {
+            Some(id) => Some(id),
+            None => {
+                show_message("联机选曲只能选择已上架谱面").warn();
+                None
+            }
+        }
+    }
+
     fn on_back_pressed(&mut self, _: &mut SharedState) -> bool {
         if self.course_selection.is_some() {
             self.exit_course();

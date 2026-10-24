@@ -21,6 +21,7 @@ pub struct Snapshot {
     pub messages: VecDeque<String>,
     pub error: Option<String>,
     pub busy: bool,
+    pub rtt_ms: Option<f32>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Launch {
@@ -43,6 +44,7 @@ impl Snapshot {
         self.connected = false;
         self.authenticated = false;
         self.busy = false;
+        self.rtt_ms = None;
         self.room_generation += 1;
         self.chart_generation += 1;
         self.start = None;

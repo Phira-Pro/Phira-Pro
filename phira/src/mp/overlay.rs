@@ -9,7 +9,7 @@ use crate::{
 use anyhow::Result;
 use macroquad::prelude::*;
 use prpr::{
-    ext::{semi_black, SafeTexture, ScaleType},
+    ext::{SafeTexture, ScaleType},
     scene::NextScene,
     ui::{button_hit, Ui},
 };
@@ -113,6 +113,7 @@ pub struct MultiplayerOverlay {
     last_time: f32,
     enabled: bool,
     next: Option<NextScene>,
+    chart_picker_requested: bool,
 }
 impl MultiplayerOverlay {
     pub async fn new(icons: Arc<Icons>) -> Result<Self> {
@@ -126,6 +127,7 @@ impl MultiplayerOverlay {
             last_time: 0.,
             enabled: get_data().multiplayer_enabled,
             next: None,
+            chart_picker_requested: false,
         })
     }
     pub fn enter(&mut self, s: &mut SharedState) -> Result<()> {
@@ -170,6 +172,9 @@ impl MultiplayerOverlay {
         if self.open || self.progress > 0. {
             if self.progress >= 1. && self.open {
                 self.page.touch(touch, s)?;
+                if self.page.take_chart_picker_request() {
+                    self.chart_picker_requested = true;
+                }
                 if self.page.take_close_request() {
                     self.open = false;
                     self.page.hide(s.t);
@@ -198,7 +203,6 @@ impl MultiplayerOverlay {
         self.launcher.clamp(ui.top);
         let p = self.launcher.center();
         if self.progress < 1. {
-            ui.fill_circle(p.x + 0.002, p.y + 0.004, RADIUS + 0.003, semi_black(0.2));
             ui.fill_circle(p.x, p.y, RADIUS, ui.background());
             let r = Rect::new(p.x - 0.032, p.y - 0.032, 0.064, 0.064);
             ui.fill_rect(r, (*self.icon, r, ScaleType::Fit));
@@ -222,6 +226,14 @@ impl MultiplayerOverlay {
     }
     pub fn next_scene(&mut self) -> NextScene {
         self.next.take().unwrap_or_default()
+    }
+    pub fn take_chart_picker_request(&mut self) -> bool {
+        std::mem::take(&mut self.chart_picker_requested)
+    }
+    pub fn chart_selected(&mut self, id: i32) {
+        self.page.select_chart(id);
+        self.open = true;
+        self.progress = 1.;
     }
 }
 

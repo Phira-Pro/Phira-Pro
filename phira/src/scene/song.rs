@@ -345,6 +345,7 @@ pub struct SongScene {
     edit_scroll: Scroll,
 
     mods: Mods,
+    multiplayer_picker_detail: bool,
     mod_btn: RectButton,
     mod_scroll: Scroll,
     mod_btns: Vec<(DRectButton, bool)>,
@@ -553,6 +554,7 @@ impl SongScene {
             edit_scroll: Scroll::new(),
 
             mods,
+            multiplayer_picker_detail: false,
             mod_btn: RectButton::new(),
             mod_scroll: Scroll::new(),
             mod_btns: Vec::new(),
@@ -662,6 +664,10 @@ impl SongScene {
 
             export_task: None,
         }
+    }
+
+    pub(crate) fn prevent_play(&mut self) {
+        self.multiplayer_picker_detail = true;
     }
 
     fn start_ppsr_analysis(&mut self) {
@@ -1064,6 +1070,10 @@ impl SongScene {
     }
 
     fn launch(&mut self, mode: GameMode, force_unlock: bool) -> Result<()> {
+        if self.multiplayer_picker_detail {
+            show_message("多人房间选曲时不能从谱面详情开始游玩").warn();
+            return Ok(());
+        }
         let local_path = self.local_path.as_ref().unwrap();
         let is_unlock = force_unlock
             || (mode == GameMode::Normal
@@ -1823,34 +1833,38 @@ impl SongScene {
                 dy!(row_height);
                 index += 1;
             };
-            item(tl!("mods-autoplay"), Some(tl!("mods-autoplay-sub")), Mods::AUTOPLAY);
-            item(tl!("mods-perfect-sound"), Some(tl!("mods-perfect-sound-sub")), Mods::PERFECT_SOUND);
-            item(tl!("mods-flip-x"), Some(tl!("mods-flip-x-sub")), Mods::FLIP_X);
-            item(tl!("mods-fade-in"), Some(tl!("mods-fade-in-sub")), Mods::FADE_IN);
-            item(tl!("mods-fade-out"), Some(tl!("mods-fade-out-sub")), Mods::FADE_OUT);
-            item(tl!("mods-nightcore"), Some(tl!("mods-nightcore-sub")), Mods::NIGHTCORE);
-            item(tl!("mods-rainbow"), Some(tl!("mods-rainbow-sub")), Mods::RAINBOW);
-            item(tl!("mods-instant-death-ap"), Some(tl!("mods-instant-death-ap-sub")), Mods::INSTANT_DEATH_AP);
-            item(tl!("mods-instant-death-fc"), Some(tl!("mods-instant-death-fc-sub")), Mods::INSTANT_DEATH_FC);
-            // Phira Pro Flash（轻量版）：**所有改判 / 降难度 Mod 一律不提供**
-            // （严格判定会改判定窗口，全屏判定改判定范围，无失败 / 去连击分改判定与计分规则）。
-            if !cfg!(flash) {
-                item(
-                    tl!("mods-strict-judge"),
-                    Some(if get_data().config.mods.contains(Mods::STRICT_JUDGE) {
-                        tl!("mods-strict-global-on")
-                    } else {
-                        tl!("mods-strict-judge-sub")
-                    }),
-                    Mods::STRICT_JUDGE,
-                );
-                item(tl!("mods-fullscreen-judge"), Some(tl!("mods-fullscreen-judge-sub")), Mods::FULLSCREEN_JUDGE);
-                item(tl!("mods-no-fail"), Some(tl!("mods-no-fail-sub")), Mods::NO_FAIL);
-                item(tl!("mods-no-combo-score"), Some(tl!("mods-no-combo-score-sub")), Mods::NO_COMBO_SCORE);
-            }
-            item(tl!("mods-no-shader"), Some(tl!("mods-no-shader-sub")), Mods::NO_SHADER);
-            if !cfg!(flash) {
-                item(tl!("mods-note-behavior"), Some(tl!("mods-note-behavior-sub")), Mods::NOTE_BEHAVIOR);
+            if self.multiplayer_picker_detail {
+                item(tl!("mods-flip-x"), Some(tl!("mods-flip-x-sub")), Mods::FLIP_X);
+            } else {
+                item(tl!("mods-autoplay"), Some(tl!("mods-autoplay-sub")), Mods::AUTOPLAY);
+                item(tl!("mods-perfect-sound"), Some(tl!("mods-perfect-sound-sub")), Mods::PERFECT_SOUND);
+                item(tl!("mods-flip-x"), Some(tl!("mods-flip-x-sub")), Mods::FLIP_X);
+                item(tl!("mods-fade-in"), Some(tl!("mods-fade-in-sub")), Mods::FADE_IN);
+                item(tl!("mods-fade-out"), Some(tl!("mods-fade-out-sub")), Mods::FADE_OUT);
+                item(tl!("mods-nightcore"), Some(tl!("mods-nightcore-sub")), Mods::NIGHTCORE);
+                item(tl!("mods-rainbow"), Some(tl!("mods-rainbow-sub")), Mods::RAINBOW);
+                item(tl!("mods-instant-death-ap"), Some(tl!("mods-instant-death-ap-sub")), Mods::INSTANT_DEATH_AP);
+                item(tl!("mods-instant-death-fc"), Some(tl!("mods-instant-death-fc-sub")), Mods::INSTANT_DEATH_FC);
+                // Phira Pro Flash（轻量版）：**所有改判 / 降难度 Mod 一律不提供**
+                // （严格判定会改判定窗口，全屏判定改判定范围，无失败 / 去连击分改判定与计分规则）。
+                if !cfg!(flash) {
+                    item(
+                        tl!("mods-strict-judge"),
+                        Some(if get_data().config.mods.contains(Mods::STRICT_JUDGE) {
+                            tl!("mods-strict-global-on")
+                        } else {
+                            tl!("mods-strict-judge-sub")
+                        }),
+                        Mods::STRICT_JUDGE,
+                    );
+                    item(tl!("mods-fullscreen-judge"), Some(tl!("mods-fullscreen-judge-sub")), Mods::FULLSCREEN_JUDGE);
+                    item(tl!("mods-no-fail"), Some(tl!("mods-no-fail-sub")), Mods::NO_FAIL);
+                    item(tl!("mods-no-combo-score"), Some(tl!("mods-no-combo-score-sub")), Mods::NO_COMBO_SCORE);
+                }
+                item(tl!("mods-no-shader"), Some(tl!("mods-no-shader-sub")), Mods::NO_SHADER);
+                if !cfg!(flash) {
+                    item(tl!("mods-note-behavior"), Some(tl!("mods-note-behavior-sub")), Mods::NOTE_BEHAVIOR);
+                }
             }
             (width, h + 0.2)
         });
@@ -2345,6 +2359,10 @@ impl Scene for SongScene {
             }
         }
         if self.scene_task.is_none() && self.next_scene.is_none() && self.play_btn.touch(touch, t) {
+            if self.multiplayer_picker_detail {
+                show_message("多人房间选曲时不能从谱面详情开始游玩").warn();
+                return Ok(true);
+            }
             if self.local_path.is_some() {
                 self.launch(GameMode::Normal, false)?;
             } else {

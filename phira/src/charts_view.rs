@@ -229,6 +229,7 @@ impl ChartsView {
             return Ok(false);
         }
         let mut movement = None;
+        let mut multiplayer_detail = None;
         if let Some(charts) = &mut self.charts {
             for (id, item) in charts.iter_mut().enumerate() {
                 if let Some(chart) = &item.chart {
@@ -237,7 +238,9 @@ impl ChartsView {
                         if self.select_on_click {
                             button_hit();
                             self.picked = Some(chart.clone());
-                            self.highlighted = Some(chart.to_bare_ref());
+                            if !self.multiplayer_picker {
+                                self.highlighted = Some(chart.to_bare_ref());
+                            }
                             return Ok(true);
                         }
                         if let Some(after) = self.edit_move_state.take() {
@@ -317,6 +320,14 @@ impl ChartsView {
                         return Ok(true);
                     }
                     let long_fired = item.btn.long_touch(touch, t, &mut item.long_touch);
+                    // A pointer event can arrive on the exact frame the hold
+                    // threshold is crossed, before `update_long_touch` runs.
+                    // Handle that path too, or the hold is consumed and the
+                    // chart can only be selected by tapping.
+                    if self.multiplayer_picker && self.multi_select.is_none() && long_fired {
+                        multiplayer_detail = Some(id);
+                        break;
+                    }
                     if self.allow_multi_select && self.multi_select.is_none() && long_fired {
                         self.scroll.y_scroller.halt();
                         self.editing_chart = Some(id);
@@ -345,6 +356,10 @@ impl ChartsView {
                 }
             }
         }
+        if let Some(id) = multiplayer_detail {
+            self.open_multiplayer_detail(id, t);
+            return Ok(true);
+        }
         if let Some((id, after)) = movement {
             let has_header = self.has_header();
             let editing = self.editing_chart.unwrap();
@@ -363,6 +378,36 @@ impl ChartsView {
         Ok(false)
     }
 
+    fn open_multiplayer_detail(&mut self, id: usize, t: f32) {
+        self.scroll.y_scroller.halt();
+        self.editing_chart = Some(id);
+        let item = &mut self.charts.as_mut().unwrap()[id];
+        let chart = item.chart.as_ref().unwrap().clone();
+        item.btn.inner.cancel();
+        item.long_touch.reset();
+        let local_path = chart
+            .local_path
+            .clone()
+            .or_else(|| chart.info.id.map(|id| format!("download/{id}")))
+            .filter(|path| dir::charts().ok().is_some_and(|dir| Path::new(&format!("{dir}/{path}")).exists()));
+        let mods = local_path
+            .as_ref()
+            .and_then(|path| get_data().charts.iter().find(|it| &it.local_path == path).map(|it| it.mods))
+            .unwrap_or_default();
+        let mut scene = SongScene::new(chart.clone(), local_path, Arc::clone(&self.icons), self.rank_icons.clone(), mods);
+        scene.prevent_play();
+        self.transit = Some(TransitState {
+            id: id as _,
+            rect: None,
+            chart,
+            start_time: t,
+            next_scene: Some(NextScene::Overlay(Box::new(scene))),
+            back: false,
+            done: false,
+            delete: false,
+        });
+    }
+
     fn has_header(&self) -> bool {
         self.charts.as_ref().is_some_and(|it| it.first().is_some_and(|item| item.chart.is_none()))
     }
@@ -371,6 +416,7 @@ impl ChartsView {
         let refreshed = self.can_refresh && self.scroll.y_scroller.pulled;
         self.chart_menu.update(t);
         self.scroll.update(t);
+        let mut multiplayer_detail = None;
         if (self.allow_multi_select || self.multiplayer_picker) && self.multi_select.is_none() {
             if let Some(charts) = &mut self.charts {
                 for (id, item) in charts.iter_mut().enumerate() {
@@ -378,30 +424,7 @@ impl ChartsView {
                         self.scroll.y_scroller.halt();
                         self.editing_chart = Some(id);
                         if self.multiplayer_picker {
-                            let chart = item.chart.as_ref().unwrap().clone();
-                            item.btn.inner.cancel();
-                            let local_path = chart.local_path.clone().or_else(|| {
-                                chart.info.id.map(|id| format!("download/{id}"))
-                            }).filter(|path| {
-                                dir::charts().ok().is_some_and(|dir| Path::new(&format!("{dir}/{path}")).exists())
-                            });
-                            let mods = local_path.as_ref().and_then(|path| {
-                                get_data().charts.iter().find(|it| &it.local_path == path).map(|it| it.mods)
-                            }).unwrap_or_default();
-                            let mut scene = SongScene::new(
-                                chart.clone(), local_path, Arc::clone(&self.icons), self.rank_icons.clone(), mods,
-                            );
-                            scene.prevent_play();
-                            self.transit = Some(TransitState {
-                                id: id as _,
-                                rect: None,
-                                chart,
-                                start_time: t,
-                                next_scene: Some(NextScene::Overlay(Box::new(scene))),
-                                back: false,
-                                done: false,
-                                delete: false,
-                            });
+                            multiplayer_detail = Some(id);
                             break;
                         }
                         let mut options = vec![tl!("select").into_owned()];
@@ -420,6 +443,9 @@ impl ChartsView {
                     }
                 }
             }
+        }
+        if let Some(id) = multiplayer_detail {
+            self.open_multiplayer_detail(id, t);
         }
         if self.chart_menu.changed() {
             let has_header = self.has_header();

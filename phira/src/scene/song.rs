@@ -1835,6 +1835,9 @@ impl SongScene {
             };
             if self.multiplayer_picker_detail {
                 item(tl!("mods-flip-x"), Some(tl!("mods-flip-x-sub")), Mods::FLIP_X);
+                item(tl!("mods-fade-in"), Some(tl!("mods-fade-in-sub")), Mods::FADE_IN);
+                item(tl!("mods-fade-out"), Some(tl!("mods-fade-out-sub")), Mods::FADE_OUT);
+                item(tl!("mods-rainbow"), Some(tl!("mods-rainbow-sub")), Mods::RAINBOW);
             } else {
                 item(tl!("mods-autoplay"), Some(tl!("mods-autoplay-sub")), Mods::AUTOPLAY);
                 item(tl!("mods-perfect-sound"), Some(tl!("mods-perfect-sound-sub")), Mods::PERFECT_SOUND);

@@ -770,7 +770,7 @@ impl Page for LibraryPage {
     }
 
     fn touch(&mut self, touch: &Touch, s: &mut SharedState) -> Result<bool> {
-        if self.course_btn.touch(touch, s.t) {
+        if !self.multiplayer_picker && self.course_btn.touch(touch, s.t) {
             if self.course_selection.is_some() {
                 self.exit_course();
             } else {
@@ -786,7 +786,7 @@ impl Page for LibraryPage {
             }
             return Ok(true);
         }
-        if self.course_selection.is_some() && self.course_start.touch(touch, s.t) {
+        if !self.multiplayer_picker && self.course_selection.is_some() && self.course_start.touch(touch, s.t) {
             let selection = self.course_selection.as_ref().unwrap();
             if selection.len() != 3 {
                 show_message("请选择三首曲目后开始游玩").warn();
@@ -1601,27 +1601,32 @@ impl Page for LibraryPage {
                 Ok(())
             })
         })?;
-        s.render_fader(ui, |ui| {
-            self.course_btn
-                .render_text(ui, course_rect, t, if self.course_selection.is_some() { "退出" } else { "课题模式" }, 0.36, false);
-            if self.course_selection.is_some() {
-                self.course_start.render_text(
-                    ui,
-                    Rect::new(course_rect.x, course_rect.y - 0.105, course_rect.w, course_rect.h),
-                    t,
-                    "开始游玩",
-                    0.36,
-                    false,
-                );
-                ui.text(format!("已选 {} / 3", self.course_selection.as_ref().unwrap().len()))
-                    .pos(course_rect.center().x, course_rect.y - 0.145)
-                    .anchor(0.5, 1.)
-                    .size(0.32)
-                    .draw();
-            } else {
-                self.course_start.invalidate();
-            }
-        });
+        if !self.multiplayer_picker {
+            s.render_fader(ui, |ui| {
+                self.course_btn
+                    .render_text(ui, course_rect, t, if self.course_selection.is_some() { "退出" } else { "课题模式" }, 0.36, false);
+                if self.course_selection.is_some() {
+                    self.course_start.render_text(
+                        ui,
+                        Rect::new(course_rect.x, course_rect.y - 0.105, course_rect.w, course_rect.h),
+                        t,
+                        "开始游玩",
+                        0.36,
+                        false,
+                    );
+                    ui.text(format!("已选 {} / 3", self.course_selection.as_ref().unwrap().len()))
+                        .pos(course_rect.center().x, course_rect.y - 0.145)
+                        .anchor(0.5, 1.)
+                        .size(0.32)
+                        .draw();
+                } else {
+                    self.course_start.invalidate();
+                }
+            });
+        } else {
+            self.course_btn.invalidate();
+            self.course_start.invalidate();
+        }
         // HUD 自定义：右上按钮排（整体移动 / 缩放；排内按钮仍等距自动排列）。
         const SLOT_TOPBAR: crate::hud::SlotDef = crate::hud::SlotDef::centered("topbar", [0., 0., 0.09, 0.09], crate::hud::Cap(true, true, true));
         let bar = if crate::hud::has("library", "topbar") {

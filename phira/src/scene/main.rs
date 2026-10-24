@@ -460,13 +460,19 @@ impl Scene for MainScene {
         }
         self.pages.last_mut().unwrap().update(s)?;
         if let Some(chart) = self.pages.last_mut().unwrap().take_multiplayer_chart() {
+            let chart_path = get_data()
+                .charts
+                .iter()
+                .find(|item| item.info.id == Some(chart))
+                .map(|item| item.local_path.clone());
             self.pages.pop().unwrap().exit()?;
             self.pages.last_mut().unwrap().enter(s)?;
             self.multiplayer.chart_selected(chart);
+            if let Some(path) = chart_path {
+                s.menu_music.play_chart(path);
+            }
         }
-        if self.multiplayer_picker_return_page.is_some()
-            && !self.pages.last().unwrap().is_multiplayer_chart_picker()
-        {
+        if self.multiplayer_picker_return_page.is_some() && !self.pages.last().unwrap().is_multiplayer_chart_picker() {
             crate::hud::set_cur_page(self.multiplayer_picker_return_page.take().unwrap());
         }
         if !s.fader.transiting() {

@@ -115,6 +115,15 @@ impl MenuMusic {
         self.custom = dir::find_appearance_audio("bgm").is_some();
         self.request();
     }
+    pub fn play_chart(&mut self, path: String) {
+        self.task = None;
+        self.music = None;
+        self.applied_amplifier = None;
+        self.requested_path = Some(path);
+        self.navigating = true;
+        self.custom = false;
+        self.request();
+    }
     pub fn current_path(&self) -> Option<&str> {
         if self.custom {
             None
@@ -204,7 +213,8 @@ impl MenuMusic {
             return;
         }
         self.attempted = true;
-        let custom_path = dir::find_appearance_audio("bgm");
+        let requested = self.requested_path.take();
+        let custom_path = if requested.is_none() { dir::find_appearance_audio("bgm") } else { None };
         self.custom = custom_path.is_some();
         let mut paths: Vec<String> = get_data().charts.iter().map(|it| it.local_path.clone()).collect();
         self.library_paths = paths.clone();
@@ -216,7 +226,6 @@ impl MenuMusic {
             }
         }
         paths.shuffle(&mut thread_rng());
-        let requested = self.requested_path.take();
         // With several usable charts, avoid immediately selecting the current song.
         if paths.len() > 1 {
             if let Some(index) = paths.iter().position(|it| Some(it) == self.last_path.as_ref()) {

@@ -626,6 +626,9 @@ pub struct GameScene {
 
     pub mode: GameMode,
     pub res: Resource,
+    /// Keep the original result-screen backdrop separate from the configurable
+    /// gameplay background blur.
+    ending_background: SafeTexture,
     pub chart: Chart,
     pub judge: Judge,
     pub gl: InternalGlContext<'static>,
@@ -817,6 +820,7 @@ impl GameScene {
         update_fn: Option<UpdateFn>,
         save_fn: Option<SaveFn>,
     ) -> Result<Self> {
+        let ending_background = background.clone();
         let background = if (config.gameplay_background_blur - 0.5).abs() > 0.0001 {
             match fs.load_file(&info.illustration).await {
                 Ok(bytes) => {
@@ -1017,6 +1021,7 @@ impl GameScene {
 
             mode,
             res,
+            ending_background,
             chart,
             judge,
             gl: unsafe { get_internal_gl() },
@@ -1959,7 +1964,7 @@ impl Scene for GameScene {
                             }
                             Some(NextScene::Overlay(Box::new(
                                 EndingScene::new(
-                                    self.res.background.clone(),
+                                    self.ending_background.clone(),
                                     self.res.illustration.clone(),
                                     self.res.player.clone(),
                                     self.res.icons.clone(),

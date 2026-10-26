@@ -1833,7 +1833,7 @@ impl ChartList {
 }
 
 struct DebugList {
-    tools: [DRectButton; 2],
+    tools: [DRectButton; 3],
     next_page: Option<NextPage>,
     sections: [DRectButton; 3],
     section_open: [bool; 3],
@@ -1925,7 +1925,11 @@ impl DebugList {
     pub fn touch(&mut self, touch: &Touch, t: f32) -> Result<Option<bool>> {
         for (i, b) in self.tools.iter_mut().enumerate() {
             if b.touch(touch, t) {
-                self.next_page = Some(NextPage::Overlay(Box::new(crate::page::tools::ToolsPage::new(i == 1))));
+                self.next_page = Some(match i {
+                    0 => NextPage::Overlay(Box::new(crate::page::tools::ToolsPage::new(false))),
+                    1 => NextPage::Overlay(Box::new(crate::page::tools::ToolsPage::new(true))),
+                    _ => NextPage::Overlay(Box::new(crate::page::RenderPage::new())),
+                });
                 return Ok(Some(false));
             }
         }
@@ -2050,7 +2054,7 @@ impl DebugList {
         }
         let rr = right_rect(w);
 
-        for (i, label) in ["画质设置", "问题诊断"].iter().enumerate() {
+        for (i, label) in ["画质设置", "问题诊断", "铺面渲染"].iter().enumerate() {
             render_title(ui, *label, None);
             self.tools[i].render_text(ui, rr, t, "打开", 0.4, false);
             ui.dy(item_row_h());

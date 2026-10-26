@@ -625,6 +625,8 @@ pub struct GameScene {
     practice_loops: u32,
 
     pub mode: GameMode,
+    /// 渲染器模式：只画谱面本体，不画分数/连击/暂停按钮等 HUD。
+    pub hide_ui: bool,
     pub res: Resource,
     /// Keep the original result-screen backdrop separate from the configurable
     /// gameplay background blur.
@@ -993,12 +995,13 @@ impl GameScene {
         let practice_target_speed = res.config.speed;
         res.config.practice_multiplier = res.config.practice.multiplier(res.config.speed);
         res.windows = res.config.judge_windows();
-        // Prepare extra sfx from chart.hitsounds
-        chart.hitsounds.drain().for_each(|(name, clip)| {
-            if let Ok(clip) = res.create_sfx(clip) {
-                res.extra_sfxs.insert(name, clip);
+        // Prepare extra sfx from chart.hitsounds（谱面里的自定义打击音保留一份，
+        // 铺面渲染导出打击音时还要用）
+        for (name, clip) in chart.hitsounds.iter() {
+            if let Ok(clip) = res.create_sfx(clip.clone()) {
+                res.extra_sfxs.insert(name.clone(), clip);
             }
-        });
+        }
 
         let exercise_range = (chart.offset + info_offset + res.config.offset) as f64..res.track_length;
 
@@ -1020,6 +1023,7 @@ impl GameScene {
             practice_loops: 0,
 
             mode,
+            hide_ui: false,
             res,
             ending_background,
             chart,
@@ -2360,11 +2364,13 @@ impl Scene for GameScene {
         self.chart.render_block_overlay(&mut self.res);
         // Noise affects the chart, never HUD text or application controls.
         set_camera(&hud_camera);
-        if self.chart.camera_follows_chart() {
-            let matrix = self.chart.camera_model(self.res.time, self.res.aspect_ratio, true);
-            ui.with_gl(matrix, |ui| self.draw_gameplay_ui(tm, ui))?;
-        } else {
-            self.draw_gameplay_ui(tm, ui)?;
+        if !self.hide_ui {
+            if self.chart.camera_follows_chart() {
+                let matrix = self.chart.camera_model(self.res.time, self.res.aspect_ratio, true);
+                ui.with_gl(matrix, |ui| self.draw_gameplay_ui(tm, ui))?;
+            } else {
+                self.draw_gameplay_ui(tm, ui)?;
+            }
         }
 
         if self.mode == GameMode::TweakOffset {
@@ -2422,7 +2428,9 @@ impl Scene for GameScene {
 
         // Draw pause/practice/interaction controls only after the complete
         // chart composite so noise and shaders cannot capture or obscure them.
-        self.draw_controls(tm, ui)?;
+        if !self.hide_ui {
+            self.draw_controls(tm, ui)?;
+        }
         if !self.rendered_first_frame {
             self.rendered_first_frame = true;
             tracing::info!("game first frame complete");

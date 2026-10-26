@@ -18,8 +18,16 @@ fn git_stdout(args: &[&str]) -> Option<String> {
 // Hash only build inputs; user data, screenshots and signing credentials are excluded.
 fn local_build_id(root: &std::path::Path) -> String {
     fn collect(path: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
-        if path.is_dir() {
-            for item in std::fs::read_dir(path).unwrap().flatten() {
+        // 开源仓库里 `phira/src/censor` 是指向私有 `phira-inner` 的符号链接；
+        // 没有那个仓库时它是断链的，这里要跳过而不是 panic。
+        let Ok(meta) = std::fs::metadata(path) else {
+            return;
+        };
+        if meta.is_dir() {
+            let Ok(entries) = std::fs::read_dir(path) else {
+                return;
+            };
+            for item in entries.flatten() {
                 collect(&item.path(), files);
             }
         } else {
@@ -46,7 +54,9 @@ fn local_build_id(root: &std::path::Path) -> String {
     let mut hash = 0xcbf29ce484222325u64;
     for file in files {
         let name = file.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/");
-        let bytes = std::fs::read(&file).unwrap();
+        let Ok(bytes) = std::fs::read(&file) else {
+            continue;
+        };
         for byte in name.bytes().chain([0]).chain(bytes).chain([0]) {
             hash = (hash ^ byte as u64).wrapping_mul(0x100000001b3);
         }

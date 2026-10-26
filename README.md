@@ -82,6 +82,14 @@ PPSR 分析浮窗使用当前曲绘的暗色半透明背景，以圆角数字框
 
 - **Phira Pro Plugin API v1**：从「设置 → 通用 → 插件管理」导入 `.zip` Rhai 脚本插件，支持启停、JSON 设置、谱面／结算分析结果与文字覆盖层。提供 PPSR 等算法读取谱面的接口，实际算法由作者实现。见 [接口开发说明与可运行示例](docs/plugins/README.md)。
 
+### 铺面渲染（视频导出）
+
+- **把谱面渲染成视频**：从「设置 → 调试 → 铺面渲染」进入独立页面。点「选择谱面」会打开和多人游戏一样的选谱界面，挑一首后回到页面点「开始渲染」即可导出 mp4，输出到 `data/render/`（可改目录）。
+- **渲染的是谱面本身**：自动播放、逐帧固定时间戳、不发声，默认不显示分数、连击、暂停按钮等 HUD，只留谱面本体；需要时可以切到「显示界面」。视频始终带谱面音乐，打击音按「打击音」开关混入（Click / Drag / Flick 与谱面自带的自定义打击音）。
+- **输出设置**：分辨率 1280×720 / 1920×1080 / 2560×1440 / 3840×2160，帧率 30 / 60 / 120 / 240，打击音与「纯谱面／显示界面」开关，均可随时切换，设置保存在 `data/render.yml`。渲染按帧推进并显示进度、预计剩余时间与实时预览，可以中途取消；点击「打开输出目录」会调用系统文件管理器。
+- **依赖 ffmpeg**：桌面端编码走系统 `ffmpeg`（需含 libx264 与 AAC），没有安装时会在开始渲染时提示；Android 包内置了静态 ffmpeg（见下文），无需额外安装。谱面渲染内核位于 `prpr/src/chart_video.rs`，也提供了命令行示例 `prpr/examples/render_chart_video.rs`（`CHART=<谱面目录或 .pez> OUT=<输出.mp4> cargo run -p prpr --example render_chart_video`），便于批量渲染。实现细节与已知限制见 [铺面渲染](docs/development/pro-17-chart-video.md)。
+- **Android 构建**：`scripts/build-android-ffmpeg.sh` 会在 Gradle 构建时（任务 `ffmpegNdkBuild`）自动下载 x264 与 ffmpeg 源码并交叉编译成 `libffmpeg.so` 一起打进 APK，产物首次约需十几分钟，源码与中间结果缓存在 `target/android-ffmpeg`。渲染器的版本名为 `0.8.2-pro.17-render`（`applicationId` 与上游一致，安装会覆盖同名的官方包）。为了能启动这个内置的 ffmpeg 子进程，渲染器包的 `targetSdk` 是 28（Android 10+ 对 `targetSdk >= 29` 的应用禁止执行数据目录里的文件）。手机上渲染完成后视频会通过 MediaStore 存入系统「下载/PhiraPro」，可以直接在文件管理器里找到。
+
 ### 其他
 
 - iOS「设置 → 调试」提供 60／120Hz 选项，并接入 ProMotion 刷新率申请。

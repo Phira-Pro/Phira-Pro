@@ -1,15 +1,19 @@
 package org.flos.phirapro;
 
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.content.pm.ActivityInfo;
 import android.hardware.display.DisplayManager;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.ParcelFileDescriptor;
 import android.os.PowerManager;
+import android.provider.MediaStore;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Display;
@@ -17,6 +21,11 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.WindowCompat;
@@ -38,6 +47,66 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQ_EXPORT = 1003;
 
     private QuadSurface view;
+
+    /**
+     * 把渲染好的视频发布到系统的「下载」目录。
+     *
+     * <p>Android 10（API 29）起公共目录只能通过 MediaStore 写，写进去之后文件管理器里就能
+     * 直接在「下载/PhiraPro」看到；更老的系统直接往公共目录拷贝并通知媒体库扫描。
+     *
+     * @return 给玩家看的保存位置，失败返回 null。
+     */
+    public String publishVideo(String sourcePath, String displayName) {
+        File source = new File(sourcePath);
+        if (!source.isFile()) {
+            Log.w(TAG, "publishVideo: source missing " + sourcePath);
+            return null;
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.MediaColumns.DISPLAY_NAME, displayName);
+                values.put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4");
+                values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/PhiraPro");
+                Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (uri == null) {
+                    Log.w(TAG, "publishVideo: MediaStore insert failed");
+                    return null;
+                }
+                try (OutputStream out = getContentResolver().openOutputStream(uri);
+                        InputStream in = new FileInputStream(source)) {
+                    if (out == null) {
+                        return null;
+                    }
+                    byte[] buffer = new byte[1 << 16];
+                    int read;
+                    while ((read = in.read(buffer)) > 0) {
+                        out.write(buffer, 0, read);
+                    }
+                }
+                return "下载/PhiraPro/" + displayName;
+            }
+            File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "PhiraPro");
+            if (!dir.isDirectory() && !dir.mkdirs()) {
+                Log.w(TAG, "publishVideo: cannot create " + dir);
+                return null;
+            }
+            File target = new File(dir, displayName);
+            try (OutputStream out = new java.io.FileOutputStream(target);
+                    InputStream in = new FileInputStream(source)) {
+                byte[] buffer = new byte[1 << 16];
+                int read;
+                while ((read = in.read(buffer)) > 0) {
+                    out.write(buffer, 0, read);
+                }
+            }
+            MediaScannerConnection.scanFile(this, new String[] { target.getAbsolutePath() }, null, null);
+            return target.getAbsolutePath();
+        } catch (Exception e) {
+            Log.w(TAG, "publishVideo failed", e);
+            return null;
+        }
+    }
     private DisplayManager displayManager;
     private float requestedFrameRate = 120f;
     private float reportedMaxRefreshRate;

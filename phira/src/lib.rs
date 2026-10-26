@@ -100,6 +100,35 @@ pub(crate) fn set_android_refresh_rate(refresh_rate: u16) -> Result<()> {
         .map_err(anyhow::Error::from)
 }
 
+/// 把渲染好的视频发布到系统的「下载」目录（Android 10+ 走 MediaStore，
+/// 更老的系统直接写公共目录），返回给用户看的保存位置。
+#[cfg(target_os = "android")]
+pub(crate) fn android_publish_video(path: &str, name: &str) -> Result<String> {
+    use anyhow::Context;
+    use jni::{
+        jni_sig, jni_str,
+        objects::{JObject, JString, JValue},
+        vm::JavaVM,
+    };
+    let saved = JavaVM::singleton()
+        .context("Android Java VM is unavailable")?
+        .attach_current_thread(|env| -> jni::errors::Result<String> {
+            let activity = unsafe { JObject::from_raw(env, ndk_context::android_context().context() as _) };
+            let path = env.new_string(path)?;
+            let name = env.new_string(name)?;
+            let object = env
+                .call_method(
+                    activity,
+                    jni_str!("publishVideo"),
+                    jni_sig!("(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"),
+                    &[JValue::from(&path), JValue::from(&name)],
+                )?
+                .l()?;
+            JString::cast_local(env, object)?.try_to_string(env)
+        })?;
+    Ok(saved)
+}
+
 #[cfg(target_os = "android")]
 pub(crate) fn android_display_diagnostics() -> Result<serde_json::Value> {
     use anyhow::Context;

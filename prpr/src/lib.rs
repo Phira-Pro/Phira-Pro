@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod bin;
+pub mod chart_video;
 pub mod config;
 pub mod core;
 pub mod course;

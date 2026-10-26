@@ -35,6 +35,10 @@ pub use respack::{ResPackItem, ResPackPage};
 
 pub(crate) mod settings;
 pub use settings::SettingsPage;
+
+pub mod render;
+pub use render::RenderPage;
+
 mod search_bar;
 
 mod transfer;
@@ -558,6 +562,17 @@ pub trait Page {
     fn is_multiplayer_chart_picker(&self) -> bool {
         false
     }
+
+    /// 铺面渲染页请求弹出选谱界面（和多人选谱用同一套列表）。
+    fn take_render_picker_request(&mut self) -> bool {
+        false
+    }
+    /// 选谱界面选中的谱面（`local_path`），其他页面保持为空。
+    fn take_render_chart(&mut self) -> Option<String> {
+        None
+    }
+    /// 接收选谱结果。
+    fn on_render_chart_picked(&mut self, _local_path: String) {}
 
     fn can_play_bgm(&self) -> bool {
         true

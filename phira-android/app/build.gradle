@@ -20,10 +20,13 @@ if (versions.keySet() != ['base_version', 'pro_revision', 'flash_revision', 'bui
         throw new GradleException("Invalid version.json field: ${key}")
     }
 }
-def proVersion = "${versions.base_version}-pro.${versions.pro_revision}"
+def proVersion = "${versions.base_version}-pro.${versions.pro_revision}-render"
+// 渲染器构建的版本号在独立区段递增，第四版是 …874
+def renderVersionCode = versions.build_number.intValue() * 10 + 4
 def abi = 'arm64-v8a'
 def rustTarget = 'aarch64-linux-android'
 def rustJniLibs = "${project.layout.buildDirectory.get().asFile}/rustJniLibs"
+def ffmpegJniLibs = "${project.layout.buildDirectory.get().asFile}/ffmpegJniLibs"
 
 def hostOs = System.getProperty('os.name').toLowerCase()
 def ndkHostTag = hostOs.contains('win') ? 'windows-x86_64' : (hostOs.contains('mac') ? 'darwin-x86_64' : 'linux-x86_64')
@@ -69,6 +72,26 @@ tasks.register('cargoNdkBuild') {
     }
 }
 
+tasks.register('ffmpegNdkBuild') {
+    group = 'rust'
+    description = '交叉编译静态 ffmpeg（带 libx264）并放进 jniLibs'
+
+    def outFile = file("${ffmpegJniLibs}/${abi}/libffmpeg.so")
+    // 脚本自身与版本号变化时重新编译；源码下载与中间产物缓存在 target/android-ffmpeg
+    inputs.file("${repoRoot}/scripts/build-android-ffmpeg.sh")
+    inputs.property('ndkDir', ndkDir)
+    outputs.file(outFile)
+
+    doLast {
+        outFile.parentFile.mkdirs()
+        exec {
+            workingDir repoRoot
+            environment 'ANDROID_NDK_HOME', ndkDir
+            commandLine 'bash', 'scripts/build-android-ffmpeg.sh', outFile.absolutePath
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 签名密钥：CI 通过组织级 Secret 注入环境变量；本地从（已被 .gitignore 忽略的）
 // keystore.properties 读取。两者都不可用时 release 产物不带签名，本地调试不受影响。
@@ -94,8 +117,11 @@ android {
     defaultConfig {
         applicationId 'org.flos.phirapro'
         minSdk 22
-        targetSdk 33
-        versionCode(versions.build_number.intValue())
+        // 28 而不是 33：Android 10 起对 targetSdk >= 29 的应用禁止执行
+        // 自己数据目录里的文件（W^X）。铺面渲染要靠拉起打包进来的 ffmpeg
+        // 子进程，targetSdk 28 才允许从缓存目录 exec（Termux 同款做法）。
+        targetSdk 28
+        versionCode(renderVersionCode)
         versionName proVersion
         ndk { abiFilters abi }
     }
@@ -105,7 +131,7 @@ android {
             // 直接复用仓库根目录的 assets（与桌面端同一份，已被 git 跟踪）
             assets.srcDirs += ["${repoRoot}/assets"]
             // cargo-ndk 的产物目录
-            jniLibs.srcDirs += [rustJniLibs]
+            jniLibs.srcDirs += [rustJniLibs, ffmpegJniLibs]
         }
     }
 
@@ -143,7 +169,7 @@ android {
     lint { abortOnError false }
 }
 
-tasks.named('preBuild') { dependsOn 'cargoNdkBuild' }
+tasks.named('preBuild') { dependsOn 'cargoNdkBuild', 'ffmpegNdkBuild' }
 
 dependencies {
     // inputbox 的 Android 支持（AAR 随 Rust crate 分发，见 settings.gradle 的本地 maven）

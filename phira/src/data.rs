@@ -208,7 +208,13 @@ impl Data {
         });
 
         let charts = dir::charts()?;
-        self.charts.retain(|it| Path::new(&format!("{}/{}", charts, it.local_path)).exists());
+        // 只保留真实存在的谱面目录：历史数据里可能有指向散落文件的条目，
+        // 打开时会一路报 not dir。
+        self.charts.retain(|it| {
+            let path = format!("{}/{}", charts, it.local_path);
+            let path = Path::new(&path);
+            path.exists() && path.is_dir()
+        });
         let occurred: HashSet<_> = self.charts.iter().map(|it| it.local_path.clone()).collect();
         for entry in std::fs::read_dir(dir::custom_charts()?)? {
             let entry = entry?;
@@ -216,6 +222,11 @@ impl Data {
             let filename = filename.to_str().unwrap();
             let filename = format!("custom/{filename}");
             let path = entry.path();
+            // 谱面必须是目录；`.pez` / `.zip` 之类的散落文件不能进谱面表，
+            // 否则后面按目录打开时会一直报 not dir。
+            if !path.is_dir() {
+                continue;
+            }
             if occurred.contains(&filename) {
                 self.import_scan_retry.remove(&filename);
                 continue;

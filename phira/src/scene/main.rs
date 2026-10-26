@@ -454,6 +454,11 @@ impl Scene for MainScene {
             self.pages.last_mut().unwrap().enter(s)?;
             crate::hud::set_cur_page(crate::hud::PageId::Library);
         }
+        if self.pages.last_mut().unwrap().take_render_picker_request() {
+            let picker = crate::page::LibraryPage::new_render_picker(Arc::clone(&self.icons), s.icons.clone())?;
+            self.pages.push(Box::new(picker));
+            self.pages.last_mut().unwrap().enter(s)?;
+        }
         if s.fader.transiting() {
             let pos = self.pages.len() - 2;
             self.pages[pos].update(s)?;
@@ -471,6 +476,11 @@ impl Scene for MainScene {
             if let Some(path) = chart_path {
                 s.menu_music.play_chart(path);
             }
+        }
+        if let Some(local_path) = self.pages.last_mut().unwrap().take_render_chart() {
+            self.pages.pop().unwrap().exit()?;
+            self.pages.last_mut().unwrap().enter(s)?;
+            self.pages.last_mut().unwrap().on_render_chart_picked(local_path);
         }
         if self.multiplayer_picker_return_page.is_some() && !self.pages.last().unwrap().is_multiplayer_chart_picker() {
             crate::hud::set_cur_page(self.multiplayer_picker_return_page.take().unwrap());

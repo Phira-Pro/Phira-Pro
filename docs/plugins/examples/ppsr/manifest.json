@@ -2,9 +2,9 @@
   "api": 2,
   "id": "phira-pro.ppsr",
   "name": "PPSR v2",
-  "version": "2.0.0",
-  "author": "Phira Pro Plugin",
-  "description": "PPSR v2 difficulty estimate with 187 chart features and ten terminology-based breakdowns.",
+  "version": "2.0.1",
+  "author": "Rulaifozu",
+  "description": "谱面难度分析插件，为本地谱面提供总难度估计和十项难度分析，在选谱详情页展示可拖动、可折叠的难度面板。支持后台分析与结果淡入；线上谱面需先下载。需要 Phira Pro pro.17 或更新版本。",
   "permissions": [
     "chart.read",
     "overlay.draw"

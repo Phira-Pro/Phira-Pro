@@ -35,7 +35,7 @@ use serde::Deserialize;
 use std::{borrow::Cow, fs, io, path::PathBuf, sync::atomic::Ordering};
 
 /// HUD 自定义：设置列表的行高（默认 0.15，可在编辑模式里调）。
-fn item_row_h() -> f32 {
+pub(super) fn item_row_h() -> f32 {
     crate::hud::param("settings", "row_h", 0.15).clamp(0.1, 0.3)
 }
 const INTERACT_WIDTH: f32 = 0.26;
@@ -521,7 +521,7 @@ fn render_switch(ui: &mut Ui, r: Rect, t: f32, btn: &mut DRectButton, on: bool) 
 }
 
 #[inline]
-fn right_rect(w: f32) -> Rect {
+pub(super) fn right_rect(w: f32) -> Rect {
     let rh = item_row_h() * 2. / 3.;
     Rect::new(w - 0.3, (item_row_h() - rh) / 2., INTERACT_WIDTH, rh)
 }

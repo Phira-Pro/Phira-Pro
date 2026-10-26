@@ -1,4 +1,7 @@
 //! Replay management shared by Settings and the per-chart local board.
+mod layout;
+#[cfg(all(test, target_os = "windows"))]
+mod tests;
 use super::{Page, SharedState};
 use crate::replay::{
     self,
@@ -7,7 +10,7 @@ use crate::replay::{
 use anyhow::Result;
 use macroquad::prelude::*;
 use prpr::{
-    ext::{poll_future, semi_black, semi_white, LocalTask, RectExt},
+    ext::{poll_future, LocalTask},
     scene::{request_file, return_file, show_error, show_message, take_file, NextScene, Scene},
     time::TimeManager,
     ui::{DRectButton, RectButton, Scroll, Ui},
@@ -21,6 +24,8 @@ pub struct ReplayManager {
     library_revision: u64,
     filter: usize,
     query: String,
+    search_clear: RectButton,
+    search_icons: Option<(prpr::ext::SafeTexture, prpr::ext::SafeTexture)>,
     sort: usize,
     multi: bool,
     chosen: std::collections::HashSet<PathBuf>,
@@ -49,6 +54,8 @@ impl ReplayManager {
             library_revision: library::revision(),
             filter: 0,
             query: String::new(),
+            search_clear: RectButton::new(),
+            search_icons: None,
             sort: 0,
             multi: false,
             chosen: Default::default(),
@@ -288,6 +295,26 @@ impl ReplayManager {
         if self.task.is_some() || self.play_task.is_some() || self.download_task.is_some() || self.install_task.is_some() {
             return Ok(true);
         }
+        if !self.query.is_empty() && self.search_clear.touch(touch) {
+            self.query.clear();
+            self.scroll.y_scroller.reset();
+            return Ok(true);
+        }
+        let fixed_control = [0, 1, 2, 3, 4, 5, 6, 13, 14, 15, 16, 17, 18]
+            .iter()
+            .any(|&i| self.buttons[i].inner.contains(touch.position));
+        if !fixed_control && self.scroll.touch(touch, t) {
+            for row in &mut self.rows {
+                row.cancel();
+            }
+            for button in &mut self.buttons {
+                button.cancel(t);
+            }
+            return Ok(true);
+        }
+        if !self.scroll.contains(touch) && !fixed_control {
+            return Ok(false);
+        }
         if self.buttons[13].touch(touch, t) {
             prpr::scene::request_input("replay_search", inputbox::InputBox::new().default_text(&self.query));
             return Ok(true);
@@ -437,15 +464,6 @@ impl ReplayManager {
                 return Ok(true);
             }
         }
-        if self.scroll.touch(touch, t) {
-            for row in &mut self.rows {
-                row.cancel();
-            }
-            return Ok(true);
-        }
-        if !self.scroll.contains(touch) {
-            return Ok(false);
-        }
         let charts = crate::get_data().charts.iter().map(|c| c.local_path.clone()).collect::<Vec<_>>();
         let items = self.visible();
         for (i, row) in self.rows.iter_mut().enumerate() {
@@ -461,217 +479,20 @@ impl ReplayManager {
                         if !self.chosen.remove(&item.path) {
                             self.chosen.insert(item.path.clone());
                         }
+                        self.selected = Some(item.path.clone());
+                    } else if self.selected.as_ref() == Some(&item.path) {
+                        self.selected = None;
+                        self.choosing_chart = false;
+                    } else {
+                        self.selected = Some(item.path.clone());
+                        self.scroll.y_scroller.goto = Some(layout::entry_top(i, items.len(), self.scroll.rect().h));
                     }
-                    self.selected = Some(item.path.clone());
                     self.status.clear();
                 }
                 return Ok(true);
             }
         }
         Ok(false)
-    }
-    fn render_inner(&mut self, ui: &mut Ui, t: f32) {
-        let area = if self.standalone {
-            ui.screen_rect().feather(-0.04)
-        } else {
-            ui.content_rect().feather(-0.015)
-        };
-        ui.fill_rect(area, semi_black(0.22));
-        let x = area.x + 0.02;
-        let w = area.w - 0.04;
-        let mut y = area.y + 0.015;
-        if self.standalone {
-            self.buttons[0].render_text(ui, Rect::new(x, y, 0.18, 0.075), t, "返回", 0.42, false);
-        }
-        ui.text("回放文件")
-            .pos(x + if self.standalone { 0.20 } else { 0. }, y + 0.015)
-            .size(0.6)
-            .draw();
-        self.buttons[1].render_text(ui, Rect::new(x + w - 0.4, y, 0.19, 0.075), t, "导入", 0.42, false);
-        self.buttons[2].render_text(ui, Rect::new(x + w - 0.19, y, 0.19, 0.075), t, "刷新", 0.42, false);
-        y += 0.095;
-        let filter_width = (w - 3. * 0.012) / 4.;
-        for (i, label) in ["全部", "自己录制", "导入回放", "缺少谱面"].iter().enumerate() {
-            self.buttons[i + 3].render_text(
-                ui,
-                Rect::new(x + i as f32 * (filter_width + 0.012), y, filter_width, 0.07),
-                t,
-                *label,
-                0.4,
-                self.filter == i,
-            );
-        }
-        y += 0.09;
-        self.buttons[13].render_text(
-            ui,
-            Rect::new(x, y, w * 0.5, 0.07),
-            t,
-            if self.query.is_empty() {
-                "搜索曲名 / 玩家 / 日期 / 规则"
-            } else {
-                &self.query
-            },
-            0.34,
-            false,
-        );
-        self.buttons[14].render_text(
-            ui,
-            Rect::new(x + w * 0.51, y, w * 0.27, 0.07),
-            t,
-            ["最新录制", "曲名", "占用空间", "重要优先"][self.sort],
-            0.34,
-            false,
-        );
-        self.buttons[15].render_text(
-            ui,
-            Rect::new(x + w * 0.79, y, w * 0.21, 0.07),
-            t,
-            if self.multi { "完成多选" } else { "多选" },
-            0.34,
-            self.multi,
-        );
-        y += 0.085;
-        for b in &mut self.buttons[16..] {
-            b.invalidate();
-        }
-        if self.multi {
-            for (i, label) in ["全选结果", "删除所选", "导出所选"].iter().enumerate() {
-                self.buttons[16 + i].render_text(ui, Rect::new(x + i as f32 * w / 3., y, w / 3. - 0.012, 0.065), t, *label, 0.35, false);
-            }
-            y += 0.08;
-        } else if let Some(item) = self.selected_item() {
-            self.buttons[19].render_text(
-                ui,
-                Rect::new(x, y, w, 0.065),
-                t,
-                if item.binding.as_ref().is_some_and(|b| b.keep) {
-                    "重要回放：已保留"
-                } else {
-                    "标为重要回放"
-                },
-                0.35,
-                false,
-            );
-            y += 0.08;
-        }
-        if let Some(item) = self.selected_item() {
-            let score = item
-                .record
-                .as_ref()
-                .map_or("成绩未记录".into(), |r| format!("{:07} · {:.2}%", r.score, r.accuracy * 100.));
-            let date = item
-                .meta
-                .recorded_at
-                .map(|time| crate::history::Record { time, ..Default::default() }.time_text())
-                .unwrap_or("时间未记录".into());
-            ui.text(format!("{} · {} · {} · {}", item.player(), item.meta.level, date, score))
-                .pos(x, y)
-                .size(0.4)
-                .max_width(w)
-                .draw();
-            y += 0.052;
-            for (i, label) in [
-                "播放",
-                "导出",
-                "删除",
-                if self.choosing_chart { "取消关联" } else { "关联谱面" },
-                "前往下载",
-                "录制版本",
-            ]
-            .iter()
-            .enumerate()
-            {
-                self.buttons[i + 7].render_text(ui, Rect::new(x + i as f32 * w / 6., y, w / 6. - 0.012, 0.07), t, *label, 0.38, false);
-            }
-            y += 0.09;
-        } else {
-            // Only single-record actions disappear without a selection. Keep
-            // search, sort and batch controls active on an unopened list.
-            for button in &mut self.buttons[7..13] {
-                button.invalidate();
-            }
-        }
-        if !self.status.is_empty() {
-            ui.text(&self.status).pos(x, y).max_width(w).size(0.38).color(semi_white(0.75)).draw();
-            y += 0.06;
-        }
-        let h = (area.bottom() - y - 0.02).max(0.12);
-        self.scroll.size((w, h));
-        let items = self.visible();
-        let charts = crate::get_data()
-            .charts
-            .iter()
-            .map(|c| (c.info.name.clone(), c.local_path.clone()))
-            .collect::<Vec<_>>();
-        let count = if self.choosing_chart { charts.len() } else { items.len() };
-        self.rows.resize_with(count, RectButton::new);
-        ui.scope(|ui| {
-            ui.dx(x);
-            ui.dy(y);
-            self.scroll.render(ui, |ui| {
-                if count == 0 {
-                    ui.text("暂无回放文件").pos(0.02, 0.03).size(0.5).draw();
-                }
-                for i in 0..count {
-                    let r = Rect::new(0., i as f32 * 0.135, w, 0.12);
-                    let (title, detail, selected) = if self.choosing_chart {
-                        (charts[i].0.clone(), charts[i].1.clone(), false)
-                    } else {
-                        let item = &items[i];
-                        let status = if item.imported() && item.binding.as_ref().is_some_and(|b| b.local_path.is_none()) {
-                            "缺少谱面 / 待关联"
-                        } else if item.binding.as_ref().is_some_and(|b| b.local_path.is_some() && !b.verified) {
-                            "关联未校验"
-                        } else if item.imported() {
-                            "导入回放"
-                        } else {
-                            "自己录制"
-                        };
-                        let title = if item.meta.name.is_empty() {
-                            item.path.file_name().unwrap_or_default().to_string_lossy().into_owned()
-                        } else {
-                            item.meta.name.clone()
-                        };
-                        (
-                            title,
-                            format!(
-                                "{} · {} · {} · {} · {}",
-                                item.player(),
-                                item.meta.level,
-                                item.mode,
-                                item.speed.map_or("速度未记录".into(), |s| format!("{s:.2}×")),
-                                format!(
-                                    "{status} · {:.2} MiB{}",
-                                    std::fs::metadata(&item.path).map(|m| m.len()).unwrap_or(0) as f64 / 1048576.,
-                                    if item.binding.as_ref().is_some_and(|b| b.keep) {
-                                        " · 重要"
-                                    } else {
-                                        ""
-                                    }
-                                )
-                            ),
-                            self.selected.as_ref() == Some(&item.path) || self.chosen.contains(&item.path),
-                        )
-                    };
-                    ui.fill_path(&r.rounded(0.012), if selected { semi_white(0.12) } else { semi_black(0.25) });
-                    self.rows[i].set(ui, r);
-                    ui.text(title).pos(0.018, r.y + 0.015).size(0.48).max_width(w - 0.04).draw();
-                    ui.text(detail)
-                        .pos(0.018, r.y + 0.07)
-                        .size(0.36)
-                        .color(semi_white(0.6))
-                        .max_width(w - 0.04)
-                        .draw();
-                }
-                (w, (count as f32 * 0.135).max(h))
-            });
-        });
-        if self.task.is_some() || self.play_task.is_some() || self.download_task.is_some() || self.install_task.is_some() {
-            ui.full_loading_simple(t);
-        }
-        if let Some(archive) = &mut self.archive {
-            archive.render(ui, t);
-        }
     }
     fn take_next(&mut self) -> NextScene {
         self.next

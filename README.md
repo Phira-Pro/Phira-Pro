@@ -11,9 +11,9 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows、macOS、Linux 压缩包、Android arm64 APK 或 iOS 未签名 IPA。Windows 解压后运行 `phira-main.exe`，macOS / Linux 运行 `phira-main`；Android 更新时保留应用数据，iOS IPA 需自行签名安装。
 
-当前版本为 **pro.16**（应用内 `0.8.2-pro.16`，build 82），新增实时判定详情、Perfect Combo 与音符行为 Mod，接入 RPEN 曲线轨迹、分层噪域与自定义皮肤、谱内 shader、三维摄像机等扩展；修复回放噪域与逐帧特效、HUD 联动、诊断采样、移动端刷新率恢复及主页背景音乐播放。本次补充修复 Perfect Combo 字体方框和零速音符显示。见 [pro.16 更新说明](docs/development/pro-16.md)与 [pro.16 Release](https://github.com/Phira-Pro/Phira-Pro/releases/tag/v0.8.2-pro.16)。
+当前源码版本为 **pro.17**（应用内 `0.8.2-pro.17`，build 91），包含多人房间与观战、谱面视频导出、Plugin API v3 和 PRCA 回放分析。最近更新修复了重开时回放混入上一把记录的问题，调整噪域与游玩 UI 的渲染顺序，并更新结算状态条和判定预设操作。源码版本与已发布附件分别维护，实际可下载版本以 Releases 页面为准。
 
-插件接口见 [开发说明](docs/plugins/README.md)，模块职责与审查方法见 [代码审查指南](docs/development/code-review-guide.md)。本版继续包含 [rpe-next 噪域兼容](docs/development/rpe-next-noise.md)、[回放录制修复](docs/development/replays.md)及各平台帧率设置。历史更新见 [pro.14-fix1](docs/development/pro-14-fix1.md)、[pro.14](docs/development/pro-14.md)、[pro.13](docs/development/pro-13.md)和 [pro.12](docs/development/pro-12.md)。版本维护、五个平台构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
+插件接口见 [开发说明](docs/plugins/README.md)，模块职责与审查方法见 [代码审查指南](docs/development/code-review-guide.md)。本版继续包含 [rpe-next 噪域兼容](docs/development/rpe-next-noise.md)、[回放录制与播放](docs/development/replays.md)及各平台帧率设置。历史更新见 [pro.16](docs/development/pro-16.md)、[pro.14-fix1](docs/development/pro-14-fix1.md)、[pro.14](docs/development/pro-14.md)、[pro.13](docs/development/pro-13.md)和 [pro.12](docs/development/pro-12.md)。版本维护、五个平台构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
 
 课题模式保留三首连续游玩、黑场过渡、Saira 字体结算和五种课题牌子；课题结算详情与难度等级适配手机、平板。相关功能见 [pro.15 更新说明](docs/development/pro-15.md)。
 
@@ -23,14 +23,14 @@ PPSR 分析浮窗使用当前曲绘的暗色半透明背景，以圆角数字框
 
 ### 判定与手感
 
-- **判定设置与预设**：从「设置 → 谱面 → 判定设置」进入独立页面，直接调整当前设置，也可添加、命名、编辑和保存预设。内置「Phigros本家判定」「Phira Pro判定」「细致判定」。
+- **判定设置与预设**：从「设置 → 谱面 → 判定设置」进入独立页面，直接调整当前设置，也可添加、命名和保存预设。「复制为新预设」「修改预设」「添加预设」分别提供独立操作，已保存的自定义预设可再次修改；内置「Phigros本家判定」「Phira Pro判定」「细致判定」不可覆盖修改。
 - **提前／延后独立区间**：各档分别设置两侧阈值，例如 Perfect+ −16ms / +20ms；同时提供匹配、保护、Hold 和严判选项。
 - **判定颜色**：各档独立设置 RGB 颜色，随预设保存，应用于打击粒子、偏移条和结算名称；留空恢复资源包颜色。
 - **Perfect+ 开关**：关闭时合并到 PERFECT，同时禁用理论值分数。
 - **细致判定**：PERFECT+ → PERFECT → GREAT → GOOD → OK → MEH → BAD → MISS；两列结算及历史详情保留各档计数。
 - **osu!mania ScoreV2 OD 快捷区间**：选择整数 OD −15～15 自动关闭 Perfect+ 并应用随 OD 变化的 PERFECT 等判定区间，随后可继续手动调整。实际半毫秒边界和所选 ACC 权重见 [build 56 说明](docs/development/pro-14-build-56.md)；计分与 Hold 规则仍按当前玩法处理。
 - **晚按补偿**：把「按晚了」的误差整体减掉若干毫秒；设为 0 时不附加晚按补偿；提前和延后窗口仍可独立设置。
-- **黄键／红键保护**：可配置邻近 Drag / Flick 与 Tap 的点击匹配规则；本家流程包含提前侧的时间差比较、黄键单次保护和红键可重复保护。
+- **黄键／红键保护**：Phira Pro 内置预设默认开启，两项保护本身不影响成绩上传资格。可配置邻近 Drag / Flick 与 Tap 的点击匹配规则；本家流程包含提前侧的时间差比较、黄键单次保护和红键可重复保护。
 - **连击文字**：自定义连击数下方那行文字（最长 16 个字符）。
 
 ### 练习与失败处理
@@ -61,6 +61,7 @@ PPSR 分析浮窗使用当前曲绘的暗色半透明背景，以圆角数字框
 
 - **rpe-next 噪域**：读取 Next 模式导出的 JSON/PEZ，支持全谱拍数、多段激活、独立动画轨道、锚点与反转选项，使用官方贴图、折射与辉光材质，并接入游玩触点拦截。显示适配与验证范围见 [兼容说明](docs/development/rpe-next-noise.md)。
 - **彩色噪域**：支持 Line2Area / BlockAreaList 的噪域读取与颜色显示；Line2Area 在编谱画布内先旋转，再映射到谱面视口，保持相邻噪域的拼接与间距，并修正出现、预警闪烁和失效阶段的显示。
+- **噪域与游玩界面**：官谱 JSON、RPE 和 RPEN 的噪域合成包含进度条、暂停按钮、分数、准度、连击、曲名、难度、偏移指示器和判定详情；暂停菜单与练习工具面板在合成后绘制，保持可操作。
 
 - **判定线调试**：在每条判定线旁显示编号 / 线高 / z-index，本该隐藏的线以淡影保留。
 - **音符调试**：在音符旁显示线号 / 时间 / 高度 / 类型，并画出横向判定范围。
@@ -68,7 +69,8 @@ PPSR 分析浮窗使用当前曲绘的暗色半透明背景，以圆角数字框
 ### 结算与偏移
 
 - **结算判定分布图**：以 0ms 居中画一张判定时间分布图（早 ← → 晚），左蓝右橙。
-- **本局判定标注**：结算状态条简要显示 UNRATED、OD、STRICT 等，点击可查看完整判定体系、实际区间、保护、尾判和其他启用选项。
+- **结算状态条**：依次显示适用的 `UNRATED`、Mod、`STRICT MODE`、OD 和谱面倍速，文字之间只用空格连接，不标注判定预设名或 `[i]`。多个 Mod 使用图标；AP／FC 挑战共用突然死亡图标，严格模式固定放在所有其他 Mod 后。单个 Mod 保留名称，严格模式和全 Tap／Drag／Flick 保留文字。没有状态内容时整条隐藏，有内容时点击白色区域查看本局设置详情。
+- **状态显示例外**：自动游玩显示 `AUTOPLAY`，可附加倍速；OD 显示数值，例如 `UNRATED OD -4`。严格模式在其他上传条件满足时按 `STRICT MODE 1.10x` 显示，但仍不能上传成绩。完整规则见 [结算状态条说明](docs/development/ending-status.md)。
 - **一键应用推荐偏移**：分析本局判定后直接应用推荐的整体偏移。
 
 ### 本地成绩
@@ -77,10 +79,17 @@ PPSR 分析浮窗使用当前曲绘的暗色半透明背景，以圆角数字框
 - **回放文件管理**：从「设置 → 谱面 → 回放文件管理」统一导入、导出、关联和删除回放，单谱本地记录与成绩详情保留入口。新文件使用 `.ppr`，继续读取 `.phirar` / `.phirarec`；回放与谱面、音乐分离，缺少谱面时提供关联或在线下载入口。
 - **他人回放**：导入后显示在对应谱面的本地记录中，保留原玩家与来源标记，可按来源和录制规则筛选；不计入本人的 PB、RKS 或统计，也不上传。
 - **回放播放器**：连续拖动时间轴、观看倍速、实际录制帧步进、A–B 循环、BAD／MISS 定位、触点编号与显示调节、判定范围和录制信息。新格式保存原判定配置及真实误差，兼容旧格式；旧回放缺失的信息明确标为未记录。
+- **单局录制隔离**：回放在正常结束并保存本局记录时落盘；未结算退出会丢弃这次录制，重新开始会立即清空上一把并重新记录，结算页再次重试也使用独立记录。
+
+### 多人游戏
+
+- **房间与角色**：提供创建、加入、选谱、准备和开局流程，并支持玩家与观战身份切换。观战画面使用房间当前回合的数据，退出与重连时校验房间和回合，避免旧操作作用于新一局。
+- **联机结束处理**：Pro 自行保存和处理本地成绩，不接入官方成绩上传；使用官方联机服务端时以 Abort 结束参与，分别记录正常完成、主动退出和网络结束策略。实现进展与验证范围见 [多人联机说明](docs/development/pro-17-multiplayer-progress.md)。
 
 ### 插件
 
-- **Phira Pro Plugin API v1**：从「设置 → 通用 → 插件管理」导入 `.zip` Rhai 脚本插件，支持启停、JSON 设置、谱面／结算分析结果与文字覆盖层。提供 PPSR 等算法读取谱面的接口，实际算法由作者实现。见 [接口开发说明与可运行示例](docs/plugins/README.md)。
+- **Phira Pro Plugin API v3**：从「设置 → 通用 → 插件管理」导入 `.zip` Rhai 脚本插件，继续兼容 v1／v2。支持谱面与结算回调、谱面选择分析、JSON 设置，以及用户主动选择回放后的只读分析和报告绘制。实际算法由插件作者实现。见 [接口开发说明与可运行示例](docs/plugins/README.md)。
+- **PRCA 回放分析**：从回放管理的「PRCA」入口选择回放、启动或取消分析，查看并保存报告图片。PRCA 0.3 需要 build 91 及以上宿主和对应插件；它是实验性证据工具，不输出作弊概率或自动作弊定论。支持范围和限制见 [PRCA 说明](docs/plugins/prca.md)。
 
 ### 铺面渲染（视频导出）
 
@@ -113,6 +122,8 @@ python scripts/build.py
 Windows、Linux、macOS 在各自系统上使用 `python scripts/build.py --package` 构建 ZIP，版本和平台名称自动派生；包内包含程序、资源与许可证。更新日志保留在 `docs`。Android 使用 `python scripts/build.py --platform android`，iOS 在 macOS 上使用 `python scripts/build.py --platform ios`。GitHub Actions 提供手动运行的 Desktop Packages / Android APK / iOS IPA 工作流；发布与版本定义一致的 Release 后，Build Release Assets 自动构建并上传五个平台附件，上传时校验文件大小与 SHA-256。iOS 产物未签名，安装前需自行签名。发版步骤、环境与签名配置见 [构建说明](docs/development/build.md)。
 
 ## 维护人员
+
+项目维护约定见 [AGENTS.md](AGENTS.md)。每轮改动完成后都要检查并更新本 README，同步版本、功能、使用入口、行为变化和相关文档链接。
 
 Terrysquid、Rulaifozu。应用内人员名单同步更新。
 

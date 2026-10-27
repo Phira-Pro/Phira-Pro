@@ -17,7 +17,6 @@ Build 91 新增 `compact.version=2` 概览、`quality.primary_source` 和逐项�
 源码：`phira/src/plugins.rs`、`phira/src/page/plugins.rs`、`prpr/src/extensions.rs`。
 此版本运行 Rhai 1.26.1 脚本，Windows、Android 和 iOS 使用同一套接口。插件入口为「设置 → 通用 → 插件管理」，支持导入、启停、编辑 JSON 设置、查看结果和删除。首次安装默认关闭；启用后打开谱面才产生谱面分析结果。
 
-仓库代码 agent 的架构地图、数据流、能力边界与改动验证提示见 [Agent 参考](./agent-guide.md)。
 通用第三方模型的回调输入、模型资源、特征 schema、预测报告格式及适配检查清单见 [模型插件 I/O 规范](./model-io.md)；该规范不要求算法使用 PPSR 特征。
 
 ## 文件与安装

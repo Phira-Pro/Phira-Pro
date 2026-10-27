@@ -10,8 +10,6 @@
 
 核对绝对路径和重解析点后，仅删除 `target/debug`、`target/pro16-desktop-qa`、`target/pro16-packs-qa`、`target/songpack-qa`、`target/stationary-qa`。保留 dist、data、历史源码、当前参考源码及 release 编译缓存。
 
-项目根目录与仓库内 AGENTS.md 均写入了结构整洁、禁止过度耦合、联机必要接口之外不动其他功能、中文 commit 等规则。
-
 ## 本阶段已写入的代码
 
 | 模块 | 责任 |

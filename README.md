@@ -123,8 +123,6 @@ Windows、Linux、macOS 在各自系统上使用 `python scripts/build.py --pack
 
 ## 维护人员
 
-项目维护约定见 [AGENTS.md](AGENTS.md)。每轮改动完成后都要检查并更新本 README，同步版本、功能、使用入口、行为变化和相关文档链接。
-
 Terrysquid、Rulaifozu。应用内人员名单同步更新。
 
 ## 授权与致谢

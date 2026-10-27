@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <mask id="cutouts" maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
+      <path fill="#fff" d="M0 0h200v200H0z"/>
+      <g fill="#000">
+        <circle cx="71" cy="96" r="17"/>
+        <circle cx="129" cy="96" r="17"/>
+        <path d="m100 119 11 17H89z"/>
+      </g>
+    </mask>
+  </defs>
+  <path fill="#fff" mask="url(#cutouts)" d="M66 26h68l36 36v54c0 15-9 25-24 29v29h-20v-17h-12v17H86v-17H74v17H54v-29c-15-4-24-14-24-29V62z"/>
+</svg>

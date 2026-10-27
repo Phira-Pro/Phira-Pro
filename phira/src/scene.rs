@@ -26,6 +26,7 @@ mod record_detail;
 pub use record_detail::RecordDetailScene;
 
 pub(crate) mod replay;
+pub(crate) mod monitor;
 
 use crate::{
     client::{Client, UserManager},

@@ -332,6 +332,12 @@ impl ReplayScene {
         })
     }
 
+    pub(crate) fn review_at(&mut self, time: f64) {
+        self.playing = false;
+        self.seek(time);
+        self.sync_music();
+    }
+
     fn restart(&mut self) {
         self.selected_error = None;
         self.pending_seek = None;
@@ -1392,3 +1398,7 @@ fn recording_info(replay: &Replay, config: &Config) -> Vec<String> {
 // library tests buildable without them; CI separately compiles the full suite.
 #[cfg(all(test, target_os = "windows", record))]
 mod tests;
+
+#[cfg(all(test, target_os = "windows"))]
+#[path = "replay/feedback_tests.rs"]
+mod feedback_tests;

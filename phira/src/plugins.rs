@@ -14,8 +14,13 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io::Read,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{Arc, atomic::{AtomicU64, Ordering}},
 };
+mod selected;
+pub mod replay_analysis;
+pub use selected::{begin_chart_selected, run_selected, publish_selected, SelectedOutput, SelectedSource};
+static RUNTIME_EPOCH: AtomicU64 = AtomicU64::new(0);
+static SELECTED_REQUEST: AtomicU64 = AtomicU64::new(0);
 
 const MAX_PACKAGE: u64 = 2 << 20;
 pub const MAX_CHART_JSON_SIZE: usize = 32 << 20;
@@ -27,12 +32,14 @@ pub const DEFAULT_OPERATION_LIMIT: u64 = 20_000_000;
 static OPERATION_LIMIT: AtomicU64 = AtomicU64::new(DEFAULT_OPERATION_LIMIT);
 /// Public interface name; the numeric manifest field is its compatibility version.
 pub const API_NAME: &str = "Phira Pro Plugin API";
-pub const API_VERSION: u32 = 2;
-pub const API_LABEL: &str = "Phira Pro Plugin API v2";
+pub const API_VERSION: u32 = 3;
+pub const API_LABEL: &str = "Phira Pro Plugin API v3";
 pub const PPSR_PLUGIN_ID: &str = "phira-pro.ppsr";
 
 #[derive(Default)]
 pub struct PpsrPanelState {
+    appeared_at: Option<f32>,
+    request: u64,
     position: Option<Vec2>,
     bounds: Option<Rect>,
     drag_handle: RectButton,
@@ -109,7 +116,7 @@ pub struct Installed {
     pub settings: Value,
 }
 struct Runtime {
-    plugin: Installed,
+    plugin: Arc<Installed>,
     engine: Engine,
     ast: AST,
     report: Value,
@@ -219,7 +226,7 @@ fn write_index_at(path: &Path, plugins: &[Installed]) -> Result<()> {
     crate::transfer::write_atomic(&path, &bytes)
 }
 fn verify(m: &Manifest, script: &str) -> Result<()> {
-    anyhow::ensure!(matches!(m.api, 1 | API_VERSION), "不支持 {} v{}；当前支持 {}（并兼容 v1）", API_NAME, m.api, API_LABEL);
+    anyhow::ensure!((1..=API_VERSION).contains(&m.api), "不支持 {} v{}；当前支持 {}（并兼容 v1/v2）", API_NAME, m.api, API_LABEL);
     anyhow::ensure!(!m.id.is_empty() && m.id.len() <= 80 && m.id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)), "插件 ID 无效");
     anyhow::ensure!(!m.name.trim().is_empty() && m.name.len() <= 160 && m.version.len() <= 80 && m.description.len() <= 2048, "插件名称或描述无效");
     anyhow::ensure!(m.settings.is_object() && serde_json::to_vec(&m.settings)?.len() <= 16 << 10, "插件 settings 必须是小于 16KiB 的 JSON 对象");
@@ -240,7 +247,8 @@ fn verify(m: &Manifest, script: &str) -> Result<()> {
         );
     }
     for p in &m.permissions {
-        anyhow::ensure!(["chart.read", "result.read", "overlay.draw"].contains(&p.as_str()), "不支持的权限：{p}");
+        anyhow::ensure!(["chart.read", "result.read", "overlay.draw", "replay.read", "report.render"].contains(&p.as_str()), "不支持的权限：{p}");
+        anyhow::ensure!(m.api >= 3 || !["replay.read", "report.render"].contains(&p.as_str()), "回放分析权限需要 API v3");
     }
     anyhow::ensure!(script.len() as u64 <= MAX_PACKAGE, "插件脚本过大");
     engine().compile(script).map_err(|e| anyhow::anyhow!(e.to_string()))?;
@@ -332,6 +340,7 @@ pub fn init() {
     prpr::extensions::set_chart_observer(chart_loaded);
 }
 pub fn reload() {
+    RUNTIME_EPOCH.fetch_add(1, Ordering::Relaxed);
     let list = match read_index() {
         Ok(v) => v,
         Err(e) => {
@@ -344,7 +353,7 @@ pub fn reload() {
         let engine = engine();
         match verify(&p.manifest, &p.script).and_then(|_| engine.compile(&p.script).map_err(|e| anyhow::anyhow!(e.to_string()))) {
             Ok(ast) => active.push(Runtime {
-                plugin: p,
+                plugin: Arc::new(p),
                 engine,
                 ast,
                 report: Value::Null,
@@ -369,7 +378,7 @@ fn invoke(r: &mut Runtime, name: &str, payload: &Value, permission: &str) -> Opt
     r.engine.set_max_operations(callback_operation_limit(name, operation_limit()));
     let call = (|| -> Result<Value> {
         let mut payload = payload.clone();
-        if name == "on_chart" || name == "on_chart_selected" {
+        if name == "on_chart" || name == "on_chart_selected" || name == "on_replay_analysis" {
             if let Some(ctx) = payload.as_object_mut() {
                 ctx.insert("api".into(), json!(r.plugin.manifest.api));
                 ctx.insert("operation_limit".into(), json!(operation_limit()));
@@ -440,20 +449,8 @@ pub fn chart_selected_needed() -> bool {
         })
     })
 }
-pub fn chart_selected_ppsr_features_needed() -> bool {
-    RUNTIME.with(|runtime| {
-        runtime.borrow().iter().any(|r| {
-            r.plugin.manifest.id == PPSR_PLUGIN_ID
-                && r.plugin.manifest.api >= 2
-                && r.error.is_none()
-                && r.plugin.manifest.permissions.iter().any(|permission| permission == "chart.read")
-                && r.ast
-                    .iter_functions()
-                    .any(|function| function.name == "on_chart_selected" && function.params.len() == 2)
-        })
-    })
-}
 pub fn clear_chart_selected_reports() {
+    SELECTED_REQUEST.fetch_add(1, Ordering::Relaxed);
     RUNTIME.with(|runtime| {
         for r in runtime.borrow_mut().iter_mut() {
             if r.plugin.manifest.api >= 2
@@ -464,24 +461,6 @@ pub fn clear_chart_selected_reports() {
                     .any(|function| function.name == "on_chart_selected" && function.params.len() == 2)
             {
                 r.report = Value::Null;
-            }
-        }
-    });
-}
-pub fn chart_selected(payload: &Value) {
-    RUNTIME.with(|runtime| {
-        for r in runtime.borrow_mut().iter_mut() {
-            let selected_hook = r.plugin.manifest.api >= 2
-                && r.error.is_none()
-                && r.plugin.manifest.permissions.iter().any(|permission| permission == "chart.read")
-                && r.ast
-                    .iter_functions()
-                    .any(|function| function.name == "on_chart_selected" && function.params.len() == 2);
-            if selected_hook {
-                r.report = Value::Null;
-                if let Some(v) = invoke(r, "on_chart_selected", payload, "chart.read") {
-                    r.report = v;
-                }
             }
         }
     });
@@ -541,6 +520,26 @@ pub fn render_plugin_difficulty_panel(
     collapsed: bool,
     toggle: &mut DRectButton,
     panel: &mut PpsrPanelState,
+) -> bool {
+    let request = SELECTED_REQUEST.load(Ordering::Relaxed);
+    if panel.request != request {
+        panel.request = request;
+        panel.appeared_at = None;
+    }
+    if selected_chart_report().is_none() && selected_chart_error().is_none() {
+        panel.appeared_at = None;
+        panel.bounds = None;
+        panel.drag = None;
+        return false;
+    }
+    let appeared = *panel.appeared_at.get_or_insert(t);
+    let progress = ((t - appeared) / 0.25).clamp(0., 1.);
+    let alpha = progress * progress * (3. - 2. * progress);
+    ui.alpha(alpha, |ui| render_plugin_difficulty_panel_inner(ui, t, artwork, collapsed, toggle, panel))
+}
+fn render_plugin_difficulty_panel_inner(
+    ui: &mut Ui, t: f32, artwork: Texture2D, collapsed: bool,
+    toggle: &mut DRectButton, panel: &mut PpsrPanelState,
 ) -> bool {
     let selected = selected_chart_report();
     if selected.is_none() {
@@ -705,6 +704,15 @@ mod tests {
         assert_eq!(load_operation_limit(&path).unwrap(), DEFAULT_OPERATION_LIMIT);
     }
     #[test]
+    fn prca_v3_installs_disabled_and_v2_cannot_request_replay_permissions() {
+        let dir=tempfile::tempdir().unwrap();let package=dir.path().join("PRCA.zip");let index=dir.path().join("index.json");
+        write_example_package(&package,"prca",&["manifest.json","main.rhai"]);
+        install_package(&package,&index).unwrap();
+        let plugins=read_index_at(&index).unwrap();assert_eq!(plugins.len(),1);assert!(!plugins[0].enabled);
+        let mut manifest=plugins[0].manifest.clone();manifest.api=2;assert!(verify(&manifest,&plugins[0].script).is_err());
+        manifest.permissions=vec!["chart.read".into()];assert!(verify(&manifest,&plugins[0].script).is_ok());
+    }
+    #[test]
     fn frame_callback_keeps_its_fixed_operation_limit() {
         assert_eq!(callback_operation_limit("on_frame", 12_345), 25_000);
         assert_eq!(callback_operation_limit("on_chart_selected", 12_345), 12_345);
@@ -723,7 +731,7 @@ mod tests {
                 manifest,
                 script: script.into(),
                 enabled: true,
-            },
+            }.into(),
             engine,
             ast,
             report: Value::Null,
@@ -760,7 +768,7 @@ mod tests {
                 manifest,
                 script: script.into(),
                 enabled: true,
-            },
+            }.into(),
             engine,
             ast,
             report: Value::Null,
@@ -785,7 +793,7 @@ mod tests {
                 manifest,
                 script: script.into(),
                 enabled: true,
-            },
+            }.into(),
             engine,
             ast,
             report: Value::Null,
@@ -882,7 +890,7 @@ mod tests {
         let e = engine();
         let ast = e.compile(script).unwrap();
         let mut r = Runtime {
-            plugin,
+            plugin: plugin.into(),
             engine: e,
             ast,
             report: Value::Null,
@@ -929,7 +937,7 @@ mod tests {
             .compile("fn on_chart(ctx, settings) { #{ difficulty: ctx.notes.len() * settings.factor } }")
             .unwrap();
         let mut r = Runtime {
-            plugin: p,
+            plugin: p.into(),
             engine: e,
             ast,
             report: Value::Null,
@@ -970,7 +978,7 @@ mod tests {
         plugin.script = script.into();
         let ast = engine.compile(script).unwrap();
         let mut runtime = Runtime {
-            plugin,
+            plugin: plugin.into(),
             engine,
             ast,
             report: Value::Null,
@@ -1035,7 +1043,7 @@ mod tests {
                 script: script.into(),
                 enabled: true,
                 settings: json!({}),
-            },
+            }.into(),
             engine,
             ast,
             report: Value::Null,
@@ -1063,7 +1071,7 @@ mod tests {
         let script = include_str!("../../docs/plugins/examples/ppsr/main.rhai");
         verify(&manifest, script).unwrap();
         assert_eq!(manifest.id, PPSR_PLUGIN_ID);
-        assert_eq!(manifest.api, API_VERSION);
+        assert_eq!(manifest.api, 2, "PPSR retains its v2 contract on a v3 host");
         assert!(manifest.permissions.iter().any(|permission| permission == "overlay.draw"));
 
         let mut invalid = manifest;
@@ -1092,7 +1100,7 @@ mod tests {
                 manifest: manifest.clone(),
                 script: script.into(),
                 enabled: true,
-            },
+            }.into(),
             engine,
             ast,
             report: Value::Null,
@@ -1150,7 +1158,7 @@ mod tests {
                 manifest,
                 script: script.into(),
                 enabled: true,
-            },
+            }.into(),
             engine,
             ast,
             report: Value::Null,
@@ -1199,7 +1207,7 @@ mod tests {
         let installed = read_index_at(&index).unwrap();
         assert_eq!(installed.len(), 1);
         assert!(!installed[0].enabled);
-        assert_eq!(installed[0].manifest.api, API_VERSION);
+        assert_eq!(installed[0].manifest.api, 2, "existing v2 packages do not require migration");
         assert_eq!(installed[0].manifest.asset_files["model"], "model.json");
         assert_eq!(installed[0].manifest.asset_files["profile"], "profile.json");
         assert_eq!(installed[0].manifest.assets["model"]["names"].as_array().unwrap().len(), 187);

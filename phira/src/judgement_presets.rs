@@ -55,6 +55,8 @@ impl JudgeSettings {
     pub fn detailed() -> Self {
         Self {
             windows_ms: [16., 40., 100., 220.],
+            drag_protect: false,
+            flick_protect: false,
             grading: JudgeGrading {
                 detailed: true,
                 ..Default::default()
@@ -128,6 +130,16 @@ pub fn valid_name(name: &str, existing: &[JudgePreset], editing: Option<&str>) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pro_defaults_protect_drag_and_flick_without_disabling_score_upload() {
+        let settings = JudgeSettings::default();
+        assert!(settings.drag_protect && settings.flick_protect);
+        let mut config = Config::default();
+        settings.apply(&mut config);
+        assert!(config.is_official_play(Mods::empty()));
+        assert!(config.force_official_play(&mut Mods::empty()).is_empty());
+        assert!(config.drag_protect && config.flick_protect);
+    }
     #[test]
     fn osu_mania_od_formula_covers_all_requested_values_and_keeps_seven_windows_ordered() {
         for od in -15..=15 {

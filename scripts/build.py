@@ -1,6 +1,5 @@
 """Native build entry for Windows, Linux, macOS, Android and iOS (Python 3.8+)."""
 import argparse
-import hashlib
 import json
 import os
 import platform
@@ -61,10 +60,7 @@ def package_desktop(binary_dir, delivery, target, versions):
             if output.testzip() is not None:
                 raise ValueError("ZIP integrity check failed")
         os.replace(staged_zip, archive)
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    Path(str(archive) + ".sha256").write_text(f"{digest}  {archive.name}\n", encoding="utf-8")
     print(archive)
-    print("SHA256: " + digest)
     return archive
 
 

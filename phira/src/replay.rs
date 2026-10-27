@@ -1,6 +1,8 @@
 //! Separate, versioned replay tapes. v5 adds metadata, full judgement settings, real offsets and frame timestamps.
 pub mod library;
 pub mod transport;
+pub mod capture;
+pub mod analysis;
 
 use anyhow::{Context, Result};
 use prpr::{judge::Judge, scene::UpdateFn};
@@ -73,6 +75,14 @@ pub enum ChartRef {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Replay {
+    pub capture: Option<capture::Capture>,
+    /// Read diagnostics are never supplied by file metadata or hidden by sorting.
+    #[serde(skip)]
+    pub source_version: u32,
+    #[serde(skip)]
+    pub repaired_order: bool,
+    /// Preserve the fact that an importer repaired order across re-export.
+    pub normalized_order: bool,
     pub meta: Metadata,
     pub frames: Vec<f64>,
     pub aspect_ratio: Option<f32>,
@@ -171,7 +181,7 @@ fn read_with_limit(reader: impl Read, limit: u64) -> Result<Vec<u8>> {
 pub fn bytes(replay: &Replay) -> Result<Vec<u8>> {
     validate(replay)?;
     let mut out = b"PHIRAREC".to_vec();
-    out.extend_from_slice(&5u32.to_le_bytes());
+    out.extend_from_slice(&(if replay.capture.is_some() { 6u32 } else { 5u32 }).to_le_bytes());
     let json = serde_json::to_vec(replay)?;
     anyhow::ensure!(json.len() as u64 <= MAX_BYTES, "回放数据过大");
     out.extend(zstd::stream::encode_all(json.as_slice(), 3)?);
@@ -199,6 +209,10 @@ fn canonicalize(replay: &mut Replay) -> Result<()> {
     // corrections in delivery order. Validate values before stable sorting;
     // equal-time Hold head/tail and touch phases retain their original order.
     validate_values(replay)?;
+    replay.repaired_order |= replay.normalized_order || replay.frames.windows(2).any(|w| w[0] > w[1])
+        || replay.judges.windows(2).any(|w| w[0].t > w[1].t)
+        || replay.touches.windows(2).any(|w| w[0].t > w[1].t);
+    replay.normalized_order = replay.repaired_order;
     replay.frames.sort_by(f64::total_cmp);
     replay.judges.sort_by(|a, b| a.t.total_cmp(&b.t));
     replay.touches.sort_by(|a, b| a.t.total_cmp(&b.t));
@@ -206,6 +220,7 @@ fn canonicalize(replay: &mut Replay) -> Result<()> {
 }
 
 fn validate_values(replay: &Replay) -> Result<()> {
+    if let Some(capture) = &replay.capture { capture.validate(MAX_EVENTS)?; }
     anyhow::ensure!(replay.touches.len() <= MAX_EVENTS && replay.judges.len() <= MAX_EVENTS && replay.frames.len() <= MAX_EVENTS, "回放事件过多");
     anyhow::ensure!(replay.offset.is_finite() && replay.speed.is_finite() && replay.speed > 0. && replay.speed <= 16., "回放速度或偏移无效");
     anyhow::ensure!(replay.aspect_ratio.is_none_or(|v| v.is_finite() && v > 0. && v <= 10.), "回放比例无效");
@@ -318,6 +333,12 @@ fn save_legacy(replay: &Replay, path: &PathBuf) -> Result<()> {
 
 pub fn load(path: &std::path::Path) -> Result<Replay> {
     let bytes = read_bounded(std::fs::File::open(path).with_context(|| format!("failed to read {}", path.display()))?)?;
+    from_bytes(&bytes)
+}
+
+/// Parse the exact byte snapshot used for a forensic content hash.
+pub fn from_bytes(bytes: &[u8]) -> Result<Replay> {
+    anyhow::ensure!(bytes.len() as u64 <= MAX_BYTES, "回放文件超过大小上限");
     if bytes.len() < 12 {
         anyhow::bail!("不是回放文件");
     }
@@ -326,12 +347,19 @@ pub fn load(path: &std::path::Path) -> Result<Replay> {
     }
     let version = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
     let mut replay = match version {
-        5 => serde_json::from_slice(&read_bounded(zstd::stream::read::Decoder::new(&bytes[12..])?)?).context("回放元数据无效"),
-        3 | 4 => parse_v3(&bytes),
-        0 | 1 => parse_phirarec(&bytes, version),
+        5 | 6 => serde_json::from_slice(&read_bounded(zstd::stream::read::Decoder::new(&bytes[12..])?)?).context("回放元数据无效"),
+        3 | 4 => parse_v3(bytes),
+        0 | 1 => parse_phirarec(bytes, version),
         _ => anyhow::bail!("不支持的版本号：{version}"),
     }?;
+    replay.source_version = version;
+    if version < 6 { replay.capture = None; }
+    if version == 6 { anyhow::ensure!(replay.capture.is_some(), "v6 回放缺少原始输入记录"); }
     canonicalize(&mut replay)?;
+    if let Some(capture) = replay.capture.as_ref().filter(|c| c.dropped == 0) {
+        replay.touches = capture.playback_touches();
+        validate(&replay)?;
+    }
     Ok(replay)
 }
 
@@ -607,6 +635,59 @@ mod tests {
         assert!(fingers.is_empty());
         assert!(!accept_touch(&mut fingers, 71, PHASE_MOVE, false));
         assert!(accept_touch(&mut fingers, 71, PHASE_DOWN, true));
+    }
+    #[test]
+    fn retry_discards_all_unsettled_data_and_settlement_is_consumed_once() {
+        let mut recording = Recording::new(Pending {
+            chart: Some(ChartRef::Id(42)),
+            capture: capture::Capture::new(),
+            speed: 1.,
+            ..Default::default()
+        });
+        recording.begin_attempt(1);
+        {
+            let mut buffer = recording.buffer.borrow_mut();
+            let p = buffer.as_mut().unwrap();
+            p.frames.push(25.);
+            p.touches.push(TouchEvent { t: 25., id: 7, phase: PHASE_DOWN, ..Default::default() });
+            p.judges.push(JudgeEvent { t: 25., ..Default::default() });
+            p.fingers.insert(7);
+            p.capture.dropped = 3;
+            p.capture_frame = Some(100);
+        }
+        recording.begin_attempt(1);
+        assert_eq!(recording.buffer.borrow().as_ref().unwrap().frames, [25.], "pauses and clock corrections keep this attempt");
+        recording.begin_attempt(2);
+        {
+            let buffer = recording.buffer.borrow();
+            let p = buffer.as_ref().unwrap();
+            assert!(p.frames.is_empty() && p.touches.is_empty() && p.judges.is_empty());
+            assert!(p.fingers.is_empty() && p.capture.inputs.is_empty() && p.capture.anchors.is_empty());
+            assert_eq!(p.capture.dropped, 0);
+            assert_eq!(p.capture_frame, None);
+            assert!(matches!(p.chart, Some(ChartRef::Id(42))));
+        }
+        assert!(take_recording().is_some());
+        recording.begin_attempt(2);
+        assert!(take_recording().is_none(), "ending frames must not recreate a settled replay");
+        recording.begin_attempt(3);
+        assert!(take_recording().is_some(), "result-page retry starts a fresh attempt");
+    }
+    #[test]
+    fn exiting_drops_unsettled_recording_and_old_scenes_cannot_discard_new_ones() {
+        let mut old = Recording::new(Pending::default());
+        old.begin_attempt(1);
+        drop(old);
+        assert!(take_recording().is_none(), "unfinished scene cannot leave a saveable tape");
+        let old = Recording::new(Pending::default());
+        let mut current = Recording::new(Pending::default());
+        current.begin_attempt(1);
+        drop(old);
+        assert!(take_recording().is_some());
+        current.begin_attempt(2);
+        discard_recording();
+        current.begin_attempt(2);
+        assert!(take_recording().is_none());
     }
     #[test]
     fn empty_judgement_tape_keeps_original_result_but_cannot_play() {
@@ -956,9 +1037,11 @@ fn judge_kind(res: &Result<prpr::judge::Judgement, bool>) -> u8 {
 }
 
 /// 录制中的回放数据（主线程独占）。
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct Pending {
-    attempt: Option<u64>,
+    capture: capture::Capture,
+    capture_origin: f64,
+    capture_frame: Option<u64>,
     fingers: std::collections::HashSet<u64>,
     chart: Option<ChartRef>,
     offset: f32,
@@ -979,9 +1062,39 @@ struct Pending {
 
 thread_local! {
     static NEXT_IDENTITY: std::cell::RefCell<Option<Metadata>> = const { std::cell::RefCell::new(None) };
-    static PENDING: std::cell::RefCell<Option<Pending>> = std::cell::RefCell::new(None);
+    // The scene's recorder owns the buffer. Leaving the scene releases an
+    // unfinished attempt; this handle can never keep it alive or save it later.
+    static PENDING: std::cell::RefCell<std::rc::Weak<std::cell::RefCell<Option<Pending>>>> = Default::default();
     /// 下一次开始录制时要附带的谱面元信息（由 `SongScene` 在启动游玩前写入）。
     static NEXT_META: std::cell::RefCell<Option<(Option<String>, Option<i64>)>> = const { std::cell::RefCell::new(None) };
+}
+
+struct Recording {
+    buffer: std::rc::Rc<std::cell::RefCell<Option<Pending>>>,
+    template: Pending,
+    attempt: Option<u64>,
+}
+
+impl Recording {
+    fn new(template: Pending) -> Self {
+        let buffer = std::rc::Rc::new(std::cell::RefCell::new(None));
+        PENDING.with(|it| *it.borrow_mut() = std::rc::Rc::downgrade(&buffer));
+        Self { buffer, template, attempt: None }
+    }
+
+    fn begin_attempt(&mut self, attempt: u64) {
+        if self.attempt == Some(attempt) {
+            return;
+        }
+        let mut pending = self.template.clone();
+        pending.capture_origin = prpr::judge::get_uptime();
+        *self.buffer.borrow_mut() = Some(pending);
+        self.attempt = Some(attempt);
+    }
+}
+
+fn take_recording() -> Option<Pending> {
+    PENDING.with(|it| it.borrow().upgrade()).and_then(|buffer| buffer.borrow_mut().take())
 }
 
 /// `SongScene` 启动游玩前调用：登记本次谱面的下载 URL 与 chart_updated，供录制写入回放。
@@ -993,9 +1106,12 @@ pub fn set_next_chart_meta(file: Option<String>, chart_updated: Option<i64>) {
 /// 仅在 `GameMode::Normal` 且非 autoplay 时挂载。数据先攒在内存里，谱面结束后由
 /// [`save_recording`] 用与成绩历史**同一个时间戳**落盘，保证详情页能按 `key+time` 找到。
 pub fn recorder(chart: Option<ChartRef>, offset: f32, speed: f32, mods: u32) -> UpdateFn {
+    let input_observer = prpr::input_capture::Observer::new();
     let (chart_file, chart_updated) = NEXT_META.with(|it| it.borrow_mut().take()).unwrap_or((None, None));
     let template = Pending {
-        attempt: None,
+        capture: capture::Capture::new(),
+        capture_origin: prpr::judge::get_uptime(),
+        capture_frame: None,
         fingers: Default::default(),
         chart,
         offset,
@@ -1013,31 +1129,40 @@ pub fn recorder(chart: Option<ChartRef>, offset: f32, speed: f32, mods: u32) -> 
         touches: Vec::new(),
         judges: Vec::new(),
     };
-    PENDING.with(|it| *it.borrow_mut() = Some(template.clone()));
-    let mut last_attempt = None;
+    let mut recording = Recording::new(template);
     Box::new(move |t, res, judge| {
-        PENDING.with(|it| {
-            let mut g = it.borrow_mut();
-            // save_recording consumes one attempt. The same GameScene is
-            // reused by RETRY on the result page, so recreate the buffer only
-            // for the next explicit Judge reset, never for ending UI frames.
-            if last_attempt != Some(judge.recording_attempt()) {
-                if g.is_none() {
-                    *g = Some(template.clone());
-                }
-                last_attempt = Some(judge.recording_attempt());
-            }
+        let _keep_observer_alive = &input_observer;
+        recording.begin_attempt(judge.recording_attempt());
+        {
+            let mut g = recording.buffer.borrow_mut();
             let Some(p) = g.as_mut() else { return };
-            // Only a real judgement reset starts a new attempt. A backwards
-            // clock correction (or the old ending clock clamp) is not a retry.
-            if p.attempt != Some(judge.recording_attempt()) {
-                p.attempt = Some(judge.recording_attempt());
-                p.frames.clear();
-                p.touches.clear();
-                p.judges.clear();
-                p.fingers.clear();
-            }
             let active = judge.recording_active();
+            let input_frame = prpr::input_capture::snapshot();
+            if p.capture_frame != Some(input_frame.serial) {
+                p.capture_frame = Some(input_frame.serial);
+                let frame = p.capture.anchors.len() as u64;
+                if p.capture.anchors.len() < 240_000 {
+                    let vp = prpr::ext::get_viewport();
+                    let vp = res.camera.viewport.unwrap_or(vp);
+                    p.capture.anchors.push(capture::Anchor {
+                        frame, uptime: prpr::judge::get_uptime() - p.capture_origin,
+                        chart_time: t, active, speed: res.config.speed,
+                        viewport: [vp.0, vp.1, vp.2, vp.3], screen_height: macroquad::prelude::screen_height(),
+                    });
+                    p.capture.dropped = p.capture.dropped.saturating_add(input_frame.dropped);
+                    for mut event in input_frame.inputs {
+                        if p.capture.inputs.len() >= 200_000 {
+                            p.capture.dropped = p.capture.dropped.saturating_add(1);
+                            continue;
+                        }
+                        event.event_time = event.event_time.map(|v| v - p.capture_origin);
+                        event.observed_time -= p.capture_origin;
+                        p.capture.inputs.push(capture::Input { seq: p.capture.inputs.len() as u64, frame, active, event });
+                    }
+                } else {
+                    p.capture.dropped = p.capture.dropped.saturating_add(input_frame.inputs.len() as u64 + input_frame.dropped + 1);
+                }
+            }
             let t = if active {
                 t.max(p.frames.last().copied().unwrap_or(t))
             } else {
@@ -1088,17 +1213,18 @@ pub fn recorder(chart: Option<ChartRef>, offset: f32, speed: f32, mods: u32) -> 
                         head_grade: head.map(|j| judge_kind(&Ok(j))),
                     }),
             );
-        });
+        }
     })
 }
 
 /// 谱面结束后落盘：用与成绩历史相同的时间戳命名，使详情页能按 `key+time` 命中。
 pub fn save_recording(key: &str, time_ms: i64) -> Option<PathBuf> {
-    let p = PENDING.with(|it| it.borrow_mut().take())?;
+    let p = take_recording()?;
     if p.judges.is_empty() && p.touches.is_empty() {
         return None;
     }
     let mut replay = Replay {
+        capture: Some(p.capture),
         frames: p.frames,
         aspect_ratio: p.aspect_ratio,
         settings: p.settings,
@@ -1141,7 +1267,7 @@ pub fn save_recording(key: &str, time_ms: i64) -> Option<PathBuf> {
 
 /// 丢弃当前录制（例如未保存成绩时调用）。
 pub fn discard_recording() {
-    PENDING.with(|it| *it.borrow_mut() = None);
+    let _ = take_recording();
 }
 
 /// 便捷：按谱面引用构造 key（与 `history::record_play` 一致）。

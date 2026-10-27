@@ -94,7 +94,7 @@ pub fn play_sfx(sfx: &mut Sfx, config: &Config) {
 }
 
 #[cfg(all(not(target_os = "windows"), not(target_os = "ios")))]
-fn get_uptime() -> f64 {
+pub fn get_uptime() -> f64 {
     let mut time = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     let ret = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut time) };
     assert!(ret == 0);
@@ -102,12 +102,12 @@ fn get_uptime() -> f64 {
 }
 
 #[cfg(target_os = "ios")]
-fn get_uptime() -> f64 {
+pub fn get_uptime() -> f64 {
     objc2_foundation::NSProcessInfo::processInfo().systemUptime()
 }
 
 #[cfg(target_os = "windows")]
-fn get_uptime() -> f64 {
+pub fn get_uptime() -> f64 {
     miniquad::native::windows::get_uptime()
 }
 
@@ -1439,6 +1439,7 @@ impl Judge {
     }
 
     pub(crate) fn on_new_frame() {
+        crate::input_capture::begin_frame();
         let mut handler = Handler {
             status: TouchStatus::default(),
             wheel: (0., 0.),
@@ -2431,6 +2432,13 @@ impl EventHandler for Handler {
     fn update(&mut self, _: &mut miniquad::Context) {}
     fn draw(&mut self, _: &mut miniquad::Context) {}
     fn touch_event(&mut self, _: &mut miniquad::Context, phase: miniquad::TouchPhase, id: u64, x: f32, y: f32, time: f64) {
+        let phase_name = match phase {
+            miniquad::TouchPhase::Started => "down",
+            miniquad::TouchPhase::Moved => "move",
+            miniquad::TouchPhase::Ended => "up",
+            miniquad::TouchPhase::Cancelled => "cancel",
+        };
+        crate::input_capture::push("touch", phase_name, id, time, Some((x, y)));
         self.status.touches.push(Touch {
             id,
             phase: phase.into(),
@@ -2445,6 +2453,7 @@ impl EventHandler for Handler {
     }
 
     fn mouse_button_down_event(&mut self, _ctx: &mut miniquad::Context, button: MouseButton, x: f32, y: f32) {
+        crate::input_capture::push("mouse", "down", button_to_id(button), f64::NEG_INFINITY, Some((x, y)));
         self.status.touches.push(Touch {
             id: button_to_id(button),
             phase: TouchPhase::Started,
@@ -2454,6 +2463,7 @@ impl EventHandler for Handler {
     }
 
     fn mouse_button_up_event(&mut self, _ctx: &mut miniquad::Context, button: MouseButton, x: f32, y: f32) {
+        crate::input_capture::push("mouse", "up", button_to_id(button), f64::NEG_INFINITY, Some((x, y)));
         self.status.touches.push(Touch {
             id: button_to_id(button),
             phase: TouchPhase::Ended,
@@ -2463,6 +2473,7 @@ impl EventHandler for Handler {
     }
 
     fn key_down_event(&mut self, _ctx: &mut miniquad::Context, _keycode: KeyCode, _keymods: miniquad::KeyMods, repeat: bool) {
+        crate::input_capture::push("keyboard", if repeat { "repeat" } else { "down" }, _keycode as u64, f64::NEG_INFINITY, None);
         if !repeat {
             self.status.key_delta += 1;
             self.status.keys_down += 1;
@@ -2470,7 +2481,12 @@ impl EventHandler for Handler {
     }
 
     fn key_up_event(&mut self, _ctx: &mut miniquad::Context, _keycode: KeyCode, _keymods: miniquad::KeyMods) {
+        crate::input_capture::push("keyboard", "up", _keycode as u64, f64::NEG_INFINITY, None);
         self.status.key_delta -= 1;
+    }
+
+    fn mouse_motion_event(&mut self, _ctx: &mut miniquad::Context, x: f32, y: f32) {
+        crate::input_capture::push("mouse", "move", button_to_id(MouseButton::Left), f64::NEG_INFINITY, Some((x, y)));
     }
 }
 

@@ -65,7 +65,7 @@ pub(super) struct RoomView {
 }
 impl RoomView {
     pub fn new(icons: Arc<Icons>) -> Self {
-        let buttons = (0..12)
+        let buttons = (0..13)
             .map(|_| {
                 let mut b = DRectButton::new();
                 b.config.radius = 0.012;
@@ -281,6 +281,22 @@ impl RoomView {
         };
         let enabled = usable && !preparing && room.phase != Phase::Playing && (room.host || room.phase == Phase::Waiting);
         self.button(ui, id, ready, t, label, true, enabled);
+        let watching = s.me.as_ref().is_some_and(|me| me.monitor);
+        let can_watch = usable
+            && !preparing
+            && room.phase == Phase::Selecting
+            && (watching || room.chart.is_some())
+            && (watching || room.users.values().any(|user| !user.monitor && s.me.as_ref().is_none_or(|me| me.id != user.id)))
+            && !room.locked;
+        self.button(
+            ui,
+            12,
+            Rect::new(ready.x - 0.172, ready.y, 0.16, ready.h),
+            t,
+            if watching { "参与游玩" } else { "观战" },
+            false,
+            can_watch,
+        );
     }
     fn landing(&mut self, ui: &mut Ui, l: Layout, s: &Snapshot, busy: bool, t: f32) {
         let card = Rect::new(l.body.x, l.body.y, l.body.w, l.body.h);

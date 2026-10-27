@@ -429,6 +429,10 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    public String saveImageToAlbum(String sourcePath, String suggestedName) {
+        return ImageAlbum.save(this, sourcePath, suggestedName);
+    }
+
     public void openUrl(final String url) {
         runOnUiThread(() -> {
             try {

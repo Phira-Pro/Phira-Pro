@@ -1,5 +1,5 @@
 //! Gameplay HUD and application controls are distinct render layers.
-//! The coordinator composites chart/noise/effects first; controls never enter
+//! The coordinator composites chart/HUD/noise/effects first; controls never enter
 //! a chart snapshot or postprocess target.
 use super::*;
 

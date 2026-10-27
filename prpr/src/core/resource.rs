@@ -1,4 +1,4 @@
-use super::{MSRenderTarget, Matrix, Point, NOTE_WIDTH_RATIO_BASE};
+use super::{MSRenderTarget, Matrix, ModIcon, ModIcons, Point, NOTE_WIDTH_RATIO_BASE};
 use crate::{
     config::{Config, JudgeWindows},
     ext::{create_audio_manger, nalgebra_to_glm, SafeTexture},
@@ -429,7 +429,7 @@ pub struct Resource {
     pub background: SafeTexture,
     pub illustration: SafeTexture,
     pub icons: [SafeTexture; 8],
-    pub mod_icons: [SafeTexture; 7],
+    pub mod_icons: ModIcons,
     pub res_pack: ResourcePack,
     pub player: SafeTexture,
     pub icon_back: SafeTexture,
@@ -485,17 +485,12 @@ impl Resource {
             "rank/phi.png"
         ])
     }
-    pub async fn load_mod_icons() -> Result<[SafeTexture; 7]> {
-        // FLIP_X, FADE_OUT, FADE_IN, NIGHTCORE, RAINBOW, AUTOPLAY, NO_SHADER
-        Ok(loads![
-            "mod/flip_x.png",
-            "mod/fade_out.png",
-            "mod/fade_in.png",
-            "mod/nightcore.png",
-            "mod/rainbow.png",
-            "mod/autoplay.png",
-            "mod/no-shader.png"
-        ])
+    pub async fn load_mod_icons() -> Result<ModIcons> {
+        let mut icons = Vec::with_capacity(ModIcon::PATHS.len());
+        for path in ModIcon::PATHS {
+            icons.push(Texture2D::from_image(&load_image(path).await?).into());
+        }
+        Ok(icons.try_into().unwrap_or_else(|_| unreachable!("fixed Mod icon count")))
     }
 
     pub async fn new(

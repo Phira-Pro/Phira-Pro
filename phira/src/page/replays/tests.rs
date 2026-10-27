@@ -214,6 +214,32 @@ fn replay_manager_cards_and_controls() {
                 assert_eq!(manager.visible().len(), expected);
             }
             manager.filter = 0;
+            // An enabled plugin has its own fixed bottom-left entry, including
+            // before selecting a record. It must not overlap list actions.
+            let plugin = isolated.path().join("PRCA.zip");
+            {
+                use std::io::Write;
+                let mut zip = zip::ZipWriter::new(std::fs::File::create(&plugin).unwrap());
+                for (name, body) in [
+                    ("manifest.json", include_str!("../../../../docs/plugins/examples/prca/manifest.json")),
+                    ("main.rhai", include_str!("../../../../docs/plugins/examples/prca/main.rhai")),
+                ] {
+                    zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+                    zip.write_all(body.as_bytes()).unwrap();
+                }
+                zip.finish().unwrap();
+            }
+            crate::plugins::import(&plugin).unwrap();
+            crate::plugins::change("phira-pro.prca", Some(true), None, false).unwrap();
+            manager.selected = None;
+            manager.query.clear();
+            manager.scroll.y_scroller.reset();
+            snapshot(&mut manager, &mut painter, 1280, 720, "prca-entry");
+            let p = center(&manager.buttons[20].inner);
+            assert!(p.x < 0. && p.y > 0., "PRCA 入口必须位于左下角");
+            click(&mut manager, p);
+            assert!(matches!(manager.take_next(), NextScene::Overlay(_)));
+            crate::plugins::change("phira-pro.prca", Some(false), None, false).unwrap();
             prpr::scene::return_input("replay_search".into(), "未记录成绩".into());
             manager.update_inner(2.);
             assert_eq!(manager.visible().len(), 1);

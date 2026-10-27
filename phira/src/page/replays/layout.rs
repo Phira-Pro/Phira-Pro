@@ -88,6 +88,9 @@ impl ReplayManager {
             y += h + 0.02;
         }
         let footer = a.bottom() - BH - 0.025;
+        if !crate::plugins::replay_analysis::available().is_empty() {
+            self.buttons[20].render_text(ui, Rect::new(x, footer, bw, BH), t, "PRCA", 0.36, false);
+        }
         if self.standalone {
             self.buttons[0].render_text(ui, Rect::new(x + 3. * (bw + GAP), footer, bw, BH), t, "返回", 0.36, false);
         }

@@ -34,6 +34,7 @@ pub(super) struct JudgementList {
     ids: Vec<Option<String>>,
     names: Vec<String>,
     add: DRectButton,
+    copy: DRectButton,
     edit: DRectButton,
     delete: DRectButton,
     save: DRectButton,
@@ -226,6 +227,7 @@ impl JudgementList {
             ids: Vec::new(),
             names: Vec::new(),
             add: DRectButton::new(),
+            copy: DRectButton::new(),
             edit: DRectButton::new(),
             delete: DRectButton::new(),
             save: DRectButton::new(),
@@ -392,12 +394,16 @@ impl JudgementList {
         if self.selector.touch(touch, t) {
             return Ok(Some(false));
         }
-        let adding = self.add.touch(touch, t);
-        let editing = !adding && self.edit.touch(touch, t);
-        if adding || editing {
+        let copying = self.copy.touch(touch, t);
+        let editing = !copying && self.edit.touch(touch, t);
+        let adding = !copying && !editing && self.add.touch(touch, t);
+        if adding || copying || editing {
             self.discard_input = false;
             let existing = self.selection().and_then(|id| get_data().judge_presets.iter().find(|p| p.id == id));
-            // "Add" always copies to a new ID; built-ins are never overwritten.
+            if editing && existing.is_none() {
+                return Ok(Some(false));
+            }
+            // Copy/Add always create a new ID; editing uses the saved settings.
             self.draft = Some(Draft {
                 id: if editing { existing.map(|p| p.id.clone()) } else { None },
                 name: if editing {
@@ -405,7 +411,11 @@ impl JudgementList {
                 } else {
                     String::new()
                 },
-                settings: JudgeSettings::capture(&get_data().config),
+                settings: if editing {
+                    existing.unwrap().settings.clone()
+                } else {
+                    JudgeSettings::capture(&get_data().config)
+                },
             });
             return Ok(Some(false));
         }
@@ -640,9 +650,16 @@ impl JudgementList {
         } else {
             row! { render_title(ui, tl!("preset-select"), Some(tl!("preset-select-sub"))); }
             row! { self.selector.render(ui, Rect::new(r.w - 0.61, 0.02, 0.56, item_row_h() - 0.04), t); }
-            row! { render_title(ui, tl!("preset-add"), None); self.add.render_text(ui, rr, t, tl!("preset-add"), 0.42, false); }
+            row! { render_title(ui, tl!("preset-copy"), None); self.copy.render_text(ui, rr, t, tl!("preset-copy"), 0.42, false); }
             let custom = self.selection().is_some_and(|id| id != PHIGROS && id != PRO && id != DETAILED);
-            row! { render_title(ui, if custom { tl!("preset-edit") } else { tl!("preset-copy") }, None); self.edit.render_text(ui, rr, t, if custom { tl!("preset-edit") } else { tl!("preset-copy") }, 0.42, false); }
+            if custom {
+                row! { render_title(ui, tl!("preset-edit"), None); self.edit.render_text(ui, rr, t, tl!("preset-edit"), 0.42, false); }
+            } else {
+                // Hidden buttons must not retain a stale hitbox from a custom preset.
+                self.edit = DRectButton::new();
+                self.delete = DRectButton::new();
+            }
+            row! { render_title(ui, tl!("preset-add"), None); self.add.render_text(ui, rr, t, tl!("preset-add"), 0.42, false); }
             if custom {
                 row! { render_title(ui, tl!("preset-delete"), Some(tl!("preset-delete-sub"))); self.delete.render_text(ui, rr, t, tl!("preset-delete"), 0.42, false); }
             }

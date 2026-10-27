@@ -153,6 +153,14 @@ fn production_panel_save_cancel_reload_and_aspects() {
             assert_eq!(list.selection(), Some(id.as_str()));
             assert_eq!(get_data().judge_presets[0].name, "我的测试预设");
             render(&mut list, &mut painter, 1280, 720, 0., "saved-custom");
+            assert!(center(&list.copy).y < center(&list.edit).y && center(&list.edit).y < center(&list.add).y,
+                "copy, edit and add must be separate ordered actions");
+            let p = center(&list.copy);
+            click(&mut list, p);
+            assert!(list.draft.as_ref().unwrap().id.is_none(), "copy never overwrites the selected preset");
+            assert_eq!(list.draft.as_ref().unwrap().settings, get_data().judge_presets[0].settings);
+            list.draft = None;
+            render(&mut list, &mut painter, 1280, 720, 0., "saved-custom-actions");
             let p = center(&list.edit);
             click(&mut list, p);
             assert_eq!(list.draft.as_ref().unwrap().id.as_deref(), Some(id.as_str()));
@@ -287,6 +295,24 @@ fn production_panel_save_cancel_reload_and_aspects() {
             assert!(get_data().config.judge_grading.detailed);
             assert!(get_data().judge_presets.is_empty());
             assert_eq!(list.selection(), Some(DETAILED));
+            render(&mut list, &mut painter, 1280, 720, 0., "builtin-no-edit");
+            assert!(!list.edit.inner.contains(vec2(0., 0.)), "built-in presets have no edit hitbox");
+            for index in 0..3 {
+                list.selector.set_selected(index);
+                list.activate();
+                render(&mut list, &mut painter, 1280, 720, 0., &format!("builtin-{index}-actions"));
+                assert!(list.selection().is_some());
+                let p = center(&list.copy);
+                click(&mut list, p);
+                assert!(list.draft.as_ref().unwrap().id.is_none(), "built-ins may only be copied to new IDs");
+                list.draft = None;
+            }
+            list.selector.set_selected(2);
+            list.activate();
+            if std::env::var_os("PHIRA_PRESET_ACTIONS_QA").is_some() {
+                println!("Preset actions: copy/edit/add ordering, built-in protection, save, cancel, reload and failed-save rollback passed");
+                std::process::exit(0);
+            }
             for (w, h, name) in [
                 (1280, 720, "live-detailed-16x9"),
                 (960, 720, "live-detailed-4x3"),

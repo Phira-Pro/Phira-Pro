@@ -1,6 +1,18 @@
-# Phira Pro Plugin API v2 · 插件开发说明
+# Phira Pro Plugin API v3 · 插件开发说明
 
-接口正式名称为 **Phira Pro Plugin API**，当前兼容版本为 **v2**。Manifest 和 `on_chart` / `on_chart_selected` 参数中的数值 `api` 是机器读取的兼容版本号，并非接口名称；它与应用版本 pro.14、插件自身 `version` 以及 Rhai 语言版本分别独立。当前宿主兼容 `"api": 1` 的既有插件；v2 新增固定 `assets` 和 `on_chart_selected`，需要这些能力的插件必须声明 `"api": 2`，旧宿主会明确拒绝 v2 插件。
+当前宿主新增 **v3 回放分析能力**，继续兼容 v1/v2。既有谱面接口与示例保持原契约。PRCA 的安装、精度、算法覆盖与限制见 [PRCA 说明](./prca.md)。
+
+v3 插件可以声明 `replay.read` 与 `report.render`，实现 `on_replay_analysis(ctx, settings)`。只有同时声明两项权限、实现此回调并启用的插件才显示在回放分析页。用户明确选择一份回放后运行；插件不能自行遍历文件、访问任意路径或修改游戏状态。
+
+回调 `ctx` 包含 `api=3`、`feature_schema="replay-observations-1"`、`metadata`、`chart`、`quality`、`metrics`、`windows`、`coverage`、`assets` 和 `replay_hash`。原始输入分块调用 `replay_inputs(start,count)`，判定事件分块调用 `replay_judgements(start,count)`；`start` 从零开始，每页 1–256 条，非法页返回空数组。完整 u64 输入 ID 使用十进制字符串，旧输入明确标 `legacy` 和帧精度。回调不能取得用户账户凭据或未选中的文件。
+
+Build 91 新增 `compact.version=2` 概览、`quality.primary_source` 和逐项能力信息。固定 32 操作块通过 `replay_observations(kind,start,count)` 读取，`kind` 为 `timing` 或 `duration`，每页 1–256 块；块数分别为 `compact.timing_blocks` / `duration_blocks`。块包含 `key/start/end/stats/intervals`，时长块另含暂停 `segment`。同帧和弦压缩为一个有效计时组，键盘时长按键分组；完整块留在原生层及 JSON 报告，避免脚本上下文随回放长度膨胀。既有 `windows` 字段为旧版兼容保留。规则可返回 `checks`，PNG 最多显示 6 项，区分检测覆盖与异常证据。`limited` 和 `conflict` 显示中性的数据不足、数据异常；`review` 才显示黄色存疑。
+
+返回对象必须包含 `status`（`clear`/`review`/`limited`/`conflict`）、`summary` 和 `evidence` 数组；证据最多 24 条，每条含 `family/title/detail/start/end`，起止为谱面秒。另支持 `cheat`，但必须同时声明 `calibrated=true`、`confirmed=true`，且至少两个不同 `family` 的证据各自有 `confirmed=true`；否则拒绝报告。返回值仍限制 32KiB；绘图序列由宿主持有，不通过巨大 JSON 返回值搬运。宿主校验结构、执行受控 PNG 渲染并保存 JSON；不执行任意 HTML。重计算运行在专用工作线程，通过通道返回结果与异常；用户可取消，界面和原生/脚本阶段分别检查 120 秒总预算（单次底层读取/解压不保证立即中断）。更改插件后旧任务不能覆盖新结果。
+
+下述 v2 说明描述既有谱面能力；v2 ZIP 仍声明 `api:2`，无需为兼容修改自身特征或模型。
+
+接口正式名称为 **Phira Pro Plugin API**，当前最高兼容版本为 **v3**。Manifest 和 `on_chart` / `on_chart_selected` 参数中的数值 `api` 是机器读取的兼容版本号，并非接口名称；它与应用版本、插件自身 `version` 以及 Rhai 语言版本分别独立。当前宿主兼容 `"api": 1` 和 `"api": 2` 的既有插件；v2 新增固定 `assets` 和 `on_chart_selected`，v3 新增回放分析。需要对应能力的插件应声明相应最低 API，旧宿主会明确拒绝更高版本。
 
 源码：`phira/src/plugins.rs`、`phira/src/page/plugins.rs`、`prpr/src/extensions.rs`。
 此版本运行 Rhai 1.26.1 脚本，Windows、Android 和 iOS 使用同一套接口。插件入口为「设置 → 通用 → 插件管理」，支持导入、启停、编辑 JSON 设置、查看结果和删除。首次安装默认关闭；启用后打开谱面才产生谱面分析结果。
@@ -67,6 +79,8 @@ PPSR v2 的现有安装包还依赖兼容字段：`feature_version`、`v2_featur
 [PDE-R 独立插件 ZIP](./Phira-Pro-PDE-R.zip) 展示另一种算法接入方式：它在插件自己的 Rhai 脚本中解析 `chart_data`、提取算法专用的 106 维特征并执行独立模型，不使用 PPSR 的 187 维特征。源码见 [PDE-R 插件示例目录](./examples/pde-r/)。两种插件可同时安装；PDE-R 使用独立 ID `phira-pro.pde-r`，不会覆盖 PPSR。任一选谱插件返回 `difficulty` 后都可以使用共用的可折叠面板；当多种算法同时返回时，当前面板优先显示 PPSR，其他结果仍可在插件管理页查看。
 
 ## 执行限制与错误
+
+pro.17 本轮更新后，选谱分析通过后台工作线程串行运行。本地文件读取、CPU 谱面解析、特征提取和 Rhai 模型计算不会占用界面线程；快速换谱、重新加载或停用插件后，旧任务结果不会覆盖当前面板。结果就绪后面板用 250ms 淡入，纹理上传和界面绘制仍在主线程执行。此调度由宿主提供，单独更换插件 ZIP 无法改变旧宿主的执行线程。
 
 没有原生动态库、文件系统、网络、系统命令、账户数据、触摸注入或判定／成绩修改接口。禁用文件模块导入；`print` 和 `debug` 不输出。谱面和结算回调默认最多 20,000,000 个操作，可在插件管理页调整；非法值回退到默认值。帧回调仍固定最多 25,000 个操作。操作超限或回调报错会暂停插件；选谱页会显示失败提示，插件管理页「详情」保留错误原因，刷新或重新启用可恢复。调用深度 32，表达式深度 64/32，变量／函数最多 256，字符串数据最多 8MiB，数组和 Map 各最多 1,000,000 项（Rhai 对嵌套容器递归累加计数），JSON 返回值最多 32KiB。操作计数不是墙钟时间保证；这些限制用于控制脚本开销，复杂算法应自行优化。
 

@@ -25,7 +25,7 @@ pub struct ReplayManager {
     filter: usize,
     query: String,
     search_clear: RectButton,
-    search_icons: Option<(prpr::ext::SafeTexture, prpr::ext::SafeTexture)>,
+    search_icons: Option<(prpr::ext::SafeTexture,prpr::ext::SafeTexture)>,
     sort: usize,
     multi: bool,
     chosen: std::collections::HashSet<PathBuf>,
@@ -62,7 +62,7 @@ impl ReplayManager {
             selected: None,
             rows: Vec::new(),
             scroll: Scroll::new(),
-            buttons: (0..20).map(|_| DRectButton::new()).collect(),
+            buttons: (0..21).map(|_| DRectButton::new()).collect(),
             status: String::new(),
             choosing_chart: false,
             import_waiting: false,
@@ -295,14 +295,8 @@ impl ReplayManager {
         if self.task.is_some() || self.play_task.is_some() || self.download_task.is_some() || self.install_task.is_some() {
             return Ok(true);
         }
-        if !self.query.is_empty() && self.search_clear.touch(touch) {
-            self.query.clear();
-            self.scroll.y_scroller.reset();
-            return Ok(true);
-        }
-        let fixed_control = [0, 1, 2, 3, 4, 5, 6, 13, 14, 15, 16, 17, 18]
-            .iter()
-            .any(|&i| self.buttons[i].inner.contains(touch.position));
+        if !self.query.is_empty() && self.search_clear.touch(touch) {self.query.clear();self.scroll.y_scroller.reset();return Ok(true);}
+        let fixed_control=[0,1,2,3,4,5,6,13,14,15,16,17,18,20].iter().any(|&i|self.buttons[i].inner.contains(touch.position));
         if !fixed_control && self.scroll.touch(touch, t) {
             for row in &mut self.rows {
                 row.cancel();
@@ -314,6 +308,10 @@ impl ReplayManager {
         }
         if !self.scroll.contains(touch) && !fixed_control {
             return Ok(false);
+        }
+        if self.buttons[20].touch(touch, t) {
+            self.next = Some(NextScene::Overlay(Box::new(super::replay_analysis::ReplayAnalysisScene::new(self.selected.clone())?)));
+            return Ok(true);
         }
         if self.buttons[13].touch(touch, t) {
             prpr::scene::request_input("replay_search", inputbox::InputBox::new().default_text(&self.query));

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <mask id="tick" maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
+      <path fill="#fff" d="M0 0h200v200H0z"/>
+      <path fill="none" stroke="#000" stroke-width="18" d="m64 94 25 25 47-48"/>
+    </mask>
+  </defs>
+  <path fill="#fff" mask="url(#tick)" d="m100 22 68 24v49c0 38-30 66-68 84-38-18-68-46-68-84V46z"/>
+</svg>

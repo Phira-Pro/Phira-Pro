@@ -309,18 +309,29 @@ impl JudgeLine {
     }
 
     pub fn fetch_pos(&self, res: &Resource, lines: &[JudgeLine]) -> Vector {
+        self.fetch_pos_at_aspect(res.aspect_ratio, lines)
+    }
+
+    /// CPU-only counterpart shared with offline input analysis.
+    pub fn fetch_pos_at_aspect(&self, aspect: f32, lines: &[JudgeLine]) -> Vector {
+        let mut translation = self.object.translation.now();
+        translation.y /= aspect;
         if let Some(parent) = self.parent {
             let parent = &lines[parent];
-            let parent_translation = parent.fetch_pos(res, lines);
-            return parent_translation + Rotation2::new(parent.fetch_rot(lines).to_radians()) * self.object.now_translation(res);
+            let parent_translation = parent.fetch_pos_at_aspect(aspect, lines);
+            return parent_translation + Rotation2::new(parent.fetch_rot(lines).to_radians()) * translation;
         }
-        self.object.now_translation(res)
+        translation
     }
 
     pub fn now_transform(&self, res: &Resource, lines: &[JudgeLine]) -> Matrix {
+        self.transform_at_aspect(res.aspect_ratio, lines)
+    }
+
+    pub fn transform_at_aspect(&self, aspect: f32, lines: &[JudgeLine]) -> Matrix {
         Rotation2::new(self.fetch_rot(lines).to_radians())
             .to_homogeneous()
-            .append_translation(&self.fetch_pos(res, lines))
+            .append_translation(&self.fetch_pos_at_aspect(aspect, lines))
     }
 
     pub fn render(&self, ui: &mut Ui, res: &mut Resource, lines: &[JudgeLine], bpm_list: &mut BpmList, settings: &ChartSettings, id: usize) {

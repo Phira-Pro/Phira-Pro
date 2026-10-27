@@ -705,6 +705,7 @@ async fn parse_judge_line(
     bezier_map: &BezierMap,
     hitsounds: &mut HitSoundMap,
     line_texture_map: &mut HashMap<String, SafeTexture>,
+    load_visuals: bool,
 ) -> Result<JudgeLine> {
     let event_layers: Vec<_> = rpe.event_layers.into_iter().flatten().collect();
     fn events_with_factor(
@@ -797,7 +798,9 @@ async fn parse_judge_line(
             AnimFloat::default()
         },
         notes,
-        kind: if rpe.texture == "line.png" {
+        kind: if !load_visuals {
+            JudgeLineKind::Normal
+        } else if rpe.texture == "line.png" {
             if let Some(events) = rpe.extended.as_ref().and_then(|e| e.paint_events.as_ref()) {
                 JudgeLineKind::Paint(
                     parse_events(r, events, Some(-1.), bezier_map).with_context(|| ptl!("paint-events-parse-failed"))?,
@@ -938,6 +941,22 @@ pub async fn parse_rpe_options(
     chart_path: Option<&str>,
     use_rpen: bool,
 ) -> Result<Chart> {
+    parse_rpe_impl(source, fs, extra, use_rpe_170_speed, chart_path, use_rpen, true).await
+}
+
+/// CPU-only analysis preserves note/line geometry while skipping GPU resources.
+pub async fn parse_rpe_for_analysis(
+    source: &str, fs: &mut dyn FileSystem, use_rpe_170_speed: bool,
+    chart_path: Option<&str>, use_rpen: bool,
+) -> Result<Chart> {
+    parse_rpe_impl(source, fs, ChartExtra::default(), use_rpe_170_speed, chart_path, use_rpen, false).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn parse_rpe_impl(
+    source: &str, fs: &mut dyn FileSystem, extra: ChartExtra, use_rpe_170_speed: bool,
+    chart_path: Option<&str>, use_rpen: bool, load_visuals: bool,
+) -> Result<Chart> {
     let raw: serde_json::Value = serde_json::from_str(source).with_context(|| ptl!("json-parse-failed"))?;
     let rpe: RPEChart = serde_json::from_value(super::rpen::legacy_source(&raw)).with_context(|| ptl!("json-parse-failed"))?;
     let speed_mode = if rpe.meta.rpe_version >= 170 {
@@ -1023,6 +1042,7 @@ pub async fn parse_rpe_options(
                 &bezier_map,
                 &mut hitsounds,
                 &mut line_texture_map,
+                load_visuals,
             )
             .await
             .with_context(move || ptl!("judge-line-location-name", "jlid" => id, "name" => name))?,
@@ -1059,7 +1079,7 @@ pub async fn parse_rpe_options(
     chart.next_block_areas = next_block_areas;
     chart.next_single_inversion = rpe.noise_area_options.ignore_triple_inversion || (use_rpen && super::rpen::features(&raw));
     if use_rpen {
-        let effects = super::rpen::load_effects(&raw, &mut chart.bpm_list.borrow_mut(), fs).await?;
+        let effects = if load_visuals { super::rpen::load_effects(&raw, &mut chart.bpm_list.borrow_mut(), fs).await? } else { Vec::new() };
         for effect in effects {
             if effect.global {
                 chart.extra.global_effects.push(effect)
@@ -1093,7 +1113,7 @@ pub async fn parse_rpe_options(
                 area_index += 1;
             }
             chart.next_layer_renderers = (0..layers.len()).map(|_| Default::default()).collect();
-            for layer in layers {
+            for layer in layers.iter().filter(|_| load_visuals) {
                 let mut skin = crate::core::rpen_skin::Skin::load(layer, fs).await?;
                 if let Some(skin) = &mut skin {
                     skin.time_offset = chart.offset as f64;

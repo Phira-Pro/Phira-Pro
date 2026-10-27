@@ -1,0 +1,29 @@
+{
+  "api": 3,
+  "id": "phira-pro.prca",
+  "name": "PRCA",
+  "version": "0.3.0-experimental",
+  "author": "Kenari_15",
+  "description": "本地回放操作特征分析：真实计时、按压时长、接触轨迹、并发、输入与谱面数据诊断。生成可复核 PNG / JSON。尚未完成真人语料校准；只提示异常，不认证作弊或清白。旧回放按数据精度降级。",
+  "permissions": [
+    "replay.read",
+    "report.render"
+  ],
+  "settings": {},
+  "assets": {
+    "profile": {
+      "version": "diagnostic-2",
+      "calibrated": false,
+      "basic_samples": 16,
+      "block_samples": 32,
+      "min_repeated_windows": 2,
+      "keyboard_duration_windows": 3,
+      "timing_mad_ms": 0.35,
+      "timing_span_ms": 1.0,
+      "duration_mode_ratio": 0.98,
+      "duration_mode_lower95": 0.85,
+      "frame_lattice_ratio": 0.9,
+      "min_interval_span_ms": 8.0
+    }
+  }
+}

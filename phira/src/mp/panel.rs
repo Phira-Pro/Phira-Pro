@@ -46,6 +46,10 @@ pub struct MultiplayerPage {
     next: Option<NextScene>,
     game: Option<GameContext>,
     return_pending: bool,
+    monitor_scene: bool,
+    monitor_closed_round: Option<(u64, u64)>,
+    watch_intent: bool,
+    restore_player: bool,
     last_error: Option<String>,
     chart_picker_requested: bool,
 }
@@ -66,6 +70,10 @@ impl MultiplayerPage {
             next: None,
             game: None,
             return_pending: false,
+            monitor_scene: false,
+            monitor_closed_round: None,
+            watch_intent: false,
+            restore_player: false,
             last_error: None,
             chart_picker_requested: false,
         }
@@ -135,6 +143,11 @@ impl MultiplayerPage {
         let session = self.session.as_ref().unwrap();
         session.mark_prepared(p.generation, p.chart)?;
         self.prepared_path = Some((p.room, p.generation, path));
+        let snapshot = session.snapshot();
+        if snapshot.me.as_ref().is_some_and(|me| me.monitor)
+            && snapshot.room.as_ref().is_some_and(|room| room.phase == Phase::Selecting) {
+            return Ok(());
+        }
         self.request(if p.start { Request::Start } else { Request::Ready });
         Ok(())
     }
@@ -150,12 +163,32 @@ impl MultiplayerPage {
         self.game = Some(context);
         Ok(())
     }
+    fn start_monitor_scene(&mut self, chart: i32, path: String) -> Result<()> {
+        let session = self.session.as_ref().context("尚未连接")?.clone();
+        self.scene_task = crate::scene::monitor::launch(chart, path, session);
+        self.monitor_scene = true;
+        Ok(())
+    }
 }
 impl Page for MultiplayerPage {
     fn label(&self) -> Cow<'static, str> {
         "多人联机".into()
     }
     fn enter(&mut self, _: &mut SharedState) -> Result<()> {
+        if self.monitor_scene {
+            self.monitor_scene = false;
+            self.watch_intent = false;
+            self.restore_player = true;
+            if let Some(session) = &self.session {
+                let snapshot = session.snapshot();
+                if snapshot.me.as_ref().is_some_and(|me| me.monitor)
+                    && snapshot.room.as_ref().is_some_and(|room| room.phase == Phase::Playing)
+                {
+                    self.monitor_closed_round = Some((snapshot.room_generation, snapshot.round));
+                }
+            }
+            self.prepared_path = None;
+        }
         if self.return_pending {
             self.return_pending = false;
             if let Some(game) = self.game.take() {
@@ -240,11 +273,12 @@ impl Page for MultiplayerPage {
                 self.close_requested = true;
             }
             5 => {
+                if snapshot.me.as_ref().is_some_and(|me| me.monitor) { self.watch_intent = true; }
                 if let Err(e) = self.begin_prepare() {
                     show_error(e);
                 }
             }
-            6 => self.request(Request::CancelReady),
+            6 => { self.watch_intent = false; self.request(Request::CancelReady); },
             7 => self.request(Request::Leave),
             8 => {
                 if let Some(r) = snapshot.room {
@@ -257,6 +291,16 @@ impl Page for MultiplayerPage {
                 }
             }
             10 => request_input("mp_chat", InputBox::new()),
+            12 => {
+                if snapshot.room.is_some() {
+                    let session = self.session.as_ref().unwrap().clone();
+                    let monitor = !snapshot.me.as_ref().is_some_and(|me| me.monitor);
+                    self.watch_intent = monitor;
+                    self.restore_player = false;
+                    self.prepared_path = None;
+                    self.operation = Some(Task::new(super::role::switch(session, monitor)));
+                }
+            }
             _ => {}
         }
         Ok(true)
@@ -354,6 +398,53 @@ impl Page for MultiplayerPage {
                         show_error(e);
                         self.request(Request::Abort);
                     }
+                } else if self.watch_intent && snapshot.me.as_ref().is_some_and(|me| me.monitor)
+                    && snapshot.room.as_ref().is_some_and(|room| room.phase == Phase::Playing)
+                    && !self.monitor_scene
+                    && self.monitor_closed_round != Some((snapshot.room_generation, snapshot.round))
+                {
+                    let chart = snapshot.room.as_ref().and_then(|room| room.chart);
+                    let path = self.prepared_path.as_ref().and_then(|(room, generation, path)| {
+                        ( *room == snapshot.room_generation
+                            && *generation == snapshot.chart_generation
+                            && chart.is_some_and(|chart| snapshot.room.as_ref().and_then(|r| r.chart) == Some(chart)))
+                            .then(|| path.clone())
+                    });
+                    if let (Some(chart), Some(path)) = (chart, path) {
+                        if let Err(e) = self.start_monitor_scene(chart, path) {
+                            self.monitor_scene = true;
+                            show_error(e);
+                        }
+                    } else {
+                        self.monitor_closed_round = Some((snapshot.room_generation, snapshot.round));
+                        self.watch_intent = false;
+                        self.restore_player = true;
+                        show_message("观战谱面未完成准备，无法进入本局画面").warn();
+                    }
+                }
+            }
+            if self.restore_player && snapshot.me.as_ref().is_some_and(|me| me.monitor)
+                && snapshot.room.as_ref().is_some_and(|room| room.phase == Phase::Selecting && !room.locked)
+                && self.operation.is_none() && self.scene_task.is_none() {
+                let session = self.session.as_ref().unwrap().clone();
+                self.restore_player = false;
+                self.prepared_path = None;
+                self.operation = Some(Task::new(super::role::switch(session, false)));
+            }
+            if self.watch_intent && snapshot.me.as_ref().is_some_and(|me| me.monitor)
+                && snapshot.room.as_ref().is_some_and(|room| room.phase != Phase::Playing && !room.ready)
+                && self.preparation.is_none()
+                && self.metadata.is_none()
+                && self.download.is_none()
+                && self.operation.is_none()
+                && self.scene_task.is_none()
+            {
+                let prepared = snapshot.room.as_ref().and_then(|room| room.chart).is_some_and(|chart| snapshot.prepared == Some((snapshot.chart_generation, chart)));
+                if prepared {
+                    if snapshot.room.as_ref().is_some_and(|room| room.phase == Phase::Waiting) { self.request(Request::Ready); }
+                } else if let Err(e) = self.begin_prepare() {
+                    self.watch_intent = false;
+                    show_error(e);
                 }
             }
         }
@@ -361,7 +452,9 @@ impl Page for MultiplayerPage {
             self.scene_task = None;
             match result {
                 Ok(next) => {
-                    if self.game.as_ref().is_some_and(|g| g.session.live_context_valid(g.launch)) {
+                    if self.monitor_scene {
+                        self.next = Some(next);
+                    } else if self.game.as_ref().is_some_and(|g| g.session.live_context_valid(g.launch)) {
                         self.next = Some(next);
                         self.return_pending = true;
                     } else {
@@ -370,10 +463,18 @@ impl Page for MultiplayerPage {
                     }
                 }
                 Err(e) => {
-                    if let Some(g) = self.game.take() {
+                    if self.monitor_scene {
+                        if let Some(session) = &self.session {
+                            let snapshot = session.snapshot();
+                            self.monitor_closed_round = Some((snapshot.room_generation, snapshot.round));
+                        }
+                        self.monitor_scene = false;
+                        self.watch_intent = false;
+                        self.restore_player = true;
+                    } else if let Some(g) = self.game.take() {
                         let _ = g.session.finish(g.launch);
+                        self.request(Request::Abort);
                     }
-                    self.request(Request::Abort);
                     show_error(e);
                 }
             }

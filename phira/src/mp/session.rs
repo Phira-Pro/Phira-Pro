@@ -1,6 +1,7 @@
 //! One actor owns socket writes, response matching and snapshot installation.
 use super::{
     protocol::{self, Event, Request},
+    live::{LiveBuffer, LiveEvent, LiveScope},
     room::{Launch, Snapshot},
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
@@ -25,6 +26,7 @@ pub(super) enum Action {
 }
 struct Inner {
     state: Arc<Mutex<Snapshot>>,
+    live: Arc<Mutex<LiveBuffer>>,
     actions: mpsc::Sender<Action>,
     actor: Mutex<Option<JoinHandle<()>>>,
 }
@@ -70,14 +72,17 @@ impl Session {
             connected: true,
             ..Default::default()
         }));
+        let live = Arc::new(Mutex::new(LiveBuffer::default()));
         // The actor shares only state, never the Session itself (no Arc cycle).
         let actor_state = Arc::clone(&state);
+        let actor_live = Arc::clone(&live);
         let recovery_token = token.clone();
         let actor = tokio::spawn(async move {
-            super::recovery::supervise(read, write, rx, actor_state, addr, recovery_token).await;
+            super::recovery::supervise(read, write, rx, actor_state, actor_live, addr, recovery_token).await;
         });
         let this = Self(Arc::new(Inner {
             state,
+            live,
             actions: tx,
             actor: Mutex::new(Some(actor)),
         }));
@@ -92,6 +97,13 @@ impl Session {
     }
     pub fn snapshot(&self) -> Snapshot {
         self.state().lock().unwrap().clone()
+    }
+    /// Drain inbound touches and judgement batches for monitor consumers.
+    pub fn take_live_events(&self, scope: LiveScope) -> Vec<LiveEvent> {
+        self.0.live.lock().unwrap().drain(scope)
+    }
+    pub fn dropped_live_batches(&self) -> u64 {
+        self.0.live.lock().unwrap().dropped_batches()
     }
     pub async fn request(&self, req: Request) -> Result<()> {
         req.encode()?;
@@ -159,6 +171,7 @@ pub(super) async fn run(
     mut write: tokio::net::tcp::OwnedWriteHalf,
     rx: &mut mpsc::Receiver<Action>,
     state: Arc<Mutex<Snapshot>>,
+    live: Arc<Mutex<LiveBuffer>>,
 ) -> bool {
     let (itx, mut incoming) = mpsc::channel(128);
     let reader = tokio::spawn(async move {
@@ -212,17 +225,25 @@ pub(super) async fn run(
                     let Some(p)=pending.take() else {bail!("收到没有对应请求的联机响应 {tag}");};
                     ensure!(p.req.response_tag()==tag,"联机响应与未决请求不匹配");
                     let mut s=state.lock().unwrap();s.busy=false;
-                    let lifecycle=matches!(p.req,Request::Authenticate(_)|Request::Create(_)|Request::Join(_));
+                    let lifecycle=matches!(p.req,Request::Authenticate(_)|Request::Create(_)|Request::Join(_)|Request::JoinMonitor(_));
                     let result=result.map_err(anyhow::Error::msg).and_then(|r|s.reply(&p.req,r,p.generation));
                     if lifecycle {if result.is_ok(){while let Some(e)=buffered.pop_front(){s.apply(e);}}else{buffered.clear();}}
                     let _=p.tx.send(result);
                 },
+                Event::Live(batch)=>{
+                    let s = state.lock().unwrap();
+                    if let Some(scope) = s.monitor_scope() {
+                        live.lock().unwrap().push(scope, batch);
+                    }
+                },
                 event=>{
-                    let installing=pending.as_ref().is_some_and(|p|matches!(p.req,Request::Authenticate(_)|Request::Create(_)|Request::Join(_)));
+                    let installing=pending.as_ref().is_some_and(|p|matches!(p.req,Request::Authenticate(_)|Request::Create(_)|Request::Join(_)|Request::JoinMonitor(_)));
                     if installing {ensure!(buffered.len()<256,"入房期间状态事件过多");buffered.push_back(event);}
                     else {state.lock().unwrap().apply(event);}
                 }
             }
+            let scope = state.lock().unwrap().monitor_scope();
+            live.lock().unwrap().set_scope(scope);
         },
         _=tick.tick()=>{
             ensure!(!pending.as_ref().is_some_and(|p|Instant::now()>=p.deadline),"联机请求超时：已隔离连接，禁止重试旧操作");
@@ -240,6 +261,7 @@ pub(super) async fn run(
     let mut s = state.lock().unwrap();
     let recover = message.is_some() && s.authenticated;
     s.disconnected();
+    live.lock().unwrap().set_scope(None);
     if let Some(error) = message {
         s.log(error.clone());
         s.error = Some(error);

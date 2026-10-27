@@ -36,6 +36,7 @@ pub enum Request {
     Chat(String),
     Create(String),
     Join(String),
+    JoinMonitor(String),
     Leave,
     Lock(bool),
     Cycle(bool),
@@ -51,7 +52,7 @@ impl Request {
             Self::Authenticate(_) => 1,
             Self::Chat(_) => 2,
             Self::Create(_) => 8,
-            Self::Join(_) => 9,
+            Self::Join(_) | Self::JoinMonitor(_) => 9,
             Self::Leave => 11,
             Self::Lock(_) => 12,
             Self::Cycle(_) => 13,
@@ -67,7 +68,7 @@ impl Request {
             Self::Authenticate(_) => 1,
             Self::Chat(_) => 2,
             Self::Create(_) => 5,
-            Self::Join(_) => 6,
+            Self::Join(_) | Self::JoinMonitor(_) => 6,
             Self::Leave => 7,
             Self::Lock(_) => 8,
             Self::Cycle(_) => 9,
@@ -86,11 +87,11 @@ impl Request {
                 ensure!(!v.is_empty() && v.len() <= 200, "聊天内容应为 1–200 字节");
                 string(&mut b, v);
             }
-            Self::Create(v) | Self::Join(v) => {
+            Self::Create(v) | Self::Join(v) | Self::JoinMonitor(v) => {
                 validate_room(v)?;
                 string(&mut b, v);
-                if matches!(self, Self::Join(_)) {
-                    b.push(0);
+                if matches!(self, Self::Join(_) | Self::JoinMonitor(_)) {
+                    b.push(matches!(self, Self::JoinMonitor(_)) as u8);
                 }
             }
             Self::Lock(v) | Self::Cycle(v) => b.push(*v as u8),
@@ -174,7 +175,33 @@ pub enum Event {
     Host(bool),
     Joined(User),
     Message(Message),
-    Live { tag: u8, player: i32, count: usize },
+    Live(LiveBatch),
+}
+#[derive(Clone, Debug, PartialEq)]
+pub enum LiveBatch {
+    Touches { player: i32, frames: Vec<TouchFrame> },
+    Judges { player: i32, events: Vec<JudgeEvent> },
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct TouchFrame {
+    pub time: f32,
+    pub points: Vec<TouchPoint>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TouchPoint {
+    /// Negative IDs are touch-end markers encoded by bitwise negation.
+    pub id: i8,
+    /// IEEE-754 binary16 bits, little-endian on the wire.
+    pub x: u16,
+    pub y: u16,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct JudgeEvent {
+    pub time: f32,
+    pub line_id: u32,
+    pub note_id: u32,
+    /// 0 Perfect, 1 Good, 2 Bad, 3 Miss, 4 HoldPerfect, 5 HoldGood.
+    pub judgement: u8,
 }
 pub struct Reader<'a> {
     b: &'a [u8],
@@ -204,6 +231,9 @@ impl<'a> Reader<'a> {
     }
     fn int(&mut self) -> Result<i32> {
         Ok(i32::from_le_bytes(self.take(4)?.try_into()?))
+    }
+    fn uint(&mut self) -> Result<u32> {
+        Ok(u32::from_le_bytes(self.take(4)?.try_into()?))
     }
     fn float(&mut self) -> Result<f32> {
         let v = f32::from_bits(self.int()? as u32);
@@ -320,21 +350,36 @@ pub fn decode(b: &[u8]) -> Result<(Event, &[u8])> {
         3 | 4 => {
             let player = r.int()?;
             let n = r.count(65536)?;
-            for _ in 0..n {
-                r.float()?;
-                if tag == 3 {
-                    let points = r.count(256)?;
-                    for _ in 0..points {
-                        r.byte()?;
-                        r.take(4)?;
+            if tag == 3 {
+                let mut frames = Vec::with_capacity(n);
+                for _ in 0..n {
+                    let time = r.float()?;
+                    let points_len = r.count(256)?;
+                    let mut points = Vec::with_capacity(points_len);
+                    for _ in 0..points_len {
+                        let id = r.byte()? as i8;
+                        let pos = r.take(4)?;
+                        points.push(TouchPoint {
+                            id,
+                            x: u16::from_le_bytes([pos[0], pos[1]]),
+                            y: u16::from_le_bytes([pos[2], pos[3]]),
+                        });
                     }
-                } else {
-                    r.int()?;
-                    r.int()?;
-                    ensure!(r.byte()? <= 5, "未知实时判定");
+                    frames.push(TouchFrame { time, points });
                 }
+                Event::Live(LiveBatch::Touches { player, frames })
+            } else {
+                let mut events = Vec::with_capacity(n);
+                for _ in 0..n {
+                    let time = r.float()?;
+                    let line_id = r.uint()?;
+                    let note_id = r.uint()?;
+                    let judgement = r.byte()?;
+                    ensure!(judgement <= 5, "未知实时判定");
+                    events.push(JudgeEvent { time, line_id, note_id, judgement });
+                }
+                Event::Live(LiveBatch::Judges { player, events })
             }
-            Event::Live { tag, player, count: n }
         }
         _ => bail!("未知联机命令 {tag}"),
     };

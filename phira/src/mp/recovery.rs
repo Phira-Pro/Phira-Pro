@@ -1,6 +1,7 @@
 //! Transport recovery only: no UI, downloads, game restarts or RPC replay.
 use super::{
     protocol::{self, Event, Reply, Request},
+    live::LiveBuffer,
     room::Snapshot,
     session::{self, Action},
 };
@@ -72,11 +73,12 @@ pub(super) async fn supervise(
     mut write: OwnedWriteHalf,
     mut rx: mpsc::Receiver<Action>,
     state: Arc<Mutex<Snapshot>>,
+    live: Arc<Mutex<LiveBuffer>>,
     addr: String,
     token: String,
 ) {
     'connection: loop {
-        if !session::run(read, write, &mut rx, Arc::clone(&state)).await {
+        if !session::run(read, write, &mut rx, Arc::clone(&state), Arc::clone(&live)).await {
             break;
         }
         state.lock().unwrap().reconnecting = true;
@@ -109,7 +111,12 @@ pub(super) async fn supervise(
                     s.reconnect_attempt = 0;
                     s.error = None;
                     for event in buffered {
-                        s.apply(event);
+                        match event {
+                            // The base protocol has no history or round ID. Do
+                            // not restore an incomplete stream during auth.
+                            Event::Live(_) => {},
+                            event => s.apply(event),
+                        }
                     }
                     s.log("连接已恢复，已重新核对房间；旧操作不会自动重试");
                     if s.room.as_ref().is_some_and(|r| r.phase == protocol::Phase::Playing) {

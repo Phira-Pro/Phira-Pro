@@ -709,6 +709,12 @@ macro_rules! reset {
         $self.fps_total_time = 0.0;
         $self.fps_last_frame_time = $tm.real_time();
         $self.dead = false;
+        // Notify the recorder immediately, including retries triggered while
+        // rendering the pause menu. No previous attempt survives this reset.
+        $self.judge.set_recording_active(false);
+        if let Some(update) = &mut $self.update_fn {
+            update(0., &mut $res, &mut $self.judge);
+        }
     }};
 }
 
@@ -754,7 +760,7 @@ impl GameScene {
     }
 
     async fn load_chart_impl(fs: &mut dyn FileSystem, info: &ChartInfo, load_textures: bool) -> Result<(Chart, Vec<u8>, ChartFormat)> {
-        let extra = fs.load_file("extra.json").await.ok().map(String::from_utf8).transpose()?;
+        let extra = if load_textures { fs.load_file("extra.json").await.ok().map(String::from_utf8).transpose()? } else { None };
         let extra = if let Some(extra) = extra {
             parse_extra(&extra, fs).await.context("Failed to parse extra")?
         } else {
@@ -764,7 +770,9 @@ impl GameScene {
         let format = Self::infer_chart_format(info, &bytes);
         let mut chart = match format {
             ChartFormat::Rpe => {
-                crate::parse::parse_rpe_options(
+                if !load_textures {
+                    crate::parse::parse_rpe_for_analysis(&String::from_utf8_lossy(&bytes), fs, info.use_rpe_170_speed.unwrap_or_default(), Some(&info.chart), info.use_rpen.unwrap_or(true)).await
+                } else { crate::parse::parse_rpe_options(
                     &String::from_utf8_lossy(&bytes),
                     fs,
                     extra,
@@ -772,7 +780,7 @@ impl GameScene {
                     Some(&info.chart),
                     info.use_rpen.unwrap_or(true),
                 )
-                .await
+                .await }
             }
             ChartFormat::Pgr => {
                 let (chart, owned) = crate::parse::parse_phigros_loading(std::mem::take(&mut bytes), extra).await?;
@@ -1475,7 +1483,7 @@ impl GameScene {
                             res.windows = res.config.judge_windows();
                             self.music.try_set_playback_rate(res.config.speed as f64);
                         }
-                        reset!(self, res, tm);
+                        reset!(self, *res, tm);
                         if self.mode == GameMode::Exercise {
                             let offset = (self.chart.offset + self.info_offset + res.config.offset) as f64;
                             self.judge.advance_to(&mut self.chart, self.exercise_range.start - offset);
@@ -2075,7 +2083,7 @@ impl Scene for GameScene {
                 self.auto_retry_count += 1;
                 self.retry_from = (target > 0.).then_some(target);
                 let res = &mut self.res;
-                reset!(self, res, tm);
+                reset!(self, *res, tm);
             }
         }
         self.res.judge_line_color.a *= self.res.alpha;
@@ -2361,8 +2369,7 @@ impl Scene for GameScene {
             camera.render_target = hud_camera.render_target;
             set_camera(camera);
         }
-        self.chart.render_block_overlay(&mut self.res);
-        // Noise affects the chart, never HUD text or application controls.
+        // Every gameplay HUD element belongs to the scene sampled by noise.
         set_camera(&hud_camera);
         if !self.hide_ui {
             if self.chart.camera_follows_chart() {
@@ -2384,6 +2391,11 @@ impl Scene for GameScene {
             self.tweak_offset(ui, Self::interactive(&self.res, &self.state));
             pop_camera_state();
         }
+
+        if let Some(camera) = &practice_camera {
+            set_camera(camera);
+        }
+        self.chart.render_block_overlay(&mut self.res);
 
         if !self.res.no_effect && !self.effects.is_empty() {
             push_camera_state();

@@ -2,7 +2,7 @@
 use macroquad::prelude::*;
 use prpr::{
     config::{Config, Mods},
-    core::{BOLD_FONT, PGR_FONT},
+    core::{Resource, BOLD_FONT, PGR_FONT},
     ext::SafeTexture,
     info::ChartInfo,
     judge::PlayResult,
@@ -44,11 +44,7 @@ async fn main() {
     let icons: [SafeTexture; 8] = icons.try_into().ok().unwrap();
     let retry: SafeTexture = load_texture("retry.png").await.unwrap().into();
     let proceed: SafeTexture = load_texture("proceed.png").await.unwrap().into();
-    let mut mods = Vec::new();
-    for name in ["flip_x", "fade_out", "fade_in", "nightcore", "rainbow", "autoplay", "no-shader"] {
-        mods.push(SafeTexture::from(load_texture(&format!("mod/{name}.png")).await.unwrap()));
-    }
-    let mods: [SafeTexture; 7] = mods.try_into().ok().unwrap();
+    let mods = Resource::load_mod_icons().await.unwrap();
     let folder = format!("target/result-status-qa/{}x{}", screen_width() as u32, screen_height() as u32);
     std::fs::create_dir_all(&folder).unwrap();
     let mut captures = 0;

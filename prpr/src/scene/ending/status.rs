@@ -1,13 +1,57 @@
 //! Completed-play snapshot: never read the user's subsequently edited preset.
 use crate::config::{Config, JudgeAlgorithm, Mods, PhigrosRules};
+use crate::core::ModIcon;
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum BadgeItem {
+    Text(String),
+    Icon(ModIcon),
+}
+
+fn push_text(items: &mut Vec<BadgeItem>, text: impl AsRef<str>) {
+    let text = text.as_ref();
+    if let Some(BadgeItem::Text(previous)) = items.last_mut() {
+        previous.push(' ');
+        previous.push_str(text);
+    } else {
+        items.push(BadgeItem::Text(text.to_owned()));
+    }
+}
+
+fn badge_items(c: &Config, rated: bool, upload_route_available: bool) -> Vec<BadgeItem> {
+    let mut items = Vec::new();
+    // Strict's approved label is a display exception only. The upload gate and
+    // the full details continue to report the actual unrated result.
+    let mut without_strict = c.clone();
+    without_strict.mods.remove(Mods::STRICT_JUDGE);
+    let strict_label_exception = upload_route_available && c.mods.contains(Mods::STRICT_JUDGE) && without_strict.is_official_play(Mods::empty());
+    if !rated && !c.autoplay() && !strict_label_exception {
+        push_text(&mut items, "UNRATED");
+    }
+    let mods = super::mod_badges::active(c.mods);
+    let use_icons = mods.len() > 1;
+    for badge in mods {
+        match badge.icon.filter(|_| use_icons) {
+            Some(icon) => items.push(BadgeItem::Icon(icon)),
+            None => push_text(&mut items, badge.name),
+        }
+    }
+    if let Some(od) = c.selected_osu_mania_od() {
+        push_text(&mut items, format!("OD {od}"));
+    }
+    if (c.speed - 1.).abs() > 1e-4 {
+        push_text(&mut items, format!("{:.2}x", c.speed));
+    }
+    items
+}
 
 pub(super) struct PlayStatus {
-    pub label: String,
+    pub items: Vec<BadgeItem>,
     pub details: String,
 }
 
 impl PlayStatus {
-    pub fn new(c: &Config, rated: bool) -> Self {
+    pub fn new(c: &Config, rated: bool, upload_route_available: bool) -> Self {
         let mut primary = Vec::new();
         if !rated {
             primary.push("UNRATED".to_owned());
@@ -110,11 +154,11 @@ impl PlayStatus {
         if c.judge_algorithm == JudgeAlgorithm::Phigros && rules != PhigrosRules::default() {
             options.push("CUSTOM PHIGROS RULES".to_owned());
         }
-        let mut details = primary.join(" · ");
+        let mut details = primary.join(" ");
         if od.is_some() {
             details.push_str("\nosu!mania ScoreV2 timing shortcut");
         }
-        let summary = format!("\n\nPERFECT+: {}\nDrag protection: {}\nFlick protection: {}\nHold tail judgement: {}\nLate leniency: {:.1}ms\nSpeed: {:.2}x · Flow: {:.2}x\nOffset: {:+.1}ms\n",
+        let summary = format!("\n\nPERFECT+: {}\nDrag protection: {}\nFlick protection: {}\nHold tail judgement: {}\nLate leniency: {:.1}ms\nSpeed: {:.2}x\nFlow: {:.2}x\nOffset: {:+.1}ms\n",
             on_off(c.judge_grading.perfect_plus), on_off(c.drag_protect), on_off(c.flick_protect),
             on_off(c.hold_tail_judge), c.late_leniency()*1000., c.speed, c.flow_speed, c.offset*1000.);
         // JudgeWindows already includes strict overrides and normalization.
@@ -138,12 +182,12 @@ impl PlayStatus {
         }
         if !options.is_empty() {
             details.push_str("\nOther active settings\n");
-            details.push_str(&options.join(" · "));
+            details.push_str(&options.join("\n"));
         }
         details.push_str(&summary);
         if c.judge_algorithm == JudgeAlgorithm::Phigros {
             let r = rules;
-            details.push_str(&format!("\nPHIGROS rules\nDrag: −{:.1} / +{:.1}ms\nFlick window multiplier: −{:.2} / +{:.2}\nTap width: {:.2} · Special width: {:.2}\nBAD edge: {:.2} · Shrink: {:.2}\nMatching divisor: {:.2}\nProtection: {:.1}ms\nHold grace: {} frames\nHold tail tolerance: {:.1}ms\nDelayed Hold MISS: {:.1}ms\nSpecial early trigger: {:.1}ms\nFrame compensation: {}{}\nLate overrun: {}\nFlick speed: {:.3} · Reference DPI: {:.1}\nDevice DPI: {}\nFlick sampling: {:.1}Hz · Multiplier: {:.2}\nFlick projection: {:.2}\n",
+            details.push_str(&format!("\nPHIGROS rules\nDrag: −{:.1} / +{:.1}ms\nFlick window multiplier: −{:.2} / +{:.2}\nTap width: {:.2}\nSpecial width: {:.2}\nBAD edge: {:.2}\nShrink: {:.2}\nMatching divisor: {:.2}\nProtection: {:.1}ms\nHold grace: {} frames\nHold tail tolerance: {:.1}ms\nDelayed Hold MISS: {:.1}ms\nSpecial early trigger: {:.1}ms\nFrame compensation: {}{}\nLate overrun: {}\nFlick speed: {:.3}\nReference DPI: {:.1}\nDevice DPI: {}\nFlick sampling: {:.1}Hz\nMultiplier: {:.2}\nFlick projection: {:.2}\n",
                 r.drag_sides()[0], r.drag_sides()[1], r.flick_sides()[0], r.flick_sides()[1],
                 r.tap_width, r.special_width, r.bad_edge, r.bad_shrink_factor, r.metric_divisor,
                 r.protection_ms, r.hold_safe_frames, r.hold_tail_ms, r.hold_delayed_miss_ms, r.special_early_ms,
@@ -153,26 +197,8 @@ impl PlayStatus {
                 if r.device_dpi == 0. { "AUTO".to_owned() } else { format!("{:.1}", r.device_dpi) },
                 r.flick_sample_hz, r.flick_multiplier, r.flick_projection_min));
         }
-        let mut brief = Vec::new();
-        if !rated {
-            brief.push("UNRATED".to_owned());
-        }
-        if let Some(od) = od {
-            brief.push(format!("OD{od}"));
-        } else if c.judge_grading.detailed {
-            brief.push("DETAILED".to_owned());
-        } else if c.judge_algorithm == JudgeAlgorithm::Phigros {
-            brief.push("PHIGROS".to_owned());
-        }
-        if c.mods.contains(Mods::STRICT_JUDGE) {
-            brief.push("STRICT".to_owned());
-        }
-        if brief.is_empty() {
-            brief.push("PHIRA PRO".to_owned());
-        }
-
         Self {
-            label: format!("{}  [i]", brief.join(" · ")),
+            items: badge_items(c, rated, upload_route_available),
             details,
         }
     }
@@ -182,17 +208,133 @@ impl PlayStatus {
 mod tests {
     use super::*;
 
+    fn text(status: &PlayStatus) -> String {
+        status
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                BadgeItem::Text(value) => Some(value.as_str()),
+                BadgeItem::Icon(_) => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    #[test]
+    fn approved_empty_speed_and_autoplay_labels() {
+        let mut c = Config::default();
+        assert!(PlayStatus::new(&c, true, true).items.is_empty());
+        assert_eq!(text(&PlayStatus::new(&c, false, false)), "UNRATED");
+        c.speed = 0.9;
+        assert_eq!(text(&PlayStatus::new(&c, false, true)), "UNRATED 0.90x");
+        c.speed = 1.1;
+        assert_eq!(text(&PlayStatus::new(&c, true, true)), "1.10x");
+        for speed in [1., 0.9, 1.1] {
+            c.speed = speed;
+            c.mods = Mods::AUTOPLAY;
+            for route in [false, true] {
+                let s = PlayStatus::new(&c, false, route);
+                let expected = if speed == 1. {
+                    "AUTOPLAY".into()
+                } else {
+                    format!("AUTOPLAY {speed:.2}x")
+                };
+                assert_eq!(text(&s), expected);
+                assert!(s.details.starts_with("UNRATED"), "the details keep actual eligibility");
+            }
+        }
+    }
+
+    #[test]
+    fn strict_display_exception_never_changes_upload_eligibility() {
+        let mut c = Config::default();
+        c.mods = Mods::STRICT_JUDGE;
+        c.speed = 1.1;
+        assert_eq!(text(&PlayStatus::new(&c, false, true)), "STRICT MODE 1.10x");
+        assert!(!c.is_official_play(Mods::empty()));
+        assert_eq!(text(&PlayStatus::new(&c, false, false)), "UNRATED STRICT MODE 1.10x");
+        c.speed = 0.9;
+        assert_eq!(text(&PlayStatus::new(&c, false, true)), "UNRATED STRICT MODE 0.90x");
+        c.speed = 1.;
+        c.offline_mode = true;
+        assert_eq!(text(&PlayStatus::new(&c, false, true)), "UNRATED STRICT MODE");
+    }
+
+    #[test]
+    fn all_31_approved_od_overrides_keep_spaces_and_no_preset_label() {
+        for od in -15..=15 {
+            let mut c = Config::default();
+            c.apply_osu_mania_od(od);
+            assert_eq!(text(&PlayStatus::new(&c, false, true)), format!("UNRATED OD {od}"));
+            c.speed = 1.1;
+            assert_eq!(text(&PlayStatus::new(&c, false, true)), format!("UNRATED OD {od} 1.10x"));
+        }
+        for algorithm in [JudgeAlgorithm::PhiraPro, JudgeAlgorithm::Phigros] {
+            let mut c = Config::default();
+            c.judge_algorithm = algorithm;
+            c.judge_grading.detailed = true;
+            assert_eq!(text(&PlayStatus::new(&c, false, true)), "UNRATED");
+        }
+    }
+
+    #[test]
+    fn multiple_mods_use_all_selected_icons_and_keep_speed_after_them() {
+        let mut c = Config::default();
+        c.mods = Mods::FLIP_X | Mods::PERFECT_SOUND | Mods::INSTANT_DEATH_FC | Mods::FULLSCREEN_JUDGE | Mods::NO_FAIL | Mods::NO_COMBO_SCORE;
+        c.speed = 1.1;
+        let s = PlayStatus::new(&c, false, true);
+        assert_eq!(
+            s.items,
+            vec![
+                BadgeItem::Text("UNRATED".into()),
+                BadgeItem::Icon(ModIcon::Mirror),
+                BadgeItem::Icon(ModIcon::SuddenDeath),
+                BadgeItem::Icon(ModIcon::FullscreenJudge),
+                BadgeItem::Icon(ModIcon::NoFail),
+                BadgeItem::Icon(ModIcon::NoComboScore),
+                BadgeItem::Icon(ModIcon::PerfectSound),
+                BadgeItem::Text("1.10x".into()),
+            ]
+        );
+        c.mods = Mods::INSTANT_DEATH_AP;
+        assert_eq!(text(&PlayStatus::new(&c, true, true)), "AP CHALLENGE 1.10x");
+        c.mods = Mods::INSTANT_DEATH_FC;
+        assert_eq!(text(&PlayStatus::new(&c, true, true)), "FC CHALLENGE 1.10x");
+        c.mods = Mods::FLIP_X | Mods::STRICT_JUDGE | Mods::NOTE_DRAG;
+        let s = PlayStatus::new(&c, false, true);
+        assert_eq!(
+            s.items,
+            vec![
+                BadgeItem::Text("UNRATED".into()),
+                BadgeItem::Icon(ModIcon::Mirror),
+                BadgeItem::Text("ALL DRAG STRICT MODE 1.10x".into())
+            ]
+        );
+        c.mods = Mods::FLIP_X | Mods::STRICT_JUDGE | Mods::FULLSCREEN_JUDGE | Mods::PERFECT_SOUND | Mods::NO_FAIL;
+        let s = PlayStatus::new(&c, false, true);
+        assert_eq!(s.items.last(), Some(&BadgeItem::Text("STRICT MODE 1.10x".into())));
+        assert_eq!(
+            s.items[1..s.items.len() - 1],
+            [
+                BadgeItem::Icon(ModIcon::Mirror),
+                BadgeItem::Icon(ModIcon::FullscreenJudge),
+                BadgeItem::Icon(ModIcon::NoFail),
+                BadgeItem::Icon(ModIcon::PerfectSound),
+            ]
+        );
+    }
+
     #[test]
     fn status_identifies_actual_od_and_sided_customization() {
         let mut c = Config::default();
         c.apply_osu_mania_od(15);
-        let status = PlayStatus::new(&c, false);
-        assert!(status.label.starts_with("UNRATED · OD15  [i]"));
+        let status = PlayStatus::new(&c, false, false);
+        assert_eq!(text(&status), "UNRATED OD 15");
         assert!(status.details.contains("PERFECT: −8.5 / +8.5"));
         assert!(status.details.contains("PERFECT+ OFF"));
         c.judge_timing.set([8., 8.4, 52., 143.], 1, true, 9.);
-        let status = PlayStatus::new(&c, false);
-        assert!(!status.label.contains("OD15"));
+        let status = PlayStatus::new(&c, false, false);
+        assert!(!text(&status).contains("OD 15"));
         assert!(status.details.contains("CUSTOM WINDOWS"));
         assert!(status.details.contains("ASYMMETRIC WINDOWS"));
     }
@@ -202,26 +344,27 @@ mod tests {
         let mut c = Config::default();
         c.apply_osu_mania_od(15);
         c.mods = Mods::STRICT_JUDGE | Mods::NO_FAIL | Mods::FULLSCREEN_JUDGE;
-        let status = PlayStatus::new(&c, false);
-        assert!(status.label.contains("OD15 · STRICT"));
+        let status = PlayStatus::new(&c, false, false);
+        assert!(text(&status).contains("STRICT MODE OD 15"));
         assert!(status.details.contains("PERFECT: −4.2 / +4.2"));
         assert!(status.details.contains("NO FAIL"));
         assert!(status.details.contains("FULLSCREEN JUDGE"));
         c.judge_algorithm = JudgeAlgorithm::Phigros;
-        let status = PlayStatus::new(&c, false);
-        assert!(!status.label.contains("OD15"));
+        let status = PlayStatus::new(&c, false, false);
+        assert!(!text(&status).contains("OD 15"));
         assert!(status.details.contains("PERFECT: −40.0 / +40.0"));
         assert!(status.details.contains("Frame compensation: ON (dynamic)"));
     }
 
     #[test]
-    fn all_mods_are_named_and_automatic_play_remains_explicitly_unrated() {
+    fn all_mods_still_have_full_details_and_badges_never_show_info_markers() {
         let mut c = Config::default();
         c.mods = Mods::all();
         c.use_keyboard = true;
         c.hold_tail_judge = true;
-        let s = PlayStatus::new(&c, false);
-        assert!(s.label.starts_with("UNRATED"));
+        let s = PlayStatus::new(&c, false, false);
+        assert!(!text(&s).contains("UNRATED"));
+        assert!(!text(&s).contains("[i]") && !text(&s).contains('·'));
         for label in [
             "AUTOPLAY",
             "KEYBOARD",
@@ -241,6 +384,6 @@ mod tests {
         ] {
             assert!(s.details.contains(label), "missing {label}");
         }
-        assert!(!PlayStatus::new(&Config::default(), true).label.contains("UNRATED"));
+        assert!(PlayStatus::new(&Config::default(), true, true).items.is_empty());
     }
 }

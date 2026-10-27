@@ -318,7 +318,7 @@ pub struct SongScene {
 
     load_task: Option<Task<Result<Option<Arc<Chart>>>>>,
     entity: Option<Chart>,
-    ppsr_analysis_task: LocalTask<Result<serde_json::Value>>,
+    ppsr_analysis_task: LocalTask<Result<crate::plugins::SelectedOutput>>,
     ppsr_analysis_started: bool,
     ppsr_collapsed: bool,
     ppsr_toggle: DRectButton,
@@ -674,54 +674,23 @@ impl SongScene {
         if self.ppsr_analysis_started || !crate::plugins::chart_selected_needed() {
             return;
         }
-        let Some(path) = self.local_path.clone() else {
-            return;
-        };
+        let Some(path) = self.local_path.clone() else { return };
         self.ppsr_analysis_started = true;
-        crate::plugins::clear_chart_selected_reports();
-        let chart_set = if matches!(self.chart_type, ChartType::Integrated) {
-            "phigros"
-        } else {
-            "phira"
-        };
-        let use_ppsr_features = crate::plugins::chart_selected_ppsr_features_needed();
+        let job = crate::plugins::begin_chart_selected();
+        let chart_set = if matches!(self.chart_type, ChartType::Integrated) { "phigros" } else { "phira" };
+        let root = dir::charts();
         self.ppsr_analysis_task = Some(Box::pin(async move {
-            let mut fs = fs_from_path(&path)?;
-            let info = fs::load_info(fs.as_mut()).await?;
-            let bytes = fs.load_file(&info.chart).await?;
-            let raw_truncated = bytes.len() > crate::plugins::MAX_CHART_JSON_SIZE;
-            let chart_data = if !raw_truncated {
-                match serde_json::from_slice::<serde_json::Value>(&bytes) {
-                    Ok(value) if value.is_object() => value,
-                    _ => serde_json::Value::Null,
-                }
+            let source = if path.starts_with(':') {
+                // Platform-bundled assets are read through the platform loader.
+                // Parsing, feature extraction and the model still run off-thread.
+                let mut fs = fs_from_path(&path)?;
+                let info = fs::load_info(fs.as_mut()).await?;
+                let bytes = GameScene::load_chart_bytes(fs.as_mut(), &info).await?;
+                crate::plugins::SelectedSource::Embedded { info, bytes }
             } else {
-                serde_json::Value::Null
+                crate::plugins::SelectedSource::Local(std::path::PathBuf::from(root?).join(path))
             };
-            let format = info.format.clone();
-            let mut payload = if use_ppsr_features {
-                let (chart, _, _) = GameScene::load_chart_for_analysis(fs.as_mut(), &info).await?;
-                crate::ppsr_features::extract(&chart, &info)?
-            } else {
-                json!({
-                    "api": crate::plugins::API_VERSION,
-                    "name": info.name,
-                    "level": info.level,
-                    "difficulty": info.difficulty,
-                    "chart_data": chart_data,
-                    "chart_set": chart_set
-                })
-            };
-            let object = payload.as_object_mut().context("selected-chart payload is not an object")?;
-            object.insert("api".into(), json!(crate::plugins::API_VERSION));
-            object.insert("name".into(), json!(info.name));
-            object.insert("level".into(), json!(info.level));
-            object.insert("difficulty".into(), json!(info.difficulty));
-            object.insert("format".into(), serde_json::to_value(format)?);
-            object.insert("chart_set".into(), json!(chart_set));
-            object.insert("chart_data".into(), chart_data);
-            object.insert("raw_truncated".into(), json!(raw_truncated));
-            Ok(payload)
+            crate::plugins::run_selected(job, source, chart_set).await
         }));
     }
 
@@ -2443,7 +2412,7 @@ impl Scene for SongScene {
         if let Some(result) = ppsr_result {
             self.ppsr_analysis_task = None;
             match result {
-                Ok(payload) => crate::plugins::chart_selected(&payload),
+                Ok(output) => { crate::plugins::publish_selected(output); },
                 Err(err) => {
                     warn!(?err, "failed to analyze selected chart with plugins");
                     show_error(err.context("谱面插件分析失败"));

@@ -13,7 +13,7 @@ pub use pgr::{parse_phigros, parse_phigros_loading};
 mod block_area;
 mod rpe;
 pub mod rpen;
-pub use rpe::{lint, parse_rpe, parse_rpe_options, parse_rpe_with_path, RPE_HEIGHT, RPE_WIDTH};
+pub use rpe::{lint, parse_rpe, parse_rpe_for_analysis, parse_rpe_options, parse_rpe_with_path, RPE_HEIGHT, RPE_WIDTH};
 
 #[derive(Debug, Default)]
 pub struct ParseWarnings {

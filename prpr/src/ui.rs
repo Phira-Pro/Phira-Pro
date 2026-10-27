@@ -39,6 +39,7 @@ mod text;
 pub use text::{parse_font, set_multilingual_fallback, DrawText, TextPainter};
 
 pub use glyph_brush::ab_glyph::FontArc;
+pub use glyph_brush::ab_glyph;
 
 use crate::{
     core::{Matrix, Point, Vector},

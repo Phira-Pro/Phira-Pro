@@ -65,6 +65,9 @@ pub(crate) mod render_lifetime;
 mod resource;
 pub use resource::{NoteStyle, ParticleEmitter, ResPackInfo, Resource, ResourcePack, BUFFER_SIZE, DPI_VALUE};
 
+mod mod_icon;
+pub use mod_icon::{ModIcon, ModIcons};
+
 mod smooth;
 pub use smooth::Smooth;
 

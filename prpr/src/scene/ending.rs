@@ -7,8 +7,8 @@ use super::{
     NextScene, Scene,
 };
 use crate::{
-    config::{Config, JudgeWindows, Mods},
-    core::{BOLD_FONT, PGR_FONT},
+    config::{Config, JudgeWindows},
+    core::{ModIcons, BOLD_FONT, PGR_FONT},
     ext::{create_audio_manger, rect_shadow, semi_black, semi_white, RectExt, SafeTexture, ScaleType},
     info::ChartInfo,
     judge::{icon_index, PlayResult, HIST_BUCKETS, HIST_MAX_MS},
@@ -25,6 +25,8 @@ use std::{cell::RefCell, ops::DerefMut};
 
 /// 「已应用推荐偏移」提示：停留 5 秒后淡出。
 mod status;
+mod mod_badges;
+mod status_badge;
 use status::PlayStatus;
 
 const TOAST_HOLD: f32 = 5.0;
@@ -45,7 +47,7 @@ pub struct EndingScene {
     icons: [SafeTexture; 8],
     icon_retry: SafeTexture,
     icon_proceed: SafeTexture,
-    mod_icons: [SafeTexture; 7],
+    mod_icons: ModIcons,
     target: Option<RenderTarget>,
     audio: AudioManager,
     bgm: Music,
@@ -62,7 +64,6 @@ pub struct EndingScene {
     judge_windows: JudgeWindows,
     status: PlayStatus,
     btn_status: RectButton,
-    mods: Mods,
     next: u8, // 0 -> none, 1 -> pop, 2 -> exit
     update_state: Option<RecordUpdateState>,
 
@@ -98,7 +99,7 @@ impl EndingScene {
         icons: [SafeTexture; 8],
         icon_retry: SafeTexture,
         icon_proceed: SafeTexture,
-        mod_icons: [SafeTexture; 7],
+        mod_icons: ModIcons,
         info: ChartInfo,
         result: PlayResult,
         config: &Config,
@@ -144,7 +145,7 @@ impl EndingScene {
                 };
                 Some(RecordUpdateState { best, improvement })
             },
-            status: PlayStatus::new(config, upload_task.is_some()),
+            status: PlayStatus::new(config, upload_task.is_some(), upload_fn.is_some() && info.id.is_some()),
             btn_status: RectButton::new(),
 
             info,
@@ -155,7 +156,6 @@ impl EndingScene {
             autoplay: config.autoplay(),
             judge_chart: config.ending_judge_chart,
             judge_windows: config.judge_windows(),
-            mods: config.mods,
             next: 0,
 
             upload_fn,
@@ -532,97 +532,10 @@ impl Scene for EndingScene {
                     .draw_using(&BOLD_FONT);
             });
 
-            let status_text = self.status.label.as_str();
-            // mod_icons order: FLIP_X, FADE_OUT, FADE_IN, NIGHTCORE, RAINBOW
-            let mut active_mod_indices: Vec<usize> = [
-                (Mods::FLIP_X, 0),
-                (Mods::FADE_OUT, 1),
-                (Mods::FADE_IN, 2),
-                (Mods::NIGHTCORE, 3),
-                (Mods::RAINBOW, 4),
-                (Mods::AUTOPLAY, 5),
-                (Mods::NO_SHADER, 6),
-            ]
-            .into_iter()
-            .filter(|(m, _)| self.mods.contains(*m))
-            .map(|(_, idx)| idx)
-            .collect();
-            let ty = br.bottom();
-            let base_x = -0.55 + (1.2 - ty) / 1.9 * 0.4;
-            let skew_factor = 0.4 / 1.9;
-            // Do not sacrifice legibility to a long strip of Mod icons. Their
-            // names remain in the details, with the +N indicator on this badge.
-            let preferred = ui.text(status_text).size(0.38).no_baseline().measure_using(&BOLD_FONT);
-            let available = 0.94 - base_x - 0.06 - active_mod_indices.len() as f32 * 0.08;
-            if preferred.h * (available / preferred.w.max(0.0001)).min(1.) < 0.021 {
-                active_mod_indices.clear();
-            }
-            let has_text = !status_text.is_empty();
-            let has_icons = !active_mod_indices.is_empty();
-            if has_text || has_icons {
-                let text_size = 0.38;
-                let skew_height_ratio = skew_factor;
-                let mut current_x = base_x;
-                // Fixed padded backing; font metrics never determine its height.
-                let para_h = 0.052;
-                if has_text {
-                    let mut text = ui
-                        .text(status_text)
-                        .pos(current_x + 0.02, ty)
-                        .anchor(0., 0.5)
-                        .no_baseline()
-                        .color(semi_black(0.6))
-                        .size(text_size);
-                    let mut tr = text.measure_using(&BOLD_FONT);
-                    // Status badges share the icon strip's height. Imported
-                    // fonts and the display-size setting must not enlarge them
-                    // into the score panel; shrink the entire label, never cut it.
-                    let max_width = (0.94 - current_x - 0.06 - active_mod_indices.len() as f32 * 0.08).max(0.25);
-                    let fit = (0.027 / tr.h.max(0.0001)).min(max_width / tr.w.max(0.0001)).min(1.);
-                    if fit < 1. {
-                        text = text.size(text_size * fit);
-                        tr = text.measure_using(&BOLD_FONT);
-                    }
-                    debug_assert!(tr.h <= 0.0271 && tr.w <= max_width + 0.0001);
-                    let right = tr.right() + 0.025;
-                    let para_top = ty - para_h / 2.;
-                    let para_bottom = ty + para_h / 2.;
-                    let mut b = text.ui.builder(WHITE);
-                    b.add(-1., para_top);
-                    b.add(right, para_top);
-                    b.add(right - para_h * skew_height_ratio, para_bottom);
-                    b.add(-1., para_bottom);
-                    b.triangle(0, 1, 2);
-                    b.triangle(0, 2, 3);
-                    b.commit();
-
-                    text.draw_using(&BOLD_FONT);
-                    current_x = tr.right() + 0.04;
-                }
-                for &mod_idx in &active_mod_indices {
-                    let icon_size = 0.036;
-                    let para_w = 0.06;
-                    let skew_offset = para_h * skew_height_ratio;
-                    let para_left = current_x;
-                    let para_right = current_x + para_w;
-                    let para_top = ty - para_h / 2.;
-                    let para_bottom = ty + para_h / 2.;
-                    let mut b = ui.builder(WHITE);
-                    b.add(para_left + skew_offset, para_top);
-                    b.add(para_right + skew_offset, para_top);
-                    b.add(para_right, para_bottom);
-                    b.add(para_left, para_bottom);
-                    b.triangle(0, 1, 2);
-                    b.triangle(0, 2, 3);
-                    b.commit();
-                    let icon_x = current_x + (para_w - icon_size) / 2. + skew_offset / 2.;
-                    let icon_y = ty - icon_size / 2.;
-                    let icon_rect = Rect::new(icon_x, icon_y, icon_size, icon_size);
-                    ui.fill_rect(icon_rect, (*self.mod_icons[mod_idx], icon_rect, ScaleType::Fit, semi_black(0.6)));
-                    current_x = para_right + 0.02;
-                }
-                self.btn_status
-                    .set(ui, Rect::new(base_x, ty - para_h / 2., current_x - base_x, para_h).feather(0.008));
+            if let Some(status_bounds) = status_badge::draw(ui, &self.status, &self.mod_icons, br.bottom()) {
+                self.btn_status.set(ui, status_bounds);
+            } else {
+                self.btn_status = RectButton::new();
             }
 
             // 结算判定分布图（早 ← → 晚）：21 个桶、0ms 居中。

@@ -13,9 +13,10 @@ pub use favorites::FavoritesPage;
 mod history;
 pub use history::HistoryPage;
 pub mod course;
-mod management;
 pub mod plugins;
 pub mod replays;
+pub mod replay_analysis;
+mod management;
 pub mod tools;
 
 mod home;

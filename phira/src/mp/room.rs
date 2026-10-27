@@ -31,6 +31,18 @@ pub struct Launch {
     pub chart: i32,
 }
 impl Snapshot {
+    pub fn monitor_scope(&self) -> Option<super::live::LiveScope> {
+        (self.connected
+            && self.authenticated
+            && !self.reconnecting
+            && self.me.as_ref().is_some_and(|me| me.monitor)
+            && self.room.as_ref().is_some_and(|room| room.phase == Phase::Playing))
+        .then_some(super::live::LiveScope {
+            room_generation: self.room_generation,
+            chart_generation: self.chart_generation,
+            round: self.round,
+        })
+    }
     pub fn accepts_live(&self, launch: Launch) -> bool {
         self.connected
             && self.active
@@ -58,7 +70,7 @@ impl Snapshot {
             return Ok(());
         }
         ensure!(self.authenticated, "尚未完成联机鉴权");
-        if matches!(req, Request::Create(_) | Request::Join(_)) {
+        if matches!(req, Request::Create(_) | Request::Join(_) | Request::JoinMonitor(_)) {
             ensure!(self.room.is_none(), "请先离开当前房间");
             return Ok(());
         }
@@ -99,6 +111,9 @@ impl Snapshot {
     pub fn install(&mut self, room: Option<Room>) {
         self.room_generation += 1;
         self.chart_generation += 1;
+        if room.as_ref().is_some_and(|room| room.phase == Phase::Playing) {
+            self.round += 1;
+        }
         self.prepared = None;
         self.start = None;
         self.active = false;
@@ -114,6 +129,9 @@ impl Snapshot {
         if self.active || self.finished || self.start.is_some() {
             return;
         }
+        if self.me.as_ref().is_some_and(|me| me.monitor) {
+            return;
+        }
         let Some(r) = &self.room else {
             return;
         };
@@ -122,7 +140,6 @@ impl Snapshot {
         }
         match r.chart {
             Some(chart) if self.prepared == Some((self.chart_generation, chart)) => {
-                self.round += 1;
                 self.start = Some(Launch {
                     room_generation: self.room_generation,
                     chart_generation: self.chart_generation,
@@ -152,6 +169,9 @@ impl Snapshot {
                     self.select(c);
                 }
                 if let Some(r) = &mut self.room {
+                    if r.phase != p && p == Phase::Playing {
+                        self.round += 1;
+                    }
                     if r.phase != p {
                         r.ready = r.host;
                     }
@@ -220,8 +240,8 @@ impl Snapshot {
                     Message::Cycle(v) => if v { "已开启轮换房主" } else { "已关闭轮换房主" }.into(),
                 });
             }
-            // Live streams are validated by the protocol decoder; consumers get a separate bounded path later.
-            Event::Live { .. } | Event::Pong | Event::Reply(..) => {}
+            // Live streams use their own bounded mailbox; they do not affect room state.
+            Event::Live(_) | Event::Pong | Event::Reply(..) => {}
         }
     }
     pub fn reply(&mut self, req: &Request, reply: Reply, generation: u64) -> Result<()> {
@@ -245,18 +265,31 @@ impl Snapshot {
                     users: BTreeMap::from([(me.id, me)]),
                 }));
             }
-            (Request::Join(id), Reply::Join(phase, chart, users, live)) => self.install(Some(Room {
-                id: id.clone(),
-                phase,
-                chart,
-                live,
-                locked: false,
-                cycle: false,
-                host: false,
-                ready: false,
-                users: users.into_iter().map(|u| (u.id, u)).collect(),
-            })),
-            (Request::Leave, Reply::Unit) => self.install(None),
+            (Request::Join(id) | Request::JoinMonitor(id), Reply::Join(phase, chart, users, live)) => {
+                self.install(Some(Room {
+                    id: id.clone(),
+                    phase,
+                    chart,
+                    live,
+                    locked: false,
+                    cycle: false,
+                    host: false,
+                    ready: false,
+                    users: users.into_iter().map(|u| (u.id, u)).collect(),
+                }));
+                if let Some(me) = &mut self.me {
+                    me.monitor = matches!(req, Request::JoinMonitor(_));
+                    if let Some(room) = &mut self.room {
+                        room.users.insert(me.id, me.clone());
+                    }
+                }
+            }
+            (Request::Leave, Reply::Unit) => {
+                self.install(None);
+                if let Some(me) = &mut self.me {
+                    me.monitor = false;
+                }
+            }
             (Request::Ready | Request::Start, Reply::Unit) => {
                 if self.chart_generation == generation {
                     if let Some(r) = &mut self.room {

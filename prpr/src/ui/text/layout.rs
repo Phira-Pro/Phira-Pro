@@ -51,9 +51,8 @@ pub(super) struct LayoutOptions {
 }
 
 fn font_id(fonts: &[FontArc], c: char) -> usize {
-    if c.is_whitespace() {
-        return 0;
-    }
+    // Whitespace also needs coverage checks: display fonts may omit U+0020,
+    // in which case glyph zero is a visible missing-character box.
     fonts.iter().position(|f| f.glyph_id(c).0 != 0).unwrap_or(0)
 }
 
@@ -296,6 +295,34 @@ mod tests {
                 color: [1.; 4],
             },
         )
+    }
+
+    #[test]
+    fn missing_primary_spaces_use_blank_fallback_glyphs_and_keep_word_spacing() {
+        let (mut brush, mut cache, options) = setup();
+        assert_eq!(brush.fonts()[0].glyph_id(' ').0, 0);
+        for c in [' ', '\u{00a0}', '\u{2009}', '\u{3000}'] {
+            let font = &brush.fonts()[font_id(brush.fonts(), c)];
+            let id = font.glyph_id(c);
+            assert_ne!(id.0, 0, "missing whitespace U+{:04X}", c as u32);
+            assert!(font.outline(id).is_none());
+            assert!(font.as_scaled(30.).h_advance(id) > 0.);
+        }
+        let (section, _) = layout_text(&mut brush, &mut cache, " \u{00a0}\u{2009}\u{3000} ", options);
+        let fonts = brush.fonts().to_vec();
+        assert!(brush.glyphs(section).all(|g| fonts[g.font_id.0].outline(g.glyph.id).is_none()));
+        for text in ["Max Combo", "Sample Composer", "Render Reference", "0000000   +1000000", "中文 空格"] {
+            let (section, _) = layout_text(&mut brush, &mut cache, text, options);
+            for run in &section.text {
+                for c in run.text.chars() {
+                    assert_ne!(brush.fonts()[run.font_id.0].glyph_id(c).0, 0);
+                }
+            }
+        }
+        let (_, compact) = layout_text(&mut brush, &mut cache, "AA", options);
+        let (_, spaced) = layout_text(&mut brush, &mut cache, "A A", options);
+        let (_, wider) = layout_text(&mut brush, &mut cache, "A   A", options);
+        assert!(compact.2 < spaced.2 && spaced.2 < wider.2);
     }
 
     #[test]

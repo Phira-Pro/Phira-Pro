@@ -30,8 +30,17 @@ pub fn copy_fbo(src: GLuint, dst: GLuint, dim: (u32, u32)) -> bool {
         glBindFramebuffer(GL_READ_FRAMEBUFFER, src);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dst);
         let (w, h) = (dim.0 as i32, dim.1 as i32);
+        // A full-target copy must not inherit a line reveal or UI clip from
+        // the last draw. Restore the caller's enable state after the blit.
+        let mut scissor = 0;
+        glGetIntegerv(GL_SCISSOR_TEST, &mut scissor);
+        glDisable(GL_SCISSOR_TEST);
         glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-        glGetError() == GL_NO_ERROR
+        let success = glGetError() == GL_NO_ERROR;
+        if scissor != 0 {
+            glEnable(GL_SCISSOR_TEST);
+        }
+        success
     }
 }
 

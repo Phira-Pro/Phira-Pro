@@ -11,7 +11,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows、macOS、Linux 压缩包、Android arm64 APK 或 iOS 未签名 IPA。Windows 解压后运行 `phira-main.exe`，macOS / Linux 运行 `phira-main`；Android 更新时保留应用数据，iOS IPA 需自行签名安装。
 
-当前源码版本为 **pro.17**（应用内 `0.8.2-pro.17`，build 91），包含多人房间与观战、谱面视频导出、Plugin API v3 和 PRCA 回放分析。最近更新修复了重开时回放混入上一把记录的问题，调整噪域与游玩 UI 的渲染顺序，并更新结算状态条和判定预设操作。源码版本与已发布附件分别维护，实际可下载版本以 Releases 页面为准。
+当前源码版本为 **pro.17**（应用内 `0.8.2-pro.17`，build 91），包含多人房间与观战、谱面视频导出、Plugin API v3 和 PRCA 回放分析。最近更新扩展了谱面渲染的开场与结算、分类设置和原生扩展接口；同时修复重开时的回放记录混入问题，调整噪域与游玩 UI 的渲染顺序。源码版本与已发布附件分别维护，实际可下载版本以 Releases 页面为准。
 
 插件接口见 [开发说明](docs/plugins/README.md)，模块职责与审查方法见 [代码审查指南](docs/development/code-review-guide.md)。本版继续包含 [rpe-next 噪域兼容](docs/development/rpe-next-noise.md)、[回放录制与播放](docs/development/replays.md)及各平台帧率设置。历史更新见 [pro.16](docs/development/pro-16.md)、[pro.14-fix1](docs/development/pro-14-fix1.md)、[pro.14](docs/development/pro-14.md)、[pro.13](docs/development/pro-13.md)和 [pro.12](docs/development/pro-12.md)。版本维护、五个平台构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
 
@@ -94,11 +94,13 @@ PPSR 分析浮窗使用当前曲绘的暗色半透明背景，以圆角数字框
 ### 谱面渲染（视频导出）
 
 - **把谱面渲染成视频**：从「设置 → 调试 → 谱面渲染」进入独立页面。点击谱面卡片中的「选择」会打开和多人游戏一样的选谱界面，挑一首后回到页面点「开始渲染」即可导出 mp4，输出到 `data/render/`（可改目录）。
-- **渲染的是谱面本身**：自动播放、逐帧固定时间戳、不发声，默认不显示分数、连击、暂停按钮等 HUD，只留谱面本体；需要时可以切到「显示界面」。视频始终带谱面音乐，打击音按「打击音」开关混入（Click / Drag / Flick 与谱面自带的自定义打击音）。
-- **输出设置**：分辨率 1280×720 / 1920×1080 / 2560×1440 / 3840×2160，帧率 30 / 60 / 120 / 240，打击音与「纯谱面／显示界面」开关，均可随时切换，设置保存在 `data/render.yml`。渲染按帧推进并显示进度、预计剩余时间与实时预览，可以中途取消；点击「打开输出目录」会调用系统文件管理器。
-- **页面布局**：输出设置采用等宽网格，空间不足时自动换行；谱面信息、保存位置和渲染状态分区排列。长路径与错误信息按实际文字高度换行，底部固定显示开始／取消与输出目录操作，避免滚动内容遮挡按钮。
+- **完整演出流程**：保留默认纯谱面导出，并提供「Phira 游玩界面」和「Phigros 完整演出」预设。开场加载、谱面自动播放、结算可分别开关，开场、游玩入场、退场和结算时长可独立设置。Phigros 风格加载与结算使用斜切曲绘、曲目信息、玩家资料、动态分数与判定统计；展示值不写入成绩记录。局内进度不受谱面偏移影响，完整播放的末帧填满进度条。
+- **分类设置与完整清单**：按输出、演出流程、开场、结算和音频分类，另有「参数总览」集中列出全部 47 项当前值。宽窗口双列设置，窄窗口单列设置；字段标签、说明和控件统一对齐，长文案按高度换行，底部操作与进度固定。完整字段见 [设置项清单](docs/development/chart-video-settings.md)。
+- **独立渲染设置**：支持 720p / 1080p / 1440p / 2160p、30 / 60 / 120 / 240 FPS，以及演出字体、展示元数据、头像、RKS、课题牌子和自定义结算统计。音乐、打击音、结算音乐独立调节音量，支持结算音乐延迟，统一按视频时钟合成。设置保存在 `data/render.yml`，不改动游玩偏好；导出时不播放声音，可中途取消。
+- **演出排版与进度**：开场与结算采用宽度归一化坐标及画面比例补偿，长标题自动缩小字号。Loading 白块从左向右伸长后向右收拢；加载末尾采用 RPE Recorder 的 3 秒退场时序，由真实谱面判定线与局内 UI 连续入场，默认提示沿用游玩加载条目。空格参与字体回退，保持正常字间留白。结算昵称底板随文字宽度变化，课题牌子使用五色背景素材，保留独立 RKS 栏。设置页不显示画面预览，导出时保留阶段、帧数、进度与预计剩余时间。
+
 - **按需安装 FFmpeg**：Windows 页面会检测可用的 H.264/AAC 编码器，未安装时提供「下载并安装 FFmpeg」按钮，从 [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) 下载 essentials ZIP，显示下载进度并支持取消和失败重试。下载包通过完整性校验、解压与实际编码验证后，安装到 `data/tools/ffmpeg/` 并自动使用，不修改系统 PATH，不增大主程序包；已有系统 FFmpeg 时可直接使用。其他桌面端仍需自行安装带 libx264 与 AAC 的 `ffmpeg`；Android 包已内置静态 FFmpeg（见下文）。
-- **渲染内核**：位于 `prpr/src/chart_video.rs`，也提供命令行示例 `prpr/examples/render_chart_video.rs`（`CHART=<谱面目录或 .pez> OUT=<输出.mp4> cargo run -p prpr --example render_chart_video`），便于批量渲染。实现细节与已知限制见 [谱面渲染](docs/development/pro-17-chart-video.md)。
+- **渲染内核与扩展**：`prpr/src/chart_video/` 分离配置、时间轴、演出画面、音轨、编码器和会话。预留独立原生扩展实例、逐阶段回调、逐帧行为、分层绘制与音频处理接口，详见 [扩展约定](docs/development/chart-video-extensions.md)；脚本插件适配尚未接入。命令行示例 `prpr/examples/render_chart_video.rs` 支持 `FULL_PRESENTATION=1` 启用完整演出。实现及限制见 [谱面渲染](docs/development/pro-17-chart-video.md)。
 - **Android 构建**：`scripts/build-android-ffmpeg.sh` 会在 Gradle 构建时（任务 `ffmpegNdkBuild`）自动下载 x264 与 ffmpeg 源码并交叉编译成 `libffmpeg.so` 一起打进 APK，产物首次约需十几分钟，源码与中间结果缓存在 `target/android-ffmpeg`。渲染器的版本名为 `0.8.2-pro.17-render`（`applicationId` 与上游一致，安装会覆盖同名的官方包）。为了能启动这个内置的 ffmpeg 子进程，渲染器包的 `targetSdk` 是 28（Android 10+ 对 `targetSdk >= 29` 的应用禁止执行数据目录里的文件）。手机上渲染完成后视频会通过 MediaStore 存入系统「下载/PhiraPro」，可以直接在文件管理器里找到。
 
 ### 其他

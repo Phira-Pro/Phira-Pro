@@ -66,7 +66,7 @@ async fn main() {
     let png_dir = std::env::var("PNG_DIR").ok();
     let per_frame_next = std::env::var_os("NEXT_FRAME").is_some();
     let limit = std::env::var("FRAMES").ok().and_then(|it| it.parse::<u64>().ok());
-    let opts = VideoOptions {
+    let mut opts = VideoOptions {
         width: env_u32("WIDTH", 1280),
         height: env_u32("HEIGHT", 720),
         fps: env_u32("FPS", 30),
@@ -75,8 +75,15 @@ async fn main() {
         hitsound: std::env::var_os("NO_HITSOUND").is_none(),
         show_hud: std::env::var_os("HUD").is_some(),
         sample_count: env_u32("SAMPLES", 4),
+        presentation: if std::env::var_os("FULL_PRESENTATION").is_some() {
+            prpr::chart_video::PresentationOptions::phigros()
+        } else {
+            Default::default()
+        },
     };
-    let out = if png_dir.is_some() { out } else { out };
+    if let Some(path) = std::env::var_os("OPTIONS") {
+        opts = serde_json::from_reader(std::fs::File::open(path).expect("无法读取导出配置")).expect("导出配置格式无效");
+    }
     let mut renderer = match finish(ChartVideoRenderer::new(chart, opts, out.clone())).await {
         Ok(renderer) => renderer,
         Err(err) => {

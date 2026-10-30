@@ -672,6 +672,8 @@ pub struct GameScene {
     state: State,
     pub last_update_time: f64,
     replay_frame_delta: Option<f32>,
+    video_entrance: Option<(f32, f32)>,
+    video_progress: Option<f32>,
     pause_rewind: Option<f64>,
     pause_first_time: f32,
 
@@ -1075,6 +1077,8 @@ impl GameScene {
 
             state: State::Starting,
             replay_frame_delta: None,
+            video_entrance: None,
+            video_progress: None,
             last_update_time: 0.,
             pause_rewind: None,
             pause_first_time: f32::NEG_INFINITY,
@@ -1162,21 +1166,24 @@ impl GameScene {
 
     fn ui(&mut self, ui: &mut Ui, tm: &mut TimeManager) -> Result<()> {
         let time = tm.now();
-        let p = match self.state {
-            State::Starting => {
-                if time <= Self::BEFORE_TIME {
-                    1. - (1. - time / Self::BEFORE_TIME).powi(3)
-                } else {
-                    1.
+        let p = self.video_entrance.map_or_else(
+            || match self.state {
+                State::Starting => {
+                    if time <= Self::BEFORE_TIME {
+                        1. - (1. - time / Self::BEFORE_TIME).powi(3)
+                    } else {
+                        1.
+                    }
                 }
-            }
-            State::BeforeMusic => 1.,
-            State::Playing => 1.,
-            State::Ending => {
-                let t = time - self.res.track_length - WAIT_TIME;
-                1. - (t / (AFTER_TIME + 0.3)).min(1.).powi(2)
-            }
-        } as f32;
+                State::BeforeMusic => 1.,
+                State::Playing => 1.,
+                State::Ending => {
+                    let t = time - self.res.track_length - WAIT_TIME;
+                    1. - (t / (AFTER_TIME + 0.3)).min(1.).powi(2)
+                }
+            } as f32,
+            |(_, hud)| hud,
+        );
         let res = &mut self.res;
         let eps = 2e-2 / res.aspect_ratio;
         let top = -1. / res.aspect_ratio;
@@ -1213,7 +1220,7 @@ impl GameScene {
                 miniquad::native::set_interceptor_state(false);
             }
         }
-        ui.alpha(res.alpha, |ui| {
+        ui.alpha(res.alpha * self.video_entrance.map_or(1., |(_, hud)| hud), |ui| {
             ui.text("MAGIC BUGFIX TEXT").color(Color::new(0., 0., 0., 0.)).draw();
             if tm.now() as f32 - self.pause_first_time <= PAUSE_CLICK_INTERVAL {
                 ui.fill_circle(pause_center.x, pause_center.y, 0.05, Color::new(1., 1., 1., 0.5));
@@ -1384,11 +1391,14 @@ impl GameScene {
 
             let hw = 0.003;
             let height = eps * 1.0;
-            let dest = (2. * res.time / res.track_length).clamp(0., 2.) as f32;
+            let bar_top = top - (1. - p) * 0.4;
+            let progress = self.video_progress.unwrap_or_else(|| (res.time / res.track_length).clamp(0., 1.) as f32);
+            let dest = progress * 2.;
+            let head_x = (-1. + dest - hw).clamp(-1., 1. - hw * 2.);
             self.chart
-                .with_element(ui, res, UIElement::Bar, Some((-1., top + height / 2.)), (-1., top + height / 2.), |ui, color| {
-                    ui.fill_rect(Rect::new(-1., top, dest, height), semi_white(0.6));
-                    ui.fill_rect(Rect::new(-1. + dest - hw, top, hw * 2., height), WHITE);
+                .with_element(ui, res, UIElement::Bar, Some((-1., bar_top + height / 2.)), (-1., bar_top + height / 2.), |ui, color| {
+                    ui.fill_rect(Rect::new(-1., bar_top, dest, height), semi_white(0.6));
+                    ui.fill_rect(Rect::new(head_x, bar_top, hw * 2., height), WHITE);
                 });
         });
         Ok(())
@@ -1588,6 +1598,28 @@ impl GameScene {
 
     pub fn offset(&self) -> f32 {
         self.chart.offset + self.res.config.offset + self.info_offset
+    }
+
+    /// Offline export owns its clock and never enters the interactive scene lifecycle.
+    pub fn set_video_frame(&mut self, time: f64, opacity: f32, delta: f32) {
+        self.state = State::Playing;
+        self.video_entrance = None;
+        self.video_progress = None;
+        self.res.time = time;
+        self.res.alpha = opacity.clamp(0., 1.);
+        self.set_replay_frame_delta(delta);
+    }
+
+    /// Offline entrance presentation does not advance music, judgement or scene state.
+    /// The real chart and its attached HUD reach their normal geometry at one.
+    pub fn set_video_entrance(&mut self, playfield: f32, hud: f32) {
+        self.video_entrance = Some((playfield.clamp(0., 1.), hud.clamp(0., 1.)));
+    }
+
+    /// Export HUD progress follows the visible music interval, independently
+    /// of chart offsets and judgement time.
+    pub fn set_video_progress(&mut self, progress: f32) {
+        self.video_progress = Some(progress.clamp(0., 1.));
     }
 
     /// 回放 / 观战专用：按调用方已设置好的 `res.time` 刷新谱面动画、特效与判定线颜色。
@@ -2323,7 +2355,11 @@ impl Scene for GameScene {
         if let Some(camera) = &practice_camera {
             set_camera(camera);
         }
-        self.chart.render(ui, res);
+        if let Some((width, _)) = self.video_entrance.filter(|(width, _)| *width < 1.) {
+            ui.scissor(Rect::new(-width, -h, width * 2., h * 2.), |ui| self.chart.render(ui, res));
+        } else {
+            self.chart.render(ui, res);
+        }
 
         self.gl.quad_gl.render_pass(
             res.chart_target

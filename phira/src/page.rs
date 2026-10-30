@@ -564,7 +564,7 @@ pub trait Page {
         false
     }
 
-    /// 铺面渲染页请求弹出选谱界面（和多人选谱用同一套列表）。
+    /// 谱面渲染页请求弹出选谱界面（和多人选谱用同一套列表）。
     fn take_render_picker_request(&mut self) -> bool {
         false
     }

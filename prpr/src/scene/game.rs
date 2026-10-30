@@ -1004,7 +1004,7 @@ impl GameScene {
         res.config.practice_multiplier = res.config.practice.multiplier(res.config.speed);
         res.windows = res.config.judge_windows();
         // Prepare extra sfx from chart.hitsounds（谱面里的自定义打击音保留一份，
-        // 铺面渲染导出打击音时还要用）
+        // 谱面渲染导出打击音时还要用）
         for (name, clip) in chart.hitsounds.iter() {
             if let Ok(clip) = res.create_sfx(clip.clone()) {
                 res.extra_sfxs.insert(name.clone(), clip);

@@ -170,7 +170,7 @@ pub struct LibraryPage {
     export_progress: Arc<AtomicU32>,
     export_total: usize,
     multiplayer_picker: bool,
-    /// 铺面渲染页用的选谱模式：界面和多人选谱一样，返回 `local_path` 而不是谱面 id。
+    /// 谱面渲染页用的选谱模式：界面和多人选谱一样，返回 `local_path` 而不是谱面 id。
     render_picker: bool,
 }
 

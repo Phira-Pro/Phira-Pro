@@ -91,12 +91,14 @@ PPSR 分析浮窗使用当前曲绘的暗色半透明背景，以圆角数字框
 - **Phira Pro Plugin API v3**：从「设置 → 通用 → 插件管理」导入 `.zip` Rhai 脚本插件，继续兼容 v1／v2。支持谱面与结算回调、谱面选择分析、JSON 设置，以及用户主动选择回放后的只读分析和报告绘制。实际算法由插件作者实现。见 [接口开发说明与可运行示例](docs/plugins/README.md)。
 - **PRCA 回放分析**：从回放管理的「PRCA」入口选择回放、启动或取消分析，查看并保存报告图片。PRCA 0.3 需要 build 91 及以上宿主和对应插件；它是实验性证据工具，不输出作弊概率或自动作弊定论。支持范围和限制见 [PRCA 说明](docs/plugins/prca.md)。
 
-### 铺面渲染（视频导出）
+### 谱面渲染（视频导出）
 
-- **把谱面渲染成视频**：从「设置 → 调试 → 铺面渲染」进入独立页面。点「选择谱面」会打开和多人游戏一样的选谱界面，挑一首后回到页面点「开始渲染」即可导出 mp4，输出到 `data/render/`（可改目录）。
+- **把谱面渲染成视频**：从「设置 → 调试 → 谱面渲染」进入独立页面。点击谱面卡片中的「选择」会打开和多人游戏一样的选谱界面，挑一首后回到页面点「开始渲染」即可导出 mp4，输出到 `data/render/`（可改目录）。
 - **渲染的是谱面本身**：自动播放、逐帧固定时间戳、不发声，默认不显示分数、连击、暂停按钮等 HUD，只留谱面本体；需要时可以切到「显示界面」。视频始终带谱面音乐，打击音按「打击音」开关混入（Click / Drag / Flick 与谱面自带的自定义打击音）。
 - **输出设置**：分辨率 1280×720 / 1920×1080 / 2560×1440 / 3840×2160，帧率 30 / 60 / 120 / 240，打击音与「纯谱面／显示界面」开关，均可随时切换，设置保存在 `data/render.yml`。渲染按帧推进并显示进度、预计剩余时间与实时预览，可以中途取消；点击「打开输出目录」会调用系统文件管理器。
-- **依赖 ffmpeg**：桌面端编码走系统 `ffmpeg`（需含 libx264 与 AAC），没有安装时会在开始渲染时提示；Android 包内置了静态 ffmpeg（见下文），无需额外安装。谱面渲染内核位于 `prpr/src/chart_video.rs`，也提供了命令行示例 `prpr/examples/render_chart_video.rs`（`CHART=<谱面目录或 .pez> OUT=<输出.mp4> cargo run -p prpr --example render_chart_video`），便于批量渲染。实现细节与已知限制见 [铺面渲染](docs/development/pro-17-chart-video.md)。
+- **页面布局**：输出设置采用等宽网格，空间不足时自动换行；谱面信息、保存位置和渲染状态分区排列。长路径与错误信息按实际文字高度换行，底部固定显示开始／取消与输出目录操作，避免滚动内容遮挡按钮。
+- **按需安装 FFmpeg**：Windows 页面会检测可用的 H.264/AAC 编码器，未安装时提供「下载并安装 FFmpeg」按钮，从 [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) 下载 essentials ZIP，显示下载进度并支持取消和失败重试。下载包通过完整性校验、解压与实际编码验证后，安装到 `data/tools/ffmpeg/` 并自动使用，不修改系统 PATH，不增大主程序包；已有系统 FFmpeg 时可直接使用。其他桌面端仍需自行安装带 libx264 与 AAC 的 `ffmpeg`；Android 包已内置静态 FFmpeg（见下文）。
+- **渲染内核**：位于 `prpr/src/chart_video.rs`，也提供命令行示例 `prpr/examples/render_chart_video.rs`（`CHART=<谱面目录或 .pez> OUT=<输出.mp4> cargo run -p prpr --example render_chart_video`），便于批量渲染。实现细节与已知限制见 [谱面渲染](docs/development/pro-17-chart-video.md)。
 - **Android 构建**：`scripts/build-android-ffmpeg.sh` 会在 Gradle 构建时（任务 `ffmpegNdkBuild`）自动下载 x264 与 ffmpeg 源码并交叉编译成 `libffmpeg.so` 一起打进 APK，产物首次约需十几分钟，源码与中间结果缓存在 `target/android-ffmpeg`。渲染器的版本名为 `0.8.2-pro.17-render`（`applicationId` 与上游一致，安装会覆盖同名的官方包）。为了能启动这个内置的 ffmpeg 子进程，渲染器包的 `targetSdk` 是 28（Android 10+ 对 `targetSdk >= 29` 的应用禁止执行数据目录里的文件）。手机上渲染完成后视频会通过 MediaStore 存入系统「下载/PhiraPro」，可以直接在文件管理器里找到。
 
 ### 其他

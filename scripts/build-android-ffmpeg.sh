@@ -2,7 +2,7 @@
 # 为 Android arm64-v8a 交叉编译带 libx264 的静态 ffmpeg CLI。
 #
 # 用途：把 ffmpeg 一起打进 APK（作为 jniLibs 下的 `libffmpeg.so`），
-# 这样铺面渲染页在手机上也能直接出片，不依赖系统里的 ffmpeg。
+# 这样谱面渲染页在手机上也能直接出片，不依赖系统里的 ffmpeg。
 #
 # 用法：scripts/build-android-ffmpeg.sh <输出文件路径>
 #   例：scripts/build-android-ffmpeg.sh app/build/ffmpegJniLibs/arm64-v8a/libffmpeg.so

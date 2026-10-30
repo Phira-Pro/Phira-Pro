@@ -2054,7 +2054,7 @@ impl DebugList {
         }
         let rr = right_rect(w);
 
-        for (i, label) in ["画质设置", "问题诊断", "铺面渲染"].iter().enumerate() {
+        for (i, label) in ["画质设置", "问题诊断", "谱面渲染"].iter().enumerate() {
             render_title(ui, *label, None);
             self.tools[i].render_text(ui, rr, t, "打开", 0.4, false);
             ui.dy(item_row_h());

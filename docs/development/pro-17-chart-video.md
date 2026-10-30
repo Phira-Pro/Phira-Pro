@@ -1,4 +1,4 @@
-# pro.17 铺面渲染（视频导出）
+# pro.17 谱面渲染（视频导出）
 
 ## 源码依据
 
@@ -14,7 +14,8 @@
 | --- | --- |
 | `prpr/src/chart_video.rs` | 渲染内核：`GameScene` 装配、逐帧渲染、打击音离线混音、ffmpeg 管道编码、临时文件清理 |
 | `prpr/examples/render_chart_video.rs` | 命令行示例，支持 `CHART` / `OUT` / `PNG_DIR` / `FRAMES` 等环境变量，便于批量渲染与回归 |
-| `phira/src/page/render.rs` | 「设置 → 调试 → 铺面渲染」页面：选谱、输出设置、进度与预览 |
+| `phira/src/page/render.rs` | 「设置 → 调试 → 谱面渲染」页面：选谱、输出设置、进度与预览 |
+| `phira/src/page/render/ffmpeg.rs` | Windows 编码器检测、按需下载、校验与应用内安装 |
 | `prpr/src/scene/game.rs` | 新增 `GameScene::hide_ui`，渲染时跳过分数/连击/暂停与操作条，只留谱面本体 |
 
 ## 渲染流程
@@ -29,14 +30,17 @@
 
 ## 页面行为
 
-- 「选择谱面」直接打开 `LibraryPage::new_render_picker`，和多人游戏共用同一套列表与交互，选中后把 `local_path` 交回本页；`data/render.yml` 记住输出目录、分辨率、帧率、打击音与 HUD 选择。
+- 点击谱面卡片中的「选择」直接打开 `LibraryPage::new_render_picker`，和多人游戏共用同一套列表与交互，选中后把 `local_path` 交回本页；`data/render.yml` 记住输出目录、分辨率、帧率、打击音与 HUD 选择。
+- 页面按谱面、输出设置、保存位置、渲染状态分区；设置卡片共享列宽与行高，按可用宽度排列为四列、两列或单列。路径和状态文字换行后按实际高度排版；开始／取消和输出目录操作固定在滚动区下方，预览保持视频原始比例。
+- Windows 增加视频编码器区域，后台检测实际 H.264/AAC 编码能力。缺失时点击「下载并安装 FFmpeg」，从 [gyan.dev Windows builds](https://www.gyan.dev/ffmpeg/builds/) 下载 essentials ZIP；进度显示已下载和总大小，可取消、失败重试。下载使用独立 HTTPS 客户端，不携带游戏认证信息；内部校验下载包摘要，不生成校验文件。仅提取编码器和许可说明，在临时目录验证编码成功后才替换 `data/tools/ffmpeg/ffmpeg.exe`，失败或取消不影响已有程序。
+- Windows 编码器查找顺序为 `PHIRA_FFMPEG`、`data/tools/ffmpeg/ffmpeg.exe`、系统 PATH；下载仅在玩家点击后执行，不修改系统 PATH，不要求管理员权限，主程序安装包不附带 FFmpeg。离开页面会取消尚未完成的下载。
 - 输出文件名取「标题 + 难度」，非法字符替换成 `_`，默认落在 `data/render/`。
 - 谱面来源就是谱面库本身，未下载的线上谱面会提示「请先下载这首谱面」，不做第二套目录扫描。
 - 渲染中显示进度条、帧数、已用时间、预计剩余、当前帧预览；「取消渲染」会结束 ffmpeg 并删掉半成品，离开页面同样会走清理（`ChartVideoRenderer` 的 `Drop`）。
 
 ## 已知限制
 
-- 依赖系统 `ffmpeg`（需带 libx264 与 AAC），没有内置编码器；缺失时开始渲染会直接报错。
+- Windows 支持按需下载安装，下载需要网络连接及工具目录写入权限；macOS / Linux 依赖系统 `ffmpeg`（需带 libx264 与 AAC），缺失时开始渲染会报错。
 - 渲染期间界面仍在实时绘制离屏帧，软件渲染（如 llvmpipe）下 1080p/60 只有 3～4 fps，有独立显卡时快得多；整曲渲染耗时与分辨率、帧率成正比。
 - 视频按「音乐时间」线性推进，不包含开局前的准备动画，也不包含结算界面。
 
@@ -49,5 +53,5 @@
 - 运行期由 `prpr::chart_video::ffmpeg_candidates()` 给出候选列表并逐个尝试：环境变量 `PHIRA_FFMPEG` → nativeLibraryDir 里的 `libffmpeg.so` → 它的可写副本（拷到缓存目录后 `chmod 755`）→ PATH 里的 `ffmpeg`。
 - 为什么要副本：安装时解压出来的 native lib 权限一般是 `0644`（只够 `dlopen`），直接 `execve` 会 `EACCES`。而 Android 10 起对 `targetSdk >= 29` 的应用禁止执行自己数据目录里的文件（W^X），所以本包的 `targetSdk` 定在 **28**，才允许从缓存目录启动这个子进程（Termux 同款做法）。
 - 渲染器包的 `applicationId` 与上游一致（`org.flos.phirapro`）、版本名 `0.8.2-pro.17-render`（versionCode = build_number × 10 + 4），安装会覆盖同名的官方包。
-- 移动端没有可用的系统文件对话框，`phira/src/page/render.rs` 里改输出目录在 Android 上是空实现并给出提示，谱面仍可从选谱界面挑。
+- 移动端没有可用的系统文件对话框，Android 页面隐藏更改目录按钮并显示最终保存位置，谱面仍可从选谱界面挑。
 - 手机上渲染先写到应用私有目录，结束后由 `MainActivity.publishVideo()` 通过 MediaStore 复制到系统「下载/PhiraPro」（API < 29 则直接写公共目录并通知媒体库扫描），随后删掉临时文件；页面上的「打开输出目录」在 Android 换成了「视频会保存到 下载/PhiraPro」的提示。

@@ -118,7 +118,7 @@ android {
         applicationId 'org.flos.phirapro'
         minSdk 22
         // 28 而不是 33：Android 10 起对 targetSdk >= 29 的应用禁止执行
-        // 自己数据目录里的文件（W^X）。铺面渲染要靠拉起打包进来的 ffmpeg
+        // 自己数据目录里的文件（W^X）。谱面渲染要靠拉起打包进来的 ffmpeg
         // 子进程，targetSdk 28 才允许从缓存目录 exec（Termux 同款做法）。
         targetSdk 28
         versionCode(renderVersionCode)

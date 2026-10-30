@@ -1,4 +1,4 @@
-//! 铺面视频渲染（Phi Recorder 风格）。
+//! 谱面视频渲染（Phi Recorder 风格）。
 //!
 //! 把 `GameScene`（自动播放）逐帧画到离屏 `RenderTarget`，读回像素后经管道交给
 //! 系统 `ffmpeg` 编码成 mp4，可选混入谱面音乐。整个过程不播放音频、不显示 HUD，
@@ -79,7 +79,8 @@ impl VideoOptions {
 
 /// ffmpeg 可执行文件的候选列表（按优先级排列）。
 ///
-/// 桌面端：环境变量 `PHIRA_FFMPEG` → PATH 里的 `ffmpeg`。
+/// Windows：环境变量 `PHIRA_FFMPEG` → 应用工具目录 → PATH 里的 `ffmpeg`。
+/// 其他桌面端：环境变量 `PHIRA_FFMPEG` → PATH 里的 `ffmpeg`。
 /// Android：APK 里的 `libffmpeg.so` 会随安装解压到 nativeLibraryDir，
 /// 但这个文件通常是 0644（只够 `dlopen`），直接 `execve` 会拿到
 /// `EACCES`；所以再准备一份拷到可写目录并 `chmod 755` 的副本兜底。
@@ -89,6 +90,8 @@ pub fn ffmpeg_candidates() -> Vec<PathBuf> {
     if let Some(path) = std::env::var_os("PHIRA_FFMPEG") {
         list.push(PathBuf::from(path));
     }
+    #[cfg(target_os = "windows")]
+    list.push(managed_ffmpeg_path());
     for path in bundled_ffmpeg_candidates() {
         if !list.contains(&path) {
             list.push(path);
@@ -96,6 +99,12 @@ pub fn ffmpeg_candidates() -> Vec<PathBuf> {
     }
     list.push(PathBuf::from("ffmpeg"));
     list
+}
+
+/// Windows 按需安装的编码器，不改动系统 PATH。
+#[cfg(target_os = "windows")]
+pub fn managed_ffmpeg_path() -> PathBuf {
+    PathBuf::from("data/tools/ffmpeg/ffmpeg.exe")
 }
 
 #[cfg(target_os = "android")]
@@ -184,6 +193,11 @@ impl Encoder {
         duration: f64,
     ) -> Result<Self> {
         let mut cmd = Command::new(program);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000);
+        }
         cmd.arg("-hide_banner")
             .arg("-loglevel")
             .arg("error")
@@ -249,7 +263,7 @@ impl Encoder {
     }
 }
 
-/// 正在进行的铺面视频渲染。
+/// 正在进行的谱面视频渲染。
 pub struct ChartVideoRenderer {
     scene: GameScene,
     capture: RenderTarget,

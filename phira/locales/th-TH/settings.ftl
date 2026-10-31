@@ -336,3 +336,5 @@ color-current-default = Current (default)
 practice-debug-display = Diagnostic display
 practice-debug-performance = Frame rate
 practice-debug-input = Touch visualization
+
+item-fps-unlimited = ไม่จำกัด

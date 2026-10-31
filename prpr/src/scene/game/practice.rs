@@ -10,12 +10,21 @@ fn control_scale(id: &str) -> f32 {
 
 impl GameScene {
     pub(super) fn practice_range_changed(&mut self, tm: &mut TimeManager) -> Result<()> {
+        self.practice_range_changed_at(tm, self.exercise_range.start)
+    }
+
+    pub(super) fn practice_end_changed(&mut self, tm: &mut TimeManager) -> Result<()> {
+        let position = practice::boundary_position(&self.exercise_range, tm.now());
+        self.practice_range_changed_at(tm, position)
+    }
+
+    fn practice_range_changed_at(&mut self, tm: &mut TimeManager, position: f64) -> Result<()> {
         self.practice_loops = 0;
         self.practice_progress = Default::default();
         self.practice_last_events.clear();
         self.practice_tool_touches.clear();
         self.practice_last_touches.clear();
-        self.practice_partial = false;
+        self.practice_partial = position > self.exercise_range.start;
         self.practice_statistics.clear();
         self.last_practice_accuracy = None;
         self.judge.reset();
@@ -31,18 +40,14 @@ impl GameScene {
             self.res.config.practice.preserve_pitch,
             self.res.config.practice.correct_sound || self.res.config.has_mod(Mods::PERFECT_SOUND),
         )?;
-        let start = self.exercise_range.start - self.offset() as f64;
+        let start = position - self.offset() as f64;
         self.judge.advance_to(&mut self.chart, start);
         self.res.judge_line_color = self.res.res_pack.info.color_perfect();
         self.music.pause()?;
-        self.music.seek_to(self.exercise_range.start.max(0.))?;
-        tm.seek_to(self.exercise_range.start);
-        self.res.time = self.exercise_range.start - self.offset() as f64;
-        self.state = if self.exercise_range.start < 0. {
-            State::BeforeMusic
-        } else {
-            State::Playing
-        };
+        self.music.seek_to(position.max(0.))?;
+        tm.seek_to(position);
+        self.res.time = position - self.offset() as f64;
+        self.state = if position < 0. { State::BeforeMusic } else { State::Playing };
         self.pause_rewind = None;
         Ok(())
     }
@@ -281,7 +286,11 @@ impl GameScene {
                     self.exercise_range.end = time.clamp((self.exercise_range.start + 0.05).min(high), high);
                 }
                 self.practice_combo = None;
-                self.practice_range_changed(tm)?;
+                if start {
+                    self.practice_range_changed(tm)?;
+                } else {
+                    self.practice_end_changed(tm)?;
+                }
             }
             PracticeAction::Seek(time) => {
                 let offset = self.offset() as f64;

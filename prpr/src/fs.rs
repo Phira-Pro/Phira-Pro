@@ -302,6 +302,26 @@ pub(crate) fn is_block_area_sidecar(path: &str) -> bool {
     name == "blockarealist.json" || name.ends_with(".blockarealist.json")
 }
 
+async fn is_chart_file(fs: &mut dyn FileSystem, path: &str) -> Result<bool> {
+    if is_block_area_sidecar(path) {
+        return Ok(false);
+    }
+    let extension = path.rsplit_once('.').map(|(_, ext)| ext.to_ascii_lowercase());
+    match extension.as_deref() {
+        Some("json") => {
+            // Skip notes and events without allocating a second JSON tree.
+            #[derive(Deserialize)]
+            struct ChartProbe {
+                #[serde(rename = "judgeLineList")]
+                _lines: Vec<serde::de::IgnoredAny>,
+            }
+            let bytes = fs.load_file(path).await?;
+            Ok(serde_json::from_slice::<ChartProbe>(crate::parse::json_bytes(&bytes)).is_ok())
+        }
+        _ => Ok(true), // Explicit PEC/PBC paths retain their existing handling.
+    }
+}
+
 pub async fn fix_info(fs: &mut dyn FileSystem, info: &mut ChartInfo) -> Result<()> {
     fix_info_with(fs, info, false).await
 }
@@ -315,9 +335,15 @@ pub async fn fix_info_with(fs: &mut dyn FileSystem, info: &mut ChartInfo, infer_
     async fn get(fs: &mut dyn FileSystem, path: &mut String) -> Result<Option<String>> {
         Ok(if fs.exists(path).await? { Some(std::mem::take(path)) } else { None })
     }
-    let mut chart = if is_block_area_sidecar(&info.chart) { None } else { get(fs, &mut info.chart).await? };
+    let mut chart = if fs.exists(&info.chart).await? && is_chart_file(fs, &info.chart).await? {
+        Some(info.chart.clone())
+    } else {
+        None
+    };
     let mut music = get(fs, &mut info.music).await?;
     let mut illustration = get(fs, &mut info.illustration).await?;
+    let mut infer_music = true;
+    let mut note_sounds = std::collections::HashSet::new();
     fn put(desc: &str, status: &mut Option<String>, value: String) {
         if status.as_ref() == Some(&value) {
             return;
@@ -328,20 +354,40 @@ pub async fn fix_info_with(fs: &mut dyn FileSystem, info: &mut ChartInfo, infer_
             *status = Some(value);
         }
     }
-    for file in fs.list_root().context("cannot list files")? {
-        if let Some((_, ext)) = file.rsplit_once('.') {
-            match ext.to_ascii_lowercase().as_str() {
-                "json" | "pec" if !is_block_area_sidecar(&file) => {
-                    put("charts", &mut chart, file);
-                }
-                _ => {}
+    if chart.is_none() {
+        let mut files = fs.list_root().context("cannot list files")?;
+        files.sort_by_cached_key(|path| {
+            let name = path.to_ascii_lowercase();
+            (name.starts_with("autosave_"), name)
+        });
+        for file in files {
+            if file
+                .rsplit_once('.')
+                .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("json") || ext.eq_ignore_ascii_case("pec"))
+                && is_chart_file(fs, &file).await?
+            {
+                chart = Some(file);
+                break;
             }
         }
     }
     if let Some(chart) = &chart {
         info.chart = chart.to_owned();
         if let Ok(s) = String::from_utf8(fs.load_file(&info.chart).await?) {
-            if let Ok(mut value) = serde_json::from_str::<Value>(&s) {
+            if let Ok(mut value) = serde_json::from_slice::<Value>(crate::parse::json_bytes(s.as_bytes())) {
+                infer_music = value["META"].get("song").is_none();
+                for line in value["judgeLineList"].as_array().into_iter().flatten() {
+                    for note in line["notes"].as_array().into_iter().flatten() {
+                        for key in ["hitsound", "hitSound"] {
+                            if let Some(name) = note[key].as_str() {
+                                note_sounds.insert(name.replace('\\', "/").trim_start_matches("./").to_ascii_lowercase());
+                            }
+                        }
+                    }
+                }
+                if !infer_music && music.is_none() {
+                    info.music.clear();
+                }
                 #[derive(Deserialize)]
                 struct RPEMeta {
                     name: String,
@@ -351,6 +397,16 @@ pub async fn fix_info_with(fs: &mut dyn FileSystem, info: &mut ChartInfo, infer_
                     composer: Option<String>,
                     illustration: Option<String>,
                     song: String,
+                }
+                if music.is_none() {
+                    if let Some(path) = value["META"]["song"].as_str() {
+                        music = get(fs, &mut path.to_owned()).await?;
+                    }
+                }
+                if illustration.is_none() {
+                    if let Some(path) = value["META"]["background"].as_str() {
+                        illustration = get(fs, &mut path.to_owned()).await?;
+                    }
                 }
                 if let Ok(mut meta) = serde_json::from_value::<RPEMeta>(value["META"].take()) {
                     if infer_meta {
@@ -381,7 +437,10 @@ pub async fn fix_info_with(fs: &mut dyn FileSystem, info: &mut ChartInfo, infer_
         if let Some((_, ext)) = file.rsplit_once('.') {
             match ext.to_ascii_lowercase().as_str() {
                 "mp3" | "ogg" | "wav" | "flac" | "aac" => {
-                    put("music files", &mut music, file);
+                    let normalized = file.replace('\\', "/").trim_start_matches("./").to_ascii_lowercase();
+                    if infer_music && !note_sounds.contains(&normalized) {
+                        put("music files", &mut music, file);
+                    }
                 }
                 "png" | "jpg" | "jpeg" | "bmp" | "gif" | "webp" | "avif" | "ppm" => {
                     put("illustrations", &mut illustration, file);
@@ -437,4 +496,35 @@ pub fn fs_from_file(path: &Path) -> Result<Box<dyn FileSystem + Send + Sync + 's
 
 pub fn fs_from_assets(name: impl Into<String>) -> Result<Box<dyn FileSystem + Send + Sync + 'static>> {
     Ok(Box::new(AssetsFileSystem(name.into())))
+}
+
+#[cfg(test)]
+mod music_inference_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn chart_sounds_do_not_replace_missing_or_explicitly_empty_music() {
+        let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        runtime.block_on(async {
+            for song in [None, Some(""), Some("missing.wav")] {
+                let directory = tempfile::tempdir().unwrap();
+                let mut chart = json!({"META":{},"BPMList":[{"bpm":120,"startTime":[0,0,1]}],"judgeLineList":[{"notes":[{"hitSound":"cue.wav"}]}]});
+                if let Some(song) = song {
+                    chart["META"]["song"] = json!(song);
+                }
+                std::fs::write(directory.path().join("chart.json"), serde_json::to_vec(&chart).unwrap()).unwrap();
+                std::fs::write(directory.path().join("cue.wav"), b"test sound").unwrap();
+                std::fs::write(directory.path().join("music.wav"), b"test music").unwrap();
+                let mut fs = ExternalFileSystem(Arc::new(crate::dir::Dir::new(directory.path()).unwrap()));
+                let mut info = ChartInfo::default();
+                fix_info_with(&mut fs, &mut info, true).await.unwrap();
+                assert_eq!(info.music, if song.is_none() { "music.wav" } else { "" });
+                chart["META"]["song"] = json!("cue.wav");
+                std::fs::write(directory.path().join("chart.json"), serde_json::to_vec(&chart).unwrap()).unwrap();
+                let mut info = ChartInfo::default();
+                fix_info_with(&mut fs, &mut info, true).await.unwrap();
+                assert_eq!(info.music, "cue.wav", "an explicit valid music binding takes precedence");
+            }
+        });
+    }
 }

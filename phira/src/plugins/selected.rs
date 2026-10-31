@@ -94,7 +94,7 @@ async fn payload(source: SelectedSource, chart_set: &str, ppsr: bool) -> Result<
     let format = GameScene::infer_chart_format(&info, &bytes);
     info.format = Some(format.clone());
     let truncated = bytes.len() > MAX_CHART_JSON_SIZE;
-    let raw: Value = if truncated { Value::Null } else { serde_json::from_slice::<Value>(&bytes).ok().filter(Value::is_object).unwrap_or(Value::Null) };
+    let raw: Value = if truncated { Value::Null } else { serde_json::from_slice::<Value>(prpr::parse::json_bytes(&bytes)).ok().filter(Value::is_object).unwrap_or(Value::Null) };
     let mut payload = if ppsr {
         let (chart, _, _) = GameScene::load_chart_for_analysis(fs.as_mut(), &info).await?;
         crate::ppsr_features::extract(&chart, &info)?
@@ -125,6 +125,71 @@ impl FileSystem for ChartBytes {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn repeated_editor_imports_and_reexports_preserve_ppsr_features() {
+        let mut raw: Value = serde_json::from_str(include_str!("../../../prpr/tests/fixtures/rpen-extensions/chart.json")).unwrap();
+        raw["META"] = json!({"RPEVersion":240,"offset":0,"name":"Import regression","level":"IN 15",
+            "charter":"Example","song":"music.ogg","background":"cover.png"});
+        raw["BPMList"] = json!([{"bpm":120,"startTime":[0,0,1]},{"bpm":180,"startTime":[4,0,1]}]);
+        assert_reimports(&raw, true).await;
+        for field in ["noiseAreaLayers", "globalEvents", "blockAreaList"] {
+            raw.as_object_mut().unwrap().remove(field);
+        }
+        let line = raw["judgeLineList"][0].as_object_mut().unwrap();
+        line.remove("bpmfactor");
+        line.remove("skewControl");
+        line["eventLayers"][0]["moveXEvents"][0].as_object_mut().unwrap().remove("trajectory");
+        raw["META"]["RPEVersion"] = json!(170);
+        assert_reimports(&raw, false).await;
+    }
+
+    async fn assert_reimports(raw: &Value, rpen: bool) {
+        use std::io::{Seek, Write};
+        let mut baseline = None;
+        let mut manifest: Option<Vec<u8>> = None;
+        for iteration in 0..6 {
+            let root = tempfile::tempdir().unwrap();
+            let mut zip = zip::ZipWriter::new(tempfile::tempfile().unwrap());
+            let options = zip::write::SimpleFileOptions::default();
+            let chart = if iteration % 2 == 0 { serde_json::to_vec(&raw).unwrap() }
+                else { format!("\u{feff}\r\n{}", serde_json::to_string_pretty(&raw).unwrap()).into_bytes() };
+            let mut files = vec![
+                ("extra.json", b"{\n\"effects\": []\n}".to_vec()),
+                ("metadata.json", b"{\"editor\":\"example\"}".to_vec()),
+                ("AutoSave_chart.json", b"{\"META\":{},\"judgeLineList\":[]}".to_vec()),
+                ("notes.json", chart), ("music.ogg", vec![0]), ("cover.png", vec![0]),
+            ];
+            if iteration >= 2 {
+                let mut info: ChartInfo = serde_yaml::from_slice(manifest.as_ref().unwrap()).unwrap();
+                if iteration == 4 { info.chart = "extra.json".into(); }
+                if iteration == 5 { info.chart = "renamed.json".into(); }
+                files.push(("info.yml", serde_yaml::to_string(&info).unwrap().into_bytes()));
+            }
+            if iteration % 2 != 0 { files.reverse(); }
+            for (name, bytes) in files {
+                zip.start_file(name, options).unwrap();
+                zip.write_all(&bytes).unwrap();
+            }
+            let mut archive = zip.finish().unwrap();
+            archive.rewind().unwrap();
+            let (_, warnings) = crate::scene::import_chart_to(root.path(), "custom/example".into(), archive).await.unwrap();
+            assert_eq!(warnings.has_rpen_features, rpen);
+            let mut fs = fs_from_file(root.path()).unwrap();
+            let info = prpr::fs::load_info(fs.as_mut()).await.unwrap();
+            assert_eq!(info.chart, "notes.json");
+            assert_eq!(info.name, "Import regression");
+            let result = payload(SelectedSource::Local(root.path().to_owned()), "phira", true).await.unwrap();
+            assert_eq!(result["format"], "rpe");
+            assert_eq!(&result["chart_data"], raw);
+            let features = result["features"].clone();
+            assert_eq!(features.as_array().unwrap().len(), 187);
+            if let Some(baseline) = &baseline { assert_eq!(&features, baseline); }
+            else { baseline = Some(features); }
+            manifest = Some(std::fs::read(root.path().join("info.yml")).unwrap());
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cpu_analysis_ignores_gpu_assets_and_worker_does_not_block_runtime() {
         let mut chart: Value = serde_json::from_str(include_str!("../../../prpr/tests/fixtures/rpe-next/chart.json")).unwrap();

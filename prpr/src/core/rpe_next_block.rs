@@ -279,19 +279,7 @@ impl Track {
             ((time - entry.start) / (entry.end - entry.start)).clamp(0., 1.)
         };
         let eased = if e.bezier.get().unwrap() {
-            // Solve x(t), not y(progress); do not quantize control point keys.
-            let [x1, y1, x2, y2] = e.bezier_points;
-            let component = |t: f64, a, b| 3. * t * (1. - t).powi(2) * a + 3. * t * t * (1. - t) * b + t.powi(3);
-            let (mut lo, mut hi) = (0., 1.);
-            for _ in 0..40 {
-                let mid = (lo + hi) / 2.;
-                if component(mid, x1, x2) < p {
-                    lo = mid;
-                } else {
-                    hi = mid;
-                }
-            }
-            component((lo + hi) / 2., y1, y2)
+            super::bezier_progress(p, e.bezier_points)
         } else {
             let f = |v: f64| curve(e.easing_type, v);
             let base = f(e.easing_left);
@@ -429,6 +417,7 @@ pub struct Area {
     appear: f64,
     disappear: f64,
     intervals: Vec<(f64, f64, f64)>,
+    activations: Vec<(f64, f64)>,
     invert: bool,
     tracks: [Track; 5], // move X/Y, rotate, scale X/Y
 }
@@ -455,22 +444,30 @@ impl Area {
         let appear = tempo.time(data.appear_time)?;
         let disappear = tempo.time(data.disappear_time)?;
         ensure!(appear <= disappear, "appearTime is after disappearTime");
-        let mut raw_intervals = Vec::new();
+        let mut intervals: Vec<(f64, f64, f64)> = Vec::new();
         for i in data.active_intervals {
-            let start = tempo.time(i.start_time)?;
-            let end = tempo.time(i.end_time)?;
-            ensure!(start <= end, "invalid active interval");
-            if start < end {
-                raw_intervals.push((start, end, i.ready_flash.seconds()));
+            let original_start = tempo.time(i.start_time)?;
+            let original_end = tempo.time(i.end_time)?;
+            ensure!(original_start <= original_end, "invalid active interval");
+            let start = original_start.max(appear);
+            let end = original_end.min(disappear);
+            if start < end || (original_start == original_end && start == end) {
+                intervals.push((start, end, i.ready_flash.seconds()));
             }
         }
-        raw_intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
-        ensure!(raw_intervals.windows(2).all(|w| w[0].1 <= w[1].0), "overlapping active intervals");
-        let intervals = raw_intervals
-            .into_iter()
-            .map(|(a, b, r)| (a.max(appear), b.min(disappear), r))
-            .filter(|(a, b, _)| a < b)
-            .collect();
+        intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut merged: Vec<(f64, f64, f64)> = Vec::new();
+        for (start, end, ready) in intervals {
+            if let Some(previous) = merged.last_mut().filter(|i| i.0 == start) {
+                previous.1 = previous.1.max(end);
+                previous.2 = previous.2.max(ready);
+            } else {
+                merged.push((start, end, ready));
+            }
+        }
+        let intervals = merged;
+        let activations: Vec<_> = intervals.iter().filter(|i| i.0 < i.1).map(|i| (i.0, i.1)).collect();
+        ensure!(activations.windows(2).all(|w| w[0].1 <= w[1].0), "overlapping active intervals");
         let track = |events, axis, fallback, name: &str| Track::new(events, axis, fallback, center, tempo).with_context(|| name.to_owned());
         Ok(Self {
             layer: 0,
@@ -479,6 +476,7 @@ impl Area {
             appear,
             disappear,
             intervals,
+            activations,
             invert: data.is_invert,
             tracks: [
                 track(data.move_x_events, Axis::Move, center.x, "moveXEvents")?,
@@ -494,7 +492,8 @@ impl Area {
             return None;
         }
         let n = self.intervals.partition_point(|i| i.0 <= time + EPS);
-        let active = n != 0 && time + EPS < self.intervals[n - 1].1;
+        let a = self.activations.partition_point(|i| i.0 <= time + EPS);
+        let active = a != 0 && time + EPS < self.activations[a - 1].1;
         let next = self.intervals.get(n);
         let ready = !active && next.is_some_and(|&(a, _, r)| r > 0. && time + EPS >= a - r);
         let mix = if active {
@@ -580,6 +579,37 @@ pub fn blocked(samples: &[Sample], point: Vector, aspect: f32, single: bool) -> 
 mod tests {
     use super::*;
     use serde_json::Value;
+    #[test]
+    fn zero_duration_activation_matches_rpen_0131_and_reverse_seeks() {
+        let reference: Value = serde_json::from_str(include_str!("../../tests/fixtures/rpen-extensions/v0131.json")).unwrap();
+        let tempo = Tempo::new([(0., 120.)]).unwrap();
+        for case in reference["noise"].as_array().unwrap() {
+            let area = Area::new(serde_json::from_value(case["area"].clone()).unwrap(), &tempo).unwrap();
+            for aspect in [4. / 3., 1.5, 16. / 9., 22. / 9.] {
+                for sample in case["samples"].as_array().unwrap().iter().rev() {
+                    let actual = area.sample(sample["time"].as_f64().unwrap(), aspect);
+                    match sample["state"].as_str().unwrap() {
+                        "hiddenBefore" | "hiddenAfter" => assert!(actual.is_none()),
+                        state => {
+                            let actual = actual.unwrap();
+                            assert_eq!(
+                                actual.state,
+                                match state {
+                                    "active" => 2,
+                                    "ready" => 1,
+                                    _ => 0,
+                                },
+                                "{case}, {sample}"
+                            );
+                            assert!((actual.mix as f64 - sample["mix"].as_f64().unwrap()).abs() < 1e-6);
+                            assert_eq!(actual.zone.active, state == "active");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn fixture() -> (Vec<Area>, Value) {
         let chart: Value = serde_json::from_str(include_str!("../../tests/fixtures/rpe-next/chart.json")).unwrap();
         let tempo = Tempo::new(

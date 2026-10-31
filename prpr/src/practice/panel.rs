@@ -165,7 +165,7 @@ impl Panel {
         *y += 0.108;
         opened
     }
-    // Match original Phira multiplayer's ENTER_TRANSIT and cubic ease-out.
+    // The drawer uses a half-second cubic ease-out transition.
     const TRANSIT: f32 = 0.5;
     const WIDTH: f32 = 1.6;
     const SCALE: f32 = (Self::WIDTH - 0.12) / 1.64;

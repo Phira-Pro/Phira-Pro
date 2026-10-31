@@ -1,0 +1,1780 @@
+{
+  "source": "kclg-YSJ/rpe-next@7b46dc0923deee6d10d14a9dc5adf92e8cecc66f",
+  "version": "0.13.1",
+  "bezier": [
+    {
+      "points": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "samples": [
+        {
+          "progress": -0.01,
+          "value": 0
+        },
+        {
+          "progress": 0,
+          "value": 0
+        },
+        {
+          "progress": 1e-12,
+          "value": 2.999800000000001e-8
+        },
+        {
+          "progress": 0.00001,
+          "value": 0.001372476650083834
+        },
+        {
+          "progress": 0.01,
+          "value": 0.11924766500838337
+        },
+        {
+          "progress": 0.1,
+          "value": 0.44633040700956517
+        },
+        {
+          "progress": 0.25,
+          "value": 0.6905507889761496
+        },
+        {
+          "progress": 0.5,
+          "value": 0.8898815748423098
+        },
+        {
+          "progress": 0.8,
+          "value": 0.9853216280382605
+        },
+        {
+          "progress": 0.99,
+          "value": 0.9999665176485177
+        },
+        {
+          "progress": 0.99999,
+          "value": 0.9999999999666666
+        },
+        {
+          "progress": 0.999999999999,
+          "value": 1
+        },
+        {
+          "progress": 1,
+          "value": 1
+        },
+        {
+          "progress": 1.01,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "points": [
+        1,
+        0,
+        1,
+        1
+      ],
+      "samples": [
+        {
+          "progress": -0.01,
+          "value": 0
+        },
+        {
+          "progress": 0,
+          "value": 0
+        },
+        {
+          "progress": 1e-12,
+          "value": 3.3324457656064684e-25
+        },
+        {
+          "progress": 0.00001,
+          "value": 3.333348148156624e-11
+        },
+        {
+          "progress": 0.01,
+          "value": 0.00003348235148225745
+        },
+        {
+          "progress": 0.1,
+          "value": 0.0034907446415270277
+        },
+        {
+          "progress": 0.25,
+          "value": 0.023554563329029988
+        },
+        {
+          "progress": 0.5,
+          "value": 0.11011842515769021
+        },
+        {
+          "progress": 0.8,
+          "value": 0.37401443199398193
+        },
+        {
+          "progress": 0.99,
+          "value": 0.8807523349916165
+        },
+        {
+          "progress": 0.99999,
+          "value": 0.9986275233499203
+        },
+        {
+          "progress": 0.999999999999,
+          "value": 0.9999999700024423
+        },
+        {
+          "progress": 1,
+          "value": 1
+        },
+        {
+          "progress": 1.01,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "points": [
+        1,
+        0,
+        1,
+        0
+      ],
+      "samples": [
+        {
+          "progress": -0.01,
+          "value": 0
+        },
+        {
+          "progress": 0,
+          "value": 0
+        },
+        {
+          "progress": 1e-12,
+          "value": 3.702224522636592e-38
+        },
+        {
+          "progress": 0.00001,
+          "value": 3.703740740940054e-17
+        },
+        {
+          "progress": 0.01,
+          "value": 3.7410728650331266e-8
+        },
+        {
+          "progress": 0.1,
+          "value": 0.000041101541583706747
+        },
+        {
+          "progress": 0.25,
+          "value": 0.0007645474227605245
+        },
+        {
+          "progress": 0.5,
+          "value": 0.008779996890010529
+        },
+        {
+          "progress": 0.8,
+          "value": 0.07157492507829859
+        },
+        {
+          "progress": 0.99,
+          "value": 0.48291725799881813
+        },
+        {
+          "progress": 0.99999,
+          "value": 0.9367494359492211
+        },
+        {
+          "progress": 0.999999999999,
+          "value": 0.9997000322107461
+        },
+        {
+          "progress": 1,
+          "value": 1
+        },
+        {
+          "progress": 1.01,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "points": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "samples": [
+        {
+          "progress": -0.01,
+          "value": 0
+        },
+        {
+          "progress": 0,
+          "value": 0
+        },
+        {
+          "progress": 1e-12,
+          "value": 0.00029994000400000004
+        },
+        {
+          "progress": 0.00001,
+          "value": 0.061888087400788855
+        },
+        {
+          "progress": 0.01,
+          "value": 0.4078350769927984
+        },
+        {
+          "progress": 0.1,
+          "value": 0.49981583606470337
+        },
+        {
+          "progress": 0.25,
+          "value": 0.5087799968900104
+        },
+        {
+          "progress": 0.5,
+          "value": 0.6013384282676797
+        },
+        {
+          "progress": 0.8,
+          "value": 0.8143100440911466
+        },
+        {
+          "progress": 0.99,
+          "value": 0.9900334449407537
+        },
+        {
+          "progress": 0.99999,
+          "value": 0.9999900000333336
+        },
+        {
+          "progress": 0.999999999999,
+          "value": 0.9999999999990001
+        },
+        {
+          "progress": 1,
+          "value": 1
+        },
+        {
+          "progress": 1.01,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "points": [
+        1,
+        1,
+        0,
+        0
+      ],
+      "samples": [
+        {
+          "progress": -0.01,
+          "value": 0
+        },
+        {
+          "progress": 0,
+          "value": 0
+        },
+        {
+          "progress": 1e-12,
+          "value": 1.3642420526581516e-12
+        },
+        {
+          "progress": 0.00001,
+          "value": 0.00001000000083731545
+        },
+        {
+          "progress": 0.01,
+          "value": 0.01000000000119709
+        },
+        {
+          "progress": 0.1,
+          "value": 0.09999999999941023
+        },
+        {
+          "progress": 0.25,
+          "value": 0.25000000000038236
+        },
+        {
+          "progress": 0.5,
+          "value": 0.5
+        },
+        {
+          "progress": 0.8,
+          "value": 0.7999999999996346
+        },
+        {
+          "progress": 0.99,
+          "value": 0.989999999998803
+        },
+        {
+          "progress": 0.99999,
+          "value": 0.9999899999991627
+        },
+        {
+          "progress": 0.999999999999,
+          "value": 0.9999999999986358
+        },
+        {
+          "progress": 1,
+          "value": 1
+        },
+        {
+          "progress": 1.01,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "points": [
+        0.2,
+        -4,
+        0.8,
+        6
+      ],
+      "samples": [
+        {
+          "progress": -0.01,
+          "value": 0
+        },
+        {
+          "progress": 0,
+          "value": 0
+        },
+        {
+          "progress": 1e-12,
+          "value": -1.637090463183454e-11
+        },
+        {
+          "progress": 0.00001,
+          "value": -0.0001999816735099994
+        },
+        {
+          "progress": 0.01,
+          "value": -0.18297400995545635
+        },
+        {
+          "progress": 0.1,
+          "value": -0.9235664109216609
+        },
+        {
+          "progress": 0.25,
+          "value": -0.6796539823412701
+        },
+        {
+          "progress": 0.5,
+          "value": 0.8749999999962483
+        },
+        {
+          "progress": 0.8,
+          "value": 2.4119592771695615
+        },
+        {
+          "progress": 0.99,
+          "value": 1.2306432840686679
+        },
+        {
+          "progress": 0.99999,
+          "value": 1.0002499791750485
+        },
+        {
+          "progress": 0.999999999999,
+          "value": 1.0000000000204636
+        },
+        {
+          "progress": 1,
+          "value": 1
+        },
+        {
+          "progress": 1.01,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "points": [
+        0.2341,
+        0.1,
+        0.77,
+        0.9
+      ],
+      "samples": [
+        {
+          "progress": -0.01,
+          "value": 0
+        },
+        {
+          "progress": 0,
+          "value": 0
+        },
+        {
+          "progress": 1e-12,
+          "value": 4.092726158017262e-13
+        },
+        {
+          "progress": 0.00001,
+          "value": 0.000004272026004608072
+        },
+        {
+          "progress": 0.01,
+          "value": 0.004603825456954094
+        },
+        {
+          "progress": 0.1,
+          "value": 0.06694826303460555
+        },
+        {
+          "progress": 0.25,
+          "value": 0.2133052814426017
+        },
+        {
+          "progress": 0.5,
+          "value": 0.4981981393530275
+        },
+        {
+          "progress": 0.8,
+          "value": 0.8367921458469181
+        },
+        {
+          "progress": 0.99,
+          "value": 0.9953111913201937
+        },
+        {
+          "progress": 0.99999,
+          "value": 0.9999956518167861
+        },
+        {
+          "progress": 0.999999999999,
+          "value": 0.9999999999995908
+        },
+        {
+          "progress": 1,
+          "value": 1
+        },
+        {
+          "progress": 1.01,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "points": [
+        0.2349,
+        0.1,
+        0.77,
+        0.9
+      ],
+      "samples": [
+        {
+          "progress": -0.01,
+          "value": 0
+        },
+        {
+          "progress": 0,
+          "value": 0
+        },
+        {
+          "progress": 1e-12,
+          "value": 4.092726158017262e-13
+        },
+        {
+          "progress": 0.00001,
+          "value": 0.00000425747646968075
+        },
+        {
+          "progress": 0.01,
+          "value": 0.004587814228386683
+        },
+        {
+          "progress": 0.1,
+          "value": 0.06675619331995328
+        },
+        {
+          "progress": 0.25,
+          "value": 0.21293340572570338
+        },
+        {
+          "progress": 0.5,
+          "value": 0.49784544199463066
+        },
+        {
+          "progress": 0.8,
+          "value": 0.836691477329028
+        },
+        {
+          "progress": 0.99,
+          "value": 0.9953109512047005
+        },
+        {
+          "progress": 0.99999,
+          "value": 0.9999956518165132
+        },
+        {
+          "progress": 0.999999999999,
+          "value": 0.9999999999995908
+        },
+        {
+          "progress": 1,
+          "value": 1
+        },
+        {
+          "progress": 1.01,
+          "value": 1
+        }
+      ]
+    }
+  ],
+  "noise": [
+    {
+      "area": {
+        "Name": "",
+        "bottomLeft": {
+          "x": -250,
+          "y": -150
+        },
+        "topRight": {
+          "x": 250,
+          "y": 150
+        },
+        "appearTime": [
+          0,
+          0,
+          1
+        ],
+        "disappearTime": [
+          12,
+          0,
+          1
+        ],
+        "activeIntervals": [
+          {
+            "startTime": [
+              4,
+              0,
+              1
+            ],
+            "endTime": [
+              4,
+              0,
+              1
+            ],
+            "readyFlash": 0.5
+          }
+        ],
+        "isInvert": false,
+        "moveXEvents": [],
+        "moveYEvents": [],
+        "rotateEvents": [],
+        "scaleXEvents": [],
+        "scaleYEvents": []
+      },
+      "samples": [
+        {
+          "time": 0.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 0.75,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.49,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.5,
+          "state": "ready",
+          "mix": 1
+        },
+        {
+          "time": 1.5833333333333333,
+          "state": "ready",
+          "mix": 0
+        },
+        {
+          "time": 1.75,
+          "state": "ready",
+          "mix": 0
+        },
+        {
+          "time": 1.9,
+          "state": "ready",
+          "mix": 0.0954915028125275
+        },
+        {
+          "time": 2,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2.1,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 3,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.75,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 6,
+          "state": "hiddenAfter",
+          "mix": 0
+        }
+      ]
+    },
+    {
+      "area": {
+        "Name": "",
+        "bottomLeft": {
+          "x": -250,
+          "y": -150
+        },
+        "topRight": {
+          "x": 250,
+          "y": 150
+        },
+        "appearTime": [
+          0,
+          0,
+          1
+        ],
+        "disappearTime": [
+          12,
+          0,
+          1
+        ],
+        "activeIntervals": [
+          {
+            "startTime": [
+              4,
+              0,
+              1
+            ],
+            "endTime": [
+              4,
+              0,
+              1
+            ],
+            "readyFlash": 1.25
+          }
+        ],
+        "isInvert": false,
+        "moveXEvents": [],
+        "moveYEvents": [],
+        "rotateEvents": [],
+        "scaleXEvents": [],
+        "scaleYEvents": []
+      },
+      "samples": [
+        {
+          "time": 0.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 0.75,
+          "state": "ready",
+          "mix": 1
+        },
+        {
+          "time": 1,
+          "state": "ready",
+          "mix": 0.09549150281252622
+        },
+        {
+          "time": 1.49,
+          "state": "ready",
+          "mix": 0.5813185825974418
+        },
+        {
+          "time": 1.5,
+          "state": "ready",
+          "mix": 0.6545084971874735
+        },
+        {
+          "time": 1.5833333333333333,
+          "state": "ready",
+          "mix": 1
+        },
+        {
+          "time": 1.75,
+          "state": "ready",
+          "mix": 0.09549150281252644
+        },
+        {
+          "time": 1.9,
+          "state": "ready",
+          "mix": 0.5313952597646553
+        },
+        {
+          "time": 2,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2.1,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 3,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.75,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 6,
+          "state": "hiddenAfter",
+          "mix": 0
+        }
+      ]
+    },
+    {
+      "area": {
+        "Name": "",
+        "bottomLeft": {
+          "x": -250,
+          "y": -150
+        },
+        "topRight": {
+          "x": 250,
+          "y": 150
+        },
+        "appearTime": [
+          0,
+          0,
+          1
+        ],
+        "disappearTime": [
+          12,
+          0,
+          1
+        ],
+        "activeIntervals": [
+          {
+            "startTime": [
+              4,
+              0,
+              1
+            ],
+            "endTime": [
+              4,
+              0,
+              1
+            ],
+            "readyFlash": 0
+          }
+        ],
+        "isInvert": false,
+        "moveXEvents": [],
+        "moveYEvents": [],
+        "rotateEvents": [],
+        "scaleXEvents": [],
+        "scaleYEvents": []
+      },
+      "samples": [
+        {
+          "time": 0.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 0.75,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.49,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.5833333333333333,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.75,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.9,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2.1,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 3,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.75,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 6,
+          "state": "hiddenAfter",
+          "mix": 0
+        }
+      ]
+    },
+    {
+      "area": {
+        "Name": "",
+        "bottomLeft": {
+          "x": -250,
+          "y": -150
+        },
+        "topRight": {
+          "x": 250,
+          "y": 150
+        },
+        "appearTime": [
+          2,
+          0,
+          1
+        ],
+        "disappearTime": [
+          12,
+          0,
+          1
+        ],
+        "activeIntervals": [
+          {
+            "startTime": [
+              3,
+              0,
+              1
+            ],
+            "endTime": [
+              9,
+              0,
+              1
+            ],
+            "readyFlash": 0.5
+          },
+          {
+            "startTime": [
+              5,
+              0,
+              1
+            ],
+            "endTime": [
+              5,
+              0,
+              1
+            ],
+            "readyFlash": 0.5
+          }
+        ],
+        "isInvert": false,
+        "moveXEvents": [],
+        "moveYEvents": [],
+        "rotateEvents": [],
+        "scaleXEvents": [],
+        "scaleYEvents": []
+      },
+      "samples": [
+        {
+          "time": 0.5,
+          "state": "hiddenBefore",
+          "mix": 0
+        },
+        {
+          "time": 0.75,
+          "state": "hiddenBefore",
+          "mix": 0
+        },
+        {
+          "time": 1,
+          "state": "ready",
+          "mix": 1
+        },
+        {
+          "time": 1.49,
+          "state": "ready",
+          "mix": 0.9648882429441252
+        },
+        {
+          "time": 1.5,
+          "state": "active",
+          "mix": 1
+        },
+        {
+          "time": 1.5833333333333333,
+          "state": "active",
+          "mix": 1
+        },
+        {
+          "time": 1.75,
+          "state": "active",
+          "mix": 1
+        },
+        {
+          "time": 1.9,
+          "state": "active",
+          "mix": 1
+        },
+        {
+          "time": 2,
+          "state": "active",
+          "mix": 1
+        },
+        {
+          "time": 2.1,
+          "state": "active",
+          "mix": 1
+        },
+        {
+          "time": 2.5,
+          "state": "active",
+          "mix": 1
+        },
+        {
+          "time": 3,
+          "state": "active",
+          "mix": 1
+        },
+        {
+          "time": 4,
+          "state": "active",
+          "mix": 1
+        },
+        {
+          "time": 4.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.75,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 6,
+          "state": "hiddenAfter",
+          "mix": 0
+        }
+      ]
+    },
+    {
+      "area": {
+        "Name": "",
+        "bottomLeft": {
+          "x": -250,
+          "y": -150
+        },
+        "topRight": {
+          "x": 250,
+          "y": 150
+        },
+        "appearTime": [
+          2,
+          0,
+          1
+        ],
+        "disappearTime": [
+          12,
+          0,
+          1
+        ],
+        "activeIntervals": [
+          {
+            "startTime": [
+              1,
+              0,
+              1
+            ],
+            "endTime": [
+              1,
+              0,
+              1
+            ],
+            "readyFlash": 0.5
+          },
+          {
+            "startTime": [
+              13,
+              0,
+              1
+            ],
+            "endTime": [
+              13,
+              0,
+              1
+            ],
+            "readyFlash": 0.5
+          }
+        ],
+        "isInvert": false,
+        "moveXEvents": [],
+        "moveYEvents": [],
+        "rotateEvents": [],
+        "scaleXEvents": [],
+        "scaleYEvents": []
+      },
+      "samples": [
+        {
+          "time": 0.5,
+          "state": "hiddenBefore",
+          "mix": 0
+        },
+        {
+          "time": 0.75,
+          "state": "hiddenBefore",
+          "mix": 0
+        },
+        {
+          "time": 1,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.49,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.5833333333333333,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.75,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.9,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2.1,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 3,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.75,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 6,
+          "state": "hiddenAfter",
+          "mix": 0
+        }
+      ]
+    },
+    {
+      "area": {
+        "Name": "",
+        "bottomLeft": {
+          "x": -250,
+          "y": -150
+        },
+        "topRight": {
+          "x": 250,
+          "y": 150
+        },
+        "appearTime": [
+          2,
+          0,
+          1
+        ],
+        "disappearTime": [
+          12,
+          0,
+          1
+        ],
+        "activeIntervals": [
+          {
+            "startTime": [
+              0,
+              0,
+              1
+            ],
+            "endTime": [
+              2,
+              0,
+              1
+            ],
+            "readyFlash": 0.5
+          },
+          {
+            "startTime": [
+              12,
+              0,
+              1
+            ],
+            "endTime": [
+              14,
+              0,
+              1
+            ],
+            "readyFlash": 0.5
+          }
+        ],
+        "isInvert": false,
+        "moveXEvents": [],
+        "moveYEvents": [],
+        "rotateEvents": [],
+        "scaleXEvents": [],
+        "scaleYEvents": []
+      },
+      "samples": [
+        {
+          "time": 0.5,
+          "state": "hiddenBefore",
+          "mix": 0
+        },
+        {
+          "time": 0.75,
+          "state": "hiddenBefore",
+          "mix": 0
+        },
+        {
+          "time": 1,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.49,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.5833333333333333,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.75,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.9,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2.1,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 3,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.75,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 6,
+          "state": "hiddenAfter",
+          "mix": 0
+        }
+      ]
+    },
+    {
+      "area": {
+        "Name": "",
+        "bottomLeft": {
+          "x": -250,
+          "y": -150
+        },
+        "topRight": {
+          "x": 250,
+          "y": 150
+        },
+        "appearTime": [
+          2,
+          0,
+          1
+        ],
+        "disappearTime": [
+          12,
+          0,
+          1
+        ],
+        "activeIntervals": [
+          {
+            "startTime": [
+              12,
+              0,
+              1
+            ],
+            "endTime": [
+              12,
+              0,
+              1
+            ],
+            "readyFlash": 0.5
+          }
+        ],
+        "isInvert": false,
+        "moveXEvents": [],
+        "moveYEvents": [],
+        "rotateEvents": [],
+        "scaleXEvents": [],
+        "scaleYEvents": []
+      },
+      "samples": [
+        {
+          "time": 0.5,
+          "state": "hiddenBefore",
+          "mix": 0
+        },
+        {
+          "time": 0.75,
+          "state": "hiddenBefore",
+          "mix": 0
+        },
+        {
+          "time": 1,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.49,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.5833333333333333,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.75,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.9,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2.1,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 2.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 3,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.5,
+          "state": "ready",
+          "mix": 1
+        },
+        {
+          "time": 5.75,
+          "state": "ready",
+          "mix": 0
+        },
+        {
+          "time": 6,
+          "state": "hiddenAfter",
+          "mix": 0
+        }
+      ]
+    },
+    {
+      "area": {
+        "Name": "",
+        "bottomLeft": {
+          "x": -250,
+          "y": -150
+        },
+        "topRight": {
+          "x": 250,
+          "y": 150
+        },
+        "appearTime": [
+          2,
+          0,
+          1
+        ],
+        "disappearTime": [
+          12,
+          0,
+          1
+        ],
+        "activeIntervals": [
+          {
+            "startTime": [
+              4,
+              0,
+              1
+            ],
+            "endTime": [
+              4,
+              0,
+              1
+            ],
+            "readyFlash": 0
+          },
+          {
+            "startTime": [
+              4,
+              0,
+              1
+            ],
+            "endTime": [
+              6,
+              0,
+              1
+            ],
+            "readyFlash": 0.5
+          }
+        ],
+        "isInvert": false,
+        "moveXEvents": [],
+        "moveYEvents": [],
+        "rotateEvents": [],
+        "scaleXEvents": [],
+        "scaleYEvents": []
+      },
+      "samples": [
+        {
+          "time": 0.5,
+          "state": "hiddenBefore",
+          "mix": 0
+        },
+        {
+          "time": 0.75,
+          "state": "hiddenBefore",
+          "mix": 0
+        },
+        {
+          "time": 1,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.49,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.5,
+          "state": "ready",
+          "mix": 1
+        },
+        {
+          "time": 1.5833333333333333,
+          "state": "ready",
+          "mix": 0
+        },
+        {
+          "time": 1.75,
+          "state": "ready",
+          "mix": 0
+        },
+        {
+          "time": 1.9,
+          "state": "ready",
+          "mix": 0.0954915028125275
+        },
+        {
+          "time": 2,
+          "state": "active",
+          "mix": 1
+        },
+        {
+          "time": 2.1,
+          "state": "active",
+          "mix": 1
+        },
+        {
+          "time": 2.5,
+          "state": "active",
+          "mix": 1
+        },
+        {
+          "time": 3,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.75,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 6,
+          "state": "hiddenAfter",
+          "mix": 0
+        }
+      ]
+    },
+    {
+      "area": {
+        "Name": "",
+        "bottomLeft": {
+          "x": -250,
+          "y": -150
+        },
+        "topRight": {
+          "x": 250,
+          "y": 150
+        },
+        "appearTime": [
+          2,
+          0,
+          1
+        ],
+        "disappearTime": [
+          12,
+          0,
+          1
+        ],
+        "activeIntervals": [
+          {
+            "startTime": [
+              4,
+              0,
+              1
+            ],
+            "endTime": [
+              6,
+              0,
+              1
+            ],
+            "readyFlash": 0.5
+          },
+          {
+            "startTime": [
+              4,
+              0,
+              1
+            ],
+            "endTime": [
+              4,
+              0,
+              1
+            ],
+            "readyFlash": 0
+          }
+        ],
+        "isInvert": false,
+        "moveXEvents": [],
+        "moveYEvents": [],
+        "rotateEvents": [],
+        "scaleXEvents": [],
+        "scaleYEvents": []
+      },
+      "samples": [
+        {
+          "time": 0.5,
+          "state": "hiddenBefore",
+          "mix": 0
+        },
+        {
+          "time": 0.75,
+          "state": "hiddenBefore",
+          "mix": 0
+        },
+        {
+          "time": 1,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.49,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 1.5,
+          "state": "ready",
+          "mix": 1
+        },
+        {
+          "time": 1.5833333333333333,
+          "state": "ready",
+          "mix": 0
+        },
+        {
+          "time": 1.75,
+          "state": "ready",
+          "mix": 0
+        },
+        {
+          "time": 1.9,
+          "state": "ready",
+          "mix": 0.0954915028125275
+        },
+        {
+          "time": 2,
+          "state": "active",
+          "mix": 1
+        },
+        {
+          "time": 2.1,
+          "state": "active",
+          "mix": 1
+        },
+        {
+          "time": 2.5,
+          "state": "active",
+          "mix": 1
+        },
+        {
+          "time": 3,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 4.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.5,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 5.75,
+          "state": "disabled",
+          "mix": 0
+        },
+        {
+          "time": 6,
+          "state": "hiddenAfter",
+          "mix": 0
+        }
+      ]
+    }
+  ]
+}

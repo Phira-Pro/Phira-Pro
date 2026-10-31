@@ -111,7 +111,14 @@ impl Pacer {
             }
             self.next_refresh_check = now + Duration::from_secs(1);
         }
-        let rate = frame_rate(limit, self.monitor_rate);
+        let Some(rate) = frame_rate(limit, self.monitor_rate) else {
+            if !self.period.is_zero() {
+                tracing::info!("Windows frame pacing: unlimited");
+            }
+            self.period = Duration::ZERO;
+            self.next = now;
+            return;
+        };
         let period = Duration::from_secs_f64(1. / rate as f64);
         if self.period != period {
             self.period = period;
@@ -145,11 +152,11 @@ impl Pacer {
     }
 }
 
-fn frame_rate(limit: u16, monitor_rate: u32) -> u32 {
-    if limit == 0 {
-        monitor_rate.clamp(10, 1000)
-    } else {
-        u32::from(limit).clamp(30, 1000)
+fn frame_rate(limit: u16, monitor_rate: u32) -> Option<u32> {
+    match limit {
+        crate::config::UNLIMITED_FPS => None,
+        0 => Some(monitor_rate.clamp(10, 1000)),
+        _ => Some(u32::from(limit).clamp(30, 1000)),
     }
 }
 
@@ -183,12 +190,31 @@ mod tests {
     use super::*;
     #[test]
     fn explicit_limit_is_independent_of_monitor_changes_and_auto_follows_them() {
-        assert_eq!(frame_rate(0, 60), 60);
-        assert_eq!(frame_rate(0, 165), 165);
-        assert_eq!(frame_rate(60, 165), 60);
-        assert_eq!(frame_rate(240, 60), 240);
-        assert_eq!(frame_rate(240, 165), 240);
-        assert_eq!(frame_rate(u16::MAX, 60), 1000);
+        assert_eq!(frame_rate(0, 60), Some(60));
+        assert_eq!(frame_rate(0, 165), Some(165));
+        assert_eq!(frame_rate(60, 165), Some(60));
+        assert_eq!(frame_rate(240, 60), Some(240));
+        assert_eq!(frame_rate(240, 165), Some(240));
+        assert_eq!(frame_rate(crate::config::UNLIMITED_FPS, 60), None);
+        assert_eq!(frame_rate(crate::config::UNLIMITED_FPS, 165), None);
+    }
+    #[test]
+    fn unlimited_clears_deadline_and_switching_back_starts_a_new_schedule() {
+        let now = Instant::now();
+        let mut pacer = Pacer {
+            timer: ptr::null_mut(),
+            monitor_rate: 60,
+            period: Duration::from_secs(1),
+            next: now + Duration::from_secs(10),
+            next_refresh_check: now + Duration::from_secs(60),
+            refresh_worker: None,
+        };
+        pacer.wait(crate::config::UNLIMITED_FPS);
+        assert_eq!(pacer.period, Duration::ZERO);
+        assert!(pacer.next <= Instant::now());
+        pacer.wait(60);
+        assert_eq!(pacer.period, Duration::from_secs_f64(1. / 60.));
+        assert!(pacer.next <= Instant::now() + pacer.period);
     }
     #[test]
     fn jitter_and_missed_frames_do_not_halve_the_target_or_create_bursts() {

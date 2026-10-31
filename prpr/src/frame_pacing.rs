@@ -44,7 +44,7 @@ pub fn set_requested(rate: u16) {
 
 fn maximum(mtm: MainThreadMarker) -> u16 {
     #[allow(deprecated)]
-    let maximum = UIScreen::mainScreen(mtm).maximumFramesPerSecond().clamp(1, 120) as u16;
+    let maximum = UIScreen::mainScreen(mtm).maximumFramesPerSecond().clamp(1, u16::MAX as isize) as u16;
     crate::ui::MAX_DEVICE_REFRESH_RATE.store((maximum as f32).to_bits(), Ordering::Relaxed);
     maximum
 }

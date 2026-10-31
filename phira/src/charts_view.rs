@@ -113,8 +113,8 @@ pub struct ChartsView {
     pub selection_limit: Option<usize>,
     /// Embedded browsers reuse these exact cards but select without navigating.
     pub select_on_click: bool,
-    /// In the multiplayer picker a long press opens safe chart settings without enabling play.
-    pub multiplayer_picker: bool,
+    /// In a selection-only picker a long press opens chart settings without starting gameplay.
+    pub selection_only: bool,
     pub picked: Option<ChartItem>,
     pub highlighted: Option<ChartRef>,
     pub fixed_layout: Option<(u32, f32)>,
@@ -152,7 +152,7 @@ impl ChartsView {
             multi_select: None,
             selection_limit: None,
             select_on_click: false,
-            multiplayer_picker: false,
+            selection_only: false,
             picked: None,
             highlighted: None,
             fixed_layout: None,
@@ -229,7 +229,7 @@ impl ChartsView {
             return Ok(false);
         }
         let mut movement = None;
-        let mut multiplayer_detail = None;
+        let mut selection_detail = None;
         if let Some(charts) = &mut self.charts {
             for (id, item) in charts.iter_mut().enumerate() {
                 if let Some(chart) = &item.chart {
@@ -238,7 +238,7 @@ impl ChartsView {
                         if self.select_on_click {
                             button_hit();
                             self.picked = Some(chart.clone());
-                            if !self.multiplayer_picker {
+                            if !self.selection_only {
                                 self.highlighted = Some(chart.to_bare_ref());
                             }
                             return Ok(true);
@@ -324,8 +324,8 @@ impl ChartsView {
                     // threshold is crossed, before `update_long_touch` runs.
                     // Handle that path too, or the hold is consumed and the
                     // chart can only be selected by tapping.
-                    if self.multiplayer_picker && self.multi_select.is_none() && long_fired {
-                        multiplayer_detail = Some(id);
+                    if self.selection_only && self.multi_select.is_none() && long_fired {
+                        selection_detail = Some(id);
                         break;
                     }
                     if self.allow_multi_select && self.multi_select.is_none() && long_fired {
@@ -356,8 +356,8 @@ impl ChartsView {
                 }
             }
         }
-        if let Some(id) = multiplayer_detail {
-            self.open_multiplayer_detail(id, t);
+        if let Some(id) = selection_detail {
+            self.open_selection_detail(id, t);
             return Ok(true);
         }
         if let Some((id, after)) = movement {
@@ -378,7 +378,7 @@ impl ChartsView {
         Ok(false)
     }
 
-    fn open_multiplayer_detail(&mut self, id: usize, t: f32) {
+    fn open_selection_detail(&mut self, id: usize, t: f32) {
         self.scroll.y_scroller.halt();
         self.editing_chart = Some(id);
         let item = &mut self.charts.as_mut().unwrap()[id];
@@ -416,15 +416,15 @@ impl ChartsView {
         let refreshed = self.can_refresh && self.scroll.y_scroller.pulled;
         self.chart_menu.update(t);
         self.scroll.update(t);
-        let mut multiplayer_detail = None;
-        if (self.allow_multi_select || self.multiplayer_picker) && self.multi_select.is_none() {
+        let mut selection_detail = None;
+        if (self.allow_multi_select || self.selection_only) && self.multi_select.is_none() {
             if let Some(charts) = &mut self.charts {
                 for (id, item) in charts.iter_mut().enumerate() {
                     if item.chart.is_some() && item.btn.update_long_touch(t, &mut item.long_touch) {
                         self.scroll.y_scroller.halt();
                         self.editing_chart = Some(id);
-                        if self.multiplayer_picker {
-                            multiplayer_detail = Some(id);
+                        if self.selection_only {
+                            selection_detail = Some(id);
                             break;
                         }
                         let mut options = vec![tl!("select").into_owned()];
@@ -444,8 +444,8 @@ impl ChartsView {
                 }
             }
         }
-        if let Some(id) = multiplayer_detail {
-            self.open_multiplayer_detail(id, t);
+        if let Some(id) = selection_detail {
+            self.open_selection_detail(id, t);
         }
         if self.chart_menu.changed() {
             let has_header = self.has_header();

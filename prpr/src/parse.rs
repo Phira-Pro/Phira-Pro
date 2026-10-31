@@ -2,7 +2,12 @@
 prpr_l10n::tl_file!("parser" ptl);
 
 mod extra;
-pub use extra::parse_extra;
+pub use extra::{parse_extra, parse_extra_with_bpm};
+
+/// Accept UTF-8 editor exports without changing the stored chart bytes.
+pub fn json_bytes(bytes: &[u8]) -> &[u8] {
+    bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes)
+}
 
 mod pec;
 pub use pec::{parse_pec, SendChart};

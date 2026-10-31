@@ -13,10 +13,10 @@ pub use favorites::FavoritesPage;
 mod history;
 pub use history::HistoryPage;
 pub mod course;
-pub mod plugins;
-pub mod replays;
-pub mod replay_analysis;
 mod management;
+pub mod plugins;
+pub mod replay_analysis;
+pub mod replays;
 pub mod tools;
 
 mod home;
@@ -556,15 +556,7 @@ pub enum NextPage {
 pub trait Page {
     fn label(&self) -> Cow<'static, str>;
 
-    /// One-shot result for the multiplayer chart picker. Other pages leave it empty.
-    fn take_multiplayer_chart(&mut self) -> Option<i32> {
-        None
-    }
-    fn is_multiplayer_chart_picker(&self) -> bool {
-        false
-    }
-
-    /// 谱面渲染页请求弹出选谱界面（和多人选谱用同一套列表）。
+    /// 谱面渲染页请求弹出选谱界面。
     fn take_render_picker_request(&mut self) -> bool {
         false
     }

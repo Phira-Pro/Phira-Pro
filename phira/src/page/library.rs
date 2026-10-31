@@ -169,8 +169,7 @@ pub struct LibraryPage {
     export_task: Option<mpsc::Receiver<Result<()>>>,
     export_progress: Arc<AtomicU32>,
     export_total: usize,
-    multiplayer_picker: bool,
-    /// 谱面渲染页用的选谱模式：界面和多人选谱一样，返回 `local_path` 而不是谱面 id。
+    /// 谱面渲染页用的选谱模式：返回 `local_path` 而不是谱面 id。
     render_picker: bool,
 }
 
@@ -273,19 +272,8 @@ impl LibraryPage {
             export_task: None,
             export_progress: Arc::default(),
             export_total: 0,
-            multiplayer_picker: false,
             render_picker: false,
         })
-    }
-
-    pub fn new_multiplayer_picker(icons: Arc<Icons>, rank_icons: [SafeTexture; 8]) -> Result<Self> {
-        let mut page = Self::new(icons, rank_icons)?;
-        page.multiplayer_picker = true;
-        let view = &mut page.tabs.selected_mut().view;
-        view.select_on_click = true;
-        view.multiplayer_picker = true;
-        view.allow_multi_select = false;
-        Ok(page)
     }
 
     pub fn new_render_picker(icons: Arc<Icons>, rank_icons: [SafeTexture; 8]) -> Result<Self> {
@@ -293,7 +281,7 @@ impl LibraryPage {
         page.render_picker = true;
         let view = &mut page.tabs.selected_mut().view;
         view.select_on_click = true;
-        view.multiplayer_picker = true;
+        view.selection_only = true;
         view.allow_multi_select = false;
         Ok(page)
     }
@@ -729,10 +717,6 @@ mod ohos_export {
 }
 
 impl Page for LibraryPage {
-    fn is_multiplayer_chart_picker(&self) -> bool {
-        self.multiplayer_picker
-    }
-
     fn take_render_chart(&mut self) -> Option<String> {
         if !self.render_picker {
             return None;
@@ -742,20 +726,6 @@ impl Page for LibraryPage {
             Some(path) => Some(path),
             None => {
                 show_message("请先下载这首谱面").warn();
-                None
-            }
-        }
-    }
-
-    fn take_multiplayer_chart(&mut self) -> Option<i32> {
-        if !self.multiplayer_picker {
-            return None;
-        }
-        let picked = self.tabs.selected_mut().view.picked.take()?;
-        match picked.info.id {
-            Some(id) => Some(id),
-            None => {
-                show_message("联机选曲只能选择已上架谱面").warn();
                 None
             }
         }
@@ -797,7 +767,7 @@ impl Page for LibraryPage {
     }
 
     fn touch(&mut self, touch: &Touch, s: &mut SharedState) -> Result<bool> {
-        if !self.multiplayer_picker && !self.render_picker && self.course_btn.touch(touch, s.t) {
+        if !self.render_picker && self.course_btn.touch(touch, s.t) {
             if self.course_selection.is_some() {
                 self.exit_course();
             } else {
@@ -813,7 +783,7 @@ impl Page for LibraryPage {
             }
             return Ok(true);
         }
-        if !self.multiplayer_picker && !self.render_picker && self.course_selection.is_some() && self.course_start.touch(touch, s.t) {
+        if !self.render_picker && self.course_selection.is_some() && self.course_start.touch(touch, s.t) {
             let selection = self.course_selection.as_ref().unwrap();
             if selection.len() != 3 {
                 show_message("请选择三首曲目后开始游玩").warn();
@@ -1628,7 +1598,7 @@ impl Page for LibraryPage {
                 Ok(())
             })
         })?;
-        if !self.multiplayer_picker && !self.render_picker {
+        if !self.render_picker {
             s.render_fader(ui, |ui| {
                 self.course_btn
                     .render_text(ui, course_rect, t, if self.course_selection.is_some() { "退出" } else { "课题模式" }, 0.36, false);

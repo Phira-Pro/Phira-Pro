@@ -345,7 +345,7 @@ pub struct SongScene {
     edit_scroll: Scroll,
 
     mods: Mods,
-    multiplayer_picker_detail: bool,
+    selection_only_detail: bool,
     mod_btn: RectButton,
     mod_scroll: Scroll,
     mod_btns: Vec<(DRectButton, bool)>,
@@ -554,7 +554,7 @@ impl SongScene {
             edit_scroll: Scroll::new(),
 
             mods,
-            multiplayer_picker_detail: false,
+            selection_only_detail: false,
             mod_btn: RectButton::new(),
             mod_scroll: Scroll::new(),
             mod_btns: Vec::new(),
@@ -667,7 +667,7 @@ impl SongScene {
     }
 
     pub(crate) fn prevent_play(&mut self) {
-        self.multiplayer_picker_detail = true;
+        self.selection_only_detail = true;
     }
 
     fn start_ppsr_analysis(&mut self) {
@@ -677,7 +677,11 @@ impl SongScene {
         let Some(path) = self.local_path.clone() else { return };
         self.ppsr_analysis_started = true;
         let job = crate::plugins::begin_chart_selected();
-        let chart_set = if matches!(self.chart_type, ChartType::Integrated) { "phigros" } else { "phira" };
+        let chart_set = if matches!(self.chart_type, ChartType::Integrated) {
+            "phigros"
+        } else {
+            "phira"
+        };
         let root = dir::charts();
         self.ppsr_analysis_task = Some(Box::pin(async move {
             let source = if path.starts_with(':') {
@@ -1039,8 +1043,8 @@ impl SongScene {
     }
 
     fn launch(&mut self, mode: GameMode, force_unlock: bool) -> Result<()> {
-        if self.multiplayer_picker_detail {
-            show_message("多人房间选曲时不能从谱面详情开始游玩").warn();
+        if self.selection_only_detail {
+            show_message("请返回选谱列表选择谱面").warn();
             return Ok(());
         }
         let local_path = self.local_path.as_ref().unwrap();
@@ -1075,30 +1079,9 @@ impl SongScene {
         record: Option<SimpleRecord>,
         is_unlock: bool,
     ) -> Result<LocalSceneTask> {
-        Self::launch_with_context(id, local_path, mods, mode, background_output, record, is_unlock, None)
-    }
-
-    pub(crate) fn multiplayer_launch(id: i32, local_path: &str, context: crate::mp::game_bridge::GameContext) -> Result<LocalSceneTask> {
-        Self::launch_with_context(Some(id), local_path, Mods::empty(), GameMode::NoRetry, None, None, false, Some(context))
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn launch_with_context(
-        id: Option<i32>,
-        local_path: &str,
-        mods: Mods,
-        mode: GameMode,
-        background_output: Option<Arc<Mutex<Option<SafeTexture>>>>,
-        record: Option<SimpleRecord>,
-        is_unlock: bool,
-        multiplayer: Option<crate::mp::game_bridge::GameContext>,
-    ) -> Result<LocalSceneTask> {
         // Preset judgement mods must survive the per-chart mod assignment below.
-        let mut mods = get_data().config.chart_mods(mods);
-        let mut run_config = get_data().config.clone();
-        if let Some(context) = &multiplayer {
-            context.configure(&mut run_config, &mut mods);
-        }
+        let mods = get_data().config.chart_mods(mods);
+        let run_config = get_data().config.clone();
         let mut fs = fs_from_path(local_path)?;
         let can_rated = id.is_some() || local_path.starts_with(':');
         #[cfg(feature = "video")]
@@ -1113,7 +1096,7 @@ impl SongScene {
             show_message(tl!("warn-unrated")).warn();
         }
         // Phira Pro：回放录制。仅在正常游玩（非自动）时挂载。
-        let replay_rec = if matches!(mode, GameMode::Normal | GameMode::NoRetry) && !run_config.autoplay() {
+        let replay_rec = if matches!(mode, GameMode::Normal) && !run_config.autoplay() {
             let chart = match id {
                 Some(id) => Some(crate::replay::ChartRef::Id(id)),
                 None => Some(crate::replay::ChartRef::Local(local_path.to_owned())),
@@ -1123,11 +1106,7 @@ impl SongScene {
         } else {
             None
         };
-        let update_fn: Option<UpdateFn> = if let Some(context) = &multiplayer {
-            context.wrap_update(replay_rec)
-        } else {
-            replay_rec
-        };
+        let update_fn: Option<UpdateFn> = replay_rec;
 
         let save_fn: Option<SaveFn> = Some(Box::new({
             let local_path = local_path.to_string();
@@ -1193,11 +1172,6 @@ impl SongScene {
             }
         }));
 
-        let save_fn = if let Some(context) = &multiplayer {
-            context.wrap_save(save_fn)
-        } else {
-            save_fn
-        };
         let practice_source = local_path.to_owned();
         Ok(Some(Box::pin(async move {
             let mut info = fs::load_info(fs.as_mut()).await?;
@@ -1214,7 +1188,6 @@ impl SongScene {
                 .unwrap_or_else(|| tl!("guest").into_owned());
             config.res_pack_path = get_data().selected_respack_path()?;
             config.mods = mods;
-            // Multiplayer supplies its per-game rules through GameContext above.
             let preload = LoadingScene::load(fs.as_mut(), &info.illustration).await?;
             if let Some(output) = background_output {
                 *output.lock().unwrap() = Some(preload.1.clone());
@@ -1802,7 +1775,7 @@ impl SongScene {
                 dy!(row_height);
                 index += 1;
             };
-            if self.multiplayer_picker_detail {
+            if self.selection_only_detail {
                 item(tl!("mods-flip-x"), Some(tl!("mods-flip-x-sub")), Mods::FLIP_X);
                 item(tl!("mods-fade-in"), Some(tl!("mods-fade-in-sub")), Mods::FADE_IN);
                 item(tl!("mods-fade-out"), Some(tl!("mods-fade-out-sub")), Mods::FADE_OUT);
@@ -2331,8 +2304,8 @@ impl Scene for SongScene {
             }
         }
         if self.scene_task.is_none() && self.next_scene.is_none() && self.play_btn.touch(touch, t) {
-            if self.multiplayer_picker_detail {
-                show_message("多人房间选曲时不能从谱面详情开始游玩").warn();
+            if self.selection_only_detail {
+                show_message("请返回选谱列表选择谱面").warn();
                 return Ok(true);
             }
             if self.local_path.is_some() {
@@ -2412,7 +2385,9 @@ impl Scene for SongScene {
         if let Some(result) = ppsr_result {
             self.ppsr_analysis_task = None;
             match result {
-                Ok(output) => { crate::plugins::publish_selected(output); },
+                Ok(output) => {
+                    crate::plugins::publish_selected(output);
+                }
                 Err(err) => {
                     warn!(?err, "failed to analyze selected chart with plugins");
                     show_error(err.context("谱面插件分析失败"));

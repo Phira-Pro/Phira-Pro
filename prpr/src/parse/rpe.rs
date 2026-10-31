@@ -88,10 +88,8 @@ struct RPEEvent<T = f32> {
 }
 
 impl<T> RPEEvent<T> {
-    fn bezier_key(&self) -> (u16, i16, i16) {
-        let p = &self.bezier_points;
-        let int = |p: f32| (p * 100.).round() as i16;
-        ((int(p[0]) * 100 + int(p[1])) as u16, int(p[2]), int(p[3]))
+    fn bezier_key(&self) -> [u32; 4] {
+        self.bezier_points.map(f32::to_bits)
     }
 
     pub fn tween(&self, bezier_map: &BezierMap) -> TweenRef {
@@ -158,14 +156,18 @@ struct RPENote {
     end_time: Triple,
     position_x: f32,
     y_offset: f32,
-    alpha: u16,               // some alpha has 256...
-    hitsound: Option<String>, // TODO implement this feature
+    alpha: u16, // some alpha has 256...
+    hitsound: Option<String>,
+    #[serde(rename = "hitSound")]
+    legacy_hitsound: Option<String>,
     size: f32,
     speed: f32,
     is_fake: u8,
     visible_time: f64,
     #[serde(default)]
     tint: Option<[u8; 3]>,
+    #[serde(default, rename = "color")]
+    legacy_tint: Option<[u8; 3]>,
     #[serde(default)]
     tint_hit_effects: Option<[u8; 3]>,
     #[serde(default)]
@@ -351,7 +353,7 @@ fn parse_embedded_blocks(
     Ok((parse_block_areas(native), next))
 }
 
-type BezierMap = HashMap<(u16, i16, i16), TweenRef>;
+type BezierMap = HashMap<[u32; 4], TweenRef>;
 
 fn parse_events<T: Tweenable, V: Clone + Into<T>>(
     r: &mut BpmList,
@@ -432,9 +434,9 @@ fn parse_speed_events(r: &mut BpmList, rpe: &[RPEEventLayer], bezier_map: &Bezie
 
             push_kf(cursor, start_time, StaticTween::get_rc(2), last_speed);
             if end_time > start_time + EPS {
-                if event.easing_type == 0 {
+                if event.bezier == 0 && event.easing_type == 0 {
                     push_kf(start_time, end_time, StaticTween::get_rc(2), start_speed);
-                } else if event.easing_type <= 1 {
+                } else if event.bezier == 0 && event.easing_type <= 1 {
                     if start_speed * end_speed < 0. {
                         let x = start_speed / (start_speed - end_speed);
                         let mid = f64::tween(&start_time, &end_time, x);
@@ -609,15 +611,20 @@ async fn parse_notes(
             4 => NoteKind::Drag,
             _ => ptl!(bail "unknown-note-type", "type" => note.kind),
         };
-        let hitsound = match note.hitsound {
+        let hitsound = match note
+            .hitsound
+            .filter(|s| !s.is_empty())
+            .or_else(|| note.legacy_hitsound.filter(|s| !s.is_empty()))
+        {
             Some(s) => {
-                // TODO: RPE doc needed...
-                if s == "flick.mp3" {
-                    HitSound::Flick
-                } else if s == "tap.mp3" {
-                    HitSound::Click
-                } else if s == "drag.mp3" {
-                    HitSound::Drag
+                let builtin = match s.as_str() {
+                    "flick.mp3" => Some(HitSound::Flick),
+                    "tap.mp3" => Some(HitSound::Click),
+                    "drag.mp3" => Some(HitSound::Drag),
+                    _ => None,
+                };
+                if builtin.is_some() && !fs.exists(&s).await? {
+                    builtin.unwrap()
                 } else {
                     if hitsounds.get(&s).is_none() {
                         let data = fs.load_file(&s).await;
@@ -653,7 +660,7 @@ async fn parse_notes(
             time,
             height: note_height as f64,
             speed: note.speed as f64,
-            color: note.tint.map_or(WHITE, |[r, g, b]| Color::from_rgba(r, g, b, 255)),
+            color: note.tint.or(note.legacy_tint).map_or(WHITE, |[r, g, b]| Color::from_rgba(r, g, b, 255)),
             fx_color: note.tint_hit_effects.map(|[r, g, b]| Color::from_rgba(r, g, b, 255)),
             judge_area: note.judge_area.unwrap_or(1.0),
 
@@ -889,8 +896,7 @@ async fn parse_judge_line(
 fn add_bezier<T>(map: &mut BezierMap, event: &RPEEvent<T>) {
     if event.bezier != 0 {
         let p = &event.bezier_points;
-        let int = |p: f32| (p * 100.).round() as i16;
-        map.entry(((int(p[0]) * 100 + int(p[1])) as u16, int(p[2]), int(p[3])))
+        map.entry(event.bezier_key())
             .or_insert_with(|| Arc::new(BezierTween::new((p[0], p[1]), (p[2], p[3]))));
     }
 }
@@ -909,7 +915,7 @@ fn get_bezier_map(rpe: &RPEChart) -> BezierMap {
     let mut map = HashMap::new();
     for line in &rpe.judge_line_list {
         for event_layer in line.event_layers.iter().flatten() {
-            process_bezier!(event_layer, &mut map, alpha_events, move_x_events, move_y_events, rotate_events);
+            process_bezier!(event_layer, &mut map, alpha_events, move_x_events, move_y_events, rotate_events, speed_events);
         }
         if let Some(ext_layer) = &line.extended {
             process_bezier!(ext_layer, &mut map, paint_events, scale_x_events, scale_y_events, gif_events, incline_events, text_events, color_events);
@@ -946,18 +952,26 @@ pub async fn parse_rpe_options(
 
 /// CPU-only analysis preserves note/line geometry while skipping GPU resources.
 pub async fn parse_rpe_for_analysis(
-    source: &str, fs: &mut dyn FileSystem, use_rpe_170_speed: bool,
-    chart_path: Option<&str>, use_rpen: bool,
+    source: &str,
+    fs: &mut dyn FileSystem,
+    use_rpe_170_speed: bool,
+    chart_path: Option<&str>,
+    use_rpen: bool,
 ) -> Result<Chart> {
     parse_rpe_impl(source, fs, ChartExtra::default(), use_rpe_170_speed, chart_path, use_rpen, false).await
 }
 
 #[allow(clippy::too_many_arguments)]
 async fn parse_rpe_impl(
-    source: &str, fs: &mut dyn FileSystem, extra: ChartExtra, use_rpe_170_speed: bool,
-    chart_path: Option<&str>, use_rpen: bool, load_visuals: bool,
+    source: &str,
+    fs: &mut dyn FileSystem,
+    extra: ChartExtra,
+    use_rpe_170_speed: bool,
+    chart_path: Option<&str>,
+    use_rpen: bool,
+    load_visuals: bool,
 ) -> Result<Chart> {
-    let raw: serde_json::Value = serde_json::from_str(source).with_context(|| ptl!("json-parse-failed"))?;
+    let raw: serde_json::Value = serde_json::from_slice(super::json_bytes(source.as_bytes())).with_context(|| ptl!("json-parse-failed"))?;
     let rpe: RPEChart = serde_json::from_value(super::rpen::legacy_source(&raw)).with_context(|| ptl!("json-parse-failed"))?;
     let speed_mode = if rpe.meta.rpe_version >= 170 {
         SpeedEasingMode::Modern
@@ -1079,7 +1093,11 @@ async fn parse_rpe_impl(
     chart.next_block_areas = next_block_areas;
     chart.next_single_inversion = rpe.noise_area_options.ignore_triple_inversion || (use_rpen && super::rpen::features(&raw));
     if use_rpen {
-        let effects = if load_visuals { super::rpen::load_effects(&raw, &mut chart.bpm_list.borrow_mut(), fs).await? } else { Vec::new() };
+        let effects = if load_visuals {
+            super::rpen::load_effects(&raw, &mut chart.bpm_list.borrow_mut(), fs).await?
+        } else {
+            Vec::new()
+        };
         for effect in effects {
             if effect.global {
                 chart.extra.global_effects.push(effect)
@@ -1126,7 +1144,7 @@ async fn parse_rpe_impl(
 }
 
 pub async fn lint(source: &str) -> Result<ParseWarnings> {
-    let raw: serde_json::Value = serde_json::from_str(source).with_context(|| ptl!("json-parse-failed"))?;
+    let raw: serde_json::Value = serde_json::from_slice(super::json_bytes(source.as_bytes())).with_context(|| ptl!("json-parse-failed"))?;
     let has_rpen_features = super::rpen::features(&raw);
     let rpe: RPEChart = serde_json::from_value(super::rpen::legacy_source(&raw)).with_context(|| ptl!("json-parse-failed"))?;
     if let Some(list) = rpe.block_area_list {
@@ -1168,6 +1186,95 @@ mod block_area_tests {
                 }]
             }]
         })
+    }
+
+    #[test]
+    fn note_aliases_preserve_canonical_precedence_and_other_properties() {
+        let mut raw = chart_json(120.);
+        let note = &mut raw["judgeLineList"][0]["notes"][0];
+        note["hitSound"] = json!("flick.mp3");
+        note["color"] = json!([12, 34, 56]);
+        note["tintHitEffects"] = json!([78, 90, 123]);
+        note["judgeArea"] = json!(1.75);
+        let chart = read_chart(raw.clone()).unwrap();
+        let parsed = &chart.lines[0].notes[0];
+        assert!(matches!(parsed.hitsound, HitSound::Flick));
+        assert_eq!(parsed.color, Color::from_rgba(12, 34, 56, 255));
+        assert_eq!(parsed.fx_color, Some(Color::from_rgba(78, 90, 123, 255)));
+        assert_eq!(parsed.judge_area, 1.75);
+        raw["judgeLineList"][0]["notes"][0]["hitsound"] = json!("drag.mp3");
+        raw["judgeLineList"][0]["notes"][0]["tint"] = json!([1, 2, 3]);
+        let chart = read_chart(raw).unwrap();
+        assert!(matches!(chart.lines[0].notes[0].hitsound, HitSound::Drag));
+        assert_eq!(chart.lines[0].notes[0].color, Color::from_rgba(1, 2, 3, 255));
+    }
+
+    #[test]
+    fn packaged_sound_assets_override_reserved_legacy_names() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut wave = Vec::new();
+        wave.extend(b"RIFF");
+        wave.extend(52u32.to_le_bytes());
+        wave.extend(b"WAVEfmt ");
+        wave.extend(16u32.to_le_bytes());
+        wave.extend(1u16.to_le_bytes());
+        wave.extend(1u16.to_le_bytes());
+        wave.extend(8000u32.to_le_bytes());
+        wave.extend(16000u32.to_le_bytes());
+        wave.extend(2u16.to_le_bytes());
+        wave.extend(16u16.to_le_bytes());
+        wave.extend(b"data");
+        wave.extend(16u32.to_le_bytes());
+        wave.extend([0u8; 16]);
+        std::fs::write(directory.path().join("tap.mp3"), wave).unwrap();
+        let mut raw = chart_json(120.);
+        raw["judgeLineList"][0]["notes"][0]["hitsound"] = json!("tap.mp3");
+        let mut fs = crate::fs::ExternalFileSystem(Arc::new(crate::dir::Dir::new(directory.path()).unwrap()));
+        let chart = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(parse_rpe(&raw.to_string(), &mut fs, ChartExtra::default(), false))
+            .unwrap();
+        assert!(matches!(chart.lines[0].notes[0].hitsound, HitSound::Custom(_)));
+    }
+
+    #[test]
+    fn bezier_cache_keeps_close_control_points_distinct_including_speed_events() {
+        let event = |x| {
+            serde_json::from_value::<RPEEvent>(json!({
+                "startTime":[0,0,1], "endTime":[2,0,1], "start":0, "end":1,
+                "bezier":1, "bezierPoints":[x,0.1,0.77,0.9]
+            }))
+            .unwrap()
+        };
+        let a = event(0.2341);
+        let b = event(0.2349);
+        let mut map = BezierMap::new();
+        add_bezier(&mut map, &a);
+        add_bezier(&mut map, &b);
+        assert_eq!(map.len(), 2);
+        assert!(!Arc::ptr_eq(&a.tween(&map), &b.tween(&map)));
+        let mut raw = chart_json(120.);
+        raw["judgeLineList"][0]["eventLayers"] = json!([{"speedEvents":[{
+            "startTime":[0,0,1],"endTime":[4,0,1],"start":1,"end":2,
+            "bezier":1,"bezierPoints":[0,0,0,1]
+        }]}]);
+        let parsed: RPEChart = serde_json::from_value(raw.clone()).unwrap();
+        let map = get_bezier_map(&parsed);
+        let layers: Vec<_> = parsed
+            .judge_line_list
+            .into_iter()
+            .next()
+            .unwrap()
+            .event_layers
+            .into_iter()
+            .flatten()
+            .collect();
+        let mut bpm = BpmList::new(vec![(0., 120.)]);
+        let mut height = parse_speed_events(&mut bpm, &layers, &map, 3., SpeedEasingMode::Modern).unwrap();
+        height.set_time(2.);
+        assert!((height.now() as f64 - 3.6 * SPEED_RATIO).abs() < 1e-6, "Bezier velocity must be integrated instead of treated as linear");
+        assert!(read_chart(raw).is_ok());
     }
 
     #[test]

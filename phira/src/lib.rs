@@ -31,7 +31,6 @@ mod images;
 mod login;
 mod menu_music;
 mod migrate;
-pub(crate) mod mp;
 mod page;
 mod plugins;
 mod popup;
@@ -594,6 +593,13 @@ async fn the_main() -> Result<()> {
                     fps_time_sum = 0.;
                     last_frame_start = f64::NAN;
                 }
+                // Java's onResume can precede native EGL surface restoration.
+                // Renew from the running renderer as well, including fast
+                // pause/resume pairs collapsed into a single resume message.
+                #[cfg(target_os = "android")]
+                if let Err(err) = set_android_refresh_rate(get_data().config.preferred_refresh_rate) {
+                    warn!("Failed to renew Android refresh request: {err:#}");
+                }
             }
             None => {}
         }
@@ -616,6 +622,10 @@ async fn the_main() -> Result<()> {
                 fps_times.clear();
                 fps_time_sum = 0.;
                 last_frame_start = f64::NAN;
+                #[cfg(target_os = "android")]
+                if let Err(err) = set_android_refresh_rate(get_data().config.preferred_refresh_rate) {
+                    warn!("Failed to renew Android refresh request: {err:#}");
+                }
             }
             next_frame().await;
             continue;

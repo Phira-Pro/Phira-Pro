@@ -120,11 +120,8 @@ pub static TWEEN_FUNCTIONS: [fn(f32) -> f32; 33] = [
 
 // Phira Pro：改成全局缓存（原来按线程缓存）。`TweenRef` 已是 `Arc`，全线程共享同一份即可，
 // 也让后台解析线程创建的缓动对象能被主线程安全使用。
-static TWEEN_FUNCTION_RCS: std::sync::LazyLock<Vec<TweenRef>> = std::sync::LazyLock::new(|| {
-    (0..33)
-        .map(|it| -> TweenRef { Arc::new(StaticTween(it)) })
-        .collect()
-});
+static TWEEN_FUNCTION_RCS: std::sync::LazyLock<Vec<TweenRef>> =
+    std::sync::LazyLock::new(|| (0..33).map(|it| -> TweenRef { Arc::new(StaticTween(it)) }).collect());
 
 macro_rules! i1 {
     ($fn:ident) => {
@@ -272,11 +269,8 @@ pub static INT_TWEEN_FUNCTIONS:[fn(f32) -> f32; 33] =[
     i1!(int_bounce),	i2!(int_bounce),	i3!(int_bounce),
 ];
 
-static INT_TWEEN_FUNCTION_RCS: std::sync::LazyLock<Vec<TweenRef>> = std::sync::LazyLock::new(|| {
-    (0..33)
-        .map(|it| -> TweenRef { Arc::new(IntStaticTween(it)) })
-        .collect()
-});
+static INT_TWEEN_FUNCTION_RCS: std::sync::LazyLock<Vec<TweenRef>> =
+    std::sync::LazyLock::new(|| (0..33).map(|it| -> TweenRef { Arc::new(IntStaticTween(it)) }).collect());
 
 pub trait TweenFunction {
     fn y(&self, x: f32) -> f32;
@@ -395,6 +389,9 @@ impl GeneralIntTween {
 
 impl TweenFunction for GeneralIntTween {
     fn y(&self, x: f32) -> f32 {
+        if let Some(bezier) = self.0.as_any().downcast_ref::<BezierTween>() {
+            return bezier.integral(x);
+        }
         let sqrt_06: f32 = 0.7745967;
         let nodes: [f32; 3] = [-sqrt_06, 0.0, sqrt_06];
         let weights: [f32; 3] = [5.0 / 9.0, 8.0 / 9.0, 5.0 / 9.0];
@@ -418,99 +415,92 @@ impl TweenFunction for GeneralIntTween {
     }
 }
 
-// https://github.com/gre/bezier-easing
-
-const SAMPLE_TABLE_SIZE: usize = 21;
-const SAMPLE_STEP: f32 = 1. / (SAMPLE_TABLE_SIZE - 1) as f32;
-const NEWTON_MIN_STEP: f32 = 1e-3;
-const NEWTON_ITERATIONS: usize = 4;
-const SUBDIVISION_PRECISION: f32 = 1e-7;
-const SUBDIVISION_MAX_ITERATION: usize = 10;
-const SLOPE_EPS: f32 = 1e-7;
+/// Solve the Bezier X coordinate before evaluating Y, including degenerate endpoints.
+fn bezier_parameter(progress: f64, x1: f64, x2: f64) -> f64 {
+    if progress <= 0. {
+        return 0.;
+    }
+    if progress >= 1. {
+        return 1.;
+    }
+    if x1 == 0. && x2 == 0. {
+        return progress.cbrt();
+    }
+    if x1 == 1. && x2 == 1. {
+        return 1. - (1. - progress).cbrt();
+    }
+    let reverse = progress > 0.5;
+    let (target, a, b) = if reverse {
+        (1. - progress, 1. - x2, 1. - x1)
+    } else {
+        (progress, x1, x2)
+    };
+    let (mut low, mut high) = (0., 1.);
+    for _ in 0..40 {
+        let middle = (low + high) / 2.;
+        if bezier_component(middle, a, b) < target {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+    let value = (low + high) / 2.;
+    if reverse {
+        1. - value
+    } else {
+        value
+    }
+}
+fn bezier_component(t: f64, first: f64, second: f64) -> f64 {
+    3. * t * (1. - t).powi(2) * first + 3. * t * t * (1. - t) * second + t.powi(3)
+}
+pub fn bezier_progress(progress: f64, points: [f64; 4]) -> f64 {
+    if progress <= 0. {
+        return 0.;
+    }
+    if progress >= 1. {
+        return 1.;
+    }
+    let [x1, y1, x2, y2] = points;
+    let t = bezier_parameter(progress, x1, x2);
+    if t > 0.5 {
+        1. - bezier_component(1. - t, 1. - y2, 1. - y1)
+    } else {
+        bezier_component(t, y1, y2)
+    }
+}
 
 pub struct BezierTween {
-    sample_table: [f32; SAMPLE_TABLE_SIZE],
     pub p1: (f32, f32),
     pub p2: (f32, f32),
 }
-
 impl TweenFunction for BezierTween {
     fn y(&self, x: f32) -> f32 {
-        Self::sample(self.p1.1, self.p2.1, self.t_for_x(x))
+        bezier_progress(x as f64, [self.p1.0 as f64, self.p1.1 as f64, self.p2.0 as f64, self.p2.1 as f64]) as f32
     }
-
     fn as_any(&self) -> &dyn Any {
         self
     }
 }
-
 impl BezierTween {
-    #[inline]
-    fn coefficients(x1: f32, x2: f32) -> (f32, f32, f32) {
-        ((x1 - x2) * 3. + 1., x2 * 3. - x1 * 6., x1 * 3.)
+    // Integral of y(t) * x'(t), preserving the original Bezier speed curve.
+    fn integral(&self, progress: f32) -> f32 {
+        let t = bezier_parameter(progress as f64, self.p1.0 as f64, self.p2.0 as f64);
+        let coefficients = |a: f64, b: f64| [3. * a, 3. * b - 6. * a, 1. + 3. * a - 3. * b];
+        let [x1, x2, x3] = coefficients(self.p1.0 as f64, self.p2.0 as f64);
+        let [y1, y2, y3] = coefficients(self.p1.1 as f64, self.p2.1 as f64);
+        let c1 = y1 * x1 / 2.;
+        let c2 = (y2 * x1 + 2. * y1 * x2) / 3.;
+        let c3 = (y3 * x1 + 2. * y2 * x2 + 3. * y1 * x3) / 4.;
+        let c4 = (2. * y3 * x2 + 3. * y2 * x3) / 5.;
+        let c5 = y3 * x3 / 2.;
+        (t * t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * c5))))) as f32
     }
-
-    #[inline]
-    fn sample(x1: f32, x2: f32, t: f32) -> f32 {
-        let (a, b, c) = Self::coefficients(x1, x2);
-        ((a * t + b) * t + c) * t
-    }
-    #[inline]
-    fn slope(x1: f32, x2: f32, t: f32) -> f32 {
-        let (a, b, c) = Self::coefficients(x1, x2);
-        (a * 3. * t + b * 2.) * t + c
-    }
-
-    fn newton_raphson_iterate(x: f32, mut t: f32, x1: f32, x2: f32) -> f32 {
-        for _ in 0..NEWTON_ITERATIONS {
-            let slope = Self::slope(x1, x2, t);
-            if slope <= SLOPE_EPS {
-                return t;
-            }
-            let diff = Self::sample(x1, x2, t) - x;
-            t -= diff / slope;
-        }
-        t
-    }
-
-    fn binary_subdivide(x: f32, mut l: f32, mut r: f32, x1: f32, x2: f32) -> f32 {
-        let mut t = (l + r) / 2.;
-        for _ in 0..SUBDIVISION_MAX_ITERATION {
-            let diff = Self::sample(x1, x2, t) - x;
-            if diff.abs() <= SUBDIVISION_PRECISION {
-                break;
-            }
-            if diff > 0. {
-                r = t;
-            } else {
-                l = t;
-            }
-            t = (l + r) / 2.;
-        }
-        t
-    }
-
     pub fn t_for_x(&self, x: f32) -> f32 {
-        if x == 0. || x == 1. {
-            return x;
-        }
-        let id = (x / SAMPLE_STEP) as usize;
-        let id = id.min(SAMPLE_TABLE_SIZE - 1);
-        let dist = (x - self.sample_table[id]) / (self.sample_table[id + 1] - self.sample_table[id]);
-        let init_t = SAMPLE_STEP * (id as f32 + dist);
-        match Self::slope(self.p1.0, self.p2.0, init_t) {
-            y if y <= SLOPE_EPS => init_t,
-            y if y >= NEWTON_MIN_STEP => Self::newton_raphson_iterate(x, init_t, self.p1.0, self.p2.0),
-            _ => Self::binary_subdivide(x, SAMPLE_STEP * id as f32, SAMPLE_STEP * (id + 1) as f32, self.p1.0, self.p2.0),
-        }
+        bezier_parameter(x as f64, self.p1.0 as f64, self.p2.0 as f64) as f32
     }
-
     pub fn new(p1: (f32, f32), p2: (f32, f32)) -> Self {
-        Self {
-            sample_table: std::array::from_fn(|i| Self::sample(p1.0, p2.0, i as f32 * SAMPLE_STEP)),
-            p1,
-            p2,
-        }
+        Self { p1, p2 }
     }
 }
 
@@ -637,5 +627,30 @@ impl Tweenable for String {
 impl Tweenable for Rect {
     fn tween(x: &Self, y: &Self, t: f32) -> Self {
         Self::new(f32::tween(&x.x, &y.x, t), f32::tween(&x.y, &y.y, t), f32::tween(&x.w, &y.w, t), f32::tween(&x.h, &y.h, t))
+    }
+}
+
+#[cfg(test)]
+mod bezier_tests {
+    use super::*;
+    #[test]
+    fn bezier_matches_rpen_0131_boundaries_and_overshoot() {
+        let reference: serde_json::Value = serde_json::from_str(include_str!("../../tests/fixtures/rpen-extensions/v0131.json")).unwrap();
+        for case in reference["bezier"].as_array().unwrap() {
+            let points = std::array::from_fn(|i| case["points"][i].as_f64().unwrap());
+            for sample in case["samples"].as_array().unwrap().iter().rev() {
+                let p = sample["progress"].as_f64().unwrap();
+                let expected = sample["value"].as_f64().unwrap();
+                assert!((bezier_progress(p, points) - expected).abs() < 1e-9, "{points:?}, {p}");
+            }
+        }
+        for x in [0.00001_f32, 0.01, 0.1, 0.5, 0.9, 0.99, 0.99999] {
+            let t = (x as f64).cbrt();
+            let expected = (3. * t * t - 2. * t * t * t) as f32;
+            assert!((BezierTween::new((0., 0.), (0., 1.)).y(x) - expected).abs() < 1e-6);
+            let t = 1. - (1. - x as f64).cbrt();
+            let expected = (3. * t * t - 2. * t * t * t) as f32;
+            assert!((BezierTween::new((1., 0.), (1., 1.)).y(x) - expected).abs() < 1e-6);
+        }
     }
 }

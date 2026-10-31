@@ -343,3 +343,5 @@ item-show-perfect-combo = 顯示 Perfect Combo
 item-show-perfect-combo-sub = 連擊僅累計連續 Perfect+ / Perfect；其他判定中斷顯示，不改變計分
 
 item-gameplay-background-blur = 遊玩背景模糊
+
+item-fps-unlimited = 無上限

@@ -482,3 +482,29 @@ mod tests {
         assert!(combo_range(&notes, 2, 5, 0., 7.).is_none());
     }
 }
+
+/// Editing the end marker keeps the paused cursor inside the updated segment.
+pub fn boundary_position(range: &std::ops::Range<f64>, current: f64) -> f64 {
+    if current.is_finite() {
+        current.clamp(range.start, range.end)
+    } else {
+        range.start
+    }
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    #[test]
+    fn end_edit_preserves_cursor_and_clamps_only_when_outside() {
+        for (range, current, expected) in [
+            (10. ..40., 25., 25.),
+            (10. ..20., 25., 20.),
+            (10. ..40., 5., 10.),
+            (10. ..40., 40., 40.),
+            (-2. ..8., -1., -1.),
+            (10. ..40., f64::NAN, 10.),
+        ] {
+            assert_eq!(super::boundary_position(&range, current), expected);
+        }
+    }
+}

@@ -176,8 +176,6 @@ pub struct MainScene {
     icon_back: SafeTexture,
 
     pages: Vec<Box<dyn Page>>,
-    multiplayer: crate::mp::overlay::MultiplayerOverlay,
-    multiplayer_picker_return_page: Option<crate::hud::PageId>,
     course_home_fade: Option<f64>,
 
     idle_fps: IdleFps,
@@ -264,7 +262,6 @@ impl MainScene {
     async fn new_inner(fallback: FontArc) -> Result<Self> {
         let state = SharedState::new(fallback).await?;
         let icons = Arc::new(Icons::new().await?);
-        let multiplayer = crate::mp::overlay::MultiplayerOverlay::new(Arc::clone(&icons)).await?;
         Ok(Self {
             state,
 
@@ -275,8 +272,6 @@ impl MainScene {
             icon_back: TEX_ICON_BACK.with(|it| it.borrow().clone().unwrap()),
 
             pages: Vec::new(),
-            multiplayer,
-            multiplayer_picker_return_page: None,
             course_home_fade: None,
 
             import_task: None,
@@ -332,7 +327,6 @@ impl Scene for MainScene {
         self.state.menu_music.set_active(self.pages.last().is_some_and(|it| it.can_play_bgm()))?;
         self.state.update(tm);
         self.pages.last_mut().unwrap().enter(&mut self.state)?;
-        self.multiplayer.enter(&mut self.state)?;
         Ok(())
     }
 
@@ -382,9 +376,6 @@ impl Scene for MainScene {
         s.update(tm);
         if crate::hud::edit_active() {
             return Ok(crate::hud::editor_touch(touch));
-        }
-        if self.multiplayer.touch(touch, s)? {
-            return Ok(true);
         }
         if self.pages.last_mut().unwrap().touch(touch, s)? {
             return Ok(true);
@@ -446,14 +437,6 @@ impl Scene for MainScene {
         UI_AUDIO.with(|it| it.borrow_mut().recover_if_needed())?;
         let s = &mut self.state;
         s.update(tm);
-        self.multiplayer.update(s)?;
-        if self.multiplayer.take_chart_picker_request() {
-            let picker = crate::page::LibraryPage::new_multiplayer_picker(Arc::clone(&self.icons), s.icons.clone())?;
-            self.multiplayer_picker_return_page = Some(crate::hud::cur_page());
-            self.pages.push(Box::new(picker));
-            self.pages.last_mut().unwrap().enter(s)?;
-            crate::hud::set_cur_page(crate::hud::PageId::Library);
-        }
         if self.pages.last_mut().unwrap().take_render_picker_request() {
             let picker = crate::page::LibraryPage::new_render_picker(Arc::clone(&self.icons), s.icons.clone())?;
             self.pages.push(Box::new(picker));
@@ -464,26 +447,10 @@ impl Scene for MainScene {
             self.pages[pos].update(s)?;
         }
         self.pages.last_mut().unwrap().update(s)?;
-        if let Some(chart) = self.pages.last_mut().unwrap().take_multiplayer_chart() {
-            let chart_path = get_data()
-                .charts
-                .iter()
-                .find(|item| item.info.id == Some(chart))
-                .map(|item| item.local_path.clone());
-            self.pages.pop().unwrap().exit()?;
-            self.pages.last_mut().unwrap().enter(s)?;
-            self.multiplayer.chart_selected(chart);
-            if let Some(path) = chart_path {
-                s.menu_music.play_chart(path);
-            }
-        }
         if let Some(local_path) = self.pages.last_mut().unwrap().take_render_chart() {
             self.pages.pop().unwrap().exit()?;
             self.pages.last_mut().unwrap().enter(s)?;
             self.pages.last_mut().unwrap().on_render_chart_picked(local_path);
-        }
-        if self.multiplayer_picker_return_page.is_some() && !self.pages.last().unwrap().is_multiplayer_chart_picker() {
-            crate::hud::set_cur_page(self.multiplayer_picker_return_page.take().unwrap());
         }
         if !s.fader.transiting() {
             match self.pages.last_mut().unwrap().next_page() {
@@ -967,9 +934,6 @@ impl Scene for MainScene {
         self.pages.last_mut().unwrap().render_top(ui, s)?;
         if crate::hud::edit_active() {
             crate::hud::editor_render(ui);
-        } else {
-            let background = TEX_BACKGROUND_BLUR.with(|it| it.borrow().clone().unwrap());
-            self.multiplayer.render(ui, s, &background)?;
         }
 
         if self.import_task.is_some() {
@@ -1000,11 +964,6 @@ impl Scene for MainScene {
     }
 
     fn next_scene(&mut self, _tm: &mut TimeManager) -> NextScene {
-        let multiplayer = self.multiplayer.next_scene();
-        if !matches!(multiplayer, NextScene::None) {
-            self.state.menu_music.leave();
-            return multiplayer;
-        }
         if let Some(next) = self.deeplink_scene.take() {
             self.state.menu_music.leave();
             return next;

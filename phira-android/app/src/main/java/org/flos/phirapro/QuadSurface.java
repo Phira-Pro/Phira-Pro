@@ -11,6 +11,8 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewParent;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import quad_native.QuadNative;
 
@@ -32,7 +34,11 @@ public class QuadSurface extends SurfaceView
     private final MotionFrame motionFrame = new MotionFrame();
     private float targetFrameRate = 120f;
     private Surface requestedSurface;
-    private float appliedFrameRate = Float.NaN;
+    // Public SurfaceHolder callbacks define our lifecycle epoch. Android's
+    // native Surface generation accessor is not part of the public SDK.
+    private int surfaceGeneration;
+    private final RefreshRateRequest frameRateRequest = new RefreshRateRequest();
+    private String frameRateStatus = "pending";
 
     private static final class MotionFrame implements TouchEventRouter.Frame {
         MotionEvent event;
@@ -57,6 +63,7 @@ public class QuadSurface extends SurfaceView
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
+        surfaceGeneration++;
         Surface surface = holder.getSurface();
         QuadNative.surfaceOnSurfaceCreated(surface);
         applyFrameRate(surface, true);
@@ -65,14 +72,17 @@ public class QuadSurface extends SurfaceView
 
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
+        surfaceGeneration++;
         requestedSurface = null;
-        appliedFrameRate = Float.NaN;
+        frameRateRequest.invalidate();
+        frameRateStatus = "pending";
         cancelTouches("surface-destroyed");
         QuadNative.surfaceOnSurfaceDestroyed(holder.getSurface());
     }
 
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+        surfaceGeneration++;
         Surface surface = holder.getSurface();
         QuadNative.surfaceOnSurfaceChanged(surface, width, height);
         applyFrameRate(surface, true);
@@ -89,31 +99,60 @@ public class QuadSurface extends SurfaceView
         }
         targetFrameRate = frameRate;
         Surface surface = getHolder().getSurface();
-        if (surface.isValid()) applyFrameRate(surface, force, allowNonSeamless);
+        if (surface.isValid()) {
+            applyFrameRate(surface, force, allowNonSeamless);
+        } else {
+            requestedSurface = null;
+            frameRateRequest.invalidate();
+            frameRateStatus = "pending";
+        }
     }
 
     private void applyFrameRate(Surface surface, boolean force) {
         applyFrameRate(surface, force, hasWindowFocus());
     }
     private void applyFrameRate(Surface surface, boolean force, boolean allowNonSeamless) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && surface.isValid()) {
-            if (!force && requestedSurface == surface && Math.abs(appliedFrameRate - targetFrameRate) < 0.01f) return;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            frameRateStatus = "window_only";
+            return;
+        }
+        if (surface.isValid()) {
+            int generation = surfaceGeneration;
+            int strategy = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && allowNonSeamless
+                    ? Surface.CHANGE_FRAME_RATE_ALWAYS : Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS;
+            if (requestedSurface == surface && !frameRateRequest.needsSubmission(generation, targetFrameRate, strategy, force)) return;
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    surface.setFrameRate(targetFrameRate, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
-                            allowNonSeamless ? Surface.CHANGE_FRAME_RATE_ALWAYS : Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+                    surface.setFrameRate(targetFrameRate, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT, strategy);
                 } else {
                     surface.setFrameRate(targetFrameRate, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
                 }
                 requestedSurface = surface;
-                appliedFrameRate = targetFrameRate;
+                frameRateRequest.submitted(generation, targetFrameRate, strategy);
+                frameRateStatus = "submitted";
             } catch (IllegalStateException | IllegalArgumentException error) {
                 // A disappearing Surface during resizing must not crash input
                 // or startup; surfaceCreated/resume will reapply the request.
                 requestedSurface = null;
+                frameRateRequest.invalidate();
+                frameRateStatus = "failed";
                 Log.w("PhiraPro", "Surface frame-rate request unavailable", error);
             }
         }
+    }
+
+    void recordFrameRateRequest(JSONObject state) throws JSONException {
+        Surface surface = getHolder().getSurface();
+        boolean current = surface.isValid() && requestedSurface == surface
+                && frameRateRequest.submittedGeneration() == surfaceGeneration;
+        float submitted = frameRateRequest.submittedRate();
+        String status = frameRateStatus;
+        if (!surface.isValid() || ("submitted".equals(status) && !current)) status = "pending";
+        state.put("surface_target_hz", targetFrameRate)
+                .put("surface_request_status", status)
+                .put("surface_submitted_hz", current && !Float.isNaN(submitted) ? submitted : JSONObject.NULL)
+                .put("surface_generation", surfaceGeneration)
+                .put("surface_change_strategy", current ? frameRateRequest.submittedStrategy() : -1);
     }
 
     @Override

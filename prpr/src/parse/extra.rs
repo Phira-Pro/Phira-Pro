@@ -95,12 +95,18 @@ enum BpmForm {
     List(Vec<ExtBpmItem>),
 }
 
-impl From<BpmForm> for BpmList {
-    fn from(value: BpmForm) -> Self {
-        match value {
-            BpmForm::Single(value) => BpmList::new(vec![(0., value)]),
-            BpmForm::List(list) => BpmList::new(list.into_iter().map(|it| (it.time.beats(), it.bpm)).collect()),
-        }
+impl TryFrom<BpmForm> for BpmList {
+    type Error = anyhow::Error;
+
+    fn try_from(value: BpmForm) -> Result<Self> {
+        let entries: Vec<_> = match value {
+            BpmForm::Single(value) => vec![(0., value)],
+            BpmForm::List(list) => list.into_iter().map(|it| (it.time.beats(), it.bpm)).collect(),
+        };
+        anyhow::ensure!(!entries.is_empty(), "extra.json: empty bpm list");
+        anyhow::ensure!(entries.iter().all(|(beat, bpm)| beat.is_finite() && bpm.is_finite() && *bpm > 0.), "extra.json: invalid bpm");
+        anyhow::ensure!(entries.windows(2).all(|pair| pair[0].0 <= pair[1].0), "extra.json: bpm times must be ordered");
+        Ok(BpmList::new(entries))
     }
 }
 
@@ -143,7 +149,8 @@ struct ExtVideo {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Extra {
-    bpm: BpmForm,
+    #[serde(default)]
+    bpm: Option<BpmForm>,
     #[serde(default)]
     effects: Vec<ExtEffect>,
     #[serde(default)]
@@ -178,8 +185,27 @@ async fn parse_effect(r: &mut BpmList, rpe: ExtEffect, fs: &mut dyn FileSystem) 
 }
 
 pub async fn parse_extra(source: &str, fs: &mut dyn FileSystem) -> Result<ChartExtra> {
-    let ext: Extra = serde_json::from_str(source).with_context(|| ptl!("json-parse-failed"))?;
-    let mut r: BpmList = ext.bpm.into();
+    parse_extra_with_bpm(source, fs, None).await
+}
+
+fn decode_extra(source: &str, chart_bpm: Option<BpmList>) -> Result<(Extra, BpmList)> {
+    let bytes = super::json_bytes(source.as_bytes());
+    anyhow::ensure!(bytes.trim_ascii_start().first() == Some(&b'{'), "extra.json: expected a JSON object");
+    let mut ext: Extra = serde_json::from_slice(bytes).with_context(|| ptl!("json-parse-failed"))?;
+    let bpm = if let Some(bpm) = ext.bpm.take() {
+        BpmList::try_from(bpm)?
+    } else if ext.effects.is_empty() && ext.videos.is_empty() {
+        BpmList::default() // No timed content will access this map.
+    } else {
+        chart_bpm.filter(|bpm| !bpm.elements().is_empty()).context("extra.json: timed effects or videos require bpm or a chart tempo map")?
+    };
+    Ok((ext, bpm))
+}
+
+/// Empty editor sidecars need no tempo. Timed content may inherit the chart's
+/// complete tempo map; an explicit sidecar BPM always takes precedence.
+pub async fn parse_extra_with_bpm(source: &str, fs: &mut dyn FileSystem, chart_bpm: Option<BpmList>) -> Result<ChartExtra> {
+    let (ext, mut r) = decode_extra(source, chart_bpm)?;
     let mut effects = Vec::new();
     let mut global_effects = Vec::new();
     for (id, effect) in ext.effects.into_iter().enumerate() {
@@ -217,4 +243,41 @@ pub async fn parse_extra(source: &str, fs: &mut dyn FileSystem) -> Result<ChartE
         #[cfg(feature = "video")]
         videos,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_editor_sidecars_do_not_require_bpm_or_depend_on_line_count() {
+        for source in ["{}", "{\n\"effects\": []\n}", "\u{feff}{\"effects\":[],\"videos\":[]}"] {
+            let (extra, bpm) = decode_extra(source, None).unwrap();
+            assert!(extra.effects.is_empty() && extra.videos.is_empty());
+            assert!(bpm.elements().is_empty());
+        }
+    }
+
+    #[test]
+    fn timed_extra_inherits_all_tempo_changes_and_honors_explicit_bpm() {
+        let effect = r#""effects":[{"start":[4,0,1],"end":[8,0,1],"shader":"vignette"}]"#;
+        let source = format!("{{{effect}}}");
+        let (extra, mut bpm) = decode_extra(&source, Some(BpmList::new(vec![(0., 120.), (4., 60.)]))).unwrap();
+        assert_eq!(bpm.time(&extra.effects[0].start), 2.);
+        assert_eq!(bpm.time(&extra.effects[0].end), 6.);
+        for explicit in ["60", r#"[{"time":[0,0,1],"bpm":60}]"#] {
+            let (extra, mut bpm) = decode_extra(&format!("{{\"bpm\":{explicit},{effect}}}"), Some(BpmList::new(vec![(0., 120.)]))).unwrap();
+            assert_eq!(bpm.time(&extra.effects[0].start), 4.);
+            assert_eq!(bpm.time(&extra.effects[0].end), 8.);
+        }
+        assert!(decode_extra(&source, None).is_err());
+    }
+
+    #[test]
+    fn malformed_sidecars_and_invalid_tempos_still_report_errors() {
+        for source in ["{", "[]", r#"{"effects":{}}"#, r#"{"bpm":0}"#, r#"{"bpm":[]}"#,
+            r#"{"bpm":[{"time":[0,0,0],"bpm":120}]}"#] {
+            assert!(decode_extra(source, None).is_err(), "accepted {source}");
+        }
+    }
 }

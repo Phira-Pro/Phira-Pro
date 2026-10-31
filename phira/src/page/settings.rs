@@ -39,6 +39,8 @@ pub(super) fn item_row_h() -> f32 {
     crate::hud::param("settings", "row_h", 0.15).clamp(0.1, 0.3)
 }
 const INTERACT_WIDTH: f32 = 0.26;
+#[cfg(any(target_os = "windows", target_os = "android", target_os = "ios"))]
+use prpr::config::UNLIMITED_FPS;
 
 /// 软件 UI 主题预设：(强调色, 表面色)，均为 0xRRGGBB。
 const UI_PRESETS: [(u32, u32); 6] = [
@@ -50,11 +52,11 @@ const UI_PRESETS: [(u32, u32); 6] = [
     (0xb0bec5, 0x263238),
 ];
 #[cfg(target_os = "android")]
-const REFRESH_RATES: [u16; 7] = [60, 120, 144, 165, 185, 200, 240];
+const REFRESH_RATES: [u16; 8] = [60, 120, 144, 165, 185, 200, 240, UNLIMITED_FPS];
 #[cfg(target_os = "ios")]
-const REFRESH_RATES: [u16; 2] = [60, 120];
+const REFRESH_RATES: [u16; 3] = [60, 120, UNLIMITED_FPS];
 #[cfg(target_os = "windows")]
-const DESKTOP_FPS_LIMITS: [u16; 10] = [0, 60, 120, 144, 165, 185, 200, 240, 360, 480];
+const DESKTOP_FPS_LIMITS: [u16; 11] = [0, 60, 120, 144, 165, 185, 200, 240, 360, 480, UNLIMITED_FPS];
 #[cfg(all(test, target_os = "windows"))]
 mod qa;
 #[cfg(all(test, target_os = "windows"))]
@@ -546,8 +548,6 @@ fn reset_all_settings() {
     {
         let data = get_data_mut();
         data.config = defaults.config;
-        data.multiplayer_enabled = defaults.multiplayer_enabled;
-        data.multiplayer_button_position = None;
         data.judge_preset_id = None;
         // 语言回到「跟随系统」，下面 sync_data() 会立刻生效。
         data.language = None;
@@ -632,7 +632,6 @@ struct GeneralList {
     theme_lang: Option<String>,
     cache_btn: DRectButton,
     offline_btn: DRectButton,
-    multiplayer_btn: DRectButton,
     server_status_btn: DRectButton,
     /// 打开「API 地址」输入（自建 / 私服用）。
     api_url_btn: DRectButton,
@@ -704,7 +703,6 @@ impl GeneralList {
             theme_lang: None,
             cache_btn: DRectButton::new(),
             offline_btn: DRectButton::new(),
-            multiplayer_btn: DRectButton::new(),
             server_status_btn: DRectButton::new(),
             api_url_btn: DRectButton::new(),
             web_url_btn: DRectButton::new(),
@@ -923,10 +921,6 @@ impl GeneralList {
         }
         if self.offline_btn.touch(touch, t) {
             config.offline_mode ^= true;
-            return Ok(Some(true));
-        }
-        if self.multiplayer_btn.touch(touch, t) {
-            data.multiplayer_enabled ^= true;
             return Ok(Some(true));
         }
         if self.server_status_btn.touch(touch, t) {
@@ -1174,10 +1168,6 @@ impl GeneralList {
         item! {
             render_title(ui, tl!("item-offline"), Some(tl!("item-offline-sub")));
             render_switch(ui, rr, t, &mut self.offline_btn, config.offline_mode);
-        }
-        item! {
-            render_title(ui, tl!("item-multiplayer"), Some(tl!("item-multiplayer-sub")));
-            render_switch(ui, rr, t, &mut self.multiplayer_btn, data.multiplayer_enabled);
         }
         item! {
             render_title(ui, tl!("item-server-status"), Some(tl!("item-server-status-sub")));
@@ -1915,6 +1905,8 @@ impl DebugList {
             .map(|rate| {
                 if *rate == 0 {
                     tl!("item-desktop-fps-auto").into_owned()
+                } else if *rate == UNLIMITED_FPS {
+                    tl!("item-fps-unlimited").into_owned()
                 } else {
                     format!("{rate} FPS")
                 }
@@ -2120,7 +2112,12 @@ impl DebugList {
                     tl!("item-refresh-rate-sub")
                 };
                 render_title(ui, tl!("item-refresh-rate"), Some(subtitle));
-                self.refresh_rate_btn.render_text(ui, rr, t, format!("{} Hz", config.preferred_refresh_rate), 0.5, false);
+                let label = if config.preferred_refresh_rate == UNLIMITED_FPS {
+                    tl!("item-fps-unlimited")
+                } else {
+                    Cow::Owned(format!("{} Hz", config.preferred_refresh_rate))
+                };
+                self.refresh_rate_btn.render_text(ui, rr, t, label, 0.5, false);
             }
         }
         self.sections[2].render_text(

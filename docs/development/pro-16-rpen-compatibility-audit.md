@@ -1,6 +1,6 @@
 # RPEN 适配清单（pro.16 开发轮）
 
-审查日期：2026-10-20。RPEN 对照版本为 `0.12.0`，固定提交 [`1ee0fc3e3e434696f00cbb51d4107379913a6490`](https://github.com/kclg-YSJ/rpe-next/tree/1ee0fc3e3e434696f00cbb51d4107379913a6490)。下表保留初始差异调查；后续经用户确认，构建 80 已实施十项适配，实施范围见下节。
+审查日期：2026-10-20。RPEN 对照版本为 `0.12.2`，固定提交 [`1ee0fc3e3e434696f00cbb51d4107379913a6490`](https://github.com/kclg-YSJ/rpe-next/tree/1ee0fc3e3e434696f00cbb51d4107379913a6490)。下表保留初始差异调查；构建 80 已实施十项适配，实施范围见下节。
 
 这里的“缺口”包括 RPEN 新扩展和播放器已有但尚未覆盖的旧字段，不把所有项都说成 RPEN 最近新增。
 
@@ -49,3 +49,5 @@
 `scripts/qa/rpen_reference.mjs` 从固定上游源码生成可复验数值样本；Rust 核心回归对比轨迹、摄像机和 BPM 时间。真实 GPU 回归入口为 `production_replay_transport_import_and_aspects` 内的 `rpen_qa`，检查生产导入器、实际 shader 编译/像素、比例、开关回退、暂停/倒退、反馈历史、低性能通道及投影裁剪。
 
 资源授权见 `assets/rpen/NOTICE.txt` 和 `LICENSE-RPEN.txt`。上游资源按其 PolyForm Noncommercial 条款保留，不能将其视为项目其他文件的许可证。
+
+后续 RPEN 0.13.1 的补齐范围与回归见 [兼容说明](rpen-0131-compatibility.md)。

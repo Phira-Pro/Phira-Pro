@@ -88,18 +88,7 @@ pub fn ease(e: &Value, p: f64) -> f64 {
     if flag(&e["bezier"]) {
         let pts = e["bezierPoints"].as_array();
         let v = |i, d| pts.and_then(|v| v.get(i)).map_or(d, |v| number(v, d));
-        let (x1, y1, x2, y2) = (v(0, 0.), v(1, 0.), v(2, 1.), v(3, 1.));
-        let c = |t: f64, a, b| 3. * t * (1. - t).powi(2) * a + 3. * t * t * (1. - t) * b + t.powi(3);
-        let (mut lo, mut hi) = (0., 1.);
-        for _ in 0..40 {
-            let m = (lo + hi) / 2.;
-            if c(m, x1, x2) < p {
-                lo = m
-            } else {
-                hi = m
-            }
-        }
-        c((lo + hi) / 2., y1, y2)
+        crate::core::bezier_progress(p, [v(0, 0.), v(1, 0.), v(2, 1.), v(3, 1.)])
     } else {
         let id = number(&e["easingType"], 1.) as u8;
         let f = |p| crate::core::rpe_next_block::curve(id, p);

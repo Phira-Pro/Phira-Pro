@@ -5,6 +5,9 @@ use bitflags::bitflags;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
+/// Persisted sentinel for unlimited rendering / maximum mobile refresh rate.
+pub const UNLIMITED_FPS: u16 = u16::MAX;
+
 mod grading;
 pub use grading::JudgeGrading;
 mod timing;
@@ -256,9 +259,9 @@ pub struct Config {
     pub show_fps: bool,
     /// 0 top center, 1 bottom center, 2 top left, 3 top right, 4 bottom left, 5 bottom right.
     pub fps_position: u8,
-    /// Windows software frame limit. 0 follows this window's monitor refresh rate.
+    /// Windows software frame limit. 0 follows the monitor; UNLIMITED_FPS skips pacing.
     pub desktop_fps_limit: u16,
-    /// Android / iOS requested display refresh rate, in Hz.
+    /// Android / iOS requested refresh rate in Hz; UNLIMITED_FPS requests the device maximum.
     pub preferred_refresh_rate: u16,
     /// 失败后自动重试的次数上限（0 表示关闭）。
     pub auto_retry: f32,
@@ -733,13 +736,12 @@ impl Config {
 
     /// 本局是否完全按官方默认的判定 / 玩法进行。
     ///
-    /// 联机对战与「官方游玩模式」都用它来判断本局是否与官方口径一致。
+    /// 「官方游玩模式」用它来判断本局是否与官方口径一致。
     pub fn is_official_play(&self, run_mods: Mods) -> bool {
         self.non_official_items(run_mods).is_empty()
     }
 
     /// 把 [`Config::non_official_items`] 列出的项强制还原成官方默认值
-    /// （联机对战用：只有严格按官方默认判定才有公平性可言）。
     ///
     /// 只改动真正偏离默认的项，因此玩家合法的设置（例如提速到 1.5x）不会被误伤。
     /// 返回被改动过的项（空表示本来就一致）。
@@ -899,7 +901,7 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, Mods};
+    use super::{Config, Mods, UNLIMITED_FPS};
     #[test]
     fn note_behavior_mod_is_exclusive_unrated_and_separate_from_practice() {
         use crate::practice::NoteBehavior::*;
@@ -983,6 +985,17 @@ mod tests {
         let restored: Config = serde_json::from_str(&saved).unwrap();
         assert_eq!(restored.desktop_fps_limit, 240);
         assert_eq!(restored.preferred_refresh_rate, 120);
+    }
+
+    #[test]
+    fn unlimited_frame_settings_survive_save_and_reload() {
+        let mut conf = Config::default();
+        conf.desktop_fps_limit = UNLIMITED_FPS;
+        conf.preferred_refresh_rate = UNLIMITED_FPS;
+        let saved = serde_json::to_string(&conf).unwrap();
+        let restored: Config = serde_json::from_str(&saved).unwrap();
+        assert_eq!(restored.desktop_fps_limit, UNLIMITED_FPS);
+        assert_eq!(restored.preferred_refresh_rate, UNLIMITED_FPS);
     }
 
     /// 严格判定 Mod 在各档基础上整体减半。

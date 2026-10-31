@@ -115,15 +115,6 @@ impl MenuMusic {
         self.custom = dir::find_appearance_audio("bgm").is_some();
         self.request();
     }
-    pub fn play_chart(&mut self, path: String) {
-        self.task = None;
-        self.music = None;
-        self.applied_amplifier = None;
-        self.requested_path = Some(path);
-        self.navigating = true;
-        self.custom = false;
-        self.request();
-    }
     pub fn current_path(&self) -> Option<&str> {
         if self.custom {
             None

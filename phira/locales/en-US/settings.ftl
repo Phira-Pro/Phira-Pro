@@ -435,5 +435,5 @@ item-show-perfect-combo = Show Perfect Combo
 item-show-perfect-combo-sub = Count consecutive Perfect+ / Perfect only; other grades reset the display, without changing scoring
 
 item-gameplay-background-blur = Gameplay background blur
-item-multiplayer = Multiplayer
-item-multiplayer-sub = Show a draggable round button to open multiplayer
+
+item-fps-unlimited = Unlimited

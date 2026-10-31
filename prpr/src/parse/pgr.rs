@@ -384,7 +384,7 @@ fn parse_judge_line(pgr: PgrJudgeLine, max_time: f64, format_version: u32) -> Re
 }
 
 pub fn parse_phigros(source: &str, extra: ChartExtra) -> Result<Chart> {
-    let pgr: PgrChart = serde_json::from_str(source).with_context(|| ptl!("json-parse-failed"))?;
+    let pgr: PgrChart = serde_json::from_slice(super::json_bytes(source.as_bytes())).with_context(|| ptl!("json-parse-failed"))?;
     convert_phigros(pgr, extra)
 }
 
@@ -392,7 +392,7 @@ pub fn parse_phigros(source: &str, extra: ChartExtra) -> Result<Chart> {
 /// are constructed on the original thread after decoding completes.
 pub async fn parse_phigros_loading(bytes: Vec<u8>, extra: ChartExtra) -> Result<(Chart, Vec<u8>)> {
     let (pgr, bytes) = crate::loading_work::run(move || {
-        let pgr: PgrChart = serde_json::from_str(&String::from_utf8_lossy(&bytes))?;
+        let pgr: PgrChart = serde_json::from_slice(super::json_bytes(&bytes))?;
         Ok((pgr, bytes))
     })
     .await

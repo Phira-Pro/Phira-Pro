@@ -12,6 +12,10 @@ mod practice_ranges;
 #[path = "game/render_layers.rs"]
 mod render_layers;
 
+#[cfg(test)]
+#[path = "game/chart_loading_tests.rs"]
+mod chart_loading_tests;
+
 use super::{
     draw_background,
     ending::RecordUpdateState,
@@ -27,12 +31,12 @@ use crate::practice::{
 use crate::{
     bin::BinaryReader,
     config::{Config, Mods},
-    core::{copy_fbo, BadNote, Chart, ChartExtra, Effect, JudgeLineKind, Matrix, NoteKind, Point, Resource, UIElement, Vector, PGR_FONT},
+    core::{copy_fbo, BadNote, BpmList, Chart, ChartExtra, Effect, JudgeLineKind, Matrix, NoteKind, Point, Resource, UIElement, Vector, PGR_FONT},
     ext::{parse_time, screen_aspect, semi_white, spawn_task, RectExt, SafeTexture, ScaleType},
     fs::FileSystem,
     info::{ChartFormat, ChartInfo},
     judge::{Judge, Judgement, RecentHit},
-    parse::{parse_extra, parse_pec, parse_rpe_with_path, SendChart},
+    parse::{parse_extra_with_bpm, parse_pec, parse_rpe_with_path, SendChart},
     task::Task,
     time::TimeManager,
     ui::{OffsetAnalysisPanel, OffsetPanelAction, OffsetPanelLabels, RectButton, TextPainter, Ui},
@@ -599,7 +603,6 @@ pub enum GameMode {
     Normal,
     TweakOffset,
     Exercise,
-    NoRetry,
     View,
     Course,
 }
@@ -738,9 +741,10 @@ impl GameScene {
 
     pub fn infer_chart_format(info: &ChartInfo, bytes: &[u8]) -> ChartFormat {
         info.format.clone().unwrap_or_else(|| {
+            let bytes = crate::parse::json_bytes(bytes).trim_ascii_start();
             // 只做无损探测：绝不对整份谱面做 `to_vec()` 复制（巨型谱面可达数百 MB）。
             if bytes.first() == Some(&b'{') {
-                if bytes.windows(6).any(|w| w == b"\"META\"") {
+                if bytes.windows(6).any(|w| w == b"\"META\"") || bytes.windows(9).any(|w| w == b"\"BPMList\"") {
                     ChartFormat::Rpe
                 } else {
                     ChartFormat::Pgr
@@ -762,30 +766,39 @@ impl GameScene {
     }
 
     async fn load_chart_impl(fs: &mut dyn FileSystem, info: &ChartInfo, load_textures: bool) -> Result<(Chart, Vec<u8>, ChartFormat)> {
-        let extra = if load_textures { fs.load_file("extra.json").await.ok().map(String::from_utf8).transpose()? } else { None };
-        let extra = if let Some(extra) = extra {
-            parse_extra(&extra, fs).await.context("Failed to parse extra")?
+        let extra = if load_textures {
+            fs.load_file("extra.json").await.ok().map(String::from_utf8).transpose()?
         } else {
-            ChartExtra::default()
+            None
         };
         let mut bytes = Self::load_chart_bytes(fs, info).await.context("Failed to load chart")?;
         let format = Self::infer_chart_format(info, &bytes);
+        let chart_extra = ChartExtra::default();
         let mut chart = match format {
             ChartFormat::Rpe => {
                 if !load_textures {
-                    crate::parse::parse_rpe_for_analysis(&String::from_utf8_lossy(&bytes), fs, info.use_rpe_170_speed.unwrap_or_default(), Some(&info.chart), info.use_rpen.unwrap_or(true)).await
-                } else { crate::parse::parse_rpe_options(
-                    &String::from_utf8_lossy(&bytes),
-                    fs,
-                    extra,
-                    info.use_rpe_170_speed.unwrap_or_default(),
-                    Some(&info.chart),
-                    info.use_rpen.unwrap_or(true),
-                )
-                .await }
+                    crate::parse::parse_rpe_for_analysis(
+                        &String::from_utf8_lossy(&bytes),
+                        fs,
+                        info.use_rpe_170_speed.unwrap_or_default(),
+                        Some(&info.chart),
+                        info.use_rpen.unwrap_or(true),
+                    )
+                    .await
+                } else {
+                    crate::parse::parse_rpe_options(
+                        &String::from_utf8_lossy(&bytes),
+                        fs,
+                        chart_extra,
+                        info.use_rpe_170_speed.unwrap_or_default(),
+                        Some(&info.chart),
+                        info.use_rpen.unwrap_or(true),
+                    )
+                    .await
+                }
             }
             ChartFormat::Pgr => {
-                let (chart, owned) = crate::parse::parse_phigros_loading(std::mem::take(&mut bytes), extra).await?;
+                let (chart, owned) = crate::parse::parse_phigros_loading(std::mem::take(&mut bytes), chart_extra).await?;
                 bytes = owned;
                 Ok(chart)
             }
@@ -804,7 +817,7 @@ impl GameScene {
                 .await?;
                 bytes = b;
                 let mut chart = c.0;
-                chart.extra = extra;
+                chart.extra = chart_extra;
                 Ok(chart)
             }
             ChartFormat::Pbc => {
@@ -812,6 +825,17 @@ impl GameScene {
                 r.read()
             }
         }?;
+        if let Some(extra) = extra {
+            let bpms = chart.bpm_list.borrow().elements().iter().map(|&(beat, _, bpm)| (beat, bpm)).collect();
+            let mut extra = parse_extra_with_bpm(&extra, fs, Some(BpmList::new(bpms)))
+                .await
+                .context("Failed to parse extra")?;
+            extra.effects.append(&mut chart.extra.effects);
+            extra.global_effects.append(&mut chart.extra.global_effects);
+            #[cfg(feature = "video")]
+            extra.videos.append(&mut chart.extra.videos);
+            chart.extra = extra;
+        }
         if load_textures {
             chart.load_textures(fs).await?;
         }
@@ -1423,7 +1447,7 @@ impl GameScene {
             let o = if self.mode == GameMode::Exercise { -0.3 } else { 0. };
             let s = 0.06;
             let w = 0.05;
-            let no_retry = matches!(self.mode, GameMode::NoRetry | GameMode::Course);
+            let no_retry = matches!(self.mode, GameMode::Course);
             draw_texture_ex(
                 *res.icon_back,
                 -s * 3. - w,
@@ -1987,7 +2011,7 @@ impl Scene for GameScene {
                         })
                     };
                     self.next_scene = match self.mode {
-                        GameMode::Normal | GameMode::NoRetry | GameMode::View => {
+                        GameMode::Normal | GameMode::View => {
                             let historic_best = self.player.as_ref().map_or(0, |it| it.historic_best);
                             if let Some(new_rec) = &record {
                                 if let Some(f) = &self.save_fn {
@@ -2006,28 +2030,25 @@ impl Scene for GameScene {
                                     }
                                 }
                             }
-                            Some(NextScene::Overlay(Box::new(
-                                EndingScene::new(
-                                    self.ending_background.clone(),
-                                    self.res.illustration.clone(),
-                                    self.res.player.clone(),
-                                    self.res.icons.clone(),
-                                    self.res.icon_retry.clone(),
-                                    self.res.icon_proceed.clone(),
-                                    self.res.mod_icons.clone(),
-                                    self.res.info.clone(),
-                                    self.judge.result(self.res.config.has_mod(Mods::NO_COMBO_SCORE)),
-                                    &self.res.config,
-                                    self.res.res_pack.ending.clone(),
-                                    self.upload_fn.as_ref().map(Arc::clone),
-                                    self.player.as_ref().map(|it| it.rks),
-                                    historic_best,
-                                    record_data,
-                                    self.best_record.clone(),
-                                    if self.res.config.show_avg_fps { self.get_avg_fps() } else { None },
-                                )?
-                                .with_retry(self.mode != GameMode::NoRetry),
-                            )))
+                            Some(NextScene::Overlay(Box::new(EndingScene::new(
+                                self.ending_background.clone(),
+                                self.res.illustration.clone(),
+                                self.res.player.clone(),
+                                self.res.icons.clone(),
+                                self.res.icon_retry.clone(),
+                                self.res.icon_proceed.clone(),
+                                self.res.mod_icons.clone(),
+                                self.res.info.clone(),
+                                self.judge.result(self.res.config.has_mod(Mods::NO_COMBO_SCORE)),
+                                &self.res.config,
+                                self.res.res_pack.ending.clone(),
+                                self.upload_fn.as_ref().map(Arc::clone),
+                                self.player.as_ref().map(|it| it.rks),
+                                historic_best,
+                                record_data,
+                                self.best_record.clone(),
+                                if self.res.config.show_avg_fps { self.get_avg_fps() } else { None },
+                            )?)))
                         }
                         GameMode::Course => Some(NextScene::PopWithResult(Box::new(self.judge.result(true)))),
                         GameMode::TweakOffset => Some(NextScene::PopWithResult(Box::new(None::<f32>))),
@@ -2219,7 +2240,7 @@ impl Scene for GameScene {
                         } else {
                             self.exercise_range.end = t;
                             self.practice_combo = None;
-                            self.practice_range_changed(tm)?;
+                            self.practice_end_changed(tm)?;
                             show_message(tl!("ex-time-set")).ok();
                         }
                     } else {
@@ -2513,7 +2534,7 @@ impl Scene for GameScene {
                     }
                 }
                 // not sure if they need result. just keep it
-                GameMode::Exercise | GameMode::NoRetry | GameMode::View | GameMode::Course => NextScene::Pop,
+                GameMode::Exercise | GameMode::View | GameMode::Course => NextScene::Pop,
                 GameMode::TweakOffset => NextScene::PopWithResult(Box::new(None::<f32>)),
             }
         } else if let Some(next_scene) = self.next_scene.take() {

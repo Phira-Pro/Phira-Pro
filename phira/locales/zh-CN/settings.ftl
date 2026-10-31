@@ -434,5 +434,5 @@ item-show-perfect-combo = 显示 Perfect Combo
 item-show-perfect-combo-sub = 连击仅累计连续 Perfect+ / Perfect；其他判定会中断显示，不改变计分
 
 item-gameplay-background-blur = 游玩背景模糊
-item-multiplayer = 多人联机
-item-multiplayer-sub = 显示可拖动的圆形入口，点击打开联机面板
+
+item-fps-unlimited = 无上限

@@ -13,7 +13,7 @@ mod main;
 pub use main::{MainScene, APPEARANCE_UPDATED, BACKGROUND_UPDATED, BGM_UPDATED, BGM_VOLUME_UPDATED};
 
 mod song;
-pub use song::{compress_folder, Downloading, SongScene};
+pub use song::{compress_folder, SongScene};
 #[cfg(feature = "video")]
 mod unlock;
 #[cfg(feature = "video")]
@@ -26,7 +26,6 @@ mod record_detail;
 pub use record_detail::RecordDetailScene;
 
 pub(crate) mod replay;
-pub(crate) mod monitor;
 
 use crate::{
     client::{Client, UserManager},

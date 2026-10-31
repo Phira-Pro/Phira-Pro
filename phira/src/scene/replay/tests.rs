@@ -415,6 +415,19 @@ async fn practice_speed_and_markers_regression(info: ChartInfo, painter: &mut Te
                     assert!((game.res.time - (tm.now() - game.offset() as f64)).abs() < 1e-8);
                 }
             }
+            // Editing the end marker must preserve the already scrubbed green cursor.
+            let cursor = tm.now();
+            let end_marker = game.practice_control_point("marker:1").unwrap();
+            for (phase, dx) in [(TouchPhase::Started, 0.), (TouchPhase::Moved, -0.02), (TouchPhase::Ended, -0.02)] {
+                frame(&mut game, &mut tm, phase, end_marker + vec2(dx, 0.));
+                assert!((tm.now() - cursor).abs() < 1e-8, "end marker moved the cursor at {w}x{h}");
+                assert!((game.res.time - (cursor - game.offset() as f64)).abs() < 1e-8);
+                assert!(tm.paused());
+            }
+            prpr::scene::return_input("exercise_end".into(), "0:10.000".into());
+            game.update(&mut tm).unwrap();
+            assert!((tm.now() - cursor).abs() < 1e-8, "typed end moved the cursor");
+            assert!(tm.paused());
         }
     }
     println!("Practice speed: global/Nightcore isolation, real slider +/- and drag, clock rate, red/blue/green marker drags at three aspects passed");

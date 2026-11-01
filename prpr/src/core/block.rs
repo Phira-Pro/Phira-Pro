@@ -273,8 +273,10 @@ impl BlockArea {
         let lp: Point = inv.transform_point(&Point::new(p.x, p.y));
         let sign = if self.is_subtract { 1. } else { -1. };
         let (s, c) = tr.rotation.to_radians().sin_cos();
-        let hx = 0.5 + sign * inset_local(tr.size.x * c.hypot(s * tr.y_scale), inset_world);
-        let hy = 0.5 + sign * inset_local(tr.size.y * s.hypot(c * tr.y_scale), inset_world);
+        let width = tr.size.x * c.hypot(s * tr.y_scale);
+        let height = tr.size.y * s.hypot(c * tr.y_scale);
+        let hx = (0.5 + sign * inset_world / width).max(0.);
+        let hy = (0.5 + sign * inset_world / height).max(0.);
         lp.x.abs() <= hx && lp.y.abs() <= hy
     }
 }
@@ -297,27 +299,14 @@ fn matrix_of(tr: &BlockTransform) -> Matrix {
         * Matrix::identity().append_nonuniform_scaling(&tr.size)
 }
 
-/// Official `JudgeControl.maxBlockTouchInsetLocal`.
-pub const TOUCH_INSET_LOCAL: f32 = 0.05;
-/// Official `JudgeControl.blockTouchInsetScreenHeightRatio` (also the clamp bound).
-pub const TOUCH_INSET_SCREEN_HEIGHT_RATIO: f32 = 0.25;
+/// Official `JudgeControl.blockTouchInsetScreenHeightRatio` since 4.0.1.1.
+pub const TOUCH_INSET_SCREEN_HEIGHT_RATIO: f32 = 0.05;
 
-/// Chart-space touch inset: `maxBlockTouchInsetLocal * screenHeight`
+/// Chart-space touch inset: `blockTouchInsetScreenHeightRatio * screenHeight`
 /// (screen height in chart units is `2 / aspect`).
 #[inline]
 pub fn touch_inset_world(aspect: f32) -> f32 {
-    TOUCH_INSET_LOCAL * 2.0 / aspect
-}
-
-/// Convert a chart-space inset into local units for one axis (clamped, as the
-/// official `TryGetBlockTouchHalfSize` does).
-#[inline]
-fn inset_local(size: f32, inset_world: f32) -> f32 {
-    if size.abs() < 1e-6 {
-        TOUCH_INSET_SCREEN_HEIGHT_RATIO
-    } else {
-        (inset_world / size).abs().clamp(0., TOUCH_INSET_SCREEN_HEIGHT_RATIO)
-    }
+    TOUCH_INSET_SCREEN_HEIGHT_RATIO * 2.0 / aspect
 }
 
 /// Even-odd rule equivalent to the official `JudgeControl.TryGetBlockingBlock`:
@@ -615,12 +604,53 @@ mod tests {
         let aspect = 2.0;
         let p = Vector::new(0., 0.);
         let mk = |sub: bool| {
-            let mut b = blk((0.52, 0.52), (0.48, 0.48), vec![], vec![], vec![]);
+            let mut b = blk((0.75, 0.75), (0.25, 0.25), vec![], vec![], vec![]);
             b.is_subtract = sub;
             b
         };
         assert!(block_touch_blocked(&[mk(false)], p, 50., aspect));
         assert!(block_touch_blocked(&[mk(true)], p, 50., aspect));
         assert!(!block_touch_blocked(&[mk(false), mk(true)], p, 50., aspect));
+    }
+
+    #[test]
+    fn normal_touch_half_size_clamps_to_zero() {
+        for aspect in [1., 2.] {
+            for half in [Vector::new(0.25, 0.015625), Vector::new(0.015625, 0.25), Vector::repeat(0.015625)] {
+                let b = blk((0.5 + half.x, 0.5 + half.y), (0.5 - half.x, 0.5 - half.y), vec![], vec![], vec![]);
+                let p = if half.x < half.y {
+                    Vector::new(0.001, 0.)
+                } else {
+                    Vector::new(0., 0.001)
+                };
+                assert!(b.contains(p, 1., aspect, 0.));
+                assert!(!block_touch_blocked(std::slice::from_ref(&b), p, 1., aspect));
+                assert!(block_touch_blocked(&[b], Vector::zeros(), 1., aspect));
+            }
+        }
+    }
+
+    #[test]
+    fn subtract_touch_inset_has_no_local_cap() {
+        for aspect in [1., 2.] {
+            let mut b = blk((0.515625, 0.515625), (0.484375, 0.484375), vec![], vec![], vec![]);
+            b.is_subtract = true;
+            let inset = touch_inset_world(aspect);
+            assert!(close(inset, 0.05 * 2. / aspect));
+            for p in [Vector::new(0.03125 + inset * 0.75, 0.), Vector::new(0., 0.03125 / aspect + inset * 0.75)] {
+                assert!(b.contains(p, 1., aspect, inset));
+                assert!(!block_touch_blocked(std::slice::from_ref(&b), p, 1., aspect));
+            }
+        }
+    }
+
+    #[test]
+    fn expanded_subtract_removes_more_of_normal_block() {
+        let normal = blk((1., 1.), (0., 0.), vec![], vec![], vec![]);
+        let mut subtract = blk((0.515625, 0.515625), (0.484375, 0.484375), vec![], vec![], vec![]);
+        subtract.is_subtract = true;
+        let p = Vector::new(0.07, 0.);
+        assert!(block_touch_blocked(std::slice::from_ref(&normal), p, 1., 2.));
+        assert!(!block_touch_blocked(&[normal, subtract], p, 1., 2.));
     }
 }

@@ -21,6 +21,10 @@ use anyhow::{Context, Result};
 use macroquad::{prelude::*, window::get_internal_gl};
 use std::path::PathBuf;
 
+#[cfg(test)]
+#[path = "session/tests.rs"]
+mod tests;
+
 pub struct ChartVideoRenderer {
     scene: GameScene,
     capture: RenderTarget,
@@ -103,10 +107,13 @@ impl ChartVideoRenderer {
         config.speed = 1.;
         config.adjust_time = false;
         config.interactive = false;
+        config.res_pack_path = options.res_pack_path.clone();
+        options.visuals.apply(&mut config, options.show_hud);
         let mut scene = GameScene::new(GameMode::View, info.clone(), config, fs, None, background.clone(), illustration.clone(), None, None, None)
             .await
             .context("无法加载谱面场景")?;
         scene.hide_ui = !options.show_hud;
+        scene.video_indicators = Some(options.visuals.show_early_late);
         let avatar = if let Some(path) = &options.presentation.result.avatar {
             let bytes = std::fs::read(path).context("无法读取导出头像，请重新选择图片")?;
             let image = crate::loading_cpu::image(bytes).await.context("导出头像不是有效图片")?;
@@ -364,7 +371,8 @@ impl ChartVideoRenderer {
                 self.tm.seek_to(music_time - self.offset);
                 self.scene.tick_replay();
             }
-            self.scene.set_video_progress(self.timeline.hud_progress(&context, self.scene.res.track_length));
+            self.scene
+                .set_video_progress(self.timeline.hud_progress(&context, self.scene.res.track_length));
             self.scene.set_replay_frame_delta(if context.preview { 0. } else { context.delta as f32 });
             let mut ui = Ui::new(painter, viewport);
             self.scene.render(&mut self.tm, &mut ui)?;
@@ -375,7 +383,8 @@ impl ChartVideoRenderer {
             self.scene.set_video_entrance(frame.line, frame.hud);
             self.tm.seek_to(time);
             self.scene.tick_replay();
-            self.scene.set_video_progress(self.timeline.hud_progress(&context, self.scene.res.track_length));
+            self.scene
+                .set_video_progress(self.timeline.hud_progress(&context, self.scene.res.track_length));
             let mut ui = Ui::new(painter, viewport);
             self.scene.render(&mut self.tm, &mut ui)?;
         }

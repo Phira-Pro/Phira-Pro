@@ -6,14 +6,16 @@ use prpr::chart_video::{PresentationOptions, PresentationStyle};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Category {
     Output,
+    Visuals,
     Flow,
     Opening,
     Ending,
     Audio,
     Overview,
 }
-pub const CATEGORIES: [Category; 6] = [
+pub const CATEGORIES: [Category; 7] = [
     Category::Output,
+    Category::Visuals,
     Category::Flow,
     Category::Opening,
     Category::Ending,
@@ -24,6 +26,7 @@ impl Category {
     pub fn label(self) -> &'static str {
         match self {
             Self::Output => "输出",
+            Self::Visuals => "游玩画面",
             Self::Flow => "演出流程",
             Self::Opening => "开场",
             Self::Ending => "结算",
@@ -43,6 +46,7 @@ pub enum Kind {
     Avatar,
     ResetAvatar,
     Font,
+    ResourcePack,
 }
 
 macro_rules! fields {
@@ -62,6 +66,15 @@ fields! {
     Resolution => (Output, Choice, "分辨率", "视频输出尺寸"),
     Fps => (Output, Choice, "帧率", "逐帧离线渲染，不受屏幕刷新率限制"),
     Directory => (Output, Folder, "输出目录", "视频按谱面标题和难度命名"),
+    ResourcePack => (Output, ResourcePack, "资源包", "默认跟随游玩设置，也可为视频单独选择，不改变游玩资源包"),
+    OffsetIndicator => (Visuals, Choice, "偏移指示器", "默认跟随主游玩界面，可单独开启或关闭，自动播放偏移为零"),
+    ApFcIndicator => (Visuals, Toggle, "判定线 AP/FC 指示器", "按 AP 或 FC 状态着色，自动播放也生效"),
+    DoubleHint => (Visuals, Toggle, "双押高亮", "使用所选资源包的双押音符样式"),
+    Particle => (Visuals, Toggle, "打击特效", "使用所选资源包的命中特效"),
+    AccuracyDisplay => (Visuals, Toggle, "显示准度", "可在主游玩界面关闭时单独显示"),
+    JudgementDetails => (Visuals, Toggle, "判定统计", "显示各档判定数量，可在主游玩界面关闭时单独显示"),
+    PerfectCombo => (Visuals, Toggle, "Perfect 连击", "以 Perfect 连击替换主游玩界面的连击数，需要开启显示游玩界面"),
+    EarlyLate => (Visuals, Toggle, "Early/Late 统计", "显示实际早晚判定数量，可在主游玩界面关闭时单独显示"),
     Preset => (Flow, Choice, "画面预设", "切换流程预设，保留已填写的展示文字"),
     Font => (Flow, Font, "演出字体", "选择 TTF 或 OTF，仅用于开场与结算"),
     ResetFont => (Flow, Choice, "默认演出字体", "恢复内置演出字体"),
@@ -103,7 +116,7 @@ fields! {
     Hitsound => (Audio, Toggle, "混入打击音", "跟随谱面自定义打击音"),
     MusicVolume => (Audio, Number, "音乐音量", "0 到 2，1 为原始音量"),
     HitsoundVolume => (Audio, Number, "打击音音量", "0 到 2，独立于音乐音量"),
-    EndingVolume => (Audio, Number, "结算音量", "0 到 2，使用内置结算音乐"),
+    EndingVolume => (Audio, Number, "结算音量", "0 到 2，使用所选资源包的结算音乐"),
     EndingDelay => (Audio, Number, "结算音乐延迟", "0 到 10 秒，相对结算开始时间"),
     Fade => (Audio, Number, "音频淡入淡出", "0 到 5 秒，用于音乐片段及结算音乐"),
 }
@@ -124,6 +137,24 @@ pub fn value(p: &Prefs, field: Field) -> String {
         }
     }
     match field {
+        Field::ResourcePack => match &p.resource_pack {
+            super::resource_pack::Selection::FollowGame => "跟随游玩设置".into(),
+            super::resource_pack::Selection::Builtin => "内置默认（Phira）".into(),
+            super::resource_pack::Selection::Imported(_) => "已导入资源包".into(),
+        },
+        Field::OffsetIndicator => match p.visuals.offset_indicator {
+            None => "跟随主游玩界面",
+            Some(true) => "开启",
+            Some(false) => "关闭",
+        }
+        .into(),
+        Field::ApFcIndicator => flag(p.visuals.ap_fc_indicator),
+        Field::DoubleHint => flag(p.visuals.double_hint),
+        Field::Particle => flag(p.visuals.particle),
+        Field::AccuracyDisplay => flag(p.visuals.show_acc),
+        Field::JudgementDetails => flag(p.visuals.show_judgement_details),
+        Field::PerfectCombo => flag(p.visuals.show_perfect_combo),
+        Field::EarlyLate => flag(p.visuals.show_early_late),
         Field::Font => if presentation.font.is_some() {
             "已选择字体"
         } else {
@@ -206,6 +237,7 @@ pub fn input_value(p: &Prefs, field: Field) -> String {
 
 pub fn enabled(p: &Prefs, field: Field) -> bool {
     match field {
+        Field::PerfectCombo => p.hud,
         Field::Score | Field::Accuracy | Field::Combo | Field::Perfect | Field::Good | Field::Bad | Field::Miss => p.presentation.result.custom,
         _ => true,
     }
@@ -227,6 +259,20 @@ fn change_inner(p: &mut Prefs, field: Field, input: Option<&str>) -> Result<()> 
     let r = &mut presentation.result;
     let a = &mut presentation.audio;
     match field {
+        Field::OffsetIndicator => {
+            p.visuals.offset_indicator = match p.visuals.offset_indicator {
+                None => Some(true),
+                Some(true) => Some(false),
+                Some(false) => None,
+            }
+        }
+        Field::ApFcIndicator => p.visuals.ap_fc_indicator ^= true,
+        Field::DoubleHint => p.visuals.double_hint ^= true,
+        Field::Particle => p.visuals.particle ^= true,
+        Field::AccuracyDisplay => p.visuals.show_acc ^= true,
+        Field::JudgementDetails => p.visuals.show_judgement_details ^= true,
+        Field::PerfectCombo => p.visuals.show_perfect_combo ^= true,
+        Field::EarlyLate => p.visuals.show_early_late ^= true,
         Field::Resolution => p.res = (p.res + 1) % RESOLUTIONS.len(),
         Field::Fps => p.fps = (p.fps + 1) % FPS_CHOICES.len(),
         Field::Preset => {
@@ -291,7 +337,7 @@ fn change_inner(p: &mut Prefs, field: Field, input: Option<&str>) -> Result<()> 
         Field::EndingDelay => a.ending_delay_seconds = input.parse()?,
         Field::Fade => a.fade_seconds = input.parse()?,
         Field::ResetFont => presentation.font = None,
-        Field::Directory | Field::Avatar | Field::Font => bail!("该设置需要选择文件或目录"),
+        Field::Directory | Field::Avatar | Field::Font | Field::ResourcePack => bail!("该设置需要选择文件、目录或资源包"),
     }
     p.presentation.validate()
 }

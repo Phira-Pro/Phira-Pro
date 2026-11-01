@@ -30,24 +30,68 @@ pub fn save(packs: &[SongPack]) -> Result<()> {
     Ok(())
 }
 pub fn create(name: String, charts: Vec<String>) -> Result<SongPack> {
-    let mut seen = std::collections::HashSet::new();
-    let charts: Vec<_> = charts.into_iter().filter(|p| seen.insert(p.clone())).collect();
-    if charts.is_empty() {
-        bail!("请至少选择一张谱面");
-    }
-    let name = name.trim();
-    if name.is_empty() {
-        bail!("请输入曲包名称");
-    }
     let pack = SongPack {
         id: Uuid::new_v4(),
-        name: name.chars().take(80).collect(),
-        charts,
+        name: validated_name(&name)?,
+        charts: validated_charts(charts)?,
     };
     let mut packs = load()?;
     packs.push(pack.clone());
     save(&packs)?;
     Ok(pack)
+}
+
+fn validated_charts(charts: Vec<String>) -> Result<Vec<String>> {
+    let mut seen = std::collections::HashSet::new();
+    let charts: Vec<_> = charts.into_iter().filter(|p| seen.insert(p.clone())).collect();
+    if charts.is_empty() {
+        bail!("请至少选择一张谱面");
+    }
+    Ok(charts)
+}
+
+fn validated_name(name: &str) -> Result<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        bail!("请输入曲包名称");
+    }
+    Ok(name.chars().take(80).collect())
+}
+
+fn edit(id: Uuid, change: impl FnOnce(&mut SongPack) -> Result<()>) -> Result<()> {
+    if id.is_nil() {
+        bail!("官方合集不支持编辑");
+    }
+    let mut packs = load()?;
+    let pack = packs.iter_mut().find(|pack| pack.id == id).context("曲包已不存在，请刷新后重试")?;
+    change(pack)?;
+    save(&packs)
+}
+
+pub fn rename(id: Uuid, name: String) -> Result<()> {
+    edit(id, |pack| {
+        pack.name = validated_name(&name)?;
+        Ok(())
+    })
+}
+
+pub fn set_charts(id: Uuid, charts: Vec<String>) -> Result<()> {
+    edit(id, |pack| {
+        pack.charts = validated_charts(charts)?;
+        Ok(())
+    })
+}
+
+/// Remove only the group from the index. Chart files and library entries are independent.
+pub fn remove(id: Uuid) -> Result<()> {
+    if id.is_nil() {
+        bail!("官方合集不支持删除");
+    }
+    let mut packs = load()?;
+    let index = packs.iter().position(|pack| pack.id == id).context("曲包已不存在，请刷新后重试")?;
+    packs.remove(index);
+    save(&packs)?;
+    Ok(())
 }
 
 pub fn paths_for_refs(charts: &[crate::client::ChartRef]) -> Result<Vec<String>> {
@@ -273,6 +317,36 @@ mod tests {
             let before = std::fs::read_dir(&custom).unwrap().count();
             assert!(import(failed).await.is_err());
             assert_eq!(std::fs::read_dir(custom).unwrap().count(), before);
+
+            let other = create("另一个曲包".into(), paths.clone()).unwrap();
+            rename(pack.id, "  重命名曲包  ".into()).unwrap();
+            assert_eq!(load().unwrap()[0].name, "重命名曲包");
+            assert!(rename(pack.id, " \n ".into()).is_err());
+            assert_eq!(load().unwrap()[0].name, "重命名曲包");
+            set_charts(pack.id, vec![paths[1].clone(), paths[1].clone()]).unwrap();
+            assert_eq!(load().unwrap()[0].charts, vec![paths[1].clone()]);
+            assert!(set_charts(pack.id, Vec::new()).is_err());
+            assert_eq!(load().unwrap()[0].charts, vec![paths[1].clone()]);
+            assert!(remove(Uuid::nil()).is_err());
+            assert!(rename(Uuid::nil(), "官方合集".into()).is_err());
+            assert!(set_charts(Uuid::nil(), paths.clone()).is_err());
+            let files: Vec<_> = paths
+                .iter()
+                .map(|path| Path::new(&dir::charts().unwrap()).join(path).join("chart.json"))
+                .map(|path| std::fs::read(path).unwrap())
+                .collect();
+            remove(pack.id).unwrap();
+            assert!(remove(pack.id).is_err());
+            let remaining = load().unwrap();
+            assert_eq!(remaining.len(), 1);
+            assert_eq!(remaining[0].id, other.id);
+            assert_eq!(remaining[0].charts, paths);
+            for (path, bytes) in paths.iter().zip(files) {
+                let chart = Path::new(&dir::charts().unwrap()).join(path);
+                assert_eq!(std::fs::read(chart.join("chart.json")).unwrap(), bytes);
+                assert!(chart.join("song.wav").is_file());
+                assert!(chart.join("background.png").is_file());
+            }
         });
         *crate::DATA_PATH.lock().unwrap() = previous;
     }

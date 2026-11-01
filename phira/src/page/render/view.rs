@@ -59,14 +59,15 @@ impl RenderPage {
             if self.busy() {
                 self.pick.invalidate();
             }
-            let tab_w = (layout.tabs.w - GAP * 5.) / 6.;
+            let tab_count = settings::CATEGORIES.len();
+            let tab_w = (layout.tabs.w - GAP * (tab_count - 1) as f32) / tab_count as f32;
             for (i, (tab, category)) in self.tabs.iter_mut().zip(settings::CATEGORIES).enumerate() {
                 tab.render_text(
                     ui,
                     Rect::new(layout.tabs.x + i as f32 * (tab_w + GAP), layout.tabs.y, tab_w, layout.tabs.h),
                     t,
                     category.label(),
-                    0.34,
+                    if tab_w < 0.21 { 0.27 } else { 0.34 },
                     self.category == category,
                 );
             }
@@ -129,12 +130,15 @@ impl RenderPage {
         let column_w = (width - GAP * (columns - 1) as f32) / columns as f32;
         let mut col = 0;
         let mut row_height = 0f32;
+        let mut row_body_height = 0f32;
         let mut last_category = None;
-        for &field in settings::FIELDS {
+        let fields: Vec<_> = settings::FIELDS
+            .iter()
+            .copied()
+            .filter(|field| overview || field.info().0 == self.category)
+            .collect();
+        for (index, &field) in fields.iter().enumerate() {
             let category = field.info().0;
-            if !overview && category != self.category {
-                continue;
-            }
             if overview && last_category != Some(category) {
                 if col > 0 {
                     y += row_height + 0.008;
@@ -145,10 +149,18 @@ impl RenderPage {
                 paragraph(ui, &mut y, width, category.label(), 0.34, semi_white(0.8));
                 last_category = Some(category);
             }
+            if col == 0 {
+                row_body_height = self.field_body_height(ui, column_w, field, overview);
+                if columns == 2 {
+                    if let Some(&next) = fields.get(index + 1).filter(|next| next.info().0 == category) {
+                        row_body_height = row_body_height.max(self.field_body_height(ui, column_w, next, overview));
+                    }
+                }
+            }
             let height = ui.scope(|ui| {
                 ui.dx(col as f32 * (column_w + GAP));
                 ui.dy(y);
-                self.render_field(ui, t, column_w, field, overview)
+                self.render_field(ui, t, column_w, field, overview, row_body_height)
             });
             row_height = row_height.max(height);
             col += 1;
@@ -193,10 +205,20 @@ impl RenderPage {
         (width, y + 0.02)
     }
 
-    fn render_field(&mut self, ui: &mut Ui, t: f32, width: f32, field: Field, overview: bool) -> f32 {
-        let (_, kind, name, help) = field.info();
-        let enabled = settings::enabled(&self.prefs, field);
-        let value = settings::value(&self.prefs, field);
+    fn field_value(&self, field: Field) -> String {
+        if field == Field::ResourcePack {
+            self.resource_packs
+                .iter()
+                .find(|choice| choice.selection == self.prefs.resource_pack)
+                .map(|choice| choice.label.clone())
+                .unwrap_or_else(|| "资源包不可用，请重新选择".into())
+        } else {
+            settings::value(&self.prefs, field)
+        }
+    }
+
+    fn field_body_height(&self, ui: &mut Ui, width: f32, field: Field, overview: bool) -> f32 {
+        let (_, _, name, help) = field.info();
         let control_w = (width * 0.43).min(0.5);
         let label_w = width - control_w - 0.035;
         let label_h = ui.text(name).size(BODY).no_baseline().max_width(label_w).multiline().measure().h;
@@ -207,7 +229,7 @@ impl RenderPage {
             ui.text(help_text).size(SMALL).no_baseline().max_width(label_w).multiline().measure().h + 0.007
         };
         let value_h = if overview {
-            ui.text(&value)
+            ui.text(self.field_value(field))
                 .size(0.31)
                 .no_baseline()
                 .max_width(control_w - 0.02)
@@ -217,7 +239,17 @@ impl RenderPage {
         } else {
             0.
         };
-        let height = (label_h + help_h + 0.026).max(value_h + 0.026).max(0.082);
+        (label_h + help_h + 0.026).max(value_h + 0.026).max(0.082)
+    }
+
+    fn render_field(&mut self, ui: &mut Ui, t: f32, width: f32, field: Field, overview: bool, height: f32) -> f32 {
+        let (_, kind, name, help) = field.info();
+        let enabled = settings::enabled(&self.prefs, field);
+        let value = self.field_value(field);
+        let control_w = (width * 0.43).min(0.5);
+        let label_w = width - control_w - 0.035;
+        let label_h = ui.text(name).size(BODY).no_baseline().max_width(label_w).multiline().measure().h;
+        let help_text = if overview { "" } else { help };
         let row = Rect::new(0., 0., width, height);
         ui.fill_path(&row.rounded(0.006), semi_black(0.22));
         let alpha = if enabled { 1. } else { 0.45 };
@@ -250,6 +282,17 @@ impl RenderPage {
                 .multiline()
                 .color(semi_white(0.8 * alpha))
                 .draw();
+        } else if field == Field::ResourcePack {
+            if self.busy() {
+                ui.text(&value)
+                    .pos(control.x, control.y)
+                    .size(0.31)
+                    .no_baseline()
+                    .max_width(control.w)
+                    .draw();
+            } else {
+                self.resource_pack_selector.render(ui, control, t);
+            }
         } else {
             let busy = self.busy();
             let button = &mut self.fields[field as usize];
@@ -261,7 +304,7 @@ impl RenderPage {
             }
         }
         let mut end = height + 0.005;
-        if field == Field::Directory && !overview {
+        if matches!(field, Field::Directory | Field::ResourcePack) && !overview {
             paragraph(ui, &mut end, width - 0.015, &value, SMALL, semi_white(0.60));
         }
         end

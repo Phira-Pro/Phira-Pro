@@ -14,6 +14,9 @@ pub struct VideoOptions {
     pub hitsound: bool,
     pub show_hud: bool,
     pub sample_count: u32,
+    /// Resolved by the caller. None selects the built-in resource pack.
+    pub res_pack_path: Option<String>,
+    pub visuals: VisualOptions,
     pub presentation: PresentationOptions,
 }
 
@@ -28,8 +31,56 @@ impl Default for VideoOptions {
             hitsound: true,
             show_hud: false,
             sample_count: 4,
+            res_pack_path: None,
+            visuals: VisualOptions::default(),
             presentation: PresentationOptions::default(),
         }
+    }
+}
+
+/// Export-only appearance. Missing fields preserve the previous export defaults.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VisualOptions {
+    /// None preserves the legacy rule: the timing bar follows the main HUD.
+    pub offset_indicator: Option<bool>,
+    pub ap_fc_indicator: bool,
+    pub double_hint: bool,
+    pub particle: bool,
+    pub show_acc: bool,
+    pub show_judgement_details: bool,
+    pub show_perfect_combo: bool,
+    pub show_early_late: bool,
+}
+
+impl Default for VisualOptions {
+    fn default() -> Self {
+        Self {
+            offset_indicator: None,
+            ap_fc_indicator: true,
+            double_hint: true,
+            particle: true,
+            show_acc: false,
+            show_judgement_details: false,
+            show_perfect_combo: false,
+            show_early_late: false,
+        }
+    }
+}
+
+impl VisualOptions {
+    pub fn offset_visible(&self, show_hud: bool) -> bool {
+        self.offset_indicator.unwrap_or(show_hud)
+    }
+
+    pub(super) fn apply(&self, config: &mut crate::config::Config, show_hud: bool) {
+        config.offset_indicator = self.offset_visible(show_hud);
+        config.ap_fc_indicator = self.ap_fc_indicator;
+        config.double_hint = self.double_hint;
+        config.particle = self.particle;
+        config.show_acc = self.show_acc;
+        config.show_judgement_details = self.show_judgement_details;
+        config.show_perfect_combo = self.show_perfect_combo;
     }
 }
 

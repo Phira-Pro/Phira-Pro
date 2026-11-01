@@ -1,4 +1,5 @@
 prpr_l10n::tl_file!("collection");
+mod management;
 #[cfg(all(test, record, target_os = "windows"))]
 mod qa;
 
@@ -17,7 +18,7 @@ use prpr::{
     ext::{semi_black, semi_white, RectExt, ScaleType},
     scene::{request_file, request_input, return_file, return_input, show_error, show_message, take_file, take_input, NextScene},
     task::Task,
-    ui::{DRectButton, Dialog, RectButton, Scroll, Ui},
+    ui::{DRectButton, Dialog, LongTouchState, RectButton, Scroll, Ui},
 };
 use std::{
     borrow::Cow,
@@ -31,6 +32,7 @@ struct Card {
     pack: SongPack,
     illu: Illustration,
     btn: RectButton,
+    long_touch: LongTouchState,
 }
 pub struct CollectionPage {
     icons: Arc<Icons>,
@@ -38,6 +40,9 @@ pub struct CollectionPage {
     scroll: Scroll,
     plus: RectButton,
     action: Arc<AtomicU8>,
+    managing: Option<SongPack>,
+    editing: Option<uuid::Uuid>,
+    renaming: Option<uuid::Uuid>,
     choose: Option<ChartsView>,
     create: DRectButton,
     cancel: DRectButton,
@@ -57,6 +62,9 @@ impl CollectionPage {
             scroll: Scroll::new().horizontal(),
             plus: RectButton::new(),
             action: Arc::default(),
+            managing: None,
+            editing: None,
+            renaming: None,
             choose: None,
             create: DRectButton::new(),
             cancel: DRectButton::new(),
@@ -90,6 +98,7 @@ impl CollectionPage {
                     pack,
                     illu,
                     btn: RectButton::new(),
+                    long_touch: LongTouchState::default(),
                 }
             })
             .collect();
@@ -108,6 +117,7 @@ impl CollectionPage {
                     },
                     illu: Illustration::from_done(cover.clone()),
                     btn: RectButton::new(),
+                    long_touch: LongTouchState::default(),
                 },
             );
         }
@@ -127,13 +137,16 @@ impl CollectionPage {
 }
 impl Page for CollectionPage {
     fn label(&self) -> Cow<'static, str> {
-        if self.choose.is_some() {
+        if self.editing.is_some() {
+            "编辑曲包曲目".into()
+        } else if self.choose.is_some() {
             "选择曲包谱面".into()
         } else {
             tl!("label")
         }
     }
     fn enter(&mut self, _s: &mut SharedState) -> Result<()> {
+        self.cancel_card_touches();
         self.reload()
     }
     fn on_back_pressed(&mut self, _s: &mut SharedState) -> bool {
@@ -141,9 +154,10 @@ impl Page for CollectionPage {
             return true;
         }
         if self.choose.is_some() {
-            self.choose = None;
+            self.cancel_selection();
             true
         } else {
+            self.cancel_card_touches();
             false
         }
     }
@@ -153,13 +167,22 @@ impl Page for CollectionPage {
         }
         if let Some(view) = &mut self.choose {
             if self.cancel.touch(touch, s.t) {
-                self.choose = None;
+                self.cancel_selection();
                 return Ok(true);
             }
             if self.create.touch(touch, s.t) {
                 self.pending_charts = songpacks::paths_for_refs(view.multi_select.as_ref().unwrap())?;
                 if self.pending_charts.is_empty() {
                     show_message("请先选择谱面").warn();
+                } else if let Some(id) = self.editing {
+                    match songpacks::set_charts(id, self.pending_charts.clone()) {
+                        Ok(()) => {
+                            self.cancel_selection();
+                            self.reload()?;
+                            show_message("曲包曲目已保存，谱面文件保持不变").ok();
+                        }
+                        Err(err) => show_error(err),
+                    }
                 } else {
                     request_input("songpack_name", InputBox::new().default_text("新曲包"));
                 }
@@ -168,7 +191,12 @@ impl Page for CollectionPage {
             return view.touch(touch, s.t, s.rt);
         }
         if self.scroll.touch(touch, s.rt) {
+            self.cancel_card_touches();
             return Ok(true);
+        }
+        if !self.scroll.contains(touch) {
+            self.cancel_card_touches();
+            return Ok(false);
         }
         if self.plus.touch(touch) {
             let action = self.action.clone();
@@ -183,8 +211,19 @@ impl Page for CollectionPage {
                 .show();
             return Ok(true);
         }
-        for card in &mut self.cards {
+        for index in 0..self.cards.len() {
+            let card = &mut self.cards[index];
+            // A release can arrive before the next update crosses the hold threshold.
+            if !card.pack.id.is_nil()
+                && touch.phase == TouchPhase::Ended
+                && card.btn.contains(touch.position)
+                && card.btn.update_long_touch(s.rt, &mut card.long_touch)
+            {
+                self.open_management(index, s.rt);
+                return Ok(true);
+            }
             if card.btn.touch(touch) {
+                card.long_touch.reset();
                 if card.pack.id.is_nil() {
                     let icons = self.icons.clone();
                     let ranks = s.icons.clone();
@@ -200,6 +239,10 @@ impl Page for CollectionPage {
                 }
                 return Ok(true);
             }
+            if !card.pack.id.is_nil() && card.btn.long_touch(touch, s.rt, &mut card.long_touch) {
+                self.open_management(index, s.rt);
+                return Ok(true);
+            }
         }
         Ok(false)
     }
@@ -209,6 +252,14 @@ impl Page for CollectionPage {
             if !self.import_warnings.is_empty() {
                 Dialog::plain("警告", std::mem::take(&mut self.import_warnings).join("\n")).show();
             }
+        }
+        if prpr::scene::INPUT_CANCELLED
+            .lock()
+            .unwrap()
+            .take_if(|id| id == "songpack_rename")
+            .is_some()
+        {
+            self.renaming = None;
         }
         if let Some(result) = self.official_task.as_mut().and_then(|f| prpr::ext::poll_future(f.as_mut())) {
             self.official_task = None;
@@ -221,19 +272,22 @@ impl Page for CollectionPage {
         for card in &mut self.cards {
             card.illu.settle(s.t);
         }
+        if let Some(index) = self
+            .cards
+            .iter_mut()
+            .position(|card| !card.pack.id.is_nil() && card.btn.update_long_touch(s.rt, &mut card.long_touch))
+        {
+            self.open_management(index, s.rt);
+        }
         match self.action.swap(0, Ordering::Relaxed) {
             1 => {
                 self.import_waiting = true;
                 request_file("songpack_zip");
             }
             2 => {
-                let mut view = ChartsView::new(self.icons.clone(), s.icons.clone());
-                view.can_refresh = false;
-                view.allow_multi_select = false;
-                view.multi_select = Some(Vec::new());
-                view.set(s.t, super::load_local().into_iter().map(|c| ChartDisplayItem::new(Some(c), None)).collect());
-                self.choose = Some(view);
+                self.start_selection(None, s);
             }
+            action @ 3..=6 => self.manage_action(action, s)?,
             _ => {}
         }
         if let Some(view) = &mut self.choose {
@@ -243,6 +297,16 @@ impl Page for CollectionPage {
             if id == "songpack_name" {
                 if let Err(err) = self.finish(text) {
                     show_error(err);
+                }
+            } else if id == "songpack_rename" {
+                if let Some(id) = self.renaming.take() {
+                    match songpacks::rename(id, text) {
+                        Ok(()) => {
+                            self.reload()?;
+                            show_message("曲包名称已更新").ok();
+                        }
+                        Err(err) => show_error(err),
+                    }
                 }
             } else {
                 return_input(id, text);
@@ -286,8 +350,14 @@ impl Page for CollectionPage {
                 self.cancel
                     .render_text(ui, Rect::new(0.35, top - 0.14, 0.26, 0.09), t, "取消", 0.45, false);
                 let n = view.multi_select.as_ref().map_or(0, Vec::len);
-                self.create
-                    .render_text(ui, Rect::new(0.64, top - 0.14, 0.31, 0.09), t, format!("创建曲包 ({n})"), 0.45, false);
+                self.create.render_text(
+                    ui,
+                    Rect::new(0.64, top - 0.14, 0.31, 0.09),
+                    t,
+                    format!("{} ({n})", if self.editing.is_some() { "保存曲目" } else { "创建曲包" }),
+                    0.45,
+                    false,
+                );
                 return;
             }
             let area = Rect::new(-0.94, -top + 0.20, 1.88, top * 2. - 0.26);

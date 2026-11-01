@@ -1,6 +1,9 @@
 //! v6 preserves backend input separately from the v5-compatible playback tape.
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Capture {
@@ -131,7 +134,9 @@ impl Capture {
                 };
                 let [vx, vy, vw, vh] = a.viewport;
                 let x = (x - vx as f32) * 2. / vw as f32 - 1.;
-                let y = (a.screen_height - (vy + vh) as f32 + vh as f32 / 2. - y) * 2. / vw as f32;
+                // Match Judge::get_touches_in and Ui: pixel input starts at
+                // the top-left, viewport origins at the bottom-left, Y down.
+                let y = (y - (a.screen_height - (vy + vh) as f32) - vh as f32 / 2.) * 2. / vw as f32;
                 let observed = e.event_time.unwrap_or(e.observed_time);
                 let t = a.chart_time + (observed - a.uptime) * a.speed as f64;
                 // An incompatible backend clock cannot silently move an input

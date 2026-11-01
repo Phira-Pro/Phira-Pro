@@ -18,6 +18,9 @@ mod controller;
 #[cfg(target_os = "windows")]
 mod ffmpeg;
 mod layout;
+mod resource_pack;
+#[cfg(all(test, target_os = "windows"))]
+mod qa;
 mod settings;
 mod view;
 use config::*;
@@ -47,7 +50,9 @@ pub struct RenderPage {
     category: settings::Category,
     scroll: Scroll,
     status_scroll: Scroll,
-    tabs: [DRectButton; 6],
+    tabs: [DRectButton; settings::CATEGORIES.len()],
+    resource_packs: Vec<resource_pack::Choice>,
+    resource_pack_selector: crate::popup::ChooseButton,
     fields: Vec<DRectButton>,
     pick: DRectButton,
     start: DRectButton,

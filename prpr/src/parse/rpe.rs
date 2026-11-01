@@ -1310,6 +1310,96 @@ mod block_area_tests {
     }
 
     #[test]
+    fn ordinary_rpe_tracks_do_not_enter_trajectory_validation() {
+        let mut raw = chart_json(120.);
+        raw["judgeLineList"][0]["eventLayers"] = json!([{
+            "moveXEvents":[{"startTime":[8,0,1],"endTime":[2,0,1],"start":10,"end":20}]
+        }]);
+        let directory = tempfile::tempdir().unwrap();
+        let mut fs = crate::fs::ExternalFileSystem(Arc::new(crate::dir::Dir::new(directory.path()).unwrap()));
+        let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let source = raw.to_string();
+        let mut legacy = runtime
+            .block_on(parse_rpe_options(&source, &mut fs, ChartExtra::default(), false, None, false))
+            .unwrap();
+        let mut playback = runtime
+            .block_on(parse_rpe_options(&source, &mut fs, ChartExtra::default(), false, None, true))
+            .unwrap();
+        let mut analysis = runtime.block_on(parse_rpe_for_analysis(&source, &mut fs, false, None, true)).unwrap();
+        for time in [0., 1., 2., 4., 3., 0.] {
+            legacy.lines[0].object.set_time(time);
+            playback.lines[0].object.set_time(time);
+            analysis.lines[0].object.set_time(time);
+            let expected = legacy.lines[0].object.translation.0.now();
+            assert_eq!(playback.lines[0].object.translation.0.now(), expected);
+            assert_eq!(analysis.lines[0].object.translation.0.now(), expected);
+        }
+
+        raw["judgeLineList"][0]["eventLayers"][0]["moveXEvents"][0]["trajectory"] = json!({
+            "version":1,"options":{"xExpression":"t","yExpression":"0"}
+        });
+        let error = read_chart(raw).err().expect("reversed trajectory must still be rejected");
+        assert!(error.to_string().contains("invalid trajectory time range"));
+    }
+
+    #[test]
+    fn opening_alpha_holds_boundaries_and_preserves_rpe_rpen_timing() {
+        let mut raw = chart_json(120.);
+        raw["META"]["RPEVersion"] = json!(240);
+        raw["BPMList"] = json!([
+            {"bpm":120,"startTime":[0,0,1]}, {"bpm":60,"startTime":[2,0,1]}
+        ]);
+        let base = raw["judgeLineList"][0].clone();
+        raw["judgeLineList"] = json!([base.clone(), base.clone(), base]);
+        let fade = json!({"startTime":[2,0,1],"endTime":[4,0,1],"start":0,"end":255,"easingType":5});
+        for (line, events) in raw["judgeLineList"].as_array_mut().unwrap().iter_mut().zip([
+            json!([fade.clone()]),
+            json!([{"startTime":[-4,0,1],"endTime":[0,0,1],"start":255,"end":0}, fade.clone()]),
+            json!([{"startTime":[0,0,1],"endTime":[0,0,1],"start":255,"end":0}, fade]),
+        ]) {
+            line["notes"] = json!([]);
+            line["bpmfactor"] = json!(2);
+            line["eventLayers"] = json!([
+                {"alphaEvents":events},
+                {"alphaEvents":[{"startTime":[0,0,1],"endTime":[1,0,1],"start":0,"end":0}]}
+            ]);
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let mut fs = crate::fs::ExternalFileSystem(Arc::new(crate::dir::Dir::new(directory.path()).unwrap()));
+        let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        for rpen in [false, true] {
+            let factor = if rpen { 2. } else { 1. };
+            let source = raw.to_string();
+            let mut chart = runtime
+                .block_on(parse_rpe_options(&source, &mut fs, ChartExtra::default(), true, None, rpen))
+                .unwrap();
+            let mut analysis = runtime.block_on(parse_rpe_for_analysis(&source, &mut fs, true, None, rpen)).unwrap();
+            for line in &chart.lines {
+                assert_eq!(line.object.alpha.now(), 0., "initial sample must resolve zero-time events");
+            }
+            for time in [0., -3., -1., 0., 0.5, 1., 2., 3., 4., 2., 0., -1.] {
+                // The BPM change makes this fade last two seconds. Only the
+                // RPEN path applies the line factor, exactly once.
+                let fade = (((time - 1.) / 2.) as f32).clamp(0., 1.).powi(2);
+                for (id, expected) in [
+                    fade,
+                    if time < 0. { ((-time / 2.) as f32).min(1.) } else { fade },
+                    if time < 0. { 1. } else { fade },
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    for parsed in [&mut chart, &mut analysis] {
+                        parsed.lines[id].object.set_time(time * factor);
+                        let actual = parsed.lines[id].object.alpha.now();
+                        assert!((actual - expected).abs() < 1e-6, "line={id} time={time} rpen={rpen}: {actual} != {expected}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn rpen_opt_out_restores_legacy_timing_geometry_and_controls() {
         let source = include_str!("../../tests/fixtures/rpen-extensions/chart.json");
         let directory = tempfile::tempdir().unwrap();

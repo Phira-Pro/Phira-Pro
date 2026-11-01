@@ -888,20 +888,12 @@ mod tests {
     }
     #[test]
     fn parse_sample_phirarec() {
-        // 用随回放器附带的真实样本验证 JPhiraRec v0 解析。
-        let p = std::path::Path::new(r"e:\Phira Pro\Phira游戏录制回放器\records\133801240.phirarec");
-        if !p.exists() {
+        let Some(path) = std::env::var_os("PHIRA_TEST_LEGACY_REPLAY") else {
             return;
-        }
-        match super::load(p) {
-            Ok(r) => {
-                eprintln!("OK chart={:?} touches={} judges={}", r.chart, r.touches.len(), r.judges.len());
-                assert_eq!(r.chart, Some(super::ChartRef::Id(338)));
-                assert!(r.judges.len() > 0);
-                assert!(r.touches.len() > 0);
-            }
-            Err(e) => panic!("parse failed: {e:#}"),
-        }
+        };
+        let replay = super::load(std::path::Path::new(&path)).expect("legacy replay fixture must parse");
+        assert!(!replay.judges.is_empty());
+        assert!(!replay.touches.is_empty());
     }
 }
 
@@ -1179,7 +1171,10 @@ pub fn recorder(chart: Option<ChartRef>, offset: f32, speed: f32, mods: u32) -> 
             p.speed = res.config.speed;
             p.grading = res.config.judge_grading;
             // 触摸帧：非 Stationary 才记录，避免一帧刷好几条重复数据。
-            for touch in Judge::get_touches() {
+            // Store the same fitted, Y-down coordinates as live input and the
+            // raw capture reconstruction, including off-center viewports.
+            let viewport = res.camera.viewport.unwrap_or_else(prpr::ext::get_viewport);
+            for touch in Judge::get_touches_in(viewport) {
                 if matches!(touch.phase, macroquad::prelude::TouchPhase::Stationary) {
                     continue;
                 }
@@ -1187,15 +1182,11 @@ pub fn recorder(chart: Option<ChartRef>, offset: f32, speed: f32, mods: u32) -> 
                 if !accept_touch(&mut p.fingers, touch.id, phase, active) {
                     continue;
                 }
-                let (sx, sy, sw, sh) = prpr::ext::get_viewport();
-                let (vx, vy, vw, vh) = res.camera.viewport.unwrap_or((sx, sy, sw, sh));
-                let px = sx as f32 + (touch.position.x + 1.) * sw as f32 / 2.;
-                let py = sy as f32 + sh as f32 / 2. - touch.position.y * sw as f32 / 2.;
                 p.touches.push(TouchEvent {
                     phase,
                     id: touch.id,
-                    x: (px - vx as f32) * 2. / vw as f32 - 1.,
-                    y: (vy as f32 + vh as f32 / 2. - py) * 2. / vw as f32,
+                    x: touch.position.x,
+                    y: touch.position.y,
                     t: t as f32,
                 });
             }

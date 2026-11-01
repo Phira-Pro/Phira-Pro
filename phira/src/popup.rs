@@ -231,6 +231,7 @@ pub struct ChooseButton {
     height: f32,
     need_to_show: bool,
     compact: bool,
+    control_text_size: Option<f32>,
 }
 
 impl ChooseButton {
@@ -242,6 +243,7 @@ impl ChooseButton {
             height: 0.34,
             need_to_show: false,
             compact: false,
+            control_text_size: None,
         }
     }
 
@@ -285,6 +287,11 @@ impl ChooseButton {
         self.popup.size = 0.42;
         self
     }
+
+    pub fn with_control_text_size(mut self, size: f32) -> Self {
+        self.control_text_size = Some(size);
+        self
+    }
     #[cfg(test)]
     pub(crate) fn popup_rect(&self) -> Rect {
         self.popup.rect()
@@ -296,7 +303,7 @@ impl ChooseButton {
 
     pub fn render(&mut self, ui: &mut Ui, r: Rect, t: f32) {
         self.btn
-            .render_text(ui, r, t, &self.popup.options[self.popup.selected].0, self.popup.size, false);
+            .render_text(ui, r, t, &self.popup.options[self.popup.selected].0, self.control_text_size.unwrap_or(self.popup.size), false);
         if self.need_to_show {
             let pad = 0.007;
             let mut rr = Rect::new(r.x, r.bottom() + pad, self.width.unwrap_or(r.w), self.height);

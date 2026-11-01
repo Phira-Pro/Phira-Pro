@@ -7,8 +7,20 @@ use std::{borrow::Cow, time::Instant};
 impl RenderPage {
     pub fn new() -> Self {
         let prefs = load_prefs();
+        let resource_packs = resource_pack::choices(get_data(), &PathBuf::from(dir::respacks().unwrap_or_default()), &prefs.resource_pack);
+        let index = resource_packs
+            .iter()
+            .position(|choice| choice.selection == prefs.resource_pack)
+            .unwrap_or(0);
+        let resource_pack_selector = crate::popup::ChooseButton::new()
+            .with_compact_popup()
+            .with_control_text_size(0.34)
+            .with_options(resource_packs.iter().map(|choice| choice.label.clone()).collect())
+            .with_selected(index);
         Self {
             prefs,
+            resource_packs,
+            resource_pack_selector,
             selected: None,
             pick_request: false,
             category: settings::Category::Output,
@@ -46,18 +58,20 @@ impl RenderPage {
                 .join(format!("{} [{:.1}].mp4", sanitize(&selected.name), selected.difficulty)),
         )
     }
-    fn options(&self) -> VideoOptions {
+    fn options(&self) -> Result<VideoOptions> {
         let (width, height) = RESOLUTIONS[self.prefs.res];
-        VideoOptions {
+        Ok(VideoOptions {
             width,
             height,
             fps: FPS_CHOICES[self.prefs.fps],
             hitsound: self.prefs.hitsound,
             show_hud: self.prefs.hud,
             sample_count: get_data().config.sample_count.max(1),
+            res_pack_path: self.prefs.resource_pack.resolve(get_data(), &PathBuf::from(dir::respacks()?))?,
+            visuals: self.prefs.visuals.clone(),
             presentation: self.prefs.presentation.clone(),
             ..Default::default()
-        }
+        })
     }
     fn changed(&mut self) {
         save_prefs(&self.prefs);
@@ -85,7 +99,7 @@ impl RenderPage {
             return Ok(());
         };
         let out = self.output_path().context("无法生成视频文件名")?;
-        let options = self.options();
+        let options = self.options()?;
         options.validate()?;
         self.job = Job::Loading(Box::pin(ChartVideoRenderer::new(chart, options, out)));
         Ok(())
@@ -156,6 +170,21 @@ impl RenderPage {
 }
 
 impl Page for RenderPage {
+    fn enter(&mut self, _s: &mut SharedState) -> Result<()> {
+        if !self.busy() {
+            self.resource_packs = resource_pack::choices(get_data(), &PathBuf::from(dir::respacks()?), &self.prefs.resource_pack);
+            self.resource_pack_selector
+                .set_options(self.resource_packs.iter().map(|choice| choice.label.clone()).collect());
+            let index = self
+                .resource_packs
+                .iter()
+                .position(|choice| choice.selection == self.prefs.resource_pack)
+                .unwrap_or(0);
+            self.resource_pack_selector.set_selected(index);
+        }
+        Ok(())
+    }
+
     fn label(&self) -> Cow<'static, str> {
         "谱面渲染".into()
     }
@@ -183,6 +212,13 @@ impl Page for RenderPage {
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
         self.scroll.update(s.t);
         self.status_scroll.update(s.t);
+        self.resource_pack_selector.update(s.t);
+        if self.resource_pack_selector.changed() && !self.busy() {
+            if let Some(choice) = self.resource_packs.get(self.resource_pack_selector.selected()) {
+                self.prefs.resource_pack = choice.selection.clone();
+                self.changed();
+            }
+        }
         #[cfg(target_os = "windows")]
         self.ffmpeg.update();
         if let Some((id, text)) = take_input() {
@@ -235,6 +271,9 @@ impl Page for RenderPage {
 
     fn touch(&mut self, touch: &Touch, s: &mut SharedState) -> Result<bool> {
         let t = s.t;
+        if self.resource_pack_selector.top_touch(touch, t) {
+            return Ok(true);
+        }
         if self.scroll.touch(touch, t) || self.status_scroll.touch(touch, t) {
             for button in self.tabs.iter_mut().chain(self.fields.iter_mut()) {
                 button.cancel(t);
@@ -273,6 +312,9 @@ impl Page for RenderPage {
             return Ok(true);
         }
         if self.scroll.contains(touch) && !self.busy() {
+            if self.category == settings::Category::Output && self.resource_pack_selector.touch(touch, t) {
+                return Ok(true);
+            }
             #[cfg(target_os = "windows")]
             if self.encoder_button.touch(touch, t) {
                 self.ffmpeg.action();
@@ -300,6 +342,11 @@ impl Page for RenderPage {
         self.advance(ui.text_painter);
         set_camera(&camera);
         self.render_view(ui, s);
+        Ok(())
+    }
+
+    fn render_top(&mut self, ui: &mut prpr::ui::Ui, s: &mut SharedState) -> Result<()> {
+        self.resource_pack_selector.render_top(ui, s.t, 1.);
         Ok(())
     }
 }

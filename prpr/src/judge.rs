@@ -21,6 +21,9 @@ use std::{
 };
 
 pub const FLICK_SPEED_THRESHOLD: f32 = 0.8;
+#[cfg(test)]
+#[path = "judge/input_tests.rs"]
+mod input_tests;
 mod phigros;
 #[cfg(test)]
 #[path = "judge/rpe_next_tests.rs"]
@@ -1242,8 +1245,36 @@ pub struct Judge {
 #[derive(Default)]
 struct TouchStatus {
     touches: Vec<Touch>,
-    key_delta: i32,
+    held_keys: HashSet<KeyCode>,
     keys_down: u32,
+}
+
+impl TouchStatus {
+    fn press_key(&mut self, key: KeyCode, repeat: bool) {
+        // Space controls pause/resume and must never become a judgement finger.
+        if key != KeyCode::Space && !repeat && self.held_keys.insert(key) {
+            self.keys_down += 1;
+        }
+    }
+
+    fn release_key(&mut self, key: KeyCode) {
+        self.held_keys.remove(&key);
+    }
+
+    fn next_frame(&self) -> Self {
+        Self {
+            held_keys: self.held_keys.clone(),
+            ..Default::default()
+        }
+    }
+
+    fn keyboard_state(&self, enabled: bool) -> (u32, u32) {
+        if enabled {
+            (self.keys_down, self.held_keys.len() as u32)
+        } else {
+            (0, 0)
+        }
+    }
 }
 
 static SUBSCRIBER_ID: Lazy<usize> = Lazy::new(register_input_subscriber);
@@ -1366,7 +1397,7 @@ impl Judge {
         }
         TOUCHES.with(|status| {
             let status = status.borrow();
-            self.key_down_count = self.key_down_count.saturating_add_signed(status.key_delta);
+            self.key_down_count = 0;
             for touch in &status.touches {
                 if matches!(touch.phase, TouchPhase::Started | TouchPhase::Ended | TouchPhase::Cancelled) {
                     self.blocked_finger_ids.remove(&touch.id);
@@ -1441,7 +1472,7 @@ impl Judge {
     pub(crate) fn on_new_frame() {
         crate::input_capture::begin_frame();
         let mut handler = Handler {
-            status: TouchStatus::default(),
+            status: TOUCHES.with(|it| it.borrow().next_frame()),
             wheel: (0., 0.),
         };
         repeat_all_miniquad_input(&mut handler, *SUBSCRIBER_ID);
@@ -1560,16 +1591,13 @@ impl Judge {
         };
         // use native method of removing blocked id when absent in current snapshot
         self.blocked_finger_ids.retain(|id| touches.contains_key(id));
-        let (events, keys_down, key_delta) = TOUCHES.with(|it| {
+        let (events, keys_down, keys_held) = TOUCHES.with(|it| {
             let guard = it.borrow();
             let events = guard.touches.clone();
-            if res.config.use_keyboard {
-                (events, guard.keys_down, guard.key_delta)
-            } else {
-                (events, 0, 0)
-            }
+            let (down, held) = guard.keyboard_state(res.config.use_keyboard);
+            (events, down, held)
         });
-        self.key_down_count = self.key_down_count.saturating_add_signed(key_delta);
+        self.key_down_count = keys_held;
         let mut event_order = HashMap::new();
         for (index, event) in events.iter().enumerate() {
             event_order.entry(event.id).or_insert(index);
@@ -2407,6 +2435,8 @@ struct Handler {
 }
 impl Handler {
     fn finalize(&mut self) {
+        // Reconcile with the native snapshot if a release was lost (e.g. focus loss).
+        self.status.held_keys.retain(|key| is_key_down(*key));
         if is_mouse_button_down(MouseButton::Left) {
             self.status.touches.push(Touch {
                 id: button_to_id(MouseButton::Left),
@@ -2474,15 +2504,12 @@ impl EventHandler for Handler {
 
     fn key_down_event(&mut self, _ctx: &mut miniquad::Context, _keycode: KeyCode, _keymods: miniquad::KeyMods, repeat: bool) {
         crate::input_capture::push("keyboard", if repeat { "repeat" } else { "down" }, _keycode as u64, f64::NEG_INFINITY, None);
-        if !repeat {
-            self.status.key_delta += 1;
-            self.status.keys_down += 1;
-        }
+        self.status.press_key(_keycode, repeat);
     }
 
     fn key_up_event(&mut self, _ctx: &mut miniquad::Context, _keycode: KeyCode, _keymods: miniquad::KeyMods) {
         crate::input_capture::push("keyboard", "up", _keycode as u64, f64::NEG_INFINITY, None);
-        self.status.key_delta -= 1;
+        self.status.release_key(_keycode);
     }
 
     fn mouse_motion_event(&mut self, _ctx: &mut miniquad::Context, x: f32, y: f32) {

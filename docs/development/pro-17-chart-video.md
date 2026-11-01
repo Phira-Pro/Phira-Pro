@@ -17,13 +17,16 @@
 | `prpr/examples/render_chart_video.rs` | 环境变量驱动的导出与 PNG 序列验证示例 |
 | `phira/src/page/render.rs` | 页面数据与子模块入口 |
 | `phira/src/page/render/config.rs` | 本地设置读写与旧配置迁移 |
+| `phira/src/page/render/resource_pack.rs` | 导出专用资源包选择、稳定标识和可用性检查 |
 | `phira/src/page/render/settings.rs` | 唯一字段清单、分类、显示值与事务式校验 |
 | `phira/src/page/render/layout.rs` | 分类设置和固定操作栏的区域划分 |
 | `phira/src/page/render/view.rs` | 对齐字段行、参数总览和进度显示 |
 | `phira/src/page/render/controller.rs` | 选谱、编辑、加载、导出与取消控制 |
 | `phira/src/page/render/ffmpeg.rs` | Windows 编码器检测、按需下载、校验与应用内安装 |
 
-`GameScene::set_video_frame` 集中接入离线帧时间，`set_video_entrance` 独立控制谱面展开和 HUD 入场，`set_video_progress` 接入视频专用的局内进度，不走交互式场景生命周期。渲染配置由默认值独立装配，强制自动播放、速度 1、音量静音；不传入账号、成绩保存或上传回调。
+`GameScene::set_video_frame` 集中接入离线帧时间，`set_video_entrance` 独立控制谱面展开和 HUD 入场，`set_video_progress` 接入视频专用的局内进度，不走交互式场景生命周期。渲染配置由默认值独立装配，接入导出专用资源包和画面设置，强制自动播放、速度 1、音量静音；不传入账号、成绩保存或上传回调。
+
+资源包可跟随当前游玩选择，或固定为内置／已导入资源包。画面设置单独控制偏移条、AP/FC 判定线着色、双押高亮、打击特效、准度、判定统计、Perfect 连击及 Early/Late。隐藏主 HUD 时仍可显示独立指标，指标与普通 HUD 共用谱面噪域及效果合成链路；普通游玩场景保持原显示行为。具体开关、默认值与限制见 [设置项清单](chart-video-settings.md)。
 
 ## 时间轴与音画同步
 

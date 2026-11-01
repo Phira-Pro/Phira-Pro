@@ -75,6 +75,8 @@ async fn main() {
         hitsound: std::env::var_os("NO_HITSOUND").is_none(),
         show_hud: std::env::var_os("HUD").is_some(),
         sample_count: env_u32("SAMPLES", 4),
+        res_pack_path: std::env::var("RES_PACK").ok(),
+        visuals: Default::default(),
         presentation: if std::env::var_os("FULL_PRESENTATION").is_some() {
             prpr::chart_video::PresentationOptions::phigros()
         } else {

@@ -317,7 +317,7 @@ mod tests {
 
 pub fn apply_motion(raw: &Value, line: &mut crate::core::JudgeLine, r: &mut BpmList, bpm_factor: f64) -> Result<()> {
     for (axis, track, factor) in [(0, "moveXEvents", 2. / 1350.), (1, "moveYEvents", 2. / 900.), (2, "rotateEvents", -1.)] {
-        let mut anis = Vec::new();
+        let mut tracks = Vec::new();
         let mut has_trajectory = false;
         for layer in raw["eventLayers"].as_array().into_iter().flatten().filter(|v| v.is_object()) {
             let mut events = layer[track].as_array().cloned().unwrap_or_default();
@@ -339,9 +339,12 @@ pub fn apply_motion(raw: &Value, line: &mut crate::core::JudgeLine, r: &mut BpmL
                 );
             }
             has_trajectory |= events.iter().any(|e| e["trajectory"].is_object());
-            anis.push(motion(&events, axis, r, bpm_factor)?);
+            tracks.push(events);
         }
         if has_trajectory {
+            // Ordinary RPE tracks keep the legacy parser's compatibility rules.
+            // Validate and rebuild motion only when this axis uses a trajectory.
+            let anis = tracks.iter().map(|events| motion(events, axis, r, bpm_factor)).collect::<Result<Vec<_>>>()?;
             let mut anim = AnimFloat::chain(anis);
             anim.map_value(|v| v * factor);
             match axis {

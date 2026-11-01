@@ -22,7 +22,6 @@ pub fn config(source: &Config) -> Config {
     c.hp_mode = false;
     c.auto_retry = 0.;
     c.retry_lead = 0.;
-    c.use_keyboard = false;
     c.interactive = true;
     c
 }
@@ -45,5 +44,18 @@ mod tests {
         assert!(!c.judge_grading.detailed);
         assert_eq!(c.judge_algorithm, JudgeAlgorithm::Phigros);
         assert_eq!(c.judge_windows().early, [0.016, 0.040, 0.090, 0.140]);
+    }
+
+    #[test]
+    fn preserves_keyboard_preference_across_stages() {
+        for enabled in [false, true] {
+            let mut source = Config::default();
+            source.use_keyboard = enabled;
+            let first = config(&source);
+            let next = config(&first);
+            assert_eq!(source.use_keyboard, enabled);
+            assert_eq!(first.use_keyboard, enabled);
+            assert_eq!(next.use_keyboard, enabled);
+        }
     }
 }

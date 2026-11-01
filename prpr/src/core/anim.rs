@@ -45,12 +45,13 @@ impl<T: Tweenable> Default for Anim<T> {
 impl<T: Tweenable> Anim<T> {
     pub fn new(keyframes: Vec<Keyframe<T>>) -> Self {
         assert!(!keyframes.is_empty());
-        // assert_eq!(keyframes[0].time, 0.0);
-        // assert_eq!(keyframes.last().unwrap().tween, 0);
+        // Resolve the initial sample too: set_time(0) may be skipped, and
+        // negative-time or instantaneous events can already have ended.
+        let cursor = keyframes.partition_point(|kf| kf.time <= 0.).saturating_sub(1);
         Self {
             keyframes: keyframes.into_boxed_slice(),
             time: 0.0,
-            cursor: 0,
+            cursor,
             next: None,
         }
     }
@@ -108,6 +109,11 @@ impl<T: Tweenable> Anim<T> {
         if self.keyframes.is_empty() {
             return None;
         }
+        // Outside the track, hold its endpoint instead of extrapolating an
+        // easing curve with negative progress (which can also produce NaN).
+        if self.time < self.keyframes[0].time {
+            return Some(self.keyframes[0].value.clone());
+        }
         Some(if self.cursor == self.keyframes.len() - 1 {
             self.keyframes[self.cursor].value.clone()
         } else {
@@ -137,6 +143,53 @@ impl<T: Tweenable> Anim<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_keyframe_is_held_before_the_track_starts() {
+        for tween in [2, 6, 21, 24] {
+            let mut track = Anim::new(vec![Keyframe::new(1., 0f32, tween), Keyframe::new(3., 1., 0)]);
+            for time in [0., -1., -20., 1., 2., -1., 0.] {
+                track.set_time(time);
+                if time <= 1. {
+                    assert_eq!(track.now(), 0., "pre-start evaluation at {time} with tween {tween}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn initial_zero_time_resolves_negative_and_instant_keyframes() {
+        let mut track = Anim::new(vec![
+            Keyframe::new(-2., 1f32, 2),
+            Keyframe::new(-1., 0.75, 0),
+            Keyframe::new(0., 0.5, 0),
+            Keyframe::new(0., 0., 2),
+            Keyframe::new(2., 1., 0),
+        ]);
+        assert_eq!(track.now(), 0.);
+        for (time, expected) in [(0., 0.), (1., 0.5), (-1.5, 0.875), (0., 0.), (3., 1.), (-3., 1.)] {
+            track.set_time(time);
+            assert_eq!(track.now(), expected);
+        }
+    }
+
+    #[test]
+    fn segment_easing_keeps_legal_overshoot_and_reverse_seeks() {
+        let mut track = Anim::new(vec![Keyframe::new(0., 0f32, 24), Keyframe::new(2., 1., 0)]);
+        for time in [0.5, 1., 3., -1., 0.5] {
+            track.set_time(time);
+            let expected = if time <= 0. {
+                0.
+            } else if time >= 2. {
+                1.
+            } else {
+                StaticTween::get_rc(24).y(time as f32 / 2.)
+            };
+            assert_eq!(track.now(), expected);
+        }
+        track.set_time(0.5);
+        assert!(track.now() < 0., "Back easing must keep its in-segment overshoot");
+    }
 
     #[test]
     fn long_storyboard_tracks_seek_in_both_directions() {

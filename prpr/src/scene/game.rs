@@ -11,6 +11,8 @@ mod practice_controls;
 mod practice_ranges;
 #[path = "game/render_layers.rs"]
 mod render_layers;
+#[path = "game/video.rs"]
+mod video;
 
 #[cfg(test)]
 #[path = "game/chart_loading_tests.rs"]
@@ -630,6 +632,8 @@ pub struct GameScene {
     pub mode: GameMode,
     /// 渲染器模式：只画谱面本体，不画分数/连击/暂停按钮等 HUD。
     pub hide_ui: bool,
+    /// Only offline export opts into independent HUD indicators.
+    pub(crate) video_indicators: Option<bool>,
     pub res: Resource,
     /// Keep the original result-screen backdrop separate from the configurable
     /// gameplay background blur.
@@ -1058,6 +1062,7 @@ impl GameScene {
 
             mode,
             hide_ui: false,
+            video_indicators: None,
             res,
             ending_background,
             chart,
@@ -2428,12 +2433,12 @@ impl Scene for GameScene {
         }
         // Every gameplay HUD element belongs to the scene sampled by noise.
         set_camera(&hud_camera);
-        if !self.hide_ui {
+        if !self.hide_ui || self.video_indicators.is_some() {
             if self.chart.camera_follows_chart() {
                 let matrix = self.chart.camera_model(self.res.time, self.res.aspect_ratio, true);
-                ui.with_gl(matrix, |ui| self.draw_gameplay_ui(tm, ui))?;
+                ui.with_gl(matrix, |ui| self.draw_video_hud(tm, ui))?;
             } else {
-                self.draw_gameplay_ui(tm, ui)?;
+                self.draw_video_hud(tm, ui)?;
             }
         }
 

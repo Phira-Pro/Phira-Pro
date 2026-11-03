@@ -82,6 +82,10 @@ fn main() {
     version::Version::read(&root).emit();
     dotenv_build::output(dotenv_build::Config::default()).unwrap();
 
+    if !root.join("assets/rpen-editor/files.json").is_file() {
+        println!("cargo:warning=制谱器前端未生成；构建前运行 python scripts/prepare_editor.py");
+    }
+
     let git_dir = git_stdout(&["rev-parse", "--git-dir"]).unwrap_or_else(|| ".git".to_string());
     println!("cargo:rerun-if-changed={}/HEAD", git_dir);
     println!("cargo:rerun-if-changed={}/packed-refs", git_dir);

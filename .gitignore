@@ -28,6 +28,9 @@ __pycache__/
 /prpr.scent
 /.cargo
 
+# 制谱器前端由 scripts/prepare_editor.py 按固定清单拉取上游后生成
+/assets/rpen-editor/
+
 # Test
 
 /test

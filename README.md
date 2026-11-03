@@ -55,7 +55,7 @@ Windows 的「迁移 RPE」通过原生目录选择器关联 RPE 主目录：RPE
 
 当前实现和验证范围见 [制谱工作台说明](docs/development/pro-18-editor.md)。RPEN 的第三方运行时效果需要播放器实现对应协议；编辑器中能运行的 JavaScript 模组不能据此认定可在原生试玩中执行。
 
-内置的 [Re:PhiEdit Next（RPEN）](https://github.com/kclg-YSJ/rpe-next) 原作者为 **cmdysj**，项目基于原 Re:PhiEdit（RPE）重构。Phira Pro 提供宿主与移动端适配。RPEN 保留独立的 [PolyForm Noncommercial 1.0.0 许可证](assets/rpen-editor/LICENSE)及 [NOTICE](assets/rpen-editor/NOTICE) 中的署名、来源和第三方声明；第三方内容仍适用各自的许可。Phira Pro 原生宿主代码按本仓库 GPL-3.0 许可证分发。
+内置的 [Re:PhiEdit Next（RPEN）](https://github.com/kclg-YSJ/rpe-next) 原作者为 **cmdysj**，项目基于原 Re:PhiEdit（RPE）重构。Phira Pro 提供宿主与移动端适配。上游前端不随本仓库分发，构建时按 `scripts/editor/upstream.json` 固定提交拉取后打包进发行版，仍保留其独立的 PolyForm Noncommercial 1.0.0 许可证及 NOTICE 中的署名、来源和第三方声明；第三方内容适用各自的许可。Phira Pro 原生宿主代码按本仓库 GPL-3.0 许可证分发。
 
 移动端常驻图标、曲名与文件操作菜单合为一行，窄屏可横向滑动菜单。播放、工具和轨道的三个折叠入口共用一行，展开时只显示当前面板，收起后恢复入口。属性页顶部标签随内容一起滚动，触控滑动开关采用反转后的时间轴方向。设置初始聚焦标题，点击搜索框后再弹出软键盘；软键盘占据大部分屏幕时，顶部和底部工具条临时隐藏，收起后恢复原布局。Android 加载界面提供独立原生返回通道，并在超时后提供重试及停用扩展重试；返回不依赖编辑器模块初始化成功。
 

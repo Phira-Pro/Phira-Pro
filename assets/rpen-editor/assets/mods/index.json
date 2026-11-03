@@ -1,6 +1,0 @@
-[
-  { "directory": "sky-dodge", "files": ["mod.json", "main.mjs", "collision.mjs", "model.mjs", "aircraft.mjs", "pickups.mjs", "style.css"] },
-  { "directory": "pixel-miner", "files": ["mod.json", "main.mjs", "model.mjs", "pixels.mjs", "controls.mjs", "custody.mjs", "sound.mjs", "style.css"] },
-  { "directory": "spatial-camera", "files": ["mod.json", "main.mjs", "camera.mjs", "events.mjs", "projection.mjs", "sprites.mjs", "inspector.mjs", "settings.mjs", "scene.mjs", "studio.mjs", "style.css", "README.zh-CN.md"] },
-  { "directory": "rpen-mod-market", "files": ["mod.json", "main.mjs", "transport.mjs", "client.mjs", "view.mjs", "text.mjs", "README.zh-CN.md"] }
-]

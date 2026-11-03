@@ -30,6 +30,10 @@ jobs:
       - name: Verify versions
         run: python scripts/version.py check
 
+      # 制谱器前端不随仓库分发：按固定清单拉取上游并生成到 assets/rpen-editor。
+      - name: Prepare editor assets
+        run: python scripts/prepare_editor.py
+
       - name: Select Xcode
         run: |
           sudo xcode-select -s /Applications/Xcode.app/Contents/Developer

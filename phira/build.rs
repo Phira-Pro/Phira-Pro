@@ -35,7 +35,15 @@ fn local_build_id(root: &std::path::Path) -> String {
         }
     }
     let mut files = Vec::new();
-    for directory in ["phira/src", "phira/locales", "prpr/src", "phira-android/app/src/main"] {
+    for directory in [
+        "phira/src",
+        "phira/locales",
+        "prpr/src",
+        "phira-android/app/src/main",
+        "rpen-host/src",
+        "rpen-host/native",
+        "assets/rpen-editor/pro",
+    ] {
         println!("cargo:rerun-if-changed={}", root.join(directory).display());
         collect(&root.join(directory), &mut files);
     }
@@ -46,6 +54,8 @@ fn local_build_id(root: &std::path::Path) -> String {
         "phira/build.rs",
         "phira/Cargo.toml",
         "prpr/Cargo.toml",
+        "rpen-host/Cargo.toml",
+        "rpen-host/build.rs",
     ] {
         println!("cargo:rerun-if-changed={}", root.join(file).display());
         files.push(root.join(file));

@@ -11,6 +11,7 @@ mod chart_install;
 mod charts_view;
 mod client;
 mod data;
+mod editor;
 pub mod deeplink;
 mod font_store;
 mod frame_profile;

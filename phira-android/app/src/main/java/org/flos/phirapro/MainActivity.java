@@ -38,6 +38,12 @@ import org.json.JSONObject;
 
 /** 游戏主 Activity：只做胶水，游戏本体在 libphira.so。 */
 public class MainActivity extends AppCompatActivity {
+    private volatile RpenEditor rpenEditor;
+    public boolean takeRpenEditorBootExit(){RpenEditor editor=rpenEditor;return editor!=null&&editor.takeBootExit();}
+    public void showRpenEditor(String url) { runOnUiThread(() -> { if (rpenEditor == null) rpenEditor = new RpenEditor(this, url); else rpenEditor.visible(true); }); }
+    public void setRpenEditorVisible(boolean visible) { runOnUiThread(() -> { if (rpenEditor != null) rpenEditor.visible(visible); }); }
+    public void closeRpenEditor() { runOnUiThread(() -> { if (rpenEditor != null) { rpenEditor.destroy(); rpenEditor = null; } }); }
+    @Override public void onBackPressed() { if (rpenEditor == null || !rpenEditor.back()) super.onBackPressed(); }
 
     private static final String TAG = "PhiraPro";
     private static final int[] SUPPORTED_GAME_REFRESH_RATES = {60, 120, 144, 165, 185, 200, 240};
@@ -493,6 +499,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (rpenEditor != null && rpenEditor.result(requestCode, resultCode, data)) return;
         if (resultCode != RESULT_OK || data == null) return;
         Uri uri = data.getData();
         if (uri == null) return;

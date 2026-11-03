@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "targets": {
+    "activeCompose": {
+      "scaleX": 0.125,
+      "scaleY": 0.125,
+      "format": "r8"
+    },
+    "disabledCompose": {
+      "scaleX": 0.125,
+      "scaleY": 0.125,
+      "format": "rg8"
+    },
+    "effects": {
+      "scaleX": 0.25,
+      "scaleY": 0.25,
+      "format": "rg8",
+      "filter": "linear"
+    },
+    "pingA": {
+      "scaleX": 0.25,
+      "scaleY": 0.25,
+      "format": "rg8"
+    },
+    "pingB": {
+      "scaleX": 0.25,
+      "scaleY": 0.25,
+      "format": "rg8"
+    },
+    "sceneColor": {
+      "scaleX": 0.16666666666666666,
+      "scaleY": 0.16666666666666666,
+      "format": "rgba8"
+    },
+    "touchHover": {
+      "scaleX": 0.125,
+      "scaleY": 0.125,
+      "format": "r8"
+    }
+  },
+  "passes": [
+    {
+      "shader": "composeActive.glsl",
+      "output": "activeCompose"
+    },
+    {
+      "shader": "composeDisabled.glsl",
+      "output": "disabledCompose"
+    },
+    {
+      "shader": "edge.glsl",
+      "output": "effects.r",
+      "inputs": {
+        "mainTex": "activeCompose",
+        "composeRT": "activeCompose"
+      }
+    },
+    {
+      "shader": "glow.glsl",
+      "output": "pingA",
+      "inputs": {
+        "mainTex": "activeCompose",
+        "composeRT": "activeCompose"
+      },
+      "constants": {
+        "passWeight": 0.458567970132,
+        "firstPass": 1.0
+      }
+    },
+    {
+      "shader": "glow.glsl",
+      "output": "pingB",
+      "inputs": {
+        "mainTex": "pingA",
+        "composeRT": "activeCompose"
+      },
+      "constants": {
+        "passWeight": 0.282861223139,
+        "firstPass": 0.0
+      }
+    },
+    {
+      "shader": "glow.glsl",
+      "output": "pingA",
+      "inputs": {
+        "mainTex": "pingB",
+        "composeRT": "activeCompose"
+      },
+      "constants": {
+        "passWeight": 0.156589227109,
+        "firstPass": 0.0
+      }
+    },
+    {
+      "shader": "glow.glsl",
+      "output": "pingB",
+      "inputs": {
+        "mainTex": "pingA",
+        "composeRT": "activeCompose"
+      },
+      "constants": {
+        "passWeight": 0.07305908496,
+        "firstPass": 0.0
+      }
+    },
+    {
+      "shader": "glow.glsl",
+      "output": "pingA",
+      "inputs": {
+        "mainTex": "pingB",
+        "composeRT": "activeCompose"
+      },
+      "constants": {
+        "passWeight": 0.024947807942,
+        "firstPass": 0.0
+      }
+    },
+    {
+      "shader": "glowExtract.glsl",
+      "output": "effects.g",
+      "inputs": {
+        "mainTex": "pingA"
+      }
+    },
+    {
+      "shader": "disabled.glsl",
+      "output": "$screen",
+      "inputs": {
+        "composeRT": "disabledCompose"
+      }
+    },
+    {
+      "shader": "ready.glsl",
+      "output": "$screen",
+      "inputs": {
+        "composeRT": "disabledCompose"
+      }
+    },
+    {
+      "shader": "copy.glsl",
+      "output": "sceneColor",
+      "inputs": {
+        "mainTex": "$screen"
+      }
+    },
+    {
+      "shader": "touchMask.glsl",
+      "output": "touchHover"
+    },
+    {
+      "shader": "main.glsl",
+      "output": "$screen",
+      "inputs": {
+        "composeRT": "activeCompose",
+        "effectRT": "effects",
+        "readyComposeRT": "disabledCompose",
+        "sceneColorRT": "sceneColor",
+        "touchHoverRT": "touchHover"
+      }
+    }
+  ],
+  "blockMask": {
+    "scaleX": 0.125,
+    "scaleY": 0.125
+  },
+  "author": "Stellate"
+}

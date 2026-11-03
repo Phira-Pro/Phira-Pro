@@ -1,0 +1,17 @@
+Required Notice: Copyright 2026 cmdysj.
+Required Notice: Re:PhiEdit Next is reconstructed from the original Re:PhiEdit (RPE) project using AI (GPT).
+
+作者：cmdysj。本项目基于原 Re:PhiEdit（RPE）项目，使用 AI（GPT）进行重构。
+原项目及独立第三方内容的权利归相应权利人所有；保留其适用的许可及来源声明。
+感谢 Stellate 提供噪域皮肤协议，以及 NoiseField、Ocean 两套内置噪域皮肤。
+感谢 -虹之梦- 提供内置音符皮肤“梦之海（Sea of Dreams - Neo）”。
+感谢 NyamonZone 提供内置的 Nyamon 模组市场，基于其 1.0.2 版本集成与维护。
+音符资源包兼容 Phira / prpr 的资源包格式。YAML 解析使用 js-yaml 5.5.0（MIT），其许可见 src/core/vendor/LICENSE-js-yaml.txt。
+模组 ES 模块语法解析使用 Acorn 8.19.0（MIT），其许可见 src/core/vendor/LICENSE-acorn.txt。
+网页端编辑器截图使用 html-to-image 1.11.13（MIT），其许可见 src/core/vendor/LICENSE-html-to-image.txt。
+可选的本机声部分离使用 Demucs（MIT，adefossez/demucs）及其模型，通过独立Python环境安装；程序包不捆绑其运行库与模型。
+可选的桌面本地语音输入使用 sherpa-onnx（Apache-2.0，k2-fsa/sherpa-onnx）与 X-ASR 中英流式模型（Apache-2.0，Gilgamesh-J/X-ASR），运行库及模型经用户选择位置后下载，不随程序包捆绑。
+声部分离的一键环境使用 uv（Astral，MIT / Apache-2.0）下载私有 Python；引导工具、Python 与依赖在用户确认后下载，不随程序包捆绑。
+可选的学习型起音检测使用 Chris Donahue 的 ddc_onset（MIT）；模型来自 Donahue、Lipton、McAuley 的 Dance Dance Convolution（ICML 2017），通过独立 Python 环境安装，不捆绑运行库与模型。
+可选的节奏生成使用 OliBomby 的 Mapperatorinator 及其预训练模型（MIT），推理源码、依赖与模型在独立本机环境按需安装，不随程序包捆绑。
+本项目采用 PolyForm Noncommercial License 1.0.0，商业用途需另行取得授权。

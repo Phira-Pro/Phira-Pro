@@ -1,0 +1,22 @@
+#pixel-miner-ui{position:fixed;inset:0;margin:0;padding:0;border:0;background:transparent;width:100vw;height:100vh;max-width:none;max-height:none;overflow:visible;z-index:2147483000;pointer-events:none;contain:layout style;font:14px/1.4 Consolas,'Microsoft YaHei',monospace;color:white;color-scheme:dark}
+#pixel-miner-ui canvas.pm-effects{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;image-rendering:pixelated}
+#pixel-miner-ui .pm-hotbar{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);display:flex;gap:2px;padding:4px;background:#454545;border:3px solid #151515;box-shadow:inset 2px 2px #989898,inset -2px -2px #262626,0 3px 0 #0009;pointer-events:auto;isolation:isolate}
+#pixel-miner-ui .pm-slot{all:initial;position:relative;box-sizing:border-box;display:flex;width:48px;height:48px;align-items:center;justify-content:center;background:#757575;border:3px solid #292929;box-shadow:inset 2px 2px #b4b4b4,inset -2px -2px #404040;cursor:pointer;color:white;font:12px Consolas,monospace;touch-action:none}
+#pixel-miner-ui .pm-slot[aria-pressed=true]{outline:3px solid #f0f0e8;outline-offset:0;border-color:#555;z-index:1;box-shadow:inset 2px 2px #fff8,inset -2px -2px #0008}
+#pixel-miner-ui .pm-slot>small{position:absolute;left:3px;top:0;font:10px Consolas,monospace;color:#fff8;text-shadow:1px 1px #222;pointer-events:none}
+#pixel-miner-ui img.pm-pick-icon{width:40px;height:40px;image-rendering:pixelated;pointer-events:none}
+#pixel-miner-ui .pm-xp{position:absolute;bottom:70px;left:50%;width:450px;max-width:90vw;transform:translateX(-50%);text-align:center;pointer-events:none}
+#pixel-miner-ui .pm-level{font:bold 24px/1.1 Consolas,monospace;color:#80fc32;text-shadow:2px 2px #0e2908,-1px -1px #173408;display:block;margin-bottom:4px}
+#pixel-miner-ui .pm-xp-track{height:7px;border:2px solid #111;background:#253015;box-shadow:inset 0 2px #0008}
+#pixel-miner-ui .pm-xp-fill{display:block;height:100%;background:repeating-linear-gradient(90deg,#7aff28 0 11px,#49b91a 11px 13px);box-shadow:inset 0 1px #d1ff91;transition:width 130ms linear}
+#pixel-miner-ui .pm-item-name{position:absolute;left:50%;bottom:116px;transform:translateX(-50%);padding:4px 10px;background:#0009;border:1px solid #ffffff20;max-width:70vw;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font:16px Consolas,'Microsoft YaHei',monospace;text-shadow:2px 2px #161616;opacity:0;transition:opacity 250ms}
+#pixel-miner-ui .pm-item-name.visible{opacity:1}
+#pixel-miner-ui .pm-drop{position:absolute;left:0;top:0;width:52px;height:52px;box-sizing:border-box;border:2px solid #d4eced;outline:1px solid #09131c;background:#14212bd9;box-shadow:inset 0 0 0 1px #0008;display:flex;justify-content:center;align-items:center;pointer-events:none;will-change:transform;filter:drop-shadow(2px 4px 1px #0008)}
+#pixel-miner-ui .pm-drop::after{content:'';position:absolute;top:100%;width:28px;height:5px;background:#0004;border-radius:50%}
+#pixel-miner-ui .pm-item-art{position:relative;pointer-events:none;flex:none}
+#pixel-miner-ui .pm-hand{position:absolute;left:0;top:0;transform-origin:center;pointer-events:none;filter:drop-shadow(2px 3px 0 #000b);will-change:transform}
+.pm-placement::backdrop{background:transparent;pointer-events:none}.pm-placement{z-index:2147482999;pointer-events:auto;box-shadow:0 2px 8px #0005}
+:root[data-pm-tool=pickaxe],:root[data-pm-tool=item],:root[data-pm-tool=pickaxe] *,:root[data-pm-tool=item] *{cursor:none!important}
+:root[data-pm-tool] :is(#mods-open,#mods-status,#mod-manager,#mod-manager *,#mod-import-warning,#mod-import-warning *){cursor:auto!important}
+#pixel-miner-ui [hidden]{display:none!important}
+@media(max-width:600px){#pixel-miner-ui .pm-slot{width:36px;height:40px}#pixel-miner-ui .pm-hotbar{gap:1px;padding:3px}#pixel-miner-ui img.pm-pick-icon{width:32px;height:32px}#pixel-miner-ui .pm-xp{width:350px;bottom:62px}#pixel-miner-ui .pm-item-name{bottom:107px}}

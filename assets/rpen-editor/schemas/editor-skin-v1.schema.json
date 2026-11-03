@@ -1,0 +1,1655 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RPEN editor skin v1",
+  "type": "object",
+  "required": [
+    "protocol",
+    "version",
+    "id",
+    "name"
+  ],
+  "description": "Structural validation only. Package paths, resources, references, selectors and security require the RPEN importer. Unknown fields are ignored; use x- for metadata extensions.",
+  "properties": {
+    "protocol": {
+      "const": "rpen-editor-skin"
+    },
+    "version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$",
+      "not": {
+        "const": "default"
+      }
+    },
+    "name": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "propertyNames": {
+            "pattern": "^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$"
+          }
+        }
+      ]
+    },
+    "author": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "description": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "propertyNames": {
+            "pattern": "^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$"
+          }
+        }
+      ]
+    },
+    "colorScheme": {
+      "enum": [
+        "light",
+        "dark"
+      ],
+      "default": "dark"
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "path"
+            ],
+            "not": {
+              "required": [
+                "builtin"
+              ]
+            }
+          },
+          {
+            "required": [
+              "builtin"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "path"
+                  ]
+                },
+                {
+                  "required": [
+                    "sources"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "properties": {
+          "type": {
+            "enum": [
+              "image",
+              "font"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "builtin": {
+            "enum": [
+              "folder",
+              "save",
+              "setting",
+              "help",
+              "play",
+              "replay",
+              "showback",
+              "jump",
+              "copy",
+              "shear",
+              "paste",
+              "delete0",
+              "switch",
+              "layout",
+              "return",
+              "info",
+              "waves",
+              "bezier",
+              "addline",
+              "mute"
+            ]
+          },
+          "sources": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "scale"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 1,
+                  "maximum": 4
+                }
+              }
+            }
+          }
+        }
+      },
+      "maxProperties": 256,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,63}$"
+      }
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 3000,
+        "description": "CSS declaration value; runtime validates the restricted syntax and asset/font/motion references."
+      },
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,63}$"
+      }
+    },
+    "styles": {
+      "$ref": "#/$defs/rules"
+    },
+    "hide": {
+      "type": "array",
+      "maxItems": 300,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500,
+        "description": "CSS selector, optionally using @component aliases. Must pass editorSkinSelector and browser selector validation."
+      },
+      "description": "Hide matching UI elements without deleting their functional nodes; no layout space or keyboard focus. Automatically restored on skin switch."
+    },
+    "motions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 3000,
+                "description": "CSS declaration value; runtime validates the restricted syntax and asset/font/motion references."
+              },
+              {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 3000,
+                  "description": "CSS declaration value; runtime validates the restricted syntax and asset/font/motion references."
+                },
+                "propertyNames": {
+                  "pattern": "^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$"
+                }
+              }
+            ]
+          },
+          "maxProperties": 100,
+          "propertyNames": {
+            "pattern": "^(--(skin|rpen)-[a-z0-9-]+|-?[a-z][a-z0-9-]*)$"
+          }
+        },
+        "maxProperties": 40,
+        "propertyNames": {
+          "pattern": "^(from|to|100%|[0-9]{1,2}(\\.[0-9]+)?%)$"
+        }
+      },
+      "maxProperties": 64,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,63}$"
+      }
+    },
+    "organize": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+        "type": "object",
+        "required": [
+          "slot",
+          "items"
+        ],
+        "properties": {
+          "slot": {
+            "enum": [
+              "file-actions",
+              "transport-actions",
+              "editor-actions",
+              "chart-tools",
+              "toolbar",
+              "inspector-tabs",
+              "timeline-header",
+              "footer"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,63}$"
+          },
+          "items": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "new",
+                "open",
+                "save",
+                "export",
+                "library",
+                "migrate",
+                "recover",
+                "mods-open",
+                "preferences",
+                "help",
+                "play",
+                "rewind",
+                "view-toggle",
+                "undo",
+                "redo",
+                "copy",
+                "cut",
+                "paste",
+                "mirror",
+                "delete",
+                "metadata",
+                "bpm",
+                "assets",
+                "audio-analysis-tool",
+                "noise-areas-tool",
+                "curve-notes",
+                "curve-trajectory",
+                "text-lines-tool",
+                "noise-fit-tool",
+                "noise-tracking-tool",
+                "multi-line-tool",
+                "diagnose",
+                "history-panel",
+                "collaboration-tool",
+                "version-control-tool",
+                "seek",
+                "notes-only",
+                "game-ui",
+                "reset-camera",
+                "mute-current-line",
+                "tools",
+                "view-controls",
+                "view-buttons",
+                "line-controls",
+                "beat-controls",
+                "offset-control",
+                "rate-control",
+                "pitch-control",
+                "time-readouts",
+                "multi-line-controls",
+                "tab-notes",
+                "tab-events",
+                "tab-lines",
+                "tab-chart",
+                "tab-noise",
+                "tool-select",
+                "tool-tap",
+                "tool-hold",
+                "tool-flick",
+                "tool-drag",
+                "global-events-tool",
+                "ai-tool",
+                "note-tracking-tool"
+              ]
+            }
+          },
+          "direction": {
+            "enum": [
+              "row",
+              "column"
+            ],
+            "default": "row"
+          },
+          "label": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              },
+              {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60
+                },
+                "propertyNames": {
+                  "pattern": "^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$"
+                }
+              }
+            ]
+          },
+          "collapsible": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "collapsible": {
+                  "const": true
+                }
+              },
+              "required": [
+                "collapsible"
+              ]
+            },
+            "then": {
+              "required": [
+                "label"
+              ]
+            }
+          },
+          {
+            "if": {
+              "anyOf": [
+                {
+                  "required": [
+                    "label"
+                  ]
+                },
+                {
+                  "required": [
+                    "direction"
+                  ]
+                },
+                {
+                  "required": [
+                    "collapsible"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "required": [
+                "id"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "texts": {
+      "type": "array",
+      "maxItems": 300,
+      "items": {
+        "type": "object",
+        "required": [
+          "selector"
+        ],
+        "properties": {
+          "selector": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "CSS selector, optionally using @component aliases. Must pass editorSkinSelector and browser selector validation."
+          },
+          "text": {
+            "oneOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                "propertyNames": {
+                  "pattern": "^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$"
+                }
+              }
+            ]
+          },
+          "title": {
+            "oneOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                "propertyNames": {
+                  "pattern": "^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$"
+                }
+              }
+            ]
+          },
+          "ariaLabel": {
+            "oneOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                "propertyNames": {
+                  "pattern": "^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$"
+                }
+              }
+            ]
+          },
+          "placeholder": {
+            "oneOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                "propertyNames": {
+                  "pattern": "^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "icons": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,63}$",
+            "description": "A key in assets; image/font type checked at import."
+          },
+          "propertyNames": {
+            "enum": [
+              "root",
+              "app",
+              "header",
+              "brand",
+              "document-name",
+              "file-actions",
+              "transport",
+              "transport-actions",
+              "workspace",
+              "editor",
+              "toolbar",
+              "tools",
+              "view-controls",
+              "timeline-header",
+              "stage",
+              "direct-placement-toggle",
+              "direct-placement-close",
+              "direct-placement",
+              "direct-placement-surface",
+              "preview-line-picker",
+              "note-tracking-tool",
+              "note-tracking-panel",
+              "agent-images",
+              "placement-defaults",
+              "placement-defaults-menu",
+              "diagnostics-panel",
+              "diagnose-deep",
+              "diagnose-target",
+              "editor-actions",
+              "inspector",
+              "inspector-tabs",
+              "chart-tools",
+              "project-home",
+              "project-list",
+              "footer",
+              "status",
+              "notifications",
+              "dialog",
+              "settings",
+              "settings-body",
+              "theme-settings",
+              "settings-header",
+              "settings-navigation",
+              "settings-navigation-item",
+              "settings-search",
+              "settings-category",
+              "settings-card",
+              "language-settings",
+              "language-select",
+              "about-settings",
+              "app-version",
+              "update-progress",
+              "update-notes",
+              "update-dialog",
+              "app-update-badge",
+              "update-release-dialog",
+              "update-release-content",
+              "dictation-settings",
+              "dictation-indicator",
+              "dictation-candidate",
+              "dictation-permission",
+              "performance-monitor",
+              "note-skin-settings",
+              "note-skins-open",
+              "note-skin-manager",
+              "note-skin-gallery",
+              "mod-manager",
+              "mod-list",
+              "mod-details",
+              "mod-status",
+              "mod-warning",
+              "context-menu",
+              "line-overview",
+              "clipboard-history",
+              "new",
+              "open",
+              "save",
+              "export",
+              "library",
+              "migrate",
+              "recover",
+              "mods-open",
+              "preferences",
+              "help",
+              "play",
+              "rewind",
+              "view-toggle",
+              "seek",
+              "undo",
+              "redo",
+              "copy",
+              "cut",
+              "paste",
+              "mirror",
+              "delete",
+              "notes-only",
+              "game-ui",
+              "reset-camera",
+              "mute-current-line",
+              "metadata",
+              "bpm",
+              "assets",
+              "audio-analysis-tool",
+              "noise-areas-tool",
+              "curve-notes",
+              "curve-trajectory",
+              "text-lines-tool",
+              "noise-fit-tool",
+              "noise-tracking-tool",
+              "multi-line-tool",
+              "diagnose",
+              "history-panel",
+              "collaboration-tool",
+              "version-control-tool",
+              "version-control-panel",
+              "ai-tool",
+              "ai-panel",
+              "tab-ai",
+              "line-controls",
+              "beat-controls",
+              "view-buttons",
+              "multi-line-controls",
+              "offset-control",
+              "rate-control",
+              "pitch-control",
+              "time-progress",
+              "time-readouts",
+              "clock",
+              "beat-display",
+              "bpm-display",
+              "note-properties",
+              "event-properties",
+              "line-properties",
+              "noise-properties",
+              "noise-layers",
+              "noise-list",
+              "global-events-panel",
+              "global-event-properties",
+              "global-event-inspector",
+              "global-event-types",
+              "global-event-density",
+              "global-events-tool",
+              "close-global-events",
+              "line-list",
+              "multi-line-list",
+              "asset-tree",
+              "asset-details",
+              "sample-bar",
+              "sample-panel",
+              "field",
+              "hint",
+              "panel-title",
+              "panel-actions",
+              "batch-controls",
+              "batch-ball",
+              "chat",
+              "peer-markers",
+              "tab-notes",
+              "tab-events",
+              "tab-lines",
+              "tab-chart",
+              "tab-noise",
+              "tool-select",
+              "tool-tap",
+              "tool-hold",
+              "tool-flick",
+              "tool-drag"
+            ]
+          }
+        },
+        {
+          "type": "array",
+          "maxItems": 300,
+          "items": {
+            "type": "object",
+            "required": [
+              "selector",
+              "asset"
+            ],
+            "properties": {
+              "selector": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "CSS selector, optionally using @component aliases. Must pass editorSkinSelector and browser selector validation."
+              },
+              "asset": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,63}$",
+                "description": "A key in assets; image/font type checked at import."
+              }
+            }
+          }
+        }
+      ]
+    },
+    "decorations": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "asset"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,63}$"
+          },
+          "target": {
+            "enum": [
+              "root",
+              "app",
+              "header",
+              "brand",
+              "document-name",
+              "file-actions",
+              "transport",
+              "transport-actions",
+              "workspace",
+              "editor",
+              "toolbar",
+              "tools",
+              "view-controls",
+              "timeline-header",
+              "stage",
+              "direct-placement-toggle",
+              "direct-placement-close",
+              "direct-placement",
+              "direct-placement-surface",
+              "preview-line-picker",
+              "note-tracking-tool",
+              "note-tracking-panel",
+              "agent-images",
+              "placement-defaults",
+              "placement-defaults-menu",
+              "diagnostics-panel",
+              "diagnose-deep",
+              "diagnose-target",
+              "editor-actions",
+              "inspector",
+              "inspector-tabs",
+              "chart-tools",
+              "project-home",
+              "project-list",
+              "footer",
+              "status",
+              "notifications",
+              "dialog",
+              "settings",
+              "settings-body",
+              "theme-settings",
+              "settings-header",
+              "settings-navigation",
+              "settings-navigation-item",
+              "settings-search",
+              "settings-category",
+              "settings-card",
+              "language-settings",
+              "language-select",
+              "about-settings",
+              "app-version",
+              "update-progress",
+              "update-notes",
+              "update-dialog",
+              "app-update-badge",
+              "update-release-dialog",
+              "update-release-content",
+              "dictation-settings",
+              "dictation-indicator",
+              "dictation-candidate",
+              "dictation-permission",
+              "performance-monitor",
+              "note-skin-settings",
+              "note-skins-open",
+              "note-skin-manager",
+              "note-skin-gallery",
+              "mod-manager",
+              "mod-list",
+              "mod-details",
+              "mod-status",
+              "mod-warning",
+              "context-menu",
+              "line-overview",
+              "clipboard-history",
+              "new",
+              "open",
+              "save",
+              "export",
+              "library",
+              "migrate",
+              "recover",
+              "mods-open",
+              "preferences",
+              "help",
+              "play",
+              "rewind",
+              "view-toggle",
+              "seek",
+              "undo",
+              "redo",
+              "copy",
+              "cut",
+              "paste",
+              "mirror",
+              "delete",
+              "notes-only",
+              "game-ui",
+              "reset-camera",
+              "mute-current-line",
+              "metadata",
+              "bpm",
+              "assets",
+              "audio-analysis-tool",
+              "noise-areas-tool",
+              "curve-notes",
+              "curve-trajectory",
+              "text-lines-tool",
+              "noise-fit-tool",
+              "noise-tracking-tool",
+              "multi-line-tool",
+              "diagnose",
+              "history-panel",
+              "collaboration-tool",
+              "version-control-tool",
+              "version-control-panel",
+              "ai-tool",
+              "ai-panel",
+              "tab-ai",
+              "line-controls",
+              "beat-controls",
+              "view-buttons",
+              "multi-line-controls",
+              "offset-control",
+              "rate-control",
+              "pitch-control",
+              "time-progress",
+              "time-readouts",
+              "clock",
+              "beat-display",
+              "bpm-display",
+              "note-properties",
+              "event-properties",
+              "line-properties",
+              "noise-properties",
+              "noise-layers",
+              "noise-list",
+              "global-events-panel",
+              "global-event-properties",
+              "global-event-inspector",
+              "global-event-types",
+              "global-event-density",
+              "global-events-tool",
+              "close-global-events",
+              "line-list",
+              "multi-line-list",
+              "asset-tree",
+              "asset-details",
+              "sample-bar",
+              "sample-panel",
+              "field",
+              "hint",
+              "panel-title",
+              "panel-actions",
+              "batch-controls",
+              "batch-ball",
+              "chat",
+              "peer-markers",
+              "tab-notes",
+              "tab-events",
+              "tab-lines",
+              "tab-chart",
+              "tab-noise",
+              "tool-select",
+              "tool-tap",
+              "tool-hold",
+              "tool-flick",
+              "tool-drag"
+            ]
+          },
+          "asset": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,63}$",
+            "description": "A key in assets; image/font type checked at import."
+          },
+          "selector": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "CSS selector, optionally using @component aliases. Must pass editorSkinSelector and browser selector validation."
+          },
+          "placement": {
+            "enum": [
+              "prepend",
+              "append",
+              "before",
+              "after"
+            ]
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "target"
+            ]
+          },
+          {
+            "required": [
+              "selector"
+            ]
+          }
+        ]
+      }
+    },
+    "canvas": {
+      "type": "object",
+      "properties": {
+        "palette": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^(#[0-9a-fA-F]{6}|parameter\\([a-z][a-z0-9-]{0,63}\\))$",
+            "description": "#rrggbb, or parameter(id) referencing a color parameter (API 3)."
+          },
+          "propertyNames": {
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          }
+        },
+        "fontScale": {
+          "type": "number",
+          "minimum": 0.7,
+          "maximum": 1.8,
+          "default": 1
+        },
+        "font": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$",
+          "description": "A key in assets; image/font type checked at import."
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "lineWidthScale": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 4
+        },
+        "lineDash": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "targets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "palette": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "pattern": "^(#[0-9a-fA-F]{6}|parameter\\([a-z][a-z0-9-]{0,63}\\))$",
+                  "description": "#rrggbb, or parameter(id) referencing a color parameter (API 3)."
+                },
+                "propertyNames": {
+                  "pattern": "^#[0-9a-fA-F]{6}$"
+                }
+              },
+              "fontScale": {
+                "type": "number",
+                "minimum": 0.7,
+                "maximum": 1.8,
+                "default": 1
+              },
+              "font": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,63}$",
+                "description": "A key in assets; image/font type checked at import."
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "lineWidthScale": {
+                "type": "number",
+                "minimum": 0.25,
+                "maximum": 4
+              },
+              "lineDash": {
+                "type": "array",
+                "maxItems": 16,
+                "items": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                }
+              }
+            }
+          },
+          "propertyNames": {
+            "enum": [
+              "notes",
+              "events",
+              "global-events",
+              "global-density",
+              "noise",
+              "density",
+              "history",
+              "audio",
+              "selection",
+              "batch-preview",
+              "easing",
+              "bezier",
+              "curve",
+              "text-lines",
+              "trajectory",
+              "noise-fit",
+              "line-thumbnail",
+              "clipboard-thumbnail"
+            ]
+          }
+        }
+      }
+    },
+    "skinVersion": {
+      "type": "string",
+      "maxLength": 40
+    },
+    "license": {
+      "oneOf": [
+        {
+          "type": "string",
+          "maxLength": 4000
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "propertyNames": {
+            "pattern": "^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$"
+          }
+        }
+      ]
+    },
+    "preview": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$",
+      "description": "A key in assets; image/font type checked at import."
+    },
+    "compatibility": {
+      "type": "object",
+      "properties": {
+        "minApi": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxApi": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "systemVariants": {
+      "type": "object",
+      "required": [
+        "light",
+        "dark"
+      ],
+      "properties": {
+        "light": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        },
+        "dark": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        }
+      }
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "type",
+          "label",
+          "default"
+        ],
+        "properties": {
+          "type": {
+            "enum": [
+              "number",
+              "color",
+              "select",
+              "boolean"
+            ]
+          },
+          "label": {
+            "oneOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "propertyNames": {
+                  "pattern": "^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$"
+                }
+              }
+            ]
+          },
+          "default": {},
+          "min": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          },
+          "step": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "unit": {
+            "enum": [
+              "",
+              "px",
+              "em",
+              "rem",
+              "%",
+              "ms",
+              "s",
+              "deg"
+            ]
+          },
+          "options": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "minProperties": 1,
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$"
+                  }
+                }
+              ]
+            },
+            "maxProperties": 30
+          }
+        }
+      },
+      "maxProperties": 40,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,63}$"
+      }
+    },
+    "properties": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "syntax",
+          "inherits",
+          "initialValue"
+        ],
+        "properties": {
+          "syntax": {
+            "enum": [
+              "*",
+              "<number>",
+              "<length>",
+              "<angle>",
+              "<color>",
+              "<percentage>",
+              "<time>"
+            ]
+          },
+          "inherits": {
+            "type": "boolean"
+          },
+          "initialValue": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 3000,
+            "description": "CSS declaration value; runtime validates the restricted syntax and asset/font/motion references."
+          }
+        }
+      },
+      "maxProperties": 40,
+      "propertyNames": {
+        "pattern": "^--skin-[a-z0-9-]+$"
+      }
+    },
+    "variants": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "oneOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "propertyNames": {
+                  "pattern": "^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$"
+                }
+              }
+            ]
+          },
+          "colorScheme": {
+            "enum": [
+              "light",
+              "dark"
+            ]
+          },
+          "tokens": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 3000,
+              "description": "CSS declaration value; runtime validates the restricted syntax and asset/font/motion references."
+            },
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,63}$"
+            }
+          },
+          "styles": {
+            "$ref": "#/$defs/rules"
+          },
+          "canvas": {
+            "type": "object",
+            "properties": {
+              "palette": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "pattern": "^(#[0-9a-fA-F]{6}|parameter\\([a-z][a-z0-9-]{0,63}\\))$",
+                  "description": "#rrggbb, or parameter(id) referencing a color parameter (API 3)."
+                },
+                "propertyNames": {
+                  "pattern": "^#[0-9a-fA-F]{6}$"
+                }
+              },
+              "fontScale": {
+                "type": "number",
+                "minimum": 0.7,
+                "maximum": 1.8,
+                "default": 1
+              },
+              "font": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,63}$",
+                "description": "A key in assets; image/font type checked at import."
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "lineWidthScale": {
+                "type": "number",
+                "minimum": 0.25,
+                "maximum": 4
+              },
+              "lineDash": {
+                "type": "array",
+                "maxItems": 16,
+                "items": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                }
+              },
+              "targets": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "palette": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "pattern": "^(#[0-9a-fA-F]{6}|parameter\\([a-z][a-z0-9-]{0,63}\\))$",
+                        "description": "#rrggbb, or parameter(id) referencing a color parameter (API 3)."
+                      },
+                      "propertyNames": {
+                        "pattern": "^#[0-9a-fA-F]{6}$"
+                      }
+                    },
+                    "fontScale": {
+                      "type": "number",
+                      "minimum": 0.7,
+                      "maximum": 1.8,
+                      "default": 1
+                    },
+                    "font": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,63}$",
+                      "description": "A key in assets; image/font type checked at import."
+                    },
+                    "opacity": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "lineWidthScale": {
+                      "type": "number",
+                      "minimum": 0.25,
+                      "maximum": 4
+                    },
+                    "lineDash": {
+                      "type": "array",
+                      "maxItems": 16,
+                      "items": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100
+                      }
+                    }
+                  }
+                },
+                "propertyNames": {
+                  "enum": [
+                    "notes",
+                    "events",
+                    "global-events",
+                    "global-density",
+                    "noise",
+                    "density",
+                    "history",
+                    "audio",
+                    "selection",
+                    "batch-preview",
+                    "easing",
+                    "bezier",
+                    "curve",
+                    "text-lines",
+                    "trajectory",
+                    "noise-fit",
+                    "line-thumbnail",
+                    "clipboard-thumbnail"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "maxProperties": 12,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,63}$"
+      }
+    }
+  },
+  "$defs": {
+    "rules": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "selector",
+              "set"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "media"
+                  ]
+                },
+                {
+                  "required": [
+                    "container"
+                  ]
+                },
+                {
+                  "required": [
+                    "supports"
+                  ]
+                },
+                {
+                  "required": [
+                    "startingStyle"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "selector": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "CSS selector, optionally using @component aliases. Must pass editorSkinSelector and browser selector validation."
+              },
+              "set": {
+                "type": "object",
+                "additionalProperties": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 3000,
+                      "description": "CSS declaration value; runtime validates the restricted syntax and asset/font/motion references."
+                    },
+                    {
+                      "type": "object",
+                      "minProperties": 1,
+                      "additionalProperties": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 3000,
+                        "description": "CSS declaration value; runtime validates the restricted syntax and asset/font/motion references."
+                      },
+                      "propertyNames": {
+                        "pattern": "^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$"
+                      }
+                    }
+                  ]
+                },
+                "maxProperties": 100,
+                "propertyNames": {
+                  "pattern": "^(--(skin|rpen)-[a-z0-9-]+|-?[a-z][a-z0-9-]*)$"
+                }
+              },
+              "important": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "media",
+              "rules"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "container"
+                  ]
+                },
+                {
+                  "required": [
+                    "supports"
+                  ]
+                },
+                {
+                  "required": [
+                    "startingStyle"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "media": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "rules": {
+                "$ref": "#/$defs/rules"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "container",
+              "rules"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "media"
+                  ]
+                },
+                {
+                  "required": [
+                    "supports"
+                  ]
+                },
+                {
+                  "required": [
+                    "startingStyle"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "container": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "rules": {
+                "$ref": "#/$defs/rules"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "supports",
+              "rules"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "media"
+                  ]
+                },
+                {
+                  "required": [
+                    "container"
+                  ]
+                },
+                {
+                  "required": [
+                    "startingStyle"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "supports": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "rules": {
+                "$ref": "#/$defs/rules"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "startingStyle",
+              "rules"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "media"
+                  ]
+                },
+                {
+                  "required": [
+                    "container"
+                  ]
+                },
+                {
+                  "required": [
+                    "supports"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "startingStyle": {
+                "const": true
+              },
+              "rules": {
+                "$ref": "#/$defs/rules"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

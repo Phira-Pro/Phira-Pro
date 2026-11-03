@@ -1,0 +1,38 @@
+[
+  {
+    "directory": "inkline",
+    "files": [
+      "fonts/ui.woff",
+      "icons/back-muted.svg",
+      "icons/check-dark.svg",
+      "icons/chevron-muted.svg",
+      "icons/clipboard-clear.svg",
+      "icons/copy.svg",
+      "icons/cursor-gold.svg",
+      "icons/cursor.svg",
+      "icons/cut.svg",
+      "icons/delete.svg",
+      "icons/gamepad-gold.svg",
+      "icons/gamepad.svg",
+      "icons/help.svg",
+      "icons/mirror.svg",
+      "icons/paste.svg",
+      "icons/pause-dark.svg",
+      "icons/play-dark.svg",
+      "icons/preview-gold.svg",
+      "icons/preview.svg",
+      "icons/redo.svg",
+      "icons/rewind.svg",
+      "icons/settings.svg",
+      "icons/single-gold.svg",
+      "icons/speaker-gold.svg",
+      "icons/speaker.svg",
+      "icons/split.svg",
+      "icons/step-muted.svg",
+      "icons/target.svg",
+      "icons/toolbar-mode.svg",
+      "icons/undo.svg",
+      "skin.json"
+    ]
+  }
+]

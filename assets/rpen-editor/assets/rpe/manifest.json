@@ -1,0 +1,795 @@
+{
+  "source": "Generated replacement assets for public distribution; local builds may use the original RPE resources.",
+  "files": [
+    {
+      "path": "Texture/Tap2.png",
+      "bytes": 1921,
+      "sha256": "91f653981d96e8483d4e0505ae886533f72ea9b704bc15d356f9a8aace782b63"
+    },
+    {
+      "path": "Texture/Tap2HL.png",
+      "bytes": 12496,
+      "sha256": "d2a3c543f4684682955e37137394aca9eb67b9318f95271fb3e4830e3cd65261"
+    },
+    {
+      "path": "Texture/Drag2.png",
+      "bytes": 1758,
+      "sha256": "43c55f7c5b00a8d9dea172bd033584d963a730a343b6ff6899540de52febaa83"
+    },
+    {
+      "path": "Texture/DragHL.png",
+      "bytes": 11683,
+      "sha256": "76f6bf5277a2630872563ceb9aa1d7725898001f6a5e307a6b1532874e307345"
+    },
+    {
+      "path": "Texture/Flick2.png",
+      "bytes": 3571,
+      "sha256": "c0fa58c8669c7046fafc46c6e568afd5fc2f3b6b4e615def07f926d4b8a93a7b"
+    },
+    {
+      "path": "Texture/Flick2HL.png",
+      "bytes": 18347,
+      "sha256": "ac2faac478668ce39067aebaebe5ce70df8daa00d163a44042df916d7c464adf"
+    },
+    {
+      "path": "Texture/Hold.png",
+      "bytes": 17988,
+      "sha256": "e7282b15df2a7471ac0e4315f4d150be46df5b042c617a122fc088831c8da283"
+    },
+    {
+      "path": "Texture/Hold3.png",
+      "bytes": 20266,
+      "sha256": "acbfaf6dffcd3b2a746a6b73354631517626f4f0cabf9486a2ab7ff25edd152f"
+    },
+    {
+      "path": "Texture/HoldHL.png",
+      "bytes": 20266,
+      "sha256": "acbfaf6dffcd3b2a746a6b73354631517626f4f0cabf9486a2ab7ff25edd152f"
+    },
+    {
+      "path": "Texture/HoldHead.png",
+      "bytes": 643,
+      "sha256": "a145b2b31e314b117eac8298a98291dfdc91c8d43cf426b77c4fc83e831f214b"
+    },
+    {
+      "path": "Texture/HoldHeadHL.png",
+      "bytes": 3431,
+      "sha256": "c9cfcfbd4d8eaca096176b3138b7bca9a7ed6a5ae0da4f255a1206ee7c18b954"
+    },
+    {
+      "path": "Texture/HoldEnd.png",
+      "bytes": 643,
+      "sha256": "a145b2b31e314b117eac8298a98291dfdc91c8d43cf426b77c4fc83e831f214b"
+    },
+    {
+      "path": "Texture/line.png",
+      "bytes": 225,
+      "sha256": "cc2acf0561091606367b1d69b0740209bb8ddba889a2b8163087de22fb841d83"
+    },
+    {
+      "path": "Texture/Pause.png",
+      "bytes": 1190,
+      "sha256": "a86007a783071d97682b955164e644e4b893e644db2a10a2363554c648278136"
+    },
+    {
+      "path": "Texture/Arrow2.png",
+      "bytes": 12691,
+      "sha256": "c210588cf824c49dc4271d85a45fc715dd3d02ea451b446d51802716e2b72592"
+    },
+    {
+      "path": "Texture/icon/play.png",
+      "bytes": 8261,
+      "sha256": "44bc1b0431f1bf6f09bbdce38c0307e80c07521a6d73adf984b4692894cee46d"
+    },
+    {
+      "path": "Texture/icon/pause1.png",
+      "bytes": 7936,
+      "sha256": "5c149b66915b5ec1942463de58f7b3153a7736dc7bf0d0c1ef55b54358e1d5cd"
+    },
+    {
+      "path": "Texture/icon/replay.png",
+      "bytes": 6798,
+      "sha256": "b6405bfb5e3cfb8b11eb39720b386517093b95e7ac58d0999543138e76a0236c"
+    },
+    {
+      "path": "Texture/icon/save.png",
+      "bytes": 2964,
+      "sha256": "9899582d857f37d11651bb8c14b877e69c35f45c50b9b914e8e93c0bb1b1e0fb"
+    },
+    {
+      "path": "Texture/icon/folder.png",
+      "bytes": 2923,
+      "sha256": "2d3417ba3ba08cadb1a65babddc875a9ea4d5c076f2fbd9e5743165cc1ce09d7"
+    },
+    {
+      "path": "Texture/icon/setting.png",
+      "bytes": 8869,
+      "sha256": "ca37839412856b0e3fd4102cee683ada10bf770dd5c697b7144b0cde875c37bc"
+    },
+    {
+      "path": "Texture/icon/info.png",
+      "bytes": 8146,
+      "sha256": "925a3eb3d27d8fcc1fdc57525e23c36732a12dc23506ffa44408e39ac81dbee3"
+    },
+    {
+      "path": "Texture/icon/addline.png",
+      "bytes": 3116,
+      "sha256": "7898e629012ca0fc0c127f1d8a1a64d468b1aa86fa54de2d0a158a27e0abeeed"
+    },
+    {
+      "path": "Texture/icon/tree.png",
+      "bytes": 5383,
+      "sha256": "71c4f17e0e898c51acdfcc8bd1635375b432c90eefbc541ec61780c5c68fefe1"
+    },
+    {
+      "path": "Texture/icon/copy.png",
+      "bytes": 3345,
+      "sha256": "a54a6bf449569bc76bbf2f9e562d5bc9d39ccdb84cb86838ecefb35dfd42cc19"
+    },
+    {
+      "path": "Texture/icon/paste.png",
+      "bytes": 3516,
+      "sha256": "6609191afa605f3148bed4866ef4171ec4c8728d12b8417ba15e714417a586c2"
+    },
+    {
+      "path": "Texture/icon/shear.png",
+      "bytes": 6207,
+      "sha256": "fc5a72de2165e3ddc911e021e2c689fd7fc70fa34b0f867b40e21cce394f795b"
+    },
+    {
+      "path": "Texture/icon/delete0.png",
+      "bytes": 3367,
+      "sha256": "465afa29b2f136dd084802a6c65133d0988e769584e2f159ded3445f57992671"
+    },
+    {
+      "path": "Texture/icon/bezier.png",
+      "bytes": 5463,
+      "sha256": "0a572e9cb977f44e86e9815436c404faca83cb01ff3e5e06cb2abbd2be50e7dc"
+    },
+    {
+      "path": "Texture/icon/waves.png",
+      "bytes": 2766,
+      "sha256": "f3c60c8cede05f7d213a25265d82aaa59de9a7599d5dd606ac53f0e0b86aa628"
+    },
+    {
+      "path": "Texture/icon/showback.png",
+      "bytes": 2998,
+      "sha256": "c15e3243f9d78ed9b4795286ee4c739ceaf12045c6e2273394f6fd7fdf640b7c"
+    },
+    {
+      "path": "Texture/icon/layout.png",
+      "bytes": 2272,
+      "sha256": "11b439d221d3613e987a6f5d4109870f7241c4a30dcc495d77c8a1eea09671df"
+    },
+    {
+      "path": "Texture/icon/help.png",
+      "bytes": 9157,
+      "sha256": "7860324a35a95e24f574c8dbf7466b70cd59f85c2f8c81f2f8649efafff3412f"
+    },
+    {
+      "path": "Texture/icon/return.png",
+      "bytes": 4724,
+      "sha256": "6619fb4d5ef87032abf4da2b73e1e2d31c0f320e47d1919660a2baf289cb5b2e"
+    },
+    {
+      "path": "Texture/icon/plus.png",
+      "bytes": 2310,
+      "sha256": "d661122fb07f04d259d1cdacbd512dc18d6b7c5680511a343ae598e17e3d4325"
+    },
+    {
+      "path": "Texture/icon/minus.png",
+      "bytes": 1653,
+      "sha256": "3568b77cedddaaf2c8961d1b64d596d0b69195640d6ea3c254196c22cd13e148"
+    },
+    {
+      "path": "Texture/icon/import1.png",
+      "bytes": 3810,
+      "sha256": "c96ceaf8468f554407428527e5af156903f9ef8240a5593c5538b2d6cc822cec"
+    },
+    {
+      "path": "Texture/icon/edit.png",
+      "bytes": 4628,
+      "sha256": "f55d8f55a18f896c4a28f0a3a7e6b4b03c197896a6e7fe75dfc19b041a7d03b9"
+    },
+    {
+      "path": "Texture/icon/switch.png",
+      "bytes": 3611,
+      "sha256": "c673582e5137046e3589075d4d83ede4c04f6642363863ff87bb050b48f666ed"
+    },
+    {
+      "path": "Texture/icon/jump.png",
+      "bytes": 4298,
+      "sha256": "41c6a222329b5ff1575724e5bbf531aab0eb46d61aac3e08d3c3bbbdd4031c87"
+    },
+    {
+      "path": "Texture/img-1.png",
+      "bytes": 6986,
+      "sha256": "b2a8a6f90d27215c4557698e52709fd6332f72146cfadec411d302976c0f3fe1"
+    },
+    {
+      "path": "Texture/img-2.png",
+      "bytes": 9635,
+      "sha256": "e6d0d40f603294d89afd54b20999a90ef43c1474fd796e988ac78eab88ddcad2"
+    },
+    {
+      "path": "Texture/img-3.png",
+      "bytes": 10708,
+      "sha256": "9b819510572ccd1e627a699cf2aa6db5818837389c3d0565767fda5db9ff4dc1"
+    },
+    {
+      "path": "Texture/img-4.png",
+      "bytes": 11618,
+      "sha256": "08713bbd95b0578f0ef6aa495adac0c1aae16ae1540ccca7d8c320714d0cdbeb"
+    },
+    {
+      "path": "Texture/img-5.png",
+      "bytes": 12309,
+      "sha256": "360173105d2f44cbfe1fedc50fbb843ed7993634d0748e04932715c13264f267"
+    },
+    {
+      "path": "Texture/img-6.png",
+      "bytes": 12999,
+      "sha256": "98eeaa13a8e08e6848d418ab9a8dd57ec7775e10f02cb2957cda024283ed4ee1"
+    },
+    {
+      "path": "Texture/img-7.png",
+      "bytes": 13810,
+      "sha256": "5ee604d23a96c19087928a97c3c34f5cac58f09787730bc10c65434ca4631df2"
+    },
+    {
+      "path": "Texture/img-8.png",
+      "bytes": 14069,
+      "sha256": "284d860a3223de366a38b245d1a982f389f76bc9272bd178d0190cb1558109d8"
+    },
+    {
+      "path": "Texture/img-9.png",
+      "bytes": 14586,
+      "sha256": "fe8421530b27b55079334e1f7895c2f9aba0f1e305a2e2ff243bc53448235754"
+    },
+    {
+      "path": "Texture/img-10.png",
+      "bytes": 15210,
+      "sha256": "46832ac2be95281fc435522b4369ca0daa862b5b59a93206f7f4c4de6cbaeee0"
+    },
+    {
+      "path": "Texture/img-11.png",
+      "bytes": 15719,
+      "sha256": "74ab6078af38413b8a33315998cb6b1838cafdc950c820d186c05999101b0132"
+    },
+    {
+      "path": "Texture/img-12.png",
+      "bytes": 16028,
+      "sha256": "bb03a09875c4ec55c2587fa87a5296fdf39757547a4bafdc5f5c1b2d452a0dd3"
+    },
+    {
+      "path": "Texture/img-13.png",
+      "bytes": 16272,
+      "sha256": "933595b7d6d784f82a7bf3f7b5c92584b3124f3e0fec2799ee2db21510297c6c"
+    },
+    {
+      "path": "Texture/img-14.png",
+      "bytes": 16446,
+      "sha256": "6e1fd229fd55ecdd193b8cb6369175fd6ef9a9c2a2579288169b2083355bad8c"
+    },
+    {
+      "path": "Texture/img-15.png",
+      "bytes": 16302,
+      "sha256": "37adca02e747ae95ce3d926cb49d00db944d441e95c358b37ea542fb8ee0d9c5"
+    },
+    {
+      "path": "Texture/img-16.png",
+      "bytes": 16373,
+      "sha256": "589b82cb1b9a1e3c2f804e9ef5d8b120aa0822ce3cf04d0e2fa33080d97d71c8"
+    },
+    {
+      "path": "Texture/img-17.png",
+      "bytes": 16123,
+      "sha256": "902573c145d3a456caf2558cc5c40523f55476d201ffe92af6d98d458ec82881"
+    },
+    {
+      "path": "Texture/img-18.png",
+      "bytes": 16224,
+      "sha256": "184d6b4e9caceb92dc25f5eaaccf704f670fd258d42de5513bc0743c2186b3e5"
+    },
+    {
+      "path": "Texture/img-19.png",
+      "bytes": 15982,
+      "sha256": "c2f3580d2ddd7e9c743e786df4c7cc2324232386d6df94182a84bd41e4b562f4"
+    },
+    {
+      "path": "Texture/img-20.png",
+      "bytes": 16003,
+      "sha256": "2de307c8b32610d390c85881d12f635f073007df4141b54490006c526459ad6a"
+    },
+    {
+      "path": "Texture/img-21.png",
+      "bytes": 16264,
+      "sha256": "845e06fcee4efc82fb4aafe4a7fc8a54eb80fe958d10b8e81273c1d720af805d"
+    },
+    {
+      "path": "Texture/img-22.png",
+      "bytes": 15998,
+      "sha256": "baa76da2a69b31a3579e7bbb06f0fa4e4442cee98e5c067575ae3ef33aa7d3b2"
+    },
+    {
+      "path": "Texture/img-23.png",
+      "bytes": 15648,
+      "sha256": "398c3520f4d88f45f26845bb1655d2270e9bae321ca0841129ce9c9caeeb5d2b"
+    },
+    {
+      "path": "Texture/img-24.png",
+      "bytes": 15247,
+      "sha256": "a91db05a0e077012a45babd837eeb218ec55bc761bff3868654b880d28e3d783"
+    },
+    {
+      "path": "Texture/img-25.png",
+      "bytes": 14577,
+      "sha256": "9c4c0828a1a02c49e2b8804818efb91ea24720920c1ec6ae2687dfd611f7fe99"
+    },
+    {
+      "path": "Texture/img-26.png",
+      "bytes": 13865,
+      "sha256": "d0078f00a9d39b851718dd92e2a7a150f0db2f1b3e8412321268af624c9678b0"
+    },
+    {
+      "path": "Texture/img-27.png",
+      "bytes": 14020,
+      "sha256": "ab3361215dd8633d1a4fe6b939121f72d43491f06002cd30041a3d8db1fde930"
+    },
+    {
+      "path": "Texture/img-28.png",
+      "bytes": 14400,
+      "sha256": "9d08be3aa51ff9959e55f0e64e51329acadba179387f0e5595253d8e90e96cc9"
+    },
+    {
+      "path": "Texture/img-29.png",
+      "bytes": 14593,
+      "sha256": "9e3162b70f96d77fd34681b3ddbbb35364f58f57a667ff1c6cb765d881ce9e08"
+    },
+    {
+      "path": "Texture/img-30.png",
+      "bytes": 14464,
+      "sha256": "9216b38f3ad5eff7ce60c0c35ed12f98955a88dc5992a566f4512638caec6dbe"
+    },
+    {
+      "path": "Texture/img-31.png",
+      "bytes": 14657,
+      "sha256": "fd699149dd7bb628a5211835c52c0b0516615c834e38a5fcda1eaecc86b6c653"
+    },
+    {
+      "path": "shaders/bokeh.glsl",
+      "bytes": 2164,
+      "sha256": "40abd08f8bb061c12eb687833ba2e20445ae7f66eef72ccb22c97c74e0caafcc"
+    },
+    {
+      "path": "shaders/burn.glsl",
+      "bytes": 1610,
+      "sha256": "9e3fdfafe066f97ca8a8a46b6f96cb6a1272dd180c345c6a24da6cad6ddd2a1a"
+    },
+    {
+      "path": "shaders/camera.glsl",
+      "bytes": 1415,
+      "sha256": "892fac55e40193ce5bcb04ca41f3c25cae0a28356bb9a6697219221b77c18f0a"
+    },
+    {
+      "path": "shaders/chromatic.glsl",
+      "bytes": 1580,
+      "sha256": "e95dc8b867d53d37578334c54d9775ac2c0d0254be46fab8f48356ecfd8cd4e0"
+    },
+    {
+      "path": "shaders/chromatic_2.glsl",
+      "bytes": 1580,
+      "sha256": "e95dc8b867d53d37578334c54d9775ac2c0d0254be46fab8f48356ecfd8cd4e0"
+    },
+    {
+      "path": "shaders/circle_blur.glsl",
+      "bytes": 1317,
+      "sha256": "cd720f47efb5f83f4bdf9788270b340bd9568ade690dc12fccf3e8c212b2e827"
+    },
+    {
+      "path": "shaders/circle_blur_2.glsl",
+      "bytes": 1317,
+      "sha256": "cd720f47efb5f83f4bdf9788270b340bd9568ade690dc12fccf3e8c212b2e827"
+    },
+    {
+      "path": "shaders/color.vsh",
+      "bytes": 355,
+      "sha256": "cba83b0aa2721abbd4eb0e24df78cfe33199352cab6bab03775ea0fc64c4fb8b"
+    },
+    {
+      "path": "shaders/color_shift.glsl",
+      "bytes": 2080,
+      "sha256": "c18d0c2f7732933c296a35122d15440e522d6705b52eaf64e7f68b168f87730c"
+    },
+    {
+      "path": "shaders/distortion.glsl",
+      "bytes": 1422,
+      "sha256": "27e03e41d53beb94fc15f9146c1eb33bbbe0e4c1fa2124086d9f9918c71802ce"
+    },
+    {
+      "path": "shaders/emboss.glsl",
+      "bytes": 1282,
+      "sha256": "2113e1c4bbcf53aa4c52fbc61ffe2c5b62bc850c1ec54115ab0ebbb1beec5af0"
+    },
+    {
+      "path": "shaders/fisheye.glsl",
+      "bytes": 1943,
+      "sha256": "1a1cd8f3adbae62120b15547fe2111a1015a91d6def64403e9b1c59a4bdc1565"
+    },
+    {
+      "path": "shaders/fisheye_2.glsl",
+      "bytes": 1943,
+      "sha256": "1a1cd8f3adbae62120b15547fe2111a1015a91d6def64403e9b1c59a4bdc1565"
+    },
+    {
+      "path": "shaders/flare.glsl",
+      "bytes": 1050,
+      "sha256": "e5054452a7ae317a853edd498fe788ccd64cb6665b2b72c65d842693093303a8"
+    },
+    {
+      "path": "shaders/flip.glsl",
+      "bytes": 1855,
+      "sha256": "eee088802c6c0aed95af1042883339a456f366337f260bea6e5e5224a5cb1308"
+    },
+    {
+      "path": "shaders/flowing.glsl",
+      "bytes": 919,
+      "sha256": "2291ed3cbdb8b2f4335204e79d8a8cb985b4c6b8715c74d49163addb488e3080"
+    },
+    {
+      "path": "shaders/fog.glsl",
+      "bytes": 839,
+      "sha256": "a56f107d5ee542673bb5999c1d9a829c948976d012b9b2987e9508628636e373"
+    },
+    {
+      "path": "shaders/gaussian_blur.vsh",
+      "bytes": 366,
+      "sha256": "dabce11aa971881474d1eca77be8ae7bd72b9a45832d90b4c8fed48b13c2b52f"
+    },
+    {
+      "path": "shaders/glitch.glsl",
+      "bytes": 1713,
+      "sha256": "f2cdb0ef1af81c70bc9d08e032a68ce37df6e1bd49048684b1965877d6f5bfb5"
+    },
+    {
+      "path": "shaders/glitch_2.glsl",
+      "bytes": 1713,
+      "sha256": "f2cdb0ef1af81c70bc9d08e032a68ce37df6e1bd49048684b1965877d6f5bfb5"
+    },
+    {
+      "path": "shaders/glow_effect.glsl",
+      "bytes": 1374,
+      "sha256": "534afb983f29b926b717c8130160f9dac5fe2851c70f8fcce577b6ddcf353470"
+    },
+    {
+      "path": "shaders/grayscale.glsl",
+      "bytes": 655,
+      "sha256": "9e634c9e89ca73c77fd42b681c2ec60138f0f607f0b2cdd4dc1b9bf494ffdc43"
+    },
+    {
+      "path": "shaders/grayscale_2.glsl",
+      "bytes": 655,
+      "sha256": "9e634c9e89ca73c77fd42b681c2ec60138f0f607f0b2cdd4dc1b9bf494ffdc43"
+    },
+    {
+      "path": "shaders/heat_distortion.glsl",
+      "bytes": 1770,
+      "sha256": "47545e4e54a63c72f29c9d5fcb9c00fbd478d92dab4f6a4d2dcc35a2e6364e1f"
+    },
+    {
+      "path": "shaders/hologram.glsl",
+      "bytes": 1360,
+      "sha256": "c4353540611a739ff0086f0b800b70741865a7f48a6d4af88d8902ee71cf64aa"
+    },
+    {
+      "path": "shaders/image_noise.glsl",
+      "bytes": 1066,
+      "sha256": "8f852eee0e91b0febc85709bbaa7ee0023b3d2e90913bc84f784c770cfb8677d"
+    },
+    {
+      "path": "shaders/kaleidoscope.glsl",
+      "bytes": 1221,
+      "sha256": "57d07e88d236aa866e8bdf45df0ac6e23cb3af24b8433d2b6c159845a358fed1"
+    },
+    {
+      "path": "shaders/lightning.glsl",
+      "bytes": 2174,
+      "sha256": "700e5db007a29f3cddda492df0d5ed0880129cbb86256b5070e015e182de3b72"
+    },
+    {
+      "path": "shaders/liquid.glsl",
+      "bytes": 717,
+      "sha256": "50228a75529039ea6902be1a67a9452a27ee4a0b51be4cec1a86f5ea11c22f43"
+    },
+    {
+      "path": "shaders/neon.glsl",
+      "bytes": 2085,
+      "sha256": "eebca1036ca273d11f37628a598972c6c1ec0f1f810869628554eedf50ca34b8"
+    },
+    {
+      "path": "shaders/night_vision.glsl",
+      "bytes": 1347,
+      "sha256": "e8433693232725d9c74300bfe3ec5aac8a7a1b0819a1e32dcca745948bd2028e"
+    },
+    {
+      "path": "shaders/noise.glsl",
+      "bytes": 783,
+      "sha256": "f18743e461a99a8a25699ece5439ae9f4941fed57aa36d355ed36ea04cb079c6"
+    },
+    {
+      "path": "shaders/noise_2.glsl",
+      "bytes": 783,
+      "sha256": "f18743e461a99a8a25699ece5439ae9f4941fed57aa36d355ed36ea04cb079c6"
+    },
+    {
+      "path": "shaders/oil_painting.glsl",
+      "bytes": 2309,
+      "sha256": "23ddafd8f76607d52d667e1ccebf632c1903ffbfc1f12e24fd6ab81b6de1e454"
+    },
+    {
+      "path": "shaders/old_tv.glsl",
+      "bytes": 2884,
+      "sha256": "d2891725abffd17783b06082c6af0be9afe4f834076e0a305c9a8e9a0c1844fe"
+    },
+    {
+      "path": "shaders/pixel.glsl",
+      "bytes": 818,
+      "sha256": "e23167a4318a59804e5bae037c666e1ef6f6be63ab8bcfad9351f88a19861fc4"
+    },
+    {
+      "path": "shaders/pixel_2.glsl",
+      "bytes": 818,
+      "sha256": "e23167a4318a59804e5bae037c666e1ef6f6be63ab8bcfad9351f88a19861fc4"
+    },
+    {
+      "path": "shaders/radial_blur.glsl",
+      "bytes": 1065,
+      "sha256": "d3ebb5bfe60a0912154d53c60cc351e5eda2e9d682b25685227d2f83b5fda214"
+    },
+    {
+      "path": "shaders/radial_blur_2.glsl",
+      "bytes": 1065,
+      "sha256": "d3ebb5bfe60a0912154d53c60cc351e5eda2e9d682b25685227d2f83b5fda214"
+    },
+    {
+      "path": "shaders/rain.glsl",
+      "bytes": 3066,
+      "sha256": "bd0817a2c8a0dcc94869c706bd281b82942a4b9a83dd4e59a8cac48208bcd8fc"
+    },
+    {
+      "path": "shaders/rainbow.glsl",
+      "bytes": 954,
+      "sha256": "4962e3138f300ed46e6b114c40ba207977e2d6dd805e4e1d1bc23b7f17da830a"
+    },
+    {
+      "path": "shaders/rays.glsl",
+      "bytes": 1676,
+      "sha256": "05a6d1b1d039cb36a275f7d4800c23e180f52f5c478c4f79bb2d545c06bafb99"
+    },
+    {
+      "path": "shaders/scanline.glsl",
+      "bytes": 800,
+      "sha256": "681390b1f1257164de57b2fd81b0f86713eb10edd5828234391c23a2454c1a72"
+    },
+    {
+      "path": "shaders/shockwave.glsl",
+      "bytes": 1754,
+      "sha256": "8336cd92b4c32c23e23567ef01457bb5662355c0a2bbbfb4724428a6007222e8"
+    },
+    {
+      "path": "shaders/shockwave_2.glsl",
+      "bytes": 1754,
+      "sha256": "8336cd92b4c32c23e23567ef01457bb5662355c0a2bbbfb4724428a6007222e8"
+    },
+    {
+      "path": "shaders/snow.glsl",
+      "bytes": 2278,
+      "sha256": "2f3ea36d63284de335e81e70a3b78958409f34863094036d6d54b6898cb323ac"
+    },
+    {
+      "path": "shaders/sobel.glsl",
+      "bytes": 2059,
+      "sha256": "f2719d32e43cda96a1c22245aa7b520802672aca37f513d3be475c513a11c598"
+    },
+    {
+      "path": "shaders/two_tone.glsl",
+      "bytes": 658,
+      "sha256": "a37501cd84ad21868ab948608af97efa545d3df74ca87d902efd5f0cca6b35a6"
+    },
+    {
+      "path": "shaders/underwater.glsl",
+      "bytes": 958,
+      "sha256": "88da23872ce30122bcf39d74b829045805d1f3dd122caf6e2ff0e4d56964a742"
+    },
+    {
+      "path": "shaders/vignette.glsl",
+      "bytes": 865,
+      "sha256": "288a9696bb7989d636d8e9df67ca83caba6a4bf7bc7757f0cad1a65e77f4c7eb"
+    },
+    {
+      "path": "shaders/vignette_2.glsl",
+      "bytes": 865,
+      "sha256": "288a9696bb7989d636d8e9df67ca83caba6a4bf7bc7757f0cad1a65e77f4c7eb"
+    },
+    {
+      "path": "shaders/wave.glsl",
+      "bytes": 1100,
+      "sha256": "609b13b102805d610f323af650aff9cd2b71649bac7c6da8febb96bdd1f999cd"
+    },
+    {
+      "path": "shaders/pr/bokeh_pr.glsl",
+      "bytes": 1938,
+      "sha256": "8d06eb38c294e0d23ebdc18f96ec70ef09efcd7715c348b80d9ff999e1078e91"
+    },
+    {
+      "path": "shaders/pr/burn_pr.glsl",
+      "bytes": 1650,
+      "sha256": "3e7323a5f476e88c7bbea5b2924b8fee5aebeab8afddc67b16c22a414a3384b0"
+    },
+    {
+      "path": "shaders/pr/camera_pr.glsl",
+      "bytes": 1408,
+      "sha256": "d29aa1e884401b424ca840828a31c71f6b596b60fea9ba05319bb3c2ce78bd4e"
+    },
+    {
+      "path": "shaders/pr/color_shift_pr.glsl",
+      "bytes": 1974,
+      "sha256": "b0e12a1c873d9155809ac8017b8f931732814ee5cf6e7c965594fbb42bf2d48c"
+    },
+    {
+      "path": "shaders/pr/distortion_pr.glsl",
+      "bytes": 1235,
+      "sha256": "56c1e42d4f995749692b15d909a344234cb3112925a4f5926d05717e0edd1884"
+    },
+    {
+      "path": "shaders/pr/emboss_pr.glsl",
+      "bytes": 1195,
+      "sha256": "e74dd9d3309e3d390e73f9eb89eb4cb86074d9243239a134dbac27d71bccd287"
+    },
+    {
+      "path": "shaders/pr/flare_pr.glsl",
+      "bytes": 927,
+      "sha256": "8334118072d7b9f7edd9b1d719e228345d2f3e4f703505766ee02206d9b2257d"
+    },
+    {
+      "path": "shaders/pr/flip_pr.glsl",
+      "bytes": 1578,
+      "sha256": "c38d061577629b5ad940eb462a5391b1629141c5fe7bbcd431c736c745f09964"
+    },
+    {
+      "path": "shaders/pr/flowing_pr.glsl",
+      "bytes": 778,
+      "sha256": "d2bc667cea6db7e23ecf751828398015f972b287dcce9506fd27a6dd48c4b6f8"
+    },
+    {
+      "path": "shaders/pr/fog_pr.glsl",
+      "bytes": 646,
+      "sha256": "d5264d7714f0249aa1bc15ba687bda2e5013b9f6a7fb95e1e6562778877758b5"
+    },
+    {
+      "path": "shaders/pr/glow_effect_pr.glsl",
+      "bytes": 1175,
+      "sha256": "b1f1e67ec5b6633c51a2a71660cd62998550b318cd8d3ea61ee766536fcba900"
+    },
+    {
+      "path": "shaders/pr/heat_distortion_pr.glsl",
+      "bytes": 1582,
+      "sha256": "0a57993a18379a1c6501a80ffad3ccbaa6ced457459cde291b5d2918613fb9e0"
+    },
+    {
+      "path": "shaders/pr/hologram_pr.glsl",
+      "bytes": 1172,
+      "sha256": "7d4e2e33582f3830f531f635898b8d1ee8bcbd235719f6a84d7414b1dcfee47f"
+    },
+    {
+      "path": "shaders/pr/image_noise_pr.glsl",
+      "bytes": 949,
+      "sha256": "4f4c75cee25c62084851f4cb3fb69c810a95bb7df91e40cceed6d2f1de3c4805"
+    },
+    {
+      "path": "shaders/pr/kaleidoscope_pr.glsl",
+      "bytes": 917,
+      "sha256": "1a9b4c993851131a4f811075926279855ef0d199a69efbfb419fd4b40c658692"
+    },
+    {
+      "path": "shaders/pr/lightning_pr.glsl",
+      "bytes": 2066,
+      "sha256": "b24191604cb552ea8ae9576ce1ae90217e1c32ff6b41504615193c9b394fec5e"
+    },
+    {
+      "path": "shaders/pr/liquid_pr.glsl",
+      "bytes": 625,
+      "sha256": "cc8b16ce6cda894453119825fe93793386a32cee9ca55af9fd27d53c9af35869"
+    },
+    {
+      "path": "shaders/pr/neon_pr.glsl",
+      "bytes": 1763,
+      "sha256": "98d772e5215458559789b85960ed89d3df8f976e14c9df44dd9e91364868919d"
+    },
+    {
+      "path": "shaders/pr/night_vision_pr.glsl",
+      "bytes": 1235,
+      "sha256": "69d66bb5287f4bec589c8b5bf938126023ec18a13528c5c25e74abc70d7ef551"
+    },
+    {
+      "path": "shaders/pr/oil_painting_pr.glsl",
+      "bytes": 1876,
+      "sha256": "b2d9ac5ad2a3201d36a2e668a13cc0f6da483bbf4879b79309c4997b275c3086"
+    },
+    {
+      "path": "shaders/pr/old_tv_pr.glsl",
+      "bytes": 2509,
+      "sha256": "9437080864b2ef0113aba56e4ffa6b98d1cab554688c0b76b0d8286e22da37bf"
+    },
+    {
+      "path": "shaders/pr/rainbow_pr.glsl",
+      "bytes": 914,
+      "sha256": "6577f3c001d0796f56a91c3e26a3e632cccfbf8eeaaaa0dcaabe929a04650230"
+    },
+    {
+      "path": "shaders/pr/rain_pr.glsl",
+      "bytes": 2915,
+      "sha256": "65bfa6ebd489dfa5a607baccc5b7b124480f456bf2f42f676aab944952c326d1"
+    },
+    {
+      "path": "shaders/pr/rays_pr.glsl",
+      "bytes": 1491,
+      "sha256": "d239225e2528aebd57019956cd94d34548ccd4c27be09052d8795bda60dfca91"
+    },
+    {
+      "path": "shaders/pr/scanline_pr.glsl",
+      "bytes": 701,
+      "sha256": "c08dcfba95c741d5ca7f4bc8533cecf3b0249a4052fd4ce687d5bb1400f10e9b"
+    },
+    {
+      "path": "shaders/pr/snow_pr.glsl",
+      "bytes": 2200,
+      "sha256": "82f7859f6436da8014cce80a989a679c2f44e5b3ecd6488771674d38b535fdfe"
+    },
+    {
+      "path": "shaders/pr/sobel_pr.glsl",
+      "bytes": 1811,
+      "sha256": "2ca731a8e9c7b773b13fa12b102d27eb1408f2f856f3f0d9aeaecf5fe9f9bdb4"
+    },
+    {
+      "path": "shaders/pr/two_tone_pr.glsl",
+      "bytes": 610,
+      "sha256": "0fc044927071fd5788edc3e3ea974969634148756374235ddc2a39a4384f18e5"
+    },
+    {
+      "path": "shaders/pr/underwater_pr.glsl",
+      "bytes": 929,
+      "sha256": "100330bfb973c683402b07436de82a7a989ffdb19ad50242dbcf64413f6dd982"
+    },
+    {
+      "path": "shaders/pr/wave_pr.glsl",
+      "bytes": 906,
+      "sha256": "dfbaf9562326a7b85e009689e621bd19b02c67da61b00c0009a6917be63cc749"
+    },
+    {
+      "path": "fonts/cmdysj.ttf",
+      "bytes": 8470944,
+      "sha256": "bdf044bd3c17b1464d52e67aa0532c446f2399214e8915a11a1e0425518d2028"
+    },
+    {
+      "path": "icons/rpelogo.png",
+      "bytes": 172496,
+      "sha256": "8a5ae57322968921bcdd98e39b32e9d28b3251598607223f3717027beb0c69ca"
+    },
+    {
+      "path": "SE/tap.ogg",
+      "bytes": 4122,
+      "sha256": "c8efd9d490cc91b47be022c92e68a1aabb2a96ff65f75a8e516f987c64470e4d"
+    },
+    {
+      "path": "SE/drag.ogg",
+      "bytes": 4357,
+      "sha256": "587be59b807d94d6514f9a0b9b10c34e1ef0c81f91bcd3664ad069d0f175e960"
+    },
+    {
+      "path": "SE/flick.ogg",
+      "bytes": 4216,
+      "sha256": "56069e3cd9bbae12a1a49af7744a4277853f9a701ac310926490c084aeef2994"
+    }
+  ]
+}

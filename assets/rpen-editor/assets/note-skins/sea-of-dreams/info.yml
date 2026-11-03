@@ -1,0 +1,10 @@
+name: "Sea of Dreams - Neo"
+author: -虹之梦-
+hitFx: [7, 10]
+hitFxDuration: 0.65
+hitFxScale: 1.35
+hitFxRotate: true
+holdAtlas: [50, 56]
+holdAtlasMH: [50, 124]
+colorGood: 0xffce80
+colorPerfect: 0xffffbf

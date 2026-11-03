@@ -1823,7 +1823,7 @@ impl ChartList {
 }
 
 struct DebugList {
-    tools: [DRectButton; 3],
+    tools: [DRectButton; 4],
     next_page: Option<NextPage>,
     sections: [DRectButton; 3],
     section_open: [bool; 3],
@@ -1920,7 +1920,8 @@ impl DebugList {
                 self.next_page = Some(match i {
                     0 => NextPage::Overlay(Box::new(crate::page::tools::ToolsPage::new(false))),
                     1 => NextPage::Overlay(Box::new(crate::page::tools::ToolsPage::new(true))),
-                    _ => NextPage::Overlay(Box::new(crate::page::RenderPage::new())),
+                    2 => NextPage::Overlay(Box::new(crate::page::RenderPage::new())),
+                    _ => NextPage::Overlay(Box::new(crate::editor::EditorPage::new())),
                 });
                 return Ok(Some(false));
             }
@@ -2046,7 +2047,7 @@ impl DebugList {
         }
         let rr = right_rect(w);
 
-        for (i, label) in ["画质设置", "问题诊断", "谱面渲染"].iter().enumerate() {
+        for (i, label) in ["画质设置", "问题诊断", "谱面渲染", "制谱工作台"].iter().enumerate() {
             render_title(ui, *label, None);
             self.tools[i].render_text(ui, rr, t, "打开", 0.4, false);
             ui.dy(item_row_h());

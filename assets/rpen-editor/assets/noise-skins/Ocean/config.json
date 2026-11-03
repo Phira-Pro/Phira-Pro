@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "targets": {
+    "activeCompose": {
+      "scaleX": 0.125,
+      "scaleY": 0.125,
+      "format": "r8",
+      "filter": "linear"
+    },
+    "disabledCompose": {
+      "scaleX": 0.125,
+      "scaleY": 0.125,
+      "format": "rg8",
+      "filter": "linear"
+    },
+    "edgeBand": {
+      "scaleX": 0.5,
+      "scaleY": 0.5,
+      "format": "rg8",
+      "filter": "linear"
+    },
+    "touchHover": {
+      "scaleX": 0.125,
+      "scaleY": 0.125,
+      "format": "r8",
+      "filter": "linear"
+    }
+  },
+  "passes": [
+    {
+      "shader": "composeActive.glsl",
+      "output": "activeCompose"
+    },
+    {
+      "shader": "composeDisabled.glsl",
+      "output": "disabledCompose"
+    },
+    {
+      "shader": "edgeBand.glsl",
+      "output": "edgeBand",
+      "inputs": {
+        "composeRT": "activeCompose"
+      }
+    },
+    {
+      "shader": "disabled.glsl",
+      "output": "$screen",
+      "inputs": {
+        "composeRT": "disabledCompose"
+      }
+    },
+    {
+      "shader": "ready.glsl",
+      "output": "$screen",
+      "inputs": {
+        "composeRT": "disabledCompose"
+      }
+    },
+    {
+      "shader": "touchMask.glsl",
+      "output": "touchHover"
+    },
+    {
+      "shader": "main.glsl",
+      "output": "$screen",
+      "inputs": {
+        "composeRT": "activeCompose",
+        "edgeBandRT": "edgeBand",
+        "touchHoverRT": "touchHover"
+      }
+    }
+  ],
+  "lowPerformance": {
+    "targets": {
+      "activeCompose": {
+        "scaleX": 0.125,
+        "scaleY": 0.125,
+        "format": "r8",
+        "filter": "linear"
+      },
+      "disabledCompose": {
+        "scaleX": 0.125,
+        "scaleY": 0.125,
+        "format": "rg8",
+        "filter": "linear"
+      },
+      "edgeBand": {
+        "scaleX": 0.5,
+        "scaleY": 0.5,
+        "format": "rg8",
+        "filter": "linear"
+      },
+      "touchHover": {
+        "scaleX": 0.125,
+        "scaleY": 0.125,
+        "format": "r8",
+        "filter": "linear"
+      }
+    },
+    "passes": [
+      {
+        "shader": "composeActive.glsl",
+        "output": "activeCompose"
+      },
+      {
+        "shader": "composeDisabled.glsl",
+        "output": "disabledCompose"
+      },
+      {
+        "shader": "edgeBand.glsl",
+        "output": "edgeBand",
+        "inputs": {
+          "composeRT": "activeCompose"
+        }
+      },
+      {
+        "shader": "disabled.glsl",
+        "output": "$screen",
+        "inputs": {
+          "composeRT": "disabledCompose"
+        }
+      },
+      {
+        "shader": "ready.glsl",
+        "output": "$screen",
+        "inputs": {
+          "composeRT": "disabledCompose"
+        }
+      },
+      {
+        "shader": "touchMask.glsl",
+        "output": "touchHover"
+      },
+      {
+        "shader": "main.glsl",
+        "output": "$screen",
+        "inputs": {
+          "composeRT": "activeCompose",
+          "edgeBandRT": "edgeBand",
+          "touchHoverRT": "touchHover"
+        }
+      }
+    ],
+    "blockMask": {
+      "scaleX": 0.125,
+      "scaleY": 0.125
+    }
+  },
+  "author": "Stellate"
+}

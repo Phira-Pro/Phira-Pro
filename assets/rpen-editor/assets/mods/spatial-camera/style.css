@@ -1,0 +1,40 @@
+.camera3d-inspector{padding:12px;margin:12px 0;border:1px solid var(--rpen-border,#52606b);background:var(--rpen-surface-alt,#242c34);border-radius:7px}.camera3d-inspector h4{margin:0 0 9px}.camera3d-inspector>input[type=range]{width:100%}.camera3d-inspector>output{display:block;text-align:center;color:var(--rpen-info,#8cdbed);font:16px Consolas,monospace;margin:6px}.camera3d-endpoints,.camera3d-presets,.camera3d-actions{display:flex;gap:6px;flex-wrap:wrap;margin:7px 0}.camera3d-endpoints button[aria-pressed=true]{border-color:var(--rpen-accent,#e8c579);color:var(--rpen-accent,#e8c579)}.camera3d-actions button{flex:1;white-space:normal;min-width:100px}.camera3d-dialog{width:min(620px,90vw);max-height:88vh;padding:16px;background:var(--rpen-surface,#242a32);color:var(--rpen-text,#edf3f8);border:1px solid var(--rpen-border,#596b7b);border-radius:10px}.camera3d-dialog[open]{display:flex;flex-direction:column;gap:12px}.camera3d-heading{display:flex;align-items:center;gap:12px}.camera3d-heading h2{flex:1;margin:0;font-size:20px}.camera3d-dialog-body{min-height:0;overflow:auto}.camera3d-dialog-body .field{margin:9px 4px;grid-template-columns:110px minmax(0,1fr)}.camera3d-dialog-body .field>input,.camera3d-dialog-body .field>select{min-width:0}.camera3d-preview-controls{display:flex;gap:8px;align-items:center;margin:10px 0}.camera3d-preview-controls input{flex:1;min-width:0}.camera3d-diagram{display:block;width:100%;height:auto;border-radius:6px}.camera3d-readout{display:block;font:12px/1.8 Consolas,monospace;color:var(--rpen-info,#a6d8ed)}.camera3d-dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding-top:10px;border-top:1px solid var(--rpen-border,#596b7b)}.camera3d-sampler{position:absolute;inset:0;z-index:22;cursor:grab;touch-action:none;background:linear-gradient(90deg,transparent calc(50% - .5px),#a5d7e522 50%,transparent calc(50% + .5px)),linear-gradient(0deg,transparent calc(50% - .5px),#a5d7e522 50%,transparent calc(50% + .5px))}.camera3d-sampler:active{cursor:grabbing}.camera3d-sample-bar{position:absolute;left:12px;right:12px;top:12px;z-index:23;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px;background:var(--rpen-elevated,#202b35);border:1px solid var(--rpen-info,#8cdbed);border-radius:7px;box-shadow:0 4px 18px #0005}.camera3d-sample-bar span{flex:1;color:var(--rpen-muted,#bccad5)}.editor.camera3d-adjusting .canvases,.editor.camera3d-adjusting #audio-analysis-overlay,.editor.camera3d-adjusting #multi-line-labels,.editor.camera3d-adjusting #multi-line-scroll,.editor.camera3d-adjusting .batch-controls,.editor.camera3d-adjusting .selection-overlay{visibility:hidden!important;pointer-events:none}.camera3d-sampler[hidden],.camera3d-sample-bar[hidden]{display:none!important}
+.camera3d-dialog{position:fixed;top:100px;right:16px;bottom:auto;left:auto;margin:0;width:min(470px,46vw);max-height:calc(100vh - 120px);box-sizing:border-box;box-shadow:0 10px 40px #0007;z-index:2000}
+.camera3d-dialog-body{overflow-x:hidden;flex:1 1 auto}
+.camera3d-dialog-body .field{display:grid;grid-template-columns:100px minmax(0,1fr);align-items:center;gap:12px;margin:9px 0}
+.camera3d-dialog-body .field>input,.camera3d-dialog-body .field>select,.camera3d-dialog-body .field>.beat-input-wrap{width:100%;max-width:100%;box-sizing:border-box}
+.camera3d-readout{white-space:normal;overflow-wrap:anywhere}
+@media(max-width:800px){.camera3d-dialog{top:70px;width:min(420px,calc(100vw - 24px));max-height:calc(100vh - 90px);right:12px}.camera3d-dialog-body .field{grid-template-columns:85px minmax(0,1fr)}}
+.camera3d-follow{display:flex;align-items:center;gap:8px;margin:12px 0;line-height:1.5}
+.camera3d-follow input{flex:none}
+.camera3d-overview-tools{padding:12px;margin:12px 0;border:1px solid var(--rpen-border,#52606b);background:var(--rpen-surface-alt,#242c34);border-radius:7px}
+.camera3d-overview-tools h3{margin:0 0 10px;font-size:16px}
+.camera3d-overview-tools>.hint{margin:6px 0 0}
+.camera3d-studio-error{flex:none;max-height:90px;overflow:auto;padding:10px 12px;border:1px solid #ed8989;border-radius:6px;color:#ffe3e3;background:#6b2626;line-height:1.5;font-size:14px;outline-offset:2px}
+.camera3d-studio-error[hidden]{display:none!important}
+.camera3d-studio{position:fixed;inset:0;margin:auto;width:min(1240px,calc(100vw - 32px));height:min(840px,calc(100vh - 32px));max-height:calc(100vh - 32px);padding:16px;overflow:hidden;z-index:2000}
+.camera3d-studio .camera3d-heading>div{flex:1;font-weight:700;font-size:20px}
+.camera3d-studio-layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:16px;min-height:0;flex:1 1 auto!important;overflow:hidden}
+.camera3d-world{display:flex;flex-direction:column;gap:8px;min-width:0;min-height:0}
+.camera3d-world-tools{display:flex;gap:6px;flex-wrap:wrap}
+.camera3d-world-tools button,.camera3d-studio-switch button{font-size:13px;padding:7px 10px}
+.camera3d-studio [aria-pressed=true]{border-color:#7ee9ff;background:#234153;color:#d8faff}
+.camera3d-world-canvas{display:block;width:100%;height:0;min-height:180px;flex:1 1 220px;border:1px solid #40576b;border-radius:7px;touch-action:none;cursor:grab;box-sizing:border-box}
+.camera3d-world>.hint{margin:0;font-size:11px;line-height:1.5}
+.camera3d-shots{display:grid;grid-template-columns:1fr 1fr;gap:10px;flex:none}
+.camera3d-shot{min-width:0;border:1px solid #425267;border-radius:6px;background:#111c28;padding:7px;opacity:.42;transition:opacity .15s,border-color .15s}
+.camera3d-shot[data-active=true]{opacity:1;border-color:#7ee9ff}
+.camera3d-shot>button{width:100%;margin-bottom:6px;font-size:12px;padding:6px}
+.camera3d-pose-preview{display:block;width:100%;aspect-ratio:3/2;border-radius:3px;background:#080e15}
+.camera3d-transition-preview{display:block;width:100%;aspect-ratio:3/2;background:#080e15;border:1px solid #425267;border-radius:4px;box-sizing:border-box}
+.camera3d-studio-panel{min-width:0;overflow:auto;padding:0 6px 4px 0}
+.camera3d-studio-panel .field{display:grid;grid-template-columns:85px minmax(0,1fr);gap:8px;align-items:center;margin:8px 0;font-size:13px}
+.camera3d-studio-panel input,.camera3d-studio-panel select{min-width:0;max-width:100%;box-sizing:border-box}
+.camera3d-studio-panel .field>input,.camera3d-studio-panel .field>select,.camera3d-studio-panel .beat-input-wrap{width:100%}
+.camera3d-studio-panel h3{font-size:15px;color:#a5edff;margin:12px 0}
+.camera3d-studio-switch{display:flex;gap:6px}
+.camera3d-studio-panel .hint{font-size:11px;line-height:1.6}
+.camera3d-studio .camera3d-dialog-actions{flex-wrap:wrap;flex:none}
+.camera3d-studio .camera3d-dialog-actions>.hint{flex:1;margin:0}
+@media(max-width:850px){.camera3d-studio-layout{grid-template-columns:minmax(0,1fr) 245px;gap:10px}.camera3d-studio{padding:10px}.camera3d-studio-panel .field{grid-template-columns:70px minmax(0,1fr)}}
+@media(max-width:620px){.camera3d-studio-layout{grid-template-columns:1fr;overflow:auto}.camera3d-world{min-height:480px}.camera3d-studio-panel{overflow:visible}.camera3d-studio .camera3d-dialog-actions>.hint{display:none}}

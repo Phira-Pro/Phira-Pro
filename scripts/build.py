@@ -10,6 +10,7 @@ import zipfile
 from pathlib import Path
 
 from version import ROOT, check_version
+from prepare_editor import prepare as prepare_editor
 
 DESKTOP = {"windows", "linux", "macos"}
 
@@ -72,6 +73,7 @@ def main():
     parser.add_argument("--output", type=Path, help="Desktop delivery directory; default ../dist/<platform>")
     args = parser.parse_args()
     try:
+        prepare_editor()
         versions = check_version()
         if args.platform not in DESKTOP | {"android", "ios"}:
             raise ValueError("Unsupported host; select --platform")

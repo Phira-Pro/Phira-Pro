@@ -1,0 +1,26 @@
+{
+  "protocol": "rpen-mod",
+  "api": 1,
+  "id": "rpen-mod-market",
+  "name": { "zh-CN": "Nyamon 模组市场", "en-US": "Nyamon Mod Market" },
+  "version": "1.0.2",
+  "author": "NyamonZone",
+  "description": {
+    "zh-CN": "浏览模组、安装依赖、检查更新，以及打开模组的独立发布页。联网安装需确认风险，默认不执行下载的代码；更新前保留旧包恢复备份。",
+    "en-US": "Browse mods, install dependencies, check updates and view release pages. Online installation requires consent and leaves downloaded code disabled by default; updates keep recovery copies of previous packages."
+  },
+  "entry": "main.mjs",
+  "homepage": "https://cn.skam.cc/przone/mods/",
+  "settings": {
+    "market-url": {
+      "type": "text",
+      "label": { "zh-CN": "市场地址", "en-US": "Market URL" },
+      "default": "https://cn.skam.cc/przone/mods/"
+    },
+    "socket-url": {
+      "type": "text",
+      "label": { "zh-CN": "API 通道", "en-US": "API channel" },
+      "default": "wss://cn.skam.cc/przone/mods/socket"
+    }
+  }
+}

@@ -28,6 +28,28 @@ def rustTarget = 'aarch64-linux-android'
 def rustJniLibs = "${project.layout.buildDirectory.get().asFile}/rustJniLibs"
 def ffmpegJniLibs = "${project.layout.buildDirectory.get().asFile}/ffmpegJniLibs"
 
+// Keep the verifier's HTTP revocation endpoints and add only the local editor.
+def editorNetworkResources = layout.buildDirectory.dir('generated/res/editorNetwork')
+def verifierNetworkArtifact = configurations.detachedConfiguration(
+        dependencies.create("org.rustls:rustls-platform-verifier:${gradle.ext.rustlsAndroidVersion}"))
+verifierNetworkArtifact.transitive = false
+tasks.register('generateEditorNetworkConfig') {
+    inputs.files(verifierNetworkArtifact)
+    outputs.dir(editorNetworkResources)
+    doLast {
+        def source = zipTree(verifierNetworkArtifact.singleFile).matching {
+            include 'res/xml/network_security_config.xml'
+        }.singleFile.getText('UTF-8')
+        if (!source.contains('</network-security-config>')) {
+            throw new GradleException('The verifier network security resource has changed')
+        }
+        def output = new File(editorNetworkResources.get().asFile, 'xml/editor_network_security.xml')
+        output.parentFile.mkdirs()
+        output.setText(source.replace('</network-security-config>',
+                '<domain-config cleartextTrafficPermitted="true"><domain includeSubdomains="false">127.0.0.1</domain></domain-config>\n</network-security-config>'), 'UTF-8')
+    }
+}
+
 def hostOs = System.getProperty('os.name').toLowerCase()
 def ndkHostTag = hostOs.contains('win') ? 'windows-x86_64' : (hostOs.contains('mac') ? 'darwin-x86_64' : 'linux-x86_64')
 def ndkDir = System.getenv('ANDROID_NDK_HOME') ?: "${System.getenv('ANDROID_HOME')}/ndk/27.2.12479018"
@@ -38,6 +60,7 @@ tasks.register('cargoNdkBuild') {
 
     def outDir = file("${rustJniLibs}/${abi}")
     inputs.files(fileTree("${repoRoot}/phira/src"), fileTree("${repoRoot}/prpr/src"), fileTree("${repoRoot}/prpr-avc/src"))
+    inputs.files(fileTree("${repoRoot}/rpen-host/src"), fileTree("${repoRoot}/rpen-host/native"), file("${repoRoot}/rpen-host/build.rs"), file("${repoRoot}/rpen-host/Cargo.toml"))
     inputs.file("${repoRoot}/Cargo.lock")
     inputs.file("${repoRoot}/Cargo.toml")
     inputs.file("${repoRoot}/version.json")
@@ -128,6 +151,7 @@ android {
 
     sourceSets {
         main {
+            res.srcDir editorNetworkResources
             // 直接复用仓库根目录的 assets（与桌面端同一份，已被 git 跟踪）
             assets.srcDirs += ["${repoRoot}/assets"]
             // cargo-ndk 的产物目录
@@ -169,7 +193,7 @@ android {
     lint { abortOnError false }
 }
 
-tasks.named('preBuild') { dependsOn 'cargoNdkBuild', 'ffmpegNdkBuild' }
+tasks.named('preBuild') { dependsOn 'cargoNdkBuild', 'ffmpegNdkBuild', 'generateEditorNetworkConfig' }
 
 dependencies {
     // inputbox 的 Android 支持（AAR 随 Rust crate 分发，见 settings.gradle 的本地 maven）

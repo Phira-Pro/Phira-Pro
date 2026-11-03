@@ -57,6 +57,7 @@ prpr-l10n = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 rhai = { version = "=1.26.1", features = ["serde", "sync"] }
+rpen-host = { path = "../rpen-host" }
 reqwest = { workspace = true, default-features = false, features = [
     "json",
     "stream",

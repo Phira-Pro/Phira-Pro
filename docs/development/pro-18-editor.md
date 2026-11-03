@@ -6,7 +6,7 @@
 
 - `rpen-host/` 提供本地资源服务、分块持久存储、受限试玩、导出和异步谱面副本请求，不依赖播放器、账户、成绩或 Rhai 插件。
 - `phira/src/editor/` 负责资源准备、平台窗口、试玩和谱面副本适配。谱面库读写集中在 `library.rs`，通过既有新谱面导入流程创建副本，不改变判定、成绩或旧插件接口。
-- `assets/rpen-editor/` 是构建期生成的制谱器前端，已被 `.gitignore` 排除，不随仓库分发。`scripts/prepare_editor.py` 按 `scripts/editor/upstream.json` 固定的 Pro fork 提交浅克隆上游，只保留该提交内 `phira-pro-bundle.json` 列出的文件，随后生成网页资源索引；其余内容（测试、桌面端、协作服务等）在打包时丢弃。`scripts/build.py`、Android/iOS 工作流和 `package-android.ps1` 会先执行这一步；直接调用 `cargo` 或 `gradlew` 前需要手动运行 `python scripts/prepare_editor.py`。
+- `assets/rpen-editor/` 是构建期生成的制谱器前端，已被 `.gitignore` 排除，不随仓库分发。`phira/build.rs`（`build_support/editor_assets.rs`）按 `scripts/editor/upstream.json` 固定的 Pro fork 提交浅克隆上游，只保留该提交内 `phira-pro-bundle.json` 列出的文件，随后生成网页资源索引；其余内容（测试、桌面端、协作服务等）在打包时丢弃。桌面、Android、iOS 都是先编译 `phira` 再收集资源，因此三条构建路径自动执行，无需额外步骤；离网构建或只需播放器时可设 `PHIRA_SKIP_EDITOR_ASSETS=1` 跳过，此时产物不含制谱器资源。
 - Pro 的桥接、触屏、布局代码、上游文件的局部修正和打包范围都提交在 [Phira-Pro/rpe-next](https://github.com/Phira-Pro/rpe-next) 上，本仓库只固定提交。`UPSTREAM.json` 记录上游版本和提交。升级时先在该仓库调整 `phira-pro-bundle.json` 并推送，再把新提交写进 `scripts/editor/upstream.json`，同步检查模组 API、平台存储契约、导出格式和原生播放兼容性。
 
 上游界面的局部修正保留在对应模块：`src/ui/hotkey-settings.mjs` 明确设置非提交按钮类型，防止录入、清除、还原和导入导出操作关闭外层 `method="dialog"` 表单。快捷键持久化仍通过原有保存回调完成。

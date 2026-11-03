@@ -65,7 +65,9 @@ tasks.register('cargoNdkBuild') {
     inputs.file("${repoRoot}/Cargo.toml")
     inputs.file("${repoRoot}/version.json")
     inputs.files(fileTree("${repoRoot}/build_support"), file("${repoRoot}/phira/build.rs"), file("${repoRoot}/prpr-avc/build.rs"))
-    inputs.files(fileTree("${repoRoot}/assets"), fileTree("${repoRoot}/phira/locales"), fileTree("${repoRoot}/prpr/locales"))
+    // 制谱器前端由 phira 构建脚本按 scripts/editor 的固定提交生成，不能把它自己的输出
+    // 声明成输入，否则 Gradle 会判定输入在任务执行期间变化。
+    inputs.files(fileTree("${repoRoot}/scripts/editor"), fileTree("${repoRoot}/phira/locales"), fileTree("${repoRoot}/prpr/locales"))
     inputs.files(file("${repoRoot}/phira/Cargo.toml"), file("${repoRoot}/prpr/Cargo.toml"), file("${repoRoot}/prpr-avc/Cargo.toml"), file("${repoRoot}/rust-toolchain.toml"))
     inputs.property('rustflags', System.getenv('RUSTFLAGS') ?: '')
     inputs.property('ndkDir', ndkDir)

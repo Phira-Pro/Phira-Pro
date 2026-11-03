@@ -6,8 +6,6 @@ $versions = Get-Content -Raw -LiteralPath (Join-Path $workspace 'version.json') 
 $Version = "$($versions.base_version)-pro.$($versions.pro_revision)"
 & python (Join-Path $PSScriptRoot 'version.py') check
 if ($LASTEXITCODE -ne 0) { throw 'Version definitions are inconsistent' }
-& python (Join-Path $PSScriptRoot 'prepare_editor.py')
-if ($LASTEXITCODE -ne 0) { throw 'Editor assets failed to prepare' }
 $androidProject = Join-Path $workspace 'phira-android'
 if (-not $SkipBuild) {
     Push-Location $androidProject

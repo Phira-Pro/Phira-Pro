@@ -10,7 +10,6 @@ import zipfile
 from pathlib import Path
 
 from version import ROOT, check_version
-from prepare_editor import prepare as prepare_editor
 
 DESKTOP = {"windows", "linux", "macos"}
 
@@ -73,7 +72,6 @@ def main():
     parser.add_argument("--output", type=Path, help="Desktop delivery directory; default ../dist/<platform>")
     args = parser.parse_args()
     try:
-        prepare_editor()
         versions = check_version()
         if args.platform not in DESKTOP | {"android", "ios"}:
             raise ValueError("Unsupported host; select --platform")
@@ -87,6 +85,8 @@ def main():
             if not args.skip_build:
                 run(["cargo", "build", "--locked", "--release", "-p", "phira-main"])
             if args.package:
+                if not (ROOT / "assets" / "rpen-editor" / "files.json").is_file():
+                    raise ValueError("Editor assets missing; build once (or drop --skip-build) so phira's build script stages them")
                 rust = subprocess.check_output(["rustc", "-vV"], text=True)
                 target = next(line[6:] for line in rust.splitlines() if line.startswith("host: "))
                 configured = os.environ.get("CARGO_BUILD_TARGET")

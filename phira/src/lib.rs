@@ -569,6 +569,8 @@ async fn the_main() -> Result<()> {
     'app: loop {
         #[cfg(target_os = "ios")]
         prpr::frame_pacing::install();
+        #[cfg(target_os = "ios")]
+        let ios_frame_start = std::time::Instant::now();
         let profile_start = frame_profile.as_ref().map(|_| std::time::Instant::now());
         #[cfg(target_os = "windows")]
         frame_pacer.wait(get_data().config.desktop_fps_limit);
@@ -699,6 +701,8 @@ async fn the_main() -> Result<()> {
         // 暂停时会走上面的分支直接 `continue`（不更新不渲染），所以这里不用再额外处理。
 
         let present_start = frame_profile.as_ref().map(|_| std::time::Instant::now());
+        #[cfg(target_os = "ios")]
+        prpr::frame_pacing::record_frame(ios_frame_start.elapsed().as_secs_f64());
         next_frame().await;
         if let (Some(profile), Some(start), Some(work), Some(present)) = (&mut frame_profile, profile_start, profile_work, present_start) {
             let interval = start.duration_since(profile_previous).as_secs_f64() * 1000.;

@@ -3,6 +3,8 @@
 prpr_l10n::tl_file!("game");
 #[path = "game/judgement_details.rs"]
 mod judgement_details;
+#[path = "game/timing_feedback.rs"]
+mod timing_feedback;
 #[path = "game/lifecycle.rs"]
 mod lifecycle;
 #[path = "game/practice.rs"]
@@ -1373,6 +1375,9 @@ impl GameScene {
             if res.config.offset_indicator {
                 draw_offset_indicator(ui, res, self.judge.recent_hits(), top + (-top) / 3.);
             }
+            if res.config.show_early_late {
+                timing_feedback::draw(ui, res, self.judge.recent_hits(), top);
+            }
             // 血条模式：与暂停按钮同高、紧贴其右侧；长度由配置控制，高度是相对暂停按钮的倍率。
             if res.config.hp_mode {
                 let h = pause_h * res.config.hp_height;
@@ -2067,9 +2072,7 @@ impl Scene for GameScene {
         let time = (time - offset as f64).max(0.);
         self.res.time = time;
         if !tm.paused() && self.pause_rewind.is_none() && self.mode != GameMode::View {
-            self.gl.quad_gl.viewport(self.res.camera.viewport);
             self.judge.update(&mut self.res, &mut self.chart, &mut self.bad_notes);
-            self.gl.quad_gl.viewport(None);
         } else {
             self.judge.observe_paused_input();
             // Pause hides hover and suspends the filter, while release events

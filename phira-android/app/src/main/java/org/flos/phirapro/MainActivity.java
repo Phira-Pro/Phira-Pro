@@ -241,12 +241,13 @@ public class MainActivity extends AppCompatActivity {
 
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
-        if (activityResumed) requestRefreshRateUpdate(focused ? "focus restored" : "visible under overlay");
+        Log.i(TAG, "Window focus changed: " + focused);
+        if (activityResumed && focused) requestRefreshRateUpdate("focus restored");
     }
 
     @Override public void onTopResumedActivityChanged(boolean topResumed) {
         super.onTopResumedActivityChanged(topResumed);
-        if (activityResumed) requestRefreshRateUpdate(topResumed ? "top resumed" : "multi-resume under overlay");
+        if (activityResumed && topResumed) requestRefreshRateUpdate("top resumed");
     }
 
     @Override public void onConfigurationChanged(Configuration configuration) {
@@ -331,7 +332,7 @@ public class MainActivity extends AppCompatActivity {
             changed |= attributes.preferredDisplayModeId != windowMode;
             attributes.preferredDisplayModeId = windowMode;
         }
-        if (changed || force) {
+        if (changed) {
             window.setAttributes(attributes);
         }
         // Keep the user's vote intact on Android 11+: a temporary 60 Hz mode
@@ -344,7 +345,7 @@ public class MainActivity extends AppCompatActivity {
         boolean displayChanged = displayRequest.displayChanged(display.getDisplayId() + ":" + modeId + ":"
                 + display.getRefreshRate() + ":" + physicalRate + ":" + maxRefreshRate);
         if (view != null) view.setTargetFrameRate(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ? targetFrameRate : selectedRate,
-                force || displayChanged, view.hasWindowFocus());
+                force || displayChanged);
         recordDisplayState(display, windowRate, windowMode, maxRefreshRate, reason);
     }
 

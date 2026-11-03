@@ -93,14 +93,14 @@ public class QuadSurface extends SurfaceView
         if (getContext() instanceof MainActivity) ((MainActivity) getContext()).requestRefreshRateUpdate(reason);
     }
 
-    void setTargetFrameRate(float frameRate, boolean force, boolean allowNonSeamless) {
+    void setTargetFrameRate(float frameRate, boolean force) {
         if (Float.isNaN(frameRate) || Float.isInfinite(frameRate) || frameRate <= 0f) {
             throw new IllegalArgumentException("frame rate must be finite and positive");
         }
         targetFrameRate = frameRate;
         Surface surface = getHolder().getSurface();
         if (surface.isValid()) {
-            applyFrameRate(surface, force, allowNonSeamless);
+            applyFrameRate(surface, force);
         } else {
             requestedSurface = null;
             frameRateRequest.invalidate();
@@ -109,17 +109,15 @@ public class QuadSurface extends SurfaceView
     }
 
     private void applyFrameRate(Surface surface, boolean force) {
-        applyFrameRate(surface, force, hasWindowFocus());
-    }
-    private void applyFrameRate(Surface surface, boolean force, boolean allowNonSeamless) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             frameRateStatus = "window_only";
             return;
         }
         if (surface.isValid()) {
             int generation = surfaceGeneration;
-            int strategy = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && allowNonSeamless
-                    ? Surface.CHANGE_FRAME_RATE_ALWAYS : Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS;
+            // A system gesture may briefly remove focus. Never turn its return
+            // into a non-seamless mode switch (and an additional black frame).
+            int strategy = Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS;
             if (requestedSurface == surface && !frameRateRequest.needsSubmission(generation, targetFrameRate, strategy, force)) return;
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

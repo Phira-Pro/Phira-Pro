@@ -324,6 +324,10 @@ pub struct Config {
     pub fade_strength: f32,
     /// Phira Pro：局内判定偏移条（屏幕上方那条早/晚指示）。默认开启。
     pub offset_indicator: bool,
+    /// Cosmetic timing feedback, independent of the selected judgement preset.
+    pub show_early_late: bool,
+    /// 0: below the offset indicator; 1: bottom of the playfield.
+    pub early_late_position: u8,
     pub volume_bgm: f32,
     pub volume_music: f32,
     pub volume_sfx: f32,
@@ -440,6 +444,8 @@ impl Default for Config {
             flow_speed: 1.,
             fade_strength: 0.,
             offset_indicator: true,
+            show_early_late: false,
+            early_late_position: 0,
             combo_text: "COMBO".to_owned(),
             ending_judge_chart: false,
             hold_tail_judge: false,
@@ -974,6 +980,20 @@ mod tests {
         saved.as_object_mut().unwrap().remove("preferredRefreshRate");
         let restored: Config = serde_json::from_value(saved).unwrap();
         assert_eq!(restored.preferred_refresh_rate, 120);
+    }
+
+    #[test]
+    fn timing_feedback_is_cosmetic_and_survives_reload() {
+        let mut config: Config = serde_json::from_str("{}").unwrap();
+        assert!(!config.show_early_late);
+        assert_eq!(config.early_late_position, 0);
+        let before = config.non_official_items(Mods::empty());
+        config.show_early_late = true;
+        config.early_late_position = 1;
+        let restored: Config = serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
+        assert!(restored.show_early_late);
+        assert_eq!(restored.early_late_position, 1);
+        assert_eq!(before, restored.non_official_items(Mods::empty()));
     }
 
     #[test]

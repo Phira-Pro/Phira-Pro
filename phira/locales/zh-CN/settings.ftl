@@ -436,3 +436,9 @@ item-show-perfect-combo-sub = 连击仅累计连续 Perfect+ / Perfect；其他�
 item-gameplay-background-blur = 游玩背景模糊
 
 item-fps-unlimited = 无上限
+
+item-early-late = Early/Late 提示
+item-early-late-sub = 非 Perfect+ / Perfect 的有效击打显示提前或延后跳字
+item-early-late-position = 提示位置
+item-early-late-indicator = 判定偏移指示器下方
+item-early-late-bottom = 游玩区域最下方

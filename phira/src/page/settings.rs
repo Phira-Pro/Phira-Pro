@@ -1445,6 +1445,8 @@ struct ChartList {
     aspect_btn: DRectButton,
     /// 局内判定偏移条开关。
     offset_indicator_btn: DRectButton,
+    early_late_btn: DRectButton,
+    early_late_position_btn: DRectButton,
     hp_mode_btn: DRectButton,
     hp_amount_slider: Slider,
     hp_width_slider: Slider,
@@ -1481,6 +1483,8 @@ impl ChartList {
             custom_aspect_btn: DRectButton::new(),
             aspect_btn: DRectButton::new(),
             offset_indicator_btn: DRectButton::new(),
+            early_late_btn: DRectButton::new(),
+            early_late_position_btn: DRectButton::new(),
             hp_mode_btn: DRectButton::new(),
             hp_amount_slider: Slider::new(0.2..3.0, 0.1),
             hp_width_slider: Slider::new(0.1..1.0, 0.01),
@@ -1573,6 +1577,14 @@ impl ChartList {
         }
         if self.offset_indicator_btn.touch(touch, t) {
             config.offset_indicator ^= true;
+            return Ok(Some(true));
+        }
+        if self.early_late_btn.touch(touch, t) {
+            config.show_early_late ^= true;
+            return Ok(Some(true));
+        }
+        if config.show_early_late && self.early_late_position_btn.touch(touch, t) {
+            config.early_late_position = if config.early_late_position == 0 { 1 } else { 0 };
             return Ok(Some(true));
         }
         if let wt @ Some(_) = self.size_slider.touch(touch, t, &mut config.note_scale) {
@@ -1753,6 +1765,17 @@ impl ChartList {
         item! {
             render_title(ui, tl!("item-offset-indicator"), Some(tl!("item-offset-indicator-sub")));
             render_switch(ui, rr, t, &mut self.offset_indicator_btn, config.offset_indicator);
+        }
+        item! {
+            render_title(ui, tl!("item-early-late"), Some(tl!("item-early-late-sub")));
+            render_switch(ui, rr, t, &mut self.early_late_btn, config.show_early_late);
+        }
+        if config.show_early_late {
+            item! {
+                render_title(ui, tl!("item-early-late-position"), None);
+                self.early_late_position_btn.render_text(ui, rr, t,
+                    tl!(if config.early_late_position == 1 { "item-early-late-bottom" } else { "item-early-late-indicator" }), 0.38, false);
+            }
         }
         if !cfg!(flash) {
             item! {

@@ -199,9 +199,9 @@ impl Page for ToolsPage {
                     } else {
                         1000. * intervals.len() as f64 / intervals.iter().sum::<f64>()
                     };
-                    let work = recent.iter().map(|f| f.glk_display_ms).sum::<f64>() / recent.len().max(1) as f64;
+                    let work = recent.iter().map(|f| f.callback_work_ms).sum::<f64>() / recent.len().max(1) as f64;
                     ui.text(format!(
-                        "请求 {} Hz · 显示回调 {:.1} Hz · GLKView.display {:.2}ms · 回显区间 {:.0}/{:.0}/{:.0}",
+                        "请求 {} Hz  帧循环 {:.1} Hz  处理 {:.2}ms  偏好 {:.0}/{:.0}/{:.0}",
                         state.requested_hz, hz, work, state.preferred_range[0], state.preferred_range[1], state.preferred_range[2]
                     ))
                     .pos(r.x, r.y + 0.23)
@@ -215,7 +215,7 @@ impl Page for ToolsPage {
                         _ => "临界",
                     };
                     ui.text(format!(
-                        "引导式访问 {} · 低电量 {} · 温控 {} · 恢复 {}/2 · 显示链接 #{}",
+                        "引导式访问 {}  低电量 {}  温控 {}  重试 {}/2  申请 #{}",
                         if state.guided_access { "开" } else { "关" },
                         if state.low_power { "开" } else { "关" },
                         thermal,

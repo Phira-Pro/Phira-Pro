@@ -36,10 +36,9 @@ public final class RefreshRatePolicyRegression {
         equal(2, RefreshRatePolicy.legacyMode(RefreshRatePolicy.UNLIMITED_FPS, 2880, 1800, widths, heights, rates));
         for (int sdk : new int[] {30, 31, 33, 34, 35, 36}) {
             equal(0, RefreshRatePolicy.windowModeId(sdk, 7));
-            // A temporary 60 Hz full-screen report cannot pin modern Surface
-            // requests to a physical 60 Hz mode. On 34+, keep the 144 Hz vote.
-            equal(sdk >= 34 ? 144 : 0, RefreshRatePolicy.windowRate(sdk, 144, 60));
-            equal(sdk >= 34 ? 60 : 0, RefreshRatePolicy.windowRate(sdk, 60, 144));
+            // Window and Surface agree even if the reported modes are filtered.
+            equal(144, RefreshRatePolicy.windowRate(sdk, 144, 60));
+            equal(60, RefreshRatePolicy.windowRate(sdk, 60, 144));
         }
         equal(7, RefreshRatePolicy.windowModeId(29, 7));
         equal(120, RefreshRatePolicy.windowRate(29, 144, 120));

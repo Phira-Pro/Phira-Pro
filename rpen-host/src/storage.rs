@@ -8,6 +8,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     time::{Duration, Instant},
+    sync::{Arc, Mutex},
 };
 use uuid::Uuid;
 
@@ -75,12 +76,14 @@ struct Transaction {
 pub(crate) struct Store {
     root: PathBuf,
     transactions: HashMap<String, Transaction>,
+    pub(crate) linked: Arc<Mutex<crate::linked::LinkedFiles>>,
 }
 
 impl Store {
     pub fn new(root: PathBuf) -> Result<Self> {
         fs::create_dir_all(&root)?;
         Ok(Self {
+            linked: Arc::new(Mutex::new(crate::linked::LinkedFiles::new(root.join("linked-files.json"))?)),
             root,
             transactions: HashMap::new(),
         })
@@ -189,7 +192,8 @@ impl Store {
                 let known = metadata["hash"]
                     .as_str()
                     .filter(|h| hash(h).is_ok())
-                    .filter(|h| fs::metadata(self.root.join("blobs").join(h)).is_ok_and(|m| m.len() == expected))
+                    .filter(|h| fs::metadata(self.root.join("blobs").join(h)).is_ok_and(|m| m.len() == expected)
+                        || self.linked.lock().unwrap().matches(h, expected))
                     .map(str::to_owned);
                 let existing = known.is_some();
                 let index = tx.binaries.len();
@@ -213,7 +217,7 @@ impl Store {
                 if entry.bytes.len() as u64 == entry.expected {
                     let key = digest(&entry.bytes);
                     let path = self.root.join("blobs").join(&key);
-                    if !path.exists() {
+                    if !path.exists() && !self.linked.lock().unwrap().matches(&key, entry.expected) {
                         atomic_write(&path, &entry.bytes)?;
                     }
                     entry.hash = Some(key);
@@ -243,6 +247,7 @@ impl Store {
                         }
                         _ => bail!("Incomplete editor asset"),
                     };
+                    ensure!(self.root.join("blobs").join(&key).is_file() || self.linked.lock().unwrap().matches(&key, entry.expected), "LinkedAssetUnavailable");
                     let mut metadata = entry.metadata;
                     metadata["hash"] = json!(key);
                     binaries.push(metadata);
@@ -305,7 +310,12 @@ impl Store {
                 let key = hash(str_arg(&args, 1)?)?;
                 let offset = args.get(2).and_then(Value::as_u64).context("Invalid blob offset")?;
                 let length = args.get(3).and_then(Value::as_u64).context("Invalid blob length")?.min(1024 * 1024);
-                let mut file = fs::File::open(self.root.join("blobs").join(key))?;
+                let path = self.root.join("blobs").join(key);
+                if !path.exists() && self.linked.lock().unwrap().contains(key) {
+                    let bytes = self.linked.lock().unwrap().read(key, offset, length).context("LinkedAssetUnavailable")?;
+                    return Ok(json!({"base64":STANDARD.encode(bytes)}));
+                }
+                let mut file = fs::File::open(path)?;
                 file.seek(SeekFrom::Start(offset))?;
                 let mut bytes = vec![];
                 file.take(length).read_to_end(&mut bytes)?;
@@ -472,6 +482,63 @@ fn apply_part(root: &mut Value, part: &Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn linked_chart_descriptions_are_saved_locally_before_original_rpe_changes() {
+        let temp = std::env::temp_dir().join(format!("editor-linked-description-{}", Uuid::new_v4()));
+        let source = temp.join("rpe/Resources/example/chart.json");
+        fs::create_dir_all(source.parent().unwrap()).unwrap(); fs::write(&source, b"{}").unwrap();
+        let mut store = Store::new(temp.join("store")).unwrap();
+        let selection = store.linked.lock().unwrap().register(&temp.join("rpe")).unwrap();
+        let hash = selection["entries"][0]["hash"].clone();
+        assert!(!store.linked.lock().unwrap().matches(hash.as_str().unwrap(), 2));
+        let token = store.call(vec![json!("begin"),json!("projects"),json!("description"),json!({"expectedRevision":null})]).unwrap();
+        store.call(vec![json!("parts"),token.clone(),json!([{"path":[],"value":{"id":"description","asset":null}}])]).unwrap();
+        let entry = store.call(vec![json!("binaryBegin"),token.clone(),json!({"path":["asset"],"length":2,"kind":"bytes","hash":hash})]).unwrap();
+        assert_eq!(entry["existing"], false);
+        store.call(vec![json!("binaryChunk"),token.clone(),json!(0),json!(0),json!(STANDARD.encode(b"{}"))]).unwrap();
+        store.call(vec![json!("commit"),token]).unwrap();
+        fs::write(&source, b"{\"editedInRpe\":true}").unwrap();
+        let bytes = store.call(vec![json!("blob"),hash,json!(0),json!(2)]).unwrap();
+        assert_eq!(bytes["base64"], STANDARD.encode(b"{}"));
+        fs::remove_dir_all(temp).unwrap();
+    }
+    #[test]
+    fn linked_assets_are_not_copied_by_project_draft_history_or_collection() {
+        let temp = std::env::temp_dir().join(format!("editor-linked-{}", Uuid::new_v4()));
+        let source = temp.join("rpe/Resources/example/music.wav");
+        fs::create_dir_all(source.parent().unwrap()).unwrap(); fs::write(&source, [1, 2, 3]).unwrap();
+        let root = temp.join("store"); let mut store = Store::new(root.clone()).unwrap();
+        let selection = store.linked.lock().unwrap().register(&temp.join("rpe")).unwrap();
+        let hash = selection["entries"][0]["hash"].clone();
+        for kind in ["projects", "drafts", "version-blobs"] {
+            let token = store.call(vec![json!("begin"),json!(kind),json!("linked"),json!({"expectedRevision":null})]).unwrap();
+            store.call(vec![json!("parts"),token.clone(),json!([{"path":[],"value":{"id":"linked","chart":{"META":{"name":"linked"}},"asset":null}}])]).unwrap();
+            // Cloned arrays without a cached renderer hash also remain references.
+            let entry = store.call(vec![json!("binaryBegin"),token.clone(),json!({"path":["asset"],"length":3,"kind":"bytes"})]).unwrap();
+            assert_eq!(entry["existing"], false);
+            store.call(vec![json!("binaryChunk"),token.clone(),json!(0),json!(0),json!(STANDARD.encode([1,2,3]))]).unwrap();
+            store.call(vec![json!("commit"),token]).unwrap();
+        }
+        assert!(!root.join("blobs").exists()); drop(store);
+        let mut store = Store::new(root.clone()).unwrap();
+        let chunk = store.call(vec![json!("blob"),hash.clone(),json!(0),json!(3)]).unwrap();
+        assert_eq!(chunk["base64"], STANDARD.encode([1,2,3]));
+        store.call(vec![json!("collect")]).unwrap();
+        assert_eq!(fs::read(&source).unwrap(), [1,2,3]);
+        let token = store.call(vec![json!("begin"),json!("drafts"),json!("modified")]).unwrap();
+        store.call(vec![json!("parts"),token.clone(),json!([{"path":[],"value":{"id":"modified","asset":null}}])]).unwrap();
+        let changed = store.call(vec![json!("binaryBegin"),token.clone(),json!({"path":["asset"],"length":3,"kind":"bytes","hash":hash})]).unwrap();
+        assert_eq!(changed["existing"], true);
+        // Changed bytes have a new digest and must use owned storage.
+        let token2 = store.call(vec![json!("begin"),json!("drafts"),json!("new-media")]).unwrap();
+        store.call(vec![json!("parts"),token2.clone(),json!([{"path":[],"value":{"id":"new-media","asset":null}}])]).unwrap();
+        store.call(vec![json!("binaryBegin"),token2.clone(),json!({"path":["asset"],"length":3,"kind":"bytes"})]).unwrap();
+        let uploaded = store.call(vec![json!("binaryChunk"),token2.clone(),json!(0),json!(0),json!(STANDARD.encode([4,5,6]))]).unwrap();
+        store.call(vec![json!("commit"),token2]).unwrap();
+        assert!(root.join("blobs").join(uploaded["hash"].as_str().unwrap()).is_file());
+        assert_eq!(fs::read(&source).unwrap(), [1,2,3]);
+        fs::remove_dir_all(temp).unwrap();
+    }
     #[test]
     fn multipart_save_reopen_conflict_and_asset_roundtrip() {
         let root = std::env::temp_dir().join(format!("editor-store-{}", Uuid::new_v4()));

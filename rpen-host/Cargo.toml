@@ -16,6 +16,7 @@ uuid = { version = "1", features = ["v4"] }
 zip = { version = "8.3.0", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+rfd = { workspace = true }
 tao = "=0.37.2"
 wry = { version = "=0.57.1", default-features = false, features = ["os-webview"] }
 

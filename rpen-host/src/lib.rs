@@ -2,6 +2,7 @@
 mod server;
 mod storage;
 mod library;
+mod linked;
 
 pub use server::{EditorEvent, EditorHost, PlayRequest};
 pub use library::{LibraryReply, LibraryRequest};

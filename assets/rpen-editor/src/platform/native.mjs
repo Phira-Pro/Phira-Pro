@@ -42,7 +42,7 @@ export async function nativeWrite(kind, id, record, options = {}) {
       const blob = value instanceof Blob, bytes = blob ? null : value instanceof ArrayBuffer ? new Uint8Array(value) : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
       const length = blob ? value.size : bytes.length;
       // Mutable arrays must be checked again, even if their object identity is unchanged.
-      const cached = binaryCache.get(value), knownHash = blob ? cached : cached && globalThis.crypto?.subtle ? await arrayHash(bytes) : undefined;
+      const cached = binaryCache.get(value), knownHash = blob ? cached : globalThis.crypto?.subtle ? await arrayHash(bytes) : undefined;
       const entry = await nativeStorage.call('binaryBegin', token, { path, length, kind: blob ? 'blob' : 'bytes', type: blob ? value.type : '', hash: knownHash });
       let hash = entry.hash;
       if (!entry.existing) for (let offset = 0; offset < length; offset += 1024 ** 2) {
@@ -55,13 +55,13 @@ export async function nativeWrite(kind, id, record, options = {}) {
   } catch (error) { await nativeStorage.call('abort', token).catch(() => {}); throw error; }
 }
 
-export async function decodeNative(envelope) {
+export async function decodeNative(envelope, storage = nativeStorage) {
   if (!envelope) return undefined;
   const data = envelope.data;
   for (const entry of envelope.binaries ?? []) {
     const bytes = new Uint8Array(entry.length);
     for (let offset = 0; offset < bytes.length;) {
-      const chunk = await nativeStorage.call('blob', entry.hash, offset, Math.min(1024 ** 2, bytes.length - offset));
+      const chunk = await storage.call('blob', entry.hash, offset, Math.min(1024 ** 2, bytes.length - offset));
       if (!chunk?.length) throw Error(t('native.sde220c9')); bytes.set(chunk, offset); offset += chunk.length;
     }
     const value = entry.kind === 'blob' ? new Blob([bytes], { type: entry.type }) : bytes;

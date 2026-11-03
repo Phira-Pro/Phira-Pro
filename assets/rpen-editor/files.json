@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "contentId": "95016dec",
+  "contentId": "3268b4b8",
   "files": [
     "LICENSE",
     "NOTICE",
@@ -310,6 +310,7 @@
     "pro/editor.mjs",
     "pro/folders.mjs",
     "pro/library.mjs",
+    "pro/linked.mjs",
     "pro/panels.mjs",
     "pro/recovery.mjs",
     "pro/touch.mjs",

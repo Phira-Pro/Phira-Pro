@@ -74,6 +74,7 @@ impl EditorHost {
                 origin,
                 shared: thread_shared,
                 sender,
+                directory_picker: crate::linked::DirectoryPicker::default(),
             };
             while !service.shared.stop.load(Ordering::Relaxed) {
                 if let Ok(Some(request)) = server.recv_timeout(Duration::from_millis(100)) {
@@ -122,6 +123,7 @@ struct Service {
     origin: String,
     shared: Arc<Shared>,
     sender: SyncSender<EditorEvent>,
+    directory_picker: crate::linked::DirectoryPicker,
 }
 fn header(name: &str, value: &str) -> Header {
     Header::from_bytes(name, value).unwrap()
@@ -133,7 +135,8 @@ impl Service {
             Ok(response) => response,
             Err(error) => {
                 let conflict = error.to_string().contains("ProjectConflictError");
-                (400,"application/json",serde_json::to_vec(&json!({"ok":false,"error":{"name":if conflict{"ProjectConflictError"}else{"EditorStorageError"},"message":if conflict{"工程已有新版本，请重新打开后保存"}else{"编辑器请求失败，数据未确认保存"}}})).unwrap())
+                let linked = error.chain().any(|e| e.to_string().contains("LinkedAssetUnavailable"));
+                (400,"application/json",serde_json::to_vec(&json!({"ok":false,"error":{"name":if conflict{"ProjectConflictError"}else if linked{"LinkedAssetUnavailable"}else{"EditorStorageError"},"message":if conflict{"工程已有新版本，请重新打开后保存"}else if linked{"关联的 RPE 素材已移动、被修改或无法读取，请恢复原目录或重新关联后再打开工程"}else{"编辑器请求失败，数据未确认保存"}}})).unwrap())
             }
         };
         let response = Response::from_data(bytes)
@@ -161,6 +164,11 @@ impl Service {
         if route == "pro/storage" && request.method() == &Method::Post {
             let args: Vec<Value> = serde_json::from_slice(&read_body(request, 8 * 1024 * 1024)?)?;
             return json_response(json!({"ok":true,"result":self.store.call(args)?}));
+        }
+        if route == "pro/linked" && request.method() == &Method::Post {
+            let args: Value = serde_json::from_slice(&read_body(request, 8192)?)?;
+            let result = self.directory_picker.call(args["action"].as_str().context("Missing directory action")?, args["id"].as_str(), self.store.linked.clone())?;
+            return json_response(json!({"ok":true,"result":result}));
         }
         if route == "pro/library" && request.method() == &Method::Post {
             let action: LibraryRequest = serde_json::from_slice(&read_body(request, 8192)?)?;

@@ -8,6 +8,7 @@ import { TouchController } from './touch.mjs';
 import { installPanels } from './panels.mjs';
 import { installLibrary } from './library.mjs';
 import { installFolders } from './folders.mjs';
+import { installLinkedMigration } from './linked.mjs';
 
 const host=globalThis.phiraEditor;
 let hostPoll;
@@ -25,6 +26,7 @@ const buttons=[];
 const action=(label,fn,options={})=>{const button=document.createElement('button');button.type='button';button.textContent=label;button.title=options.title??label;button.onclick=async()=>{try{await fn();}catch(error){report(error);}};buttons.push(button);return button;};
 const report=error=>{status.textContent=error.message;editor.notify(error.message,'error');};
 installFolders(report);
+await installLinkedMigration(host);
 let busy=false,suspended=false,closed=false;
 const setBusy=value=>{busy=value;for(const button of buttons)button.disabled=value;};
 const save=async()=>{if(editor.hasDocument){await editor.save();if(editor.dirty)throw Error('工程仍有未保存修改，请保存后重试');}await flushLocalPreferences();};

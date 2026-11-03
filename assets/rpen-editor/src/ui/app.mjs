@@ -2235,6 +2235,25 @@ function applyMigratedPreferences(next) {
 
 listen('#migrate', async () => {
   const content = showDialog(t('app.sa14179a'), t('app.s0d0658f'));
+  if (globalThis.phiraEditor?.linkedMigration) {
+    const hint = document.createElement('p');
+    hint.textContent = '关联后仅保存 RPEN 谱面改动，素材读取原目录，不修改原 RPE 工程。请保留原目录；需要独立副本时可导出 PEZ。';
+    const select = document.createElement('button'); select.type = 'button'; select.className = 'primary'; select.textContent = '关联 RPE 目录（素材不复制）';
+    select.onclick = async () => {
+      select.disabled = true; select.textContent = '正在读取 RPE 目录';
+      try {
+        const selection = await globalThis.phiraEditor.linkedMigration();
+        if (selection) {
+          const plan = await scanMigration(selection.entries, selection.name, fileOptions());
+          plan.linked = true;
+          migrationDialog(plan, applyMigratedPreferences);
+        }
+      } catch (error) { reportError(error); }
+      finally { select.disabled = false; select.textContent = '关联 RPE 目录（素材不复制）'; }
+    };
+    content.append(hint, select);
+    return;
+  }
   if (window.showDirectoryPicker) {
     const select = document.createElement('button'); select.type = 'button'; select.className = 'primary'; select.textContent = t('app.s1da6c74');
     select.onclick = async () => {

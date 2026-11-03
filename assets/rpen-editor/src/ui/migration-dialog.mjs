@@ -27,7 +27,9 @@ function resolveConflicts(content, conflicts) {
 }
 
 export function migrationDialog(plan, applyPreferences) {
-  const content = showDialog(t('migration-dialog.s6566af4'), t('migration-dialog.sb924c9e', { p0: plan.projects.length, p1: plan.failures.length }));
+  const content = showDialog(plan.linked ? '关联 RPE 工程' : t('migration-dialog.s6566af4'), plan.linked
+    ? `发现 ${plan.projects.length} 个谱面项目，${plan.failures.length} 项待处理。选择要关联的项目，谱面改动保存到 RPEN，素材继续只读引用原目录，不复制原音乐和曲绘。`
+    : t('migration-dialog.sb924c9e', { p0: plan.projects.length, p1: plan.failures.length }));
   if (plan.ignored?.length) { const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = t('migration-dialog.s8261f5e', { p0: plan.ignored.length }); content.append(hint); }
   const configLabel = document.createElement('label');
   const configCheck = document.createElement('input'); configCheck.type = 'checkbox'; configCheck.checked = true;
@@ -44,7 +46,7 @@ export function migrationDialog(plan, applyPreferences) {
     content.append(label); choices.push({ project, checkbox });
   }
   const progress = document.createElement('p'); content.append(progress);
-  const migrate = document.createElement('button'); migrate.type = 'button'; migrate.className = 'primary'; migrate.textContent = t('migration-dialog.s8be8136');
+  const migrate = document.createElement('button'); migrate.type = 'button'; migrate.className = 'primary'; migrate.textContent = plan.linked ? '关联选中项目' : t('migration-dialog.s8be8136');
   content.append(migrate);
   migrate.onclick = async () => {
     migrate.disabled = true;
@@ -78,7 +80,9 @@ export function migrationDialog(plan, applyPreferences) {
           await storeProject(project); result.imported.push({ source: project.source, bytes: project.bytes, overwritten: Boolean(existingProject), extra: entry.project.extra });
         } catch (error) { result.failed.push({ path: entry.project.path, message: storageFailure(error) }); }
       }
-      progress.textContent = t('migration-dialog.s065205b', { p0: result.imported.length, p1: result.failed.length, p2: result.skipped?.length ? t('migration-dialog.sba3569d', { p0: result.skipped.length }) : '' });
+      progress.textContent = plan.linked
+        ? `关联完成：${result.imported.length} 个项目，${result.failed.length} 项失败，${result.skipped?.length ?? 0} 项跳过。原目录素材未复制。`
+        : t('migration-dialog.s065205b', { p0: result.imported.length, p1: result.failed.length, p2: result.skipped?.length ? t('migration-dialog.sba3569d', { p0: result.skipped.length }) : '' });
       migrate.textContent = t('migration-dialog.s1efc04f'); migrate.disabled = false;
       migrate.onclick = () => download(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }), 'rpe-migration-report.json');
     } catch (error) { progress.textContent = t('migration-dialog.sd3bb8b3', { p0: error.message }); }

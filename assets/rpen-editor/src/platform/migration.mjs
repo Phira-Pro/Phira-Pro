@@ -4,6 +4,7 @@ import { decodeLegacy, parseInfo } from './legacy-text.mjs';
 import { assetBytes } from './files.mjs';
 import { isBackupChartFile, isChartDocumentFile } from '../core/chart-backups.mjs';
 import { t } from '../i18n.mjs';
+import { nativeAssetBytes } from './native.mjs';
 export { decodeLegacy, parseInfo } from './legacy-text.mjs';
 
 async function migrationProjectId(sourceName, path) {
@@ -121,14 +122,14 @@ export async function materializeProject(plan, project) {
   for (const entry of entries.filter(entry => entry.path.toLowerCase().startsWith(project.directory.toLowerCase()))) {
     const file = await entry.getFile();
     bytes += file.size;
-    assets.set(entry.path.slice(project.directory.length), new Uint8Array(await file.arrayBuffer()));
+    assets.set(entry.path.slice(project.directory.length), await nativeAssetBytes(file));
   }
   for (const name of [project.info.Song, project.info.Picture, project.chart.META.song, project.chart.META.background]) {
     if (!name || assets.has(name)) continue;
     const entry = assetBytes(references, name, project.path) ?? assetBytes(references, `Resources/${name}`);
     if (entry) {
       const file = await entry.getFile(); bytes += file.size;
-      assets.set(name, new Uint8Array(await file.arrayBuffer()));
+      assets.set(name, await nativeAssetBytes(file));
     }
   }
   const originalName = project.path.slice(project.directory.length);

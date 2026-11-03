@@ -1,6 +1,6 @@
 //! Stages the editor frontend from the pinned RPEN checkout; shared by build scripts.
-//! The generated tree stays out of version control: only the pin and the upstream
-//! bundle manifest decide what ships.
+//! The generated tree stays out of version control: everything in the checkout ships
+//! except the development-only paths listed below, so merging upstream needs no list.
 use serde_json::Value;
 use std::{
     env, fs,
@@ -10,7 +10,7 @@ use std::{
 };
 
 const PIN: &str = "scripts/editor/upstream.json";
-const BUNDLE: &str = "phira-pro-bundle.json";
+const MANIFEST: &str = "phira-pro-exclude.json";
 const STAMP: &str = ".staged.json";
 const TARGET: &str = "assets/rpen-editor";
 const REQUIRED: [&str; 6] = [
@@ -66,7 +66,8 @@ fn stage(root: &Path, target: &Path, pin: &str) {
     let staging = work_dir(root).join("rpe-next-staging");
     println!("cargo:warning=正在从 {repository} 拉取制谱器前端 {revision}（首次构建需要联网）");
     checkout(&cache, &repository, &revision).unwrap_or_else(|error| panic!("制谱器前端准备失败: {error}"));
-    let names = bundle(&cache);
+    let rules = exclusions(&cache);
+    let names = shipped(&cache, &rules);
     remove(&staging);
     for name in &names {
         let destination = staging.join(name);
@@ -122,36 +123,66 @@ fn run_git(directory: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-fn bundle(root: &Path) -> Vec<String> {
-    let text = fs::read_to_string(root.join(BUNDLE)).unwrap_or_else(|error| panic!("读取 {BUNDLE} 失败: {error}"));
-    let bundle: Value = serde_json::from_str(&text).unwrap_or_else(|error| panic!("{BUNDLE} 不是合法 JSON: {error}"));
-    if bundle["schema"].as_u64() != Some(1) {
-        panic!("{BUNDLE} 的 schema 不受支持");
-    }
-    let files = bundle["files"].as_array().unwrap_or_else(|| panic!("{BUNDLE} 缺少 files 列表"));
-    if files.is_empty() {
-        panic!("{BUNDLE} 未列出任何文件");
-    }
-    let mut names: Vec<String> = files
-        .iter()
-        .map(|value| value.as_str().unwrap_or_else(|| panic!("{BUNDLE} 含非字符串条目: {value}")))
-        .map(|name| {
-            if !valid_path(name) {
-                panic!("{BUNDLE} 含非法路径: {name}");
-            }
-            if !root.join(name).is_file() {
-                panic!("{BUNDLE} 列出的文件不存在: {name}");
-            }
-            name.to_owned()
-        })
-        .collect();
-    let mut unique = names.clone();
-    unique.sort_unstable();
-    unique.dedup();
-    if unique.len() != names.len() {
-        panic!("{BUNDLE} 含重复路径");
+fn shipped(checkout: &Path, rules: &[String]) -> Vec<String> {
+    let mut names = Vec::new();
+    collect_files(checkout, "", rules, &mut names);
+    names.sort_unstable();
+    for required in REQUIRED {
+        if !names.iter().any(|name| name == required) {
+            panic!("上游提交缺少 {required}；检查 {MANIFEST} 的剔除规则");
+        }
     }
     names
+}
+
+fn collect_files(root: &Path, prefix: &str, rules: &[String], names: &mut Vec<String>) {
+    let directory = if prefix.is_empty() { root.to_path_buf() } else { root.join(prefix) };
+    let entries = fs::read_dir(&directory).unwrap_or_else(|error| panic!("读取 {} 失败: {error}", directory.display()));
+    for entry in entries {
+        let entry = entry.unwrap_or_else(|error| panic!("读取 {} 失败: {error}", directory.display()));
+        let name = entry
+            .file_name()
+            .into_string()
+            .unwrap_or_else(|name| panic!("文件名不是合法 UTF-8: {name:?}"));
+        if prefix.is_empty() && (name == ".git" || name == MANIFEST) {
+            continue;
+        }
+        let relative = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
+        if excluded(&relative, rules) {
+            continue;
+        }
+        if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+            collect_files(root, &relative, rules, names);
+        } else {
+            names.push(relative);
+        }
+    }
+}
+
+fn excluded(path: &str, rules: &[String]) -> bool {
+    rules
+        .iter()
+        .any(|rule| path == rule || path.strip_prefix(rule.as_str()).is_some_and(|rest| rest.starts_with('/')))
+}
+
+fn exclusions(checkout: &Path) -> Vec<String> {
+    let text = fs::read_to_string(checkout.join(MANIFEST)).unwrap_or_else(|error| panic!("上游提交缺少 {MANIFEST}: {error}"));
+    let manifest: Value = serde_json::from_str(&text).unwrap_or_else(|error| panic!("{MANIFEST} 不是合法 JSON: {error}"));
+    if manifest["schema"].as_u64() != Some(1) {
+        panic!("{MANIFEST} 的 schema 不受支持");
+    }
+    manifest["exclude"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{MANIFEST} 缺少 exclude 列表"))
+        .iter()
+        .map(|value| value.as_str().unwrap_or_else(|| panic!("{MANIFEST} 含非字符串条目: {value}")))
+        .map(|rule| {
+            if !valid_path(rule) {
+                panic!("{MANIFEST} 含非法路径: {rule}");
+            }
+            rule.to_owned()
+        })
+        .collect()
 }
 
 fn valid_path(name: &str) -> bool {

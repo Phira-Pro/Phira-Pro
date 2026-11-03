@@ -1486,10 +1486,6 @@ impl Judge {
         });
     }
 
-    fn touch_transform(flip_x: bool) -> impl Fn(&mut Touch) {
-        Self::touch_transform_in(get_viewport(), flip_x)
-    }
-
     fn touch_transform_in(vp: crate::viewport::Viewport, flip_x: bool) -> impl Fn(&mut Touch) {
         move |touch| {
             let p = touch.position;
@@ -1548,6 +1544,9 @@ impl Judge {
         let flick_protect = res.config.flick_protect;
 
         let uptime = get_uptime();
+        // Input belongs to the fitted on-screen playfield, never to whichever
+        // framebuffer or camera the previous render pass left active.
+        let input_viewport = res.camera.viewport.unwrap_or(res.last_vp);
 
         let t = res.time;
         // TODO optimize
@@ -1580,7 +1579,7 @@ impl Judge {
                     time: f64::NEG_INFINITY,
                 });
             }
-            let tr = Self::touch_transform(res.config.flip_x());
+            let tr = Self::touch_transform_in(input_viewport, res.config.flip_x());
             touches
                 .into_iter()
                 .map(|mut it| {
@@ -1623,7 +1622,7 @@ impl Judge {
                     position: p,
                     time,
                 };
-                Self::touch_transform(res.config.flip_x())(&mut event);
+                Self::touch_transform_in(input_viewport, res.config.flip_x())(&mut event);
                 touch_frame::merge_event(&mut touches, &mut self.blocked_finger_ids, event);
                 let p = to_local(p);
                 match phase {
@@ -1769,7 +1768,7 @@ impl Judge {
                 phigros::Engine::new(specs)
             });
             // world unit = physical screen height / 10, independent of note size and aspect override.
-            let world_scale = get_viewport().2 as f64 / screen_height() as f64 * 5.;
+            let world_scale = input_viewport.2 as f64 / screen_height() as f64 * 5.;
             let mut fingers: Vec<_> = touches
                 .iter()
                 .map(|touch| phigros::Finger {

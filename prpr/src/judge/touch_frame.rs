@@ -2,7 +2,7 @@
 //! same-frame click is eligible once, but must never become a cached held touch.
 use super::*;
 
-pub(super) fn merge_event(touches: &mut HashMap<u64, Touch>, blocked_finger_ids: &mut HashSet<u64>, mut event: Touch) {
+pub(super) fn merge_event(touches: &mut HashMap<u64, Touch>, blocked_finger_ids: &mut HashSet<u64>, event: Touch) {
     let id = event.id;
     match event.phase {
         TouchPhase::Started => {
@@ -13,7 +13,9 @@ pub(super) fn merge_event(touches: &mut HashMap<u64, Touch>, blocked_finger_ids:
         }
         TouchPhase::Moved | TouchPhase::Stationary => {
             if touches.get(&id).is_some_and(|t| t.phase == TouchPhase::Started) {
-                event.phase = TouchPhase::Started;
+                // Keep the down position and timestamp for click matching.
+                // Flick tracking consumes the later moves separately.
+                return;
             }
             touches.insert(id, event);
         }
@@ -73,5 +75,25 @@ mod tests {
         merge_event(&mut frame, &mut blocked_finger_ids, event(7, TouchPhase::Ended));
         assert!(frame.is_empty());
         assert!(blocked_finger_ids.is_empty());
+    }
+
+    #[test]
+    fn moves_do_not_rewrite_a_clicks_position_or_time_at_any_frame_rate() {
+        for moved_samples in [1, 3, 10] {
+            let mut frame = HashMap::new();
+            let mut blocked = HashSet::new();
+            merge_event(&mut frame, &mut blocked, event(7, TouchPhase::Started));
+            for sample in 1..=moved_samples {
+                let mut moved = event(7, TouchPhase::Moved);
+                moved.position = vec2(sample as f32 * 0.1, 0.2);
+                moved.time += sample as f64 * 0.002;
+                merge_event(&mut frame, &mut blocked, moved);
+            }
+            assert_eq!(frame[&7].position, vec2(0., 0.));
+            assert_eq!(frame[&7].time, 2.);
+            merge_event(&mut frame, &mut blocked, event(7, TouchPhase::Ended));
+            assert_eq!(frame[&7].position, vec2(0., 0.));
+            assert_eq!(frame[&7].phase, TouchPhase::Started);
+        }
     }
 }

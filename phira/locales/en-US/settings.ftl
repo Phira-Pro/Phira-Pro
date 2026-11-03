@@ -437,3 +437,9 @@ item-show-perfect-combo-sub = Count consecutive Perfect+ / Perfect only; other g
 item-gameplay-background-blur = Gameplay background blur
 
 item-fps-unlimited = Unlimited
+
+item-early-late = Early/Late feedback
+item-early-late-sub = Brief timing feedback for non-Perfect hits with a measured offset
+item-early-late-position = Feedback position
+item-early-late-indicator = Below offset indicator
+item-early-late-bottom = Bottom of playfield

@@ -172,7 +172,7 @@ Windows、Linux、macOS 在各自系统上使用 `python scripts/build.py --pack
 
 ## 维护人员
 
-Terrysquid、Rulaifozu。应用内人员名单同步更新。
+Kenari_15（Baiji666）、IRENyaaa、霜月Frostine（QQ1816）、Terrysquid、Rulaifozu。应用内人员名单同步更新。
 
 ## 授权与致谢
 

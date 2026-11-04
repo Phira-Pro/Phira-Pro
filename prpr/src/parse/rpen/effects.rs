@@ -175,10 +175,10 @@ pub async fn load_effects(raw: &Value, bpm: &mut BpmList, fs: &mut dyn FileSyste
         let source = if let Some(path) = path {
             match fs.load_file(path.trim_start_matches('/')).await {
                 Ok(b) => String::from_utf8(b)?,
-                Err(_) => preset(base).with_context(|| format!("missing RPEN shader {path}"))?.to_owned(),
+                Err(_) => preset(base).await.with_context(|| format!("missing RPEN shader {path}"))?,
             }
         } else {
-            preset(base).with_context(|| format!("unknown RPEN shader {name}"))?.to_owned()
+            preset(base).await?
         };
         let declared: HashMap<_, _> = uniform_re
             .captures_iter(&source)
@@ -219,11 +219,14 @@ pub async fn load_effects(raw: &Value, bpm: &mut BpmList, fs: &mut dyn FileSyste
     Ok(result)
 }
 
-pub fn preset(name: &str) -> Option<&'static str> {
+pub async fn preset(name: &str) -> Result<String> {
     let legacy = match name {
         "circle_blur" => "circleBlur",
         "radial_blur" => "radialBlur",
         _ => name,
     };
-    Effect::get_preset(legacy).or_else(|| super::presets::source(name))
+    match Effect::get_preset(legacy) {
+        Some(source) => Ok(source.to_owned()),
+        None => super::presets::source(name).await,
+    }
 }

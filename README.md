@@ -180,4 +180,5 @@ Terrysquid、Rulaifozu。应用内人员名单同步更新。
 
 - 基于 [TeamFlos/Phira](https://github.com/TeamFlos/phira) 开发，感谢 Phira 及其贡献者；
 - 特别感谢 [Phira Mod++](https://github.com/YiyiMo-git/Phira-Mod-New) 与 [Phira ad](https://github.com/Adai-add/PhiraiAd) 的功能探索及公开资料；
-- 内置字体 HarmonyOS Sans。
+- 内置字体 HarmonyOS Sans；
+- `assets/rpen/` 下的噪域皮肤与 shader 预设、内置 RPEN 制谱器前端为独立作品，按其 PolyForm Noncommercial 1.0.0 许可分发（见 [NOTICE](assets/rpen/NOTICE.txt)），不适用本项目的 GPL-3.0；这些资源以独立文件在运行时加载，不编译进主程序。

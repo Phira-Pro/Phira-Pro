@@ -39,7 +39,7 @@ test('startup ready removes both loading surfaces and ignores late error notices
 test('stalled host requests abort and clear their deadline',async()=>{
   const state=setup((_,{signal})=>new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(Error('aborted')))));
   const pending=state.context.phiraEditor.request('close','{}');[...state.timers.values()].at(-1)();
-  await assert.rejects(pending,/aborted/);assert.equal(state.timers.size,1);
+  await assert.rejects(pending,/操作结果尚未确认/);assert.equal(state.timers.size,1);
 });
 test('top panel switching opens only the requested panel and closing restores the dock',()=>{
   let active=null;

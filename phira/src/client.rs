@@ -1,5 +1,6 @@
 //! Http client for Phira API.
 
+mod auth;
 mod model;
 pub use model::*;
 
@@ -15,6 +16,7 @@ use std::{
 use crate::{get_data, get_data_mut, save_data};
 use anyhow::{anyhow, bail, Context, Result};
 use arc_swap::{ArcSwap, ArcSwapOption};
+use auth::{send_with_refresh, Session};
 use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
 use prpr::{config::PRO_API_URL, scene::SimpleRecord};
@@ -22,7 +24,7 @@ use prpr_l10n::LANG_IDENTS;
 use reqwest::{header, ClientBuilder, Method, RequestBuilder, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tracing::debug;
+use tracing::{debug, warn};
 
 pub static CLIENT_TOKEN: Lazy<ArcSwap<Option<String>>> = Lazy::new(|| ArcSwap::from_pointee(None));
 
@@ -31,6 +33,8 @@ static CLIENT: Lazy<ArcSwap<reqwest::Client>> = Lazy::new(|| ArcSwap::from_point
 static PRO_CLIENT: Lazy<ArcSwap<reqwest::Client>> = Lazy::new(|| ArcSwap::from_pointee(basic_client_builder().build().unwrap()));
 static SCORE_CLIENT: Lazy<ArcSwap<reqwest::Client>> =
     Lazy::new(|| ArcSwap::from_pointee(basic_client_builder().redirect(score_redirect_policy()).build().unwrap()));
+static SESSION: Lazy<ArcSwapOption<Session>> = Lazy::new(ArcSwapOption::empty);
+static SESSION_UPDATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn score_redirect_policy() -> reqwest::redirect::Policy {
     reqwest::redirect::Policy::none()
@@ -235,31 +239,78 @@ fn client_locale() -> String {
     get_data().language.clone().unwrap_or(LANG_IDENTS[0].to_string())
 }
 
-fn build_client(access_token: Option<&str>) -> Result<Arc<reqwest::Client>> {
-    CLIENT_TOKEN.store(access_token.map(str::to_owned).into());
+/// Distribution flavor of this build, read from the optional `flavor` asset.
+///
+/// Store-specific builds ship this file; open builds don't, so they report
+/// `"none"` — the same convention used by the update check.
+pub async fn client_flavor() -> String {
+    match macroquad::prelude::load_file("flavor").await.map(String::from_utf8) {
+        Ok(Ok(flavor)) => flavor.trim().to_owned(),
+        _ => "none".to_owned(),
+    }
+}
+
+fn build_client() -> Result<Arc<reqwest::Client>> {
     let mut headers = header::HeaderMap::new();
     headers.append(header::ACCEPT_LANGUAGE, header::HeaderValue::from_str(&client_locale())?);
-    if let Some(token) = access_token {
-        let mut auth_value = header::HeaderValue::from_str(&format!("Bearer {token}"))?;
-        auth_value.set_sensitive(true);
-        headers.insert(header::AUTHORIZATION, auth_value);
-    }
     Ok(basic_client_builder().default_headers(headers).build()?.into())
 }
 
 pub fn set_access_token_sync(access_token: Option<&str>) -> Result<()> {
     // 登录 / 登出 / 切换账号：丢弃旧账号的私服 Token，之后按需重新 exchange。
     PRO_TOKEN.store(None);
-    CLIENT.store(build_client(access_token)?);
     PRO_CLIENT.store(Arc::new(basic_client_builder().build()?));
     SCORE_CLIENT.store(Arc::new(basic_client_builder().redirect(score_redirect_policy()).build()?));
+
+    let _guard = SESSION_UPDATE_LOCK.lock().unwrap();
+    let client = build_client()?;
+    if let Some(token) = access_token {
+        header::HeaderValue::from_str(&format!("Bearer {token}"))?;
+    }
+    let tokens = get_data().tokens.as_ref().filter(|tokens| Some(tokens.0.as_str()) == access_token);
+    let current = SESSION.load_full();
+    if current.as_ref().map(|session| session.tokens.load_full()).as_deref() != tokens {
+        SESSION.store(tokens.cloned().map(Session::new).map(Arc::new));
+    }
+    CLIENT.store(client);
+    CLIENT_TOKEN.store(access_token.map(str::to_owned).into());
     Ok(())
 }
 
-async fn set_access_token(access_token: &str) -> Result<()> {
-    CLIENT.store(build_client(Some(access_token))?);
-    Ok(())
+pub fn clear_session() {
+    let _guard = SESSION_UPDATE_LOCK.lock().unwrap();
+    SESSION.store(None);
+    CLIENT_TOKEN.store(None.into());
+    get_data_mut().me = None;
+    get_data_mut().login_source = None;
+    get_data_mut().tokens = None;
+    if let Err(err) = save_data() {
+        warn!(?err, "failed to persist logout");
+    }
 }
+
+/// Only a rejected refresh credential means that the local session has expired.
+pub struct SessionExpired(Arc<Session>);
+
+impl SessionExpired {
+    pub fn is_current(&self) -> bool {
+        is_current_session(&self.0)
+    }
+}
+
+impl fmt::Debug for SessionExpired {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("SessionExpired")
+    }
+}
+
+impl fmt::Display for SessionExpired {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("refresh token is no longer valid")
+    }
+}
+
+impl std::error::Error for SessionExpired {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ErrorCode(Cow<'static, str>);
@@ -299,13 +350,32 @@ impl fmt::Display for ErrorCode {
 
 impl std::error::Error for ErrorCode {}
 
+/// Send an API request, refreshing an expired access token before one retry.
+/// Keep the status intact for callers handling 304, 404 or endpoint-specific errors.
+pub async fn send_raw(request: RequestBuilder) -> Result<Response> {
+    let session = SESSION.load_full();
+    send_with_refresh(request, &api_url(), async move |token| {
+        let Some(session) = session else { return Ok(None) };
+        if !session.owns_token(&token) || !is_current_session(&session) {
+            return Ok(None);
+        }
+        refresh_session(&session, &token, false).await?;
+        if !is_current_session(&session) {
+            return Ok(None);
+        }
+        Ok(Some(session.tokens.load().0.clone()))
+    })
+    .await
+}
+
 pub async fn recv_raw(request: RequestBuilder) -> Result<Response> {
-    check_response(request.send().await?).await
+    check_response(send_raw(request).await?).await
 }
 
 /// 把非 2xx 响应转成带 `error` / `code` 的错误；成功则原样返回。
 async fn check_response(response: Response) -> Result<Response> {
     if !response.status().is_success() {
+        let unauthorized = response.status() == StatusCode::UNAUTHORIZED;
         let status = response.status().as_str().to_owned();
         let text = response.text().await.context("failed to receive text")?;
         if let Ok(what) = serde_json::from_str::<serde_json::Value>(&text) {
@@ -313,12 +383,62 @@ async fn check_response(response: Response) -> Result<Response> {
             let mut err = anyhow!("request failed (HTTP {status}): {detail}");
             if let Some(code) = what.get("code").and_then(|it| it.as_str()) {
                 err = err.context(ErrorCode(Cow::Owned(code.to_owned())));
+            } else if unauthorized {
+                err = err.context(ErrorCode::UNAUTHENTICATED);
             }
             return Err(err);
         }
-        bail!("request failed ({status}): {text}");
+        let err = anyhow!("request failed ({status}): {text}");
+        return Err(if unauthorized { err.context(ErrorCode::UNAUTHENTICATED) } else { err });
     }
     Ok(response)
+}
+
+fn is_current_session(session: &Arc<Session>) -> bool {
+    SESSION.load_full().is_some_and(|current| Arc::ptr_eq(&current, session))
+}
+
+fn classify_refresh_error(err: anyhow::Error, session: &Arc<Session>) -> anyhow::Error {
+    if is_current_session(session)
+        && matches!(err.downcast_ref::<ErrorCode>(), Some(code) if *code == ErrorCode::EXPIRED || *code == ErrorCode::UNAUTHENTICATED)
+    {
+        err.context(SessionExpired(Arc::clone(session)))
+    } else {
+        err
+    }
+}
+
+async fn refresh_session(session: &Arc<Session>, rejected_token: &str, cancel_delete_request: bool) -> Result<()> {
+    session
+        .refresh(rejected_token, async |tokens| {
+            if !is_current_session(session) {
+                bail!("session changed while refreshing token");
+            }
+            let resp = Client::request_login(LoginParams::RefreshToken {
+                token: &tokens.1,
+                cancel_delete_request,
+            })
+            .await
+            .map_err(|err| classify_refresh_error(err, session))?;
+            // A logout or a new login during the request must not restore the old session.
+            let _guard = SESSION_UPDATE_LOCK.lock().unwrap();
+            if !is_current_session(session) {
+                bail!("session changed while refreshing token");
+            }
+            header::HeaderValue::from_str(&format!("Bearer {}", resp.token))?;
+            let tokens = (resp.token, resp.refresh_token);
+            session.store_tokens(Arc::new(tokens.clone()));
+            CLIENT_TOKEN.store(Some(tokens.0.clone()).into());
+            get_data_mut().tokens = Some(tokens.clone());
+            // The server may rotate refresh credentials. Keep the new pair in memory
+            // even if saving to disk fails, so the current session remains usable.
+            if let Err(err) = save_data() {
+                warn!(?err, "failed to persist refreshed tokens");
+            }
+            Ok(tokens)
+        })
+        .await?;
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -337,7 +457,6 @@ pub enum LoginParams<'a> {
 }
 
 /// A freshly minted token pair returned by every login endpoint.
-#[cfg(feature = "hykb")]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LoginResp {
@@ -386,7 +505,12 @@ impl Client {
     }
 
     pub fn request(method: Method, path: impl AsRef<str>) -> RequestBuilder {
-        CLIENT.load().request(method, api_url() + path.as_ref())
+        let request = CLIENT.load().request(method, api_url() + path.as_ref());
+        if let Some(token) = CLIENT_TOKEN.load().as_ref() {
+            request.bearer_auth(token)
+        } else {
+            request
+        }
     }
 
     pub fn clear_cache<T: Object + 'static>(id: i32) -> Result<bool> {
@@ -432,7 +556,7 @@ impl Client {
     }
 
     async fn fetch_inner<T: Object>(id: i32) -> Result<Option<T>> {
-        let resp = Self::get(format!("/{}/{id}", T::QUERY_PATH)).send().await?;
+        let resp = send_raw(Self::get(format!("/{}/{id}", T::QUERY_PATH))).await?;
         if resp.status() == StatusCode::NOT_FOUND {
             return Ok(None);
         }
@@ -472,6 +596,29 @@ impl Client {
     }
 
     pub async fn login(params: LoginParams<'_>) -> Result<()> {
+        if let LoginParams::RefreshToken {
+            token,
+            cancel_delete_request,
+        } = params
+        {
+            let session = SESSION.load_full().context("not logged in")?;
+            let tokens = session.tokens.load_full();
+            if tokens.1 != token {
+                bail!("session changed before refreshing token");
+            }
+            return refresh_session(&session, &tokens.0, cancel_delete_request).await;
+        }
+        let resp = Self::request_login(params).await?;
+        Self::store_login(resp.id, resp.token, resp.refresh_token).await
+    }
+
+    pub async fn refresh_tokens(cancel_delete_request: bool) -> Result<()> {
+        let session = SESSION.load_full().context("not logged in")?;
+        let tokens = session.tokens.load_full();
+        refresh_session(&session, &tokens.0, cancel_delete_request).await
+    }
+
+    async fn request_login(params: LoginParams<'_>) -> Result<LoginResp> {
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
         struct FullLoginParams<'a> {
@@ -479,40 +626,47 @@ impl Client {
             inner: LoginParams<'a>,
             #[serde(rename = "clientVersion")]
             client_version: &'static str,
+            #[serde(rename = "clientFlavor")]
+            client_flavor: String,
         }
 
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Resp {
-            id: i32,
-            token: String,
-            refresh_token: String,
-        }
-        let resp: Resp = recv_raw(Self::post(
-            "/login",
-            &FullLoginParams {
-                inner: params,
-                client_version: env!("CARGO_PKG_VERSION"),
-            },
-        ))
+        // Login itself must bypass automatic refresh to avoid recursion.
+        let resp = check_response(
+            Self::post(
+                "/login",
+                &FullLoginParams {
+                    inner: params,
+                    client_version: env!("CARGO_PKG_VERSION"),
+                    client_flavor: client_flavor().await,
+                },
+            )
+            .send()
+            .await?,
+        )
         .await?
         .json()
         .await?;
 
-        Self::store_login(resp.id, resp.token, resp.refresh_token).await?;
-        Ok(())
+        Ok(resp)
     }
 
     /// Persist a freshly minted token pair and wire it into the HTTP client.
-    /// Shared by every login entry point (password, refresh, HYKB). `_id` is
+    /// Shared by the password and HYKB login entry points. `_id` is
     /// kept in the signature so callers can pass the account id even though it
     /// is no longer needed here (the native anti-addiction bridge that used it
     /// is gone).
     async fn store_login(_id: i32, token: String, refresh_token: String) -> Result<()> {
         // 换号后旧账号的私服 Token 必须作废，否则会把成绩记到上一个账号名下。
         PRO_TOKEN.store(None);
-        set_access_token(&token).await?;
-        get_data_mut().tokens = Some((token, refresh_token));
+        let _guard = SESSION_UPDATE_LOCK.lock().unwrap();
+        let client = build_client()?;
+        header::HeaderValue::from_str(&format!("Bearer {token}"))?;
+        let tokens = (token, refresh_token);
+        get_data_mut().tokens = Some(tokens.clone());
+        // Every explicit login starts a new session, even for the same account.
+        CLIENT.store(client);
+        CLIENT_TOKEN.store(Some(tokens.0.clone()).into());
+        SESSION.store(Some(Arc::new(Session::new(tokens))));
         save_data()?;
         Ok(())
     }
@@ -527,6 +681,8 @@ impl Client {
             &json!({
                 "hykbUid": uid,
                 "accessToken": access_token,
+                "clientVersion": env!("CARGO_PKG_VERSION"),
+                "clientFlavor": client_flavor().await,
             }),
         ))
         .await?
@@ -550,6 +706,8 @@ impl Client {
             &json!({
                 "hykbToken": hykb_token,
                 "nick": username,
+                "clientVersion": env!("CARGO_PKG_VERSION"),
+                "clientFlavor": client_flavor().await,
             }),
         ))
         .await?
@@ -569,6 +727,8 @@ impl Client {
                 "hykbToken": hykb_token,
                 "email": email,
                 "password": password,
+                "clientVersion": env!("CARGO_PKG_VERSION"),
+                "clientFlavor": client_flavor().await,
             }),
         ))
         .await?
@@ -609,12 +769,29 @@ impl Client {
         Ok(())
     }
 
+    /// Mint a one-time ticket that logs a browser into the current account. The
+    /// client's own tokens never leave the app; the web redeems the ticket for
+    /// an independent session.
+    pub async fn create_web_ticket() -> Result<String> {
+        #[derive(Deserialize)]
+        struct Resp {
+            ticket: String,
+        }
+        let resp: Resp = recv_raw(Self::post("/me/web-ticket", &())).await?.json().await?;
+        Ok(resp.ticket)
+    }
+
     pub async fn get_me() -> Result<User> {
         // Accounts not bound to a HYKB account are valid: anti-addiction is
         // covered by a native HYKB login performed at sign-in (used for the
         // SDK's enforcement, not bound to the account), and the player may
         // bind HYKB later from the profile page.
         Ok(recv_raw(Self::get("/me")).await?.json().await?)
+    }
+
+    pub async fn authenticated_token() -> Result<String> {
+        Self::get_me().await?;
+        CLIENT_TOKEN.load().as_ref().clone().context("not logged in")
     }
 
     pub async fn best_record(id: i32) -> Result<SimpleRecord> {
@@ -638,11 +815,11 @@ impl Client {
     /// ~9 KB body is never downloaded — change detection relies solely on the
     /// `Last-Modified` header.
     pub async fn fetch_terms(modified: Option<&str>) -> Result<Option<String>> {
-        let mut req = CLIENT.load().head(format!("{}/terms/{}.txt", api_url(), client_locale()));
+        let mut req = Self::request(Method::HEAD, format!("/terms/{}.txt", client_locale()));
         if let Some(modified) = modified {
             req = req.header(header::IF_MODIFIED_SINCE, header::HeaderValue::from_str(modified)?);
         }
-        let resp = req.send().await?;
+        let resp = send_raw(req).await?;
         if resp.status() == StatusCode::NOT_MODIFIED {
             return Ok(None);
         }

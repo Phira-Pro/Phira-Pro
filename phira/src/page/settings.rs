@@ -7,7 +7,10 @@ use color::{ColorAction, ColorPicker};
 use experience::ExperienceList;
 use judgement::JudgementPage;
 
-use super::{BlacklistPage, HistoryPage, NextPage, OffsetPage, Page, SharedState, TransferPage};
+use super::{
+    export_pending, request_export, resolve_export, take_export, BlacklistPage, ExportConfig, HistoryPage, NextPage, OffsetPage, Page, SharedState,
+    TransferPage,
+};
 use crate::{
     dir, get_data, get_data_mut,
     popup::ChooseButton,
@@ -16,7 +19,7 @@ use crate::{
     sync_data,
     tabs::{Tabs, TitleFn},
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bytesize::ByteSize;
 use inputbox::InputBox;
 use macroquad::prelude::*;
@@ -25,6 +28,7 @@ use prpr::ui::Dialog;
 use prpr::{
     core::BOLD_FONT,
     ext::{open_url, poll_future, semi_white, LocalTask, RectExt, SafeTexture},
+    log::{self, LogManager},
     scene::{request_input, return_input, show_error, show_message, take_input},
     task::Task,
     ui::{DRectButton, Scroll, Slider, Ui, PREFER_REDUCED_MOTION, UI_SFX_VOLUME},
@@ -32,7 +36,12 @@ use prpr::{
 use prpr_l10n::{LanguageIdentifier, LANG_IDENTS, LANG_NAMES};
 use reqwest::Url;
 use serde::Deserialize;
-use std::{borrow::Cow, fs, io, path::PathBuf, sync::atomic::Ordering};
+use std::{
+    borrow::Cow,
+    fs, io,
+    path::PathBuf,
+    sync::{atomic::Ordering, mpsc, Arc},
+};
 
 /// HUD 自定义：设置列表的行高（默认 0.15，可在编辑模式里调）。
 pub(super) fn item_row_h() -> f32 {
@@ -244,6 +253,9 @@ impl Page for SettingsPage {
     }
 
     fn touch(&mut self, touch: &Touch, s: &mut SharedState) -> Result<bool> {
+        if self.list_debug.export_busy() {
+            return Ok(true);
+        }
         let t = s.t;
         let (consumed, tab) = self.search.touch(touch, t);
         if let Some(tab) = tab {
@@ -294,6 +306,7 @@ impl Page for SettingsPage {
     }
 
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
+        self.list_debug.update_log_export(s.t);
         let t = s.t;
         if self.search.update() {
             self.scroll.y_scroller.reset();
@@ -380,11 +393,21 @@ impl Page for SettingsPage {
         if *self.tabs.selected() == SettingListType::Experience {
             self.list_experience.render_top(ui, t);
         }
+        if self.list_debug.export_busy() {
+            ui.full_loading(tl!("log-exporting"), t);
+        }
+        Ok(())
+    }
 
+    fn resume(&mut self) -> Result<()> {
+        self.list_debug.on_page_resume();
         Ok(())
     }
 
     fn on_back_pressed(&mut self, _s: &mut SharedState) -> bool {
+        if self.list_debug.export_busy() {
+            return true;
+        }
         if self.search.cancel() {
             return true;
         }
@@ -631,6 +654,10 @@ struct GeneralList {
     /// 主题下拉框里的文案对应的界面语言；语言变了要重建选项。
     theme_lang: Option<String>,
     cache_btn: DRectButton,
+    // Offline mode skips the online session restore entirely; the HYKB channel
+    // requires the online anti-addiction check for every restored session, so
+    // the switch does not exist there.
+    #[cfg(not(feature = "hykb"))]
     offline_btn: DRectButton,
     server_status_btn: DRectButton,
     /// 打开「API 地址」输入（自建 / 私服用）。
@@ -668,13 +695,13 @@ impl GeneralList {
             icon_lang,
 
             lang_btn: ChooseButton::new()
-                .with_options(LANG_NAMES.iter().map(|s| s.to_string()).collect())
+                .with_options(crate::selectable_langs().map(|id| LANG_NAMES[id].to_string()).collect())
                 .with_selected(
                     get_data()
                         .language
                         .as_ref()
                         .and_then(|it| it.parse::<LanguageIdentifier>().ok())
-                        .and_then(|ident| LANG_IDENTS.iter().position(|it| *it == ident))
+                        .and_then(|ident| crate::selectable_langs().position(|id| LANG_IDENTS[id] == ident))
                         .unwrap_or_default(),
                 ),
 
@@ -702,6 +729,7 @@ impl GeneralList {
             },
             theme_lang: None,
             cache_btn: DRectButton::new(),
+            #[cfg(not(feature = "hykb"))]
             offline_btn: DRectButton::new(),
             server_status_btn: DRectButton::new(),
             api_url_btn: DRectButton::new(),
@@ -919,6 +947,7 @@ impl GeneralList {
             show_message(tl!("item-cache-cleared")).ok();
             return Ok(Some(false));
         }
+        #[cfg(not(feature = "hykb"))]
         if self.offline_btn.touch(touch, t) {
             config.offline_mode ^= true;
             return Ok(Some(true));
@@ -1052,7 +1081,9 @@ impl GeneralList {
         }
         let data = get_data_mut();
         if self.lang_btn.changed() {
-            data.language = Some(LANG_IDENTS[self.lang_btn.selected()].to_string());
+            if let Some(id) = crate::selectable_langs().nth(self.lang_btn.selected()) {
+                data.language = Some(LANG_IDENTS[id].to_string());
+            }
             sync_data();
             return Ok(true);
         }
@@ -1165,6 +1196,7 @@ impl GeneralList {
             render_switch(ui, rr, t, &mut self.fullscreen_btn, config.fullscreen_mode);
         }
 
+        #[cfg(not(feature = "hykb"))]
         item! {
             render_title(ui, tl!("item-offline"), Some(tl!("item-offline-sub")));
             render_switch(ui, rr, t, &mut self.offline_btn, config.offline_mode);
@@ -1845,6 +1877,29 @@ impl ChartList {
     }
 }
 
+fn export_metadata() -> String {
+    format!(
+        "Phira {}\nos={} arch={}\ntime={}\nexport=manual\n",
+        env!("VERSION_STRING"),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        chrono::Local::now().to_rfc3339(),
+    )
+}
+
+fn export_logs(config: ExportConfig, manager: Option<Arc<LogManager>>) -> Result<()> {
+    let metadata = export_metadata();
+    let result = manager
+        .ok_or_else(|| anyhow!("log manager is unavailable"))
+        .and_then(|manager| manager.write_zip(config.file, &metadata).map_err(Into::into));
+    if result.is_err() {
+        if let Err(error) = (config.deleter)() {
+            tracing::warn!("failed to delete incomplete log export: {error}");
+        }
+    }
+    result
+}
+
 struct DebugList {
     tools: [DRectButton; 4],
     next_page: Option<NextPage>,
@@ -1868,7 +1923,19 @@ struct DebugList {
     fps_position_btn: DRectButton,
     #[cfg(any(target_os = "android", target_os = "ios"))]
     refresh_rate_btn: DRectButton,
+    export_logs_btn: DRectButton,
+    export_requested: bool,
+    /// Give-up time (game time) for the async platform file picker.
+    export_deadline: f32,
+    /// Set on page resume while an export is pending; the pickers report no
+    /// cancellation, so an empty export slot at that point means cancelled.
+    picker_resumed: bool,
+    export_task: Option<mpsc::Receiver<Result<()>>>,
 }
+
+/// Backstop for pickers that never pause the app (split screen): give the
+/// export lock up after a bounded wait.
+const EXPORT_PICKER_TIMEOUT: f32 = 300.;
 
 impl DebugList {
     pub fn new() -> Self {
@@ -1900,6 +1967,23 @@ impl DebugList {
             fps_position_btn: DRectButton::new(),
             #[cfg(any(target_os = "android", target_os = "ios"))]
             refresh_rate_btn: DRectButton::new(),
+            export_logs_btn: DRectButton::new(),
+            export_requested: false,
+            export_deadline: 0.,
+            picker_resumed: false,
+            export_task: None,
+        }
+    }
+
+    /// True while a log export is waiting for the (async, platform) file
+    /// picker or compressing in the background thread.
+    pub fn export_busy(&self) -> bool {
+        self.export_requested || self.export_task.is_some()
+    }
+
+    pub fn on_page_resume(&mut self) {
+        if self.export_requested {
+            self.picker_resumed = true;
         }
     }
 
@@ -1954,6 +2038,12 @@ impl DebugList {
                 self.section_open[index] ^= true;
                 return Ok(Some(false));
             }
+        }
+        if self.export_logs_btn.touch(touch, t) {
+            let name = format!("phira-logs-{}.zip", chrono::Local::now().format("%Y%m%d-%H%M%S"));
+            self.export_requested = request_export(name);
+            self.export_deadline = t + EXPORT_PICKER_TIMEOUT;
+            return Ok(Some(false));
         }
         let data = get_data_mut();
         let config = &mut data.config;
@@ -2050,6 +2140,52 @@ impl DebugList {
             );
         }
         Ok(false)
+    }
+
+    fn update_log_export(&mut self, t: f32) {
+        if self.picker_resumed {
+            self.picker_resumed = false;
+            // The pickers report no cancellation. After resuming from the
+            // fullscreen picker, an empty slot means it was dismissed without
+            // a file (Android delivers the fd before onResume).
+            if self.export_requested && !export_pending() {
+                self.export_requested = false;
+            }
+        }
+        if self.export_requested {
+            if let Some(config) = take_export() {
+                self.export_requested = false;
+                match config {
+                    Ok(config) => {
+                        let manager = log::manager();
+                        let (tx, rx) = mpsc::sync_channel(1);
+                        std::thread::spawn(move || {
+                            let _ = tx.send(export_logs(config, manager));
+                        });
+                        self.export_task = Some(rx);
+                    }
+                    Err(error) => show_error(anyhow::Error::new(error).context(tl!("log-export-failed"))),
+                }
+            } else if t > self.export_deadline {
+                self.export_requested = false;
+            }
+        }
+        if let Some(task) = &self.export_task {
+            match task.try_recv() {
+                Ok(result) => {
+                    self.export_task = None;
+                    match result {
+                        Ok(()) => resolve_export(),
+                        Err(error) => show_error(error.context(tl!("log-export-failed"))),
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.export_task = None;
+                    show_error(anyhow!("log export thread disconnected").context(tl!("log-export-failed")));
+                }
+            }
+        }
     }
 
     pub fn render_top(&mut self, ui: &mut Ui, t: f32) {
@@ -2179,6 +2315,67 @@ impl DebugList {
         }
         #[cfg(target_os = "windows")]
         self.desktop_fps_btn.render_top(ui, t, 1.);
+        item! {
+            render_title(ui, tl!("item-export-logs"), Some(tl!("item-export-logs-sub")));
+            self.export_logs_btn.render_text(ui, rr, t, tl!("item-export-logs-button"), 0.5, true);
+        }
         (w, h)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn manual_log_export_includes_recent_logs_without_a_crash() {
+        use std::{fs::File, io::Read, sync::Arc};
+
+        let dir = tempfile::tempdir().unwrap();
+        let manager = Arc::new(prpr::log::LogManager::new(dir.path().join("logs")).unwrap());
+        let today = chrono::Local::now().date_naive();
+        manager.append_line("latest diagnostic message").unwrap();
+        std::fs::write(manager.path_for_date(today - chrono::Duration::days(6)), "earlier diagnostic message\n").unwrap();
+        std::fs::write(manager.path_for_date(today - chrono::Duration::days(7)), "expired diagnostic message\n").unwrap();
+        let output_path = dir.path().join("logs.zip");
+        let config = super::ExportConfig {
+            file: File::create(&output_path).unwrap(),
+            deleter: Box::new(|| panic!("a successful export must be kept")),
+        };
+
+        super::export_logs(config, Some(manager)).unwrap();
+
+        let mut archive = zip::ZipArchive::new(File::open(output_path).unwrap()).unwrap();
+        // The active file is named after the UTC date, so check the in-memory
+        // tail instead of guessing the file name.
+        let mut tail = String::new();
+        archive.by_name("log-tail.txt").unwrap().read_to_string(&mut tail).unwrap();
+        assert!(tail.contains("latest diagnostic message"));
+        assert!(archive.by_name(&format!("phira.{}.log", today - chrono::Duration::days(6))).is_ok());
+        assert!(archive.by_name(&format!("phira.{}.log", today - chrono::Duration::days(7))).is_err());
+        let mut metadata = String::new();
+        archive.by_name("crash.txt").unwrap().read_to_string(&mut metadata).unwrap();
+        assert!(metadata.contains("export=manual"));
+        assert_eq!(archive.len(), 4);
+    }
+
+    #[test]
+    fn failed_manual_log_export_removes_the_incomplete_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let output_path = dir.path().join("logs.zip");
+        let delete_path = output_path.clone();
+        let config = super::ExportConfig {
+            file: std::fs::File::create(&output_path).unwrap(),
+            deleter: Box::new(move || std::fs::remove_file(delete_path)),
+        };
+
+        assert!(super::export_logs(config, None).is_err());
+        assert!(!output_path.exists());
+    }
+
+    #[test]
+    fn manual_log_export_metadata_uses_the_injected_version_string() {
+        let metadata = super::export_metadata();
+
+        assert!(metadata.starts_with(&format!("Phira {}\n", env!("VERSION_STRING"))));
+        assert!(!metadata.contains("GIT_HASH"));
     }
 }

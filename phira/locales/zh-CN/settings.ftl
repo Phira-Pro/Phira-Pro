@@ -107,6 +107,11 @@ reset-settings-text = 将把设置页上的所有选项（语言、主题、判�
 reset-settings-done = 已恢复默认设置
 reset-settings-cancel = 取消
 reset-settings-confirm = 确定
+item-export-logs = 导出日志
+item-export-logs-sub = 将最近七天的日志导出为 ZIP 压缩包以便反馈问题
+item-export-logs-button = 导出
+log-exporting = 正在导出日志…
+log-export-failed = 导出日志失败
 
 load-cali-failed = 加载音频失败
 

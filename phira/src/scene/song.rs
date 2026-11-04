@@ -8,10 +8,10 @@ use super::{
     ASSET_CHART_INFO,
 };
 use crate::{
-    charts_view::NEED_UPDATE,
+    charts_view::{delete_local_chart, NEED_UPDATE},
     client::{
-        basic_client_builder, recv_raw, Chart, ChartRef, ChartRefChartInfo, Client, Collection, CollectionUpdate, Permissions, Ptr, Record, User,
-        UserManager, CLIENT_TOKEN,
+        basic_client_builder, recv_raw, send_raw, Chart, ChartRef, ChartRefChartInfo, Client, Collection, CollectionUpdate, Permissions, Ptr, Record,
+        User, UserManager, CLIENT_TOKEN,
     },
     data::{BriefChartInfo, LocalChart},
     dir, get_data, get_data_mut, history,
@@ -725,6 +725,7 @@ impl SongScene {
             atomicity: atomicity.clone(),
             task: Task::new({
                 let path = format!("{}/{}", dir::downloaded_charts()?, Uuid::new_v4());
+                let def_illu = BLACK_TEXTURE.clone();
                 async move {
                     let path = std::path::Path::new(&path);
                     tokio::fs::create_dir(path).await?;
@@ -740,7 +741,7 @@ impl SongScene {
                         } else {
                             req
                         };
-                        let res = req.send().await.with_context(|| tl!("request-failed"))?.error_for_status()?;
+                        let res = send_raw(req).await.with_context(|| tl!("request-failed"))?.error_for_status()?;
                         let size = res.content_length();
                         let mut stream = res.bytes_stream();
                         let mut count = 0;
@@ -799,7 +800,7 @@ impl SongScene {
                         std::fs::rename(path, to_path)?;
                     }
 
-                    let tuple = load_local_tuple(&local_path, BLACK_TEXTURE.clone(), info).await?;
+                    let tuple = load_local_tuple(&local_path, def_illu, info).await?;
 
                     Ok((
                         LocalChart {
@@ -2070,6 +2071,46 @@ impl Scene for SongScene {
             self.first_in = false;
             tm.seek_to(-fade_in_time().unwrap_or_default() as _);
             self.load_ldb();
+        } else if self
+            .local_path
+            .as_ref()
+            .is_some_and(|path| !path.starts_with(':') && get_data().find_chart_by_path(path).is_none())
+        {
+            // A nested song scene may have deleted this chart while we were covered.
+            self.local_path = None;
+            if let Some(preview) = &mut self.preview {
+                preview.pause()?;
+            }
+            self.preview = None;
+            self.illu.task = None;
+            self.preview_task = self.info.id.map(|id| {
+                Task::new(async move {
+                    let chart = Ptr::<Chart>::new(id).fetch().await?;
+                    with_effects(AudioClip::decode(chart.preview.fetch().await?.to_vec())?, None)
+                })
+            });
+            self.record = None;
+            self.fetch_best_task = if get_data().me.is_some() {
+                self.info.id.map(|id| Task::new(Client::best_record(id)))
+            } else {
+                None
+            };
+            self.mods = Mods::default();
+            self.mod_btns.clear();
+            self.info_edit = None;
+            if matches!(self.side_content, SideContent::Edit | SideContent::Mods) {
+                self.side_enter_time = f32::INFINITY;
+            }
+            self.should_update.store(false, Ordering::Relaxed);
+            if let Some(entity) = &self.entity {
+                self.info = entity.to_info();
+            } else if self.load_task.is_none() && !get_data().config.offline_mode {
+                // The entity was never loaded (the first fetch failed, or the
+                // scene was opened in offline mode). Fetch it again so the
+                // chart can be re-downloaded instead of leaving the play
+                // button stuck on "still-loading" forever.
+                self.load_task = self.info.id.map(|id| Task::new(async move { Ptr::new(id).fetch_opt().await }));
+            }
         }
         self.start_ppsr_analysis();
         if let Some(music) = &mut self.preview {
@@ -2247,7 +2288,7 @@ impl Scene for SongScene {
                                 if item.btn.touch(touch) {
                                     button_hit();
                                     self.sf
-                                        .goto(t, ProfileScene::new(item.inner.player.id, self.icons.user.clone(), self.rank_icons.clone()));
+                                        .goto(t, ProfileScene::new(item.inner.player.id, self.icons.clone(), self.rank_icons.clone()));
                                     return Ok(true);
                                 }
                             }
@@ -2259,16 +2300,14 @@ impl Scene for SongScene {
                         }
                         if self.uploader_btn.touch(touch) {
                             button_hit();
-                            self.sf.goto(
-                                t,
-                                ProfileScene::new(self.info.uploader.as_ref().unwrap().id, self.icons.user.clone(), self.rank_icons.clone()),
-                            );
+                            self.sf
+                                .goto(t, ProfileScene::new(self.info.uploader.as_ref().unwrap().id, self.icons.clone(), self.rank_icons.clone()));
                             return Ok(true);
                         }
                         for (id, (_, btn)) in &mut self.collaborators {
                             if btn.touch(touch) {
                                 button_hit();
-                                self.sf.goto(t, ProfileScene::new(*id, self.icons.user.clone(), self.rank_icons.clone()));
+                                self.sf.goto(t, ProfileScene::new(*id, self.icons.clone(), self.rank_icons.clone()));
                                 return Ok(true);
                             }
                         }
@@ -2676,6 +2715,13 @@ impl Scene for SongScene {
         }
         if self.should_delete.fetch_and(false, Ordering::Relaxed) {
             if !self.delete_pack_chart(tm)? {
+                // SongScene owns `local_path`, so it deletes the chart itself:
+                // every entry point that can pop this scene (library, profile
+                // history, messages, deeplinks) then gets a real deletion instead
+                // of silently dropping the `true` result.
+                if let Some(path) = &self.local_path {
+                    delete_local_chart(path)?;
+                }
                 self.next_scene = Some(NextScene::PopWithResult(Box::new(true)));
             }
         }

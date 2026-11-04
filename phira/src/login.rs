@@ -2,6 +2,7 @@ prpr_l10n::tl_file!("login");
 
 use crate::{
     client::{api_url, Client, ErrorCode, LoginParams, User, UserManager},
+    data::LoginSource,
     get_data_mut,
     icons::Icons,
     page::Fader,
@@ -600,17 +601,15 @@ impl Login {
             })
             .await?;
             let me = Client::get_me().await?;
-            // Every email login — bound or not — must complete a native HYKB
-            // login so the SDK's online anti-addiction enforcement runs (the
-            // limits are tied to a signed-in HYKB account, not to any separate
-            // "anti" entry point). We obtain the credential silently and tear
-            // the session down if the player cancels, but we do NOT send it to
-            // the server: the HYKB account is used purely for anti-addiction and
-            // is not bound to the Phira account here. An unbound player may bind
-            // HYKB later from the profile page; a bound account no longer has to
-            // match its stored `hykb_uid` — any successful HYKB login is accepted.
+            // Every email login must run the GTS anti-addiction instead of a
+            // HYKB login: the channel requires a login path that does not
+            // depend on a HYKB account, and the old forced silent HYKB sign-in
+            // violated that. The game's own server user id drives enforcement;
+            // GTS failures have no "started" signal and arrive asynchronously
+            // via `hykbFcmCallback`, which tears the session back down. A HYKB
+            // account may still be bound later from the profile page.
             #[cfg(feature = "hykb")]
-            crate::obtain_hykb_credential_silent().await?.ok_or_err()?;
+            crate::request_hykb_fcm(&me.id.to_string());
             Ok(Some(me))
         });
     }
@@ -702,6 +701,13 @@ impl Login {
                         if let Some(user) = user {
                             UserManager::request(user.id);
                             get_data_mut().me = Some(user);
+                            // Remembered so a restored session runs the
+                            // anti-addiction check of the path it signed in with.
+                            get_data_mut().login_source = Some(if *action == "hykb-login" {
+                                LoginSource::Hykb
+                            } else {
+                                LoginSource::Email
+                            });
                             save_data()?;
                         }
                         self.t_pwd.clear();
@@ -714,6 +720,11 @@ impl Login {
                             self.start_time = t;
                         }
                         if *action == "login" || *action == "hykb-login" {
+                            if *action == "hykb-login" {
+                                // A HYKB session takes over: its own online
+                                // anti-addiction applies, stop the GTS one.
+                                crate::request_hykb_fcm_stop();
+                            }
                             self.dismiss(t);
                         }
                     }
@@ -742,7 +753,11 @@ impl Login {
                     Ok(HykbStep::LoggedIn(user)) => {
                         UserManager::request(user.id);
                         get_data_mut().me = Some(*user);
+                        get_data_mut().login_source = Some(LoginSource::Hykb);
                         save_data()?;
+                        // A HYKB session takes over: its own online
+                        // anti-addiction applies, stop the GTS one.
+                        crate::request_hykb_fcm_stop();
                         show_message(tl!("action-success", "action" => "hykb-login")).ok();
                         self.dismiss(t);
                     }

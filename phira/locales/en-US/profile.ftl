@@ -40,3 +40,6 @@ block = Block
 unblock = Unblock
 blocked = Player blocked
 unblocked = Unblocked
+
+web-login = Log in on web
+web-login-failed = Failed to open web login.

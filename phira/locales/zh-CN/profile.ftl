@@ -40,3 +40,6 @@ block = 拉黑
 unblock = 解除拉黑
 blocked = 已拉黑该玩家
 unblocked = 已解除拉黑
+
+web-login = 在网页端登录
+web-login-failed = 打开网页登录失败

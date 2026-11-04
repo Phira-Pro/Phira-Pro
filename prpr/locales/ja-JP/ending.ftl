@@ -1,4 +1,16 @@
-
-
 apply-offset = オフセットを適用
 offset-applied = 推奨オフセットを適用しました
+retry = リトライ
+proceed = 続ける
+detail = 詳細情報
+new-best = New Record
+max-combo = 最大コンボ
+rks-delta = rks変化
+accuracy = 正確度
+error = エラー
+uploading = 成績アップロード中
+uploaded = 成績をアップロードしました
+upload-failed = 成績のアップロードに失敗しました
+upload-cancel = アップロードをキャンセル
+upload-retry = リトライ
+still-uploading = 成績をアップロード中です

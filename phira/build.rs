@@ -76,6 +76,14 @@ fn local_build_id(root: &std::path::Path) -> String {
     format!("{:07x}", hash >> 36)
 }
 
+fn version_string(v: &str, g: &str) -> String {
+    if let Some(b) = option_env!("BUILD_ID") {
+        format!("{} ({}, {})", v, g, b)
+    } else {
+        format!("{} ({})", v, g)
+    }
+}
+
 fn main() {
     let root = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
         .parent()
@@ -113,4 +121,5 @@ fn main() {
         git_stdout(&["rev-parse", "--short=7", "HEAD"]).unwrap_or_else(|| local_build_id(&root))
     };
     println!("cargo:rustc-env=GIT_HASH={}", git_hash);
+    println!("cargo:rustc-env=VERSION_STRING={}", version_string(env!("CARGO_PKG_VERSION"), &git_hash));
 }

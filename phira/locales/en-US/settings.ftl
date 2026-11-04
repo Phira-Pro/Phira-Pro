@@ -107,6 +107,11 @@ reset-settings-text = Every option on the settings page (language, theme, judgem
 reset-settings-done = Settings restored to defaults
 reset-settings-cancel = Cancel
 reset-settings-confirm = Confirm
+item-export-logs = Export Logs
+item-export-logs-sub = Export logs from the last seven days as a ZIP archive for feedback.
+item-export-logs-button = Export
+log-exporting = Exporting logs…
+log-export-failed = Failed to export logs
 
 load-cali-failed = Failed to load calibration audio.
 

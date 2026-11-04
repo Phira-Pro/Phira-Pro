@@ -31,3 +31,6 @@ block = 封鎖
 unblock = 解除封鎖
 blocked = 已封鎖該玩家
 unblocked = 已解除封鎖
+
+web-login = 在網頁端登入
+web-login-failed = 開啟網頁登入失敗

@@ -10,6 +10,7 @@ mod censor;
 mod chart_install;
 mod charts_view;
 mod client;
+mod crash;
 mod data;
 mod editor;
 pub mod deeplink;
@@ -61,15 +62,19 @@ use prpr::{
     ui::{cleanup_audio, FontArc, TextPainter},
     Main,
 };
-use prpr_l10n::set_prefered_locale;
 #[cfg(not(feature = "hykb"))]
-use prpr_l10n::{GLOBAL, LANGS};
+use prpr_l10n::GLOBAL;
+use prpr_l10n::{set_prefered_locale, LANGS};
 use scene::MainScene;
 use std::{
     collections::VecDeque,
     sync::{mpsc, Mutex},
 };
 use tracing::{error, info, warn};
+
+// Only used by the Android-only GTS anti-addiction callback below.
+#[cfg(target_os = "android")]
+use tracing::warn;
 
 #[cfg(target_os = "android")]
 use jni::{
@@ -166,7 +171,27 @@ pub async fn load_res_tex(name: &str) -> SafeTexture {
     prpr::ext::BLACK_TEXTURE.clone()
 }
 
+/// Languages offered in the settings language picker, as indices into
+/// `LANGS`. The HYKB channel only allows English and Simplified Chinese.
+pub fn selectable_langs() -> impl Iterator<Item = usize> {
+    #[cfg(feature = "hykb")]
+    const ALLOWED: Option<&[&str]> = Some(&["en-US", "zh-CN"]);
+    #[cfg(not(feature = "hykb"))]
+    const ALLOWED: Option<&[&str]> = None;
+    (0..LANGS.len()).filter(|&id| ALLOWED.is_none_or(|allowed| allowed.contains(&LANGS[id])))
+}
+
 pub fn sync_data() {
+    // A language chosen before the HYKB channel restricted the picker (or
+    // carried over from another build) falls back to the channel default.
+    #[cfg(feature = "hykb")]
+    if get_data()
+        .language
+        .as_ref()
+        .is_some_and(|lang| !selectable_langs().any(|id| LANGS[id] == lang))
+    {
+        get_data_mut().language = None;
+    }
     if get_data().language.is_none() {
         #[cfg(feature = "hykb")]
         let default_lang = "zh-CN".to_owned();
@@ -419,7 +444,6 @@ async fn the_main() -> Result<()> {
     // thread, after the JNI bootstrap. Wrap that hook once rendering begins.
     #[cfg(target_os = "android")]
     startup::install();
-    log::register();
     startup::stage("assets and platform initialization");
     #[cfg(target_env = "ohos")]
     {
@@ -455,6 +479,7 @@ async fn the_main() -> Result<()> {
 
     startup::stage("saved data");
     let dir = dir::root()?;
+    log::register_with_dir(std::path::Path::new(&dir).join("logs"));
     let mut data: Data = std::fs::read_to_string(format!("{dir}/data.json"))
         .map_err(anyhow::Error::new)
         .and_then(|s| Ok(serde_json::from_str(&s)?))
@@ -490,6 +515,7 @@ async fn the_main() -> Result<()> {
         .quad_context
         .display_mut()
         .set_pause_resume_listener(on_pause_resume);
+    once_cell::sync::Lazy::force(&prpr::ext::BLACK_TEXTURE);
 
     startup::stage("fonts");
     match load_file("font.ttf").await {
@@ -566,6 +592,7 @@ async fn the_main() -> Result<()> {
     let mut frame_profile = frame_profile::FrameProfile::from_env();
     let mut profile_previous = std::time::Instant::now();
 
+    let mut crash_scene = false;
     'app: loop {
         #[cfg(target_os = "ios")]
         prpr::frame_pacing::install();
@@ -634,6 +661,16 @@ async fn the_main() -> Result<()> {
             continue;
         }
 
+        // Poll for a crash record only once we are about to render: while
+        // paused the rendering surface may already be gone (Android), so the
+        // switch to the crash scene has to wait for the resume above.
+        if !crash_scene {
+            if let Some(record) = log::crash_record() {
+                main.replace_scene(Box::new(crash::CrashScene::new(record)));
+                crash_scene = true;
+            }
+        }
+
         let frame_start = tm.real_time();
         if !last_frame_start.is_nan() {
             if fps_times.len() == FPS_BUF_SIZE {
@@ -650,7 +687,7 @@ async fn the_main() -> Result<()> {
         prpr::ui::CURRENT_FPS.store((cur_fps as f32).to_bits(), std::sync::atomic::Ordering::Relaxed);
         let mut profile_update = 0.;
         let mut profile_render = 0.;
-        let res = || -> Result<()> {
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
             main.update()?;
             // 结算界面的「应用推荐偏移」请求：落到全局配置并持久化。
             // `prpr` 拿不到客户端的 Data，只能通过这条单向通道把增量递过来。
@@ -677,10 +714,31 @@ async fn the_main() -> Result<()> {
                 profile_render = start.elapsed().as_secs_f64() * 1000.;
             }
             Ok(())
-        }();
-        if let Err(err) = res {
-            error!("uncaught error: {err:?}");
-            show_error(err);
+        }));
+        match res {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                error!("uncaught error: {err:?}");
+                // Transient update/render failures stay dismissible dialogs;
+                // only panics escalate to the crash scene.
+                show_error(err);
+            }
+            Err(_) => {
+                let record = log::crash_record().unwrap_or_else(|| {
+                    let record = log::CrashRecord {
+                        summary: "unknown panic".to_owned(),
+                        details: "The main loop panicked without a panic record.".to_owned(),
+                    };
+                    log::set_crash_record(record.clone());
+                    record
+                });
+                if !crash_scene {
+                    main.replace_scene(Box::new(crash::CrashScene::new(record)));
+                    crash_scene = true;
+                } else {
+                    break 'app;
+                }
+            }
         }
         if main.should_exit() {
             break 'app;
@@ -1007,6 +1065,41 @@ fn request_hykb_login_silent() {
 #[cfg(not(all(target_os = "android", feature = "hykb")))]
 fn request_hykb_login_silent() {}
 
+/// Ask the Android shell to start the GTS anti-addiction for an email session
+/// under the game's own server user id (`MainActivity.hykbStartFcm`). This
+/// replaces the forced silent HYKB login that used to back the email path,
+/// keeping that path independent of any HYKB account. Fire-and-forget: the
+/// GTS listener exposes no "started" signal, so failures surface asynchronously
+/// through `hykbFcmCallback` and tear the session down there.
+#[cfg(all(target_os = "android", feature = "hykb"))]
+pub fn request_hykb_fcm(uid: &str) {
+    use jni::{jni_sig, objects::JObject, vm::JavaVM};
+
+    JavaVM::singleton()
+        .unwrap()
+        .attach_current_thread(|env| -> jni::errors::Result<()> {
+            let ctx = unsafe { JObject::from_raw(env, ndk_context::android_context().context() as _) };
+            let uid = env.new_string(uid)?;
+            env.call_method(ctx, jni::jni_str!("hykbStartFcm"), jni_sig!("(Ljava/lang/String;)V"), &[(&uid).into()])?;
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[cfg(not(all(target_os = "android", feature = "hykb")))]
+pub fn request_hykb_fcm(_uid: &str) {}
+
+/// Stop the GTS anti-addiction (`MainActivity.hykbStopFcm`). Called whenever a
+/// HYKB session takes over (its own anti-addiction then applies) or the
+/// session ends.
+#[cfg(all(target_os = "android", feature = "hykb"))]
+pub fn request_hykb_fcm_stop() {
+    call_activity_void(jni::jni_str!("hykbStopFcm"));
+}
+
+#[cfg(not(all(target_os = "android", feature = "hykb")))]
+pub fn request_hykb_fcm_stop() {}
+
 /// Tell the native HYKB SDK to sign out (`MainActivity.hykbLogout`). Called when the
 /// player logs out from their profile.
 #[cfg(all(target_os = "android", feature = "hykb"))]
@@ -1023,9 +1116,8 @@ pub fn hykb_logout() {}
 /// the player logging out from their profile.
 pub fn force_logout() {
     hykb_logout();
-    get_data_mut().me = None;
-    get_data_mut().tokens = None;
-    let _ = save_data();
+    request_hykb_fcm_stop();
+    client::clear_session();
     sync_data();
 }
 
@@ -1039,9 +1131,48 @@ pub async fn obtain_hykb_credential() -> Result<HykbCredential> {
     Ok(cred)
 }
 
+/// Start the anti-addiction check that matches how the session `me` was signed
+/// in. Called whenever a stored session is restored or re-verified:
+///
+/// - HYKB-sourced sessions are covered by the HYKB login SDK only: silently sign
+///   the cached HYKB account back in and require it to be the account bound to
+///   `me`. A failed / cancelled sign-in (`ok_or_err`) or a different account
+///   tears the session down; the GTS check is not started, so the player is not
+///   asked to verify their real name a second time.
+/// - Everything else — email sessions, older data without a recorded source
+///   (unless the account has no email, which only a HYKB login can produce),
+///   or a HYKB session whose account has since been unbound —
+///   falls back to the GTS check under the server user id, which fails closed
+///   asynchronously via `hykbFcmCallback`.
+///
+/// Neither branch leaves a session without coverage, so tampering with the
+/// stored source can at most swap which check applies.
+#[cfg(feature = "hykb")]
+pub async fn ensure_anti_addiction(me: &client::User) -> Result<()> {
+    // Sessions saved before the source was recorded: an account without an
+    // email cannot have signed in by email, so it must be a HYKB session.
+    let source = get_data()
+        .login_source
+        .or_else(|| (me.hykb_uid.is_some() && me.email.is_none()).then_some(data::LoginSource::Hykb));
+    if source == Some(data::LoginSource::Hykb) {
+        if let Some(bound) = me.hykb_uid {
+            let cred = obtain_hykb_credential_silent().await?.ok_or_err()?;
+            if cred.uid != bound {
+                tracing::warn!("HYKB account {} does not match the bound account {bound}, logging out", cred.uid);
+                force_logout();
+                anyhow::bail!("{}", ttl!("hykb-account-mismatch"));
+            }
+            request_hykb_fcm_stop();
+            return Ok(());
+        }
+    }
+    request_hykb_fcm(&me.id.to_string());
+    Ok(())
+}
+
 /// Silently restore the HYKB session from the cached account and await its
 /// credentials. Unlike [`obtain_hykb_credential`], this does not pop the account
-/// picker; used by the blocking startup check to verify the restored session.
+/// picker; used by [`ensure_anti_addiction`] to verify a restored HYKB session.
 #[allow(unused)]
 pub async fn obtain_hykb_credential_silent() -> Result<HykbCredential> {
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -1069,8 +1200,8 @@ pub extern "C" fn Java_quad_1native_QuadNative_hykbLoginCallback(
     };
     if let Some(tx) = HYKB_TX.lock().unwrap().take() {
         let _ = tx.send(HykbCredential {
-            code: code as i32,
-            uid: uid as i64,
+            code,
+            uid,
             nick,
             access_token,
         });
@@ -1082,6 +1213,41 @@ pub extern "C" fn Java_quad_1native_QuadNative_hykbLoginCallback(
         // the SDK and need no response here. A request-less success (code 0, the
         // SDK switching accounts on its own) is likewise ignored: any signed-in
         // HYKB account is accepted, so a switch no longer tears the session down.
+    }
+}
+
+/// GTS anti-addiction events for the email session path (no login in flight).
+/// Besides the SDK listener events (2005 exit, -1 switch account, other =
+/// start failure), the Kotlin bridge sends -3 when GtsCore itself failed to
+/// initialize while an email session was waiting for coverage — typically a
+/// weak network at startup. Every non-2005 code tears the session back down,
+/// which is how a GTS failure blocks the email path.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn Java_quad_1native_QuadNative_hykbFcmCallback(_env: EnvUnowned, _class: JClass, code: jint) {
+    match code {
+        2005 => {
+            // The player hit a play-time limit and tapped "exit game" on the
+            // GTS dialog: the same terminal action as the login SDK's 2005.
+            std::process::exit(0);
+        }
+        -1 => {
+            // "Switch account" on the GTS dialog: drop the email session so
+            // the forced login panel comes back.
+            force_logout();
+        }
+        -3 => {
+            // GtsCore failed to initialize while a session was waiting for
+            // coverage: fail closed — drop the session instead of leaving it
+            // unguarded. The login panel returns; retrying the login re-kicks
+            // the SDK init (HykbAuth.startFcm → initGts).
+            warn!("GTS SDK init failed, tearing the email session down");
+            force_logout();
+        }
+        code => {
+            warn!("GTS anti-addiction failed with code {code}, tearing the email session down");
+            force_logout();
+        }
     }
 }
 

@@ -85,6 +85,11 @@ item-show-fps = Afficher les FPS
 item-show-fps-sub = Show the current framerate at your chosen position
 item-touch-debug = Mode de débogage tactile
 item-touch-debug-sub = Afficher les points de contact
+item-export-logs = Exporter les journaux
+item-export-logs-sub = Exporter les journaux des sept derniers jours dans une archive ZIP pour signaler un problème
+item-export-logs-button = Exporter
+log-exporting = Exportation des journaux…
+log-export-failed = Échec de l'exportation des journaux
 
 load-cali-failed = Échec du chargement de l'audio
 

@@ -66,6 +66,11 @@ item-chart-debug-sub = Pokazuje liczbe linii i orientację
 item-show-fps = Pokaż FPS
 item-show-fps-sub = Show the current framerate at your chosen position
 item-touch-debug-sub = Pokazuje dotknięcia
+item-export-logs = Eksportuj logi
+item-export-logs-sub = Eksportuj logi z ostatnich siedmiu dni do archiwum ZIP, aby zgłosić problem.
+item-export-logs-button = Eksportuj
+log-exporting = Eksportowanie logów…
+log-export-failed = Nie udało się wyeksportować logów
 
 item-refresh-rate = Częstotliwość odświeżania
 item-refresh-rate-sub = Wybierz żądaną częstotliwość odświeżania ekranu

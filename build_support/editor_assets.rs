@@ -1,6 +1,8 @@
 //! Stages the editor frontend from the pinned RPEN checkout; shared by build scripts.
 //! The generated tree stays out of version control: everything in the checkout ships
 //! except the development-only paths listed below, so merging upstream needs no list.
+//! Local patches live in `scripts/editor/overlay` and apply on top of the checkout;
+//! `overlay.lock.json` pins the upstream revisions they were written against.
 use serde_json::Value;
 use std::{
     env, fs,
@@ -11,6 +13,8 @@ use std::{
 
 const PIN: &str = "scripts/editor/upstream.json";
 const MANIFEST: &str = "phira-pro-exclude.json";
+const OVERLAY: &str = "scripts/editor/overlay";
+const LOCK: &str = "scripts/editor/overlay.lock.json";
 const STAMP: &str = ".staged.json";
 const TARGET: &str = "assets/rpen-editor";
 const REQUIRED: [&str; 6] = [
@@ -28,18 +32,21 @@ pub fn ensure(root: &Path) {
     println!("cargo:rerun-if-changed={}", pin_path.display());
     println!("cargo:rerun-if-changed={}", root.join("build_support/editor_assets.rs").display());
     println!("cargo:rerun-if-changed={}", target.join(STAMP).display());
+    println!("cargo:rerun-if-changed={}", root.join(OVERLAY).display());
+    println!("cargo:rerun-if-changed={}", root.join(LOCK).display());
 
     let Ok(pin) = fs::read_to_string(&pin_path) else {
         println!("cargo:warning=缺少 {PIN}，跳过制谱器前端准备");
         return;
     };
+    let overlay = overlay_fingerprint(root);
     let mut staged_now = false;
-    if !staged(&target, &pin) {
+    if !staged(&target, &pin, &overlay) {
         if env::var_os("PHIRA_SKIP_EDITOR_ASSETS").is_some() {
             println!("cargo:warning=已跳过制谱器前端准备（PHIRA_SKIP_EDITOR_ASSETS）");
             return;
         }
-        stage(root, &target, &pin);
+        stage(root, &target, &pin, &overlay);
         staged_now = true;
     }
     // 索引只随生成树变化；否则每次构建脚本重跑都要重新读一遍几百个文件。
@@ -48,17 +55,19 @@ pub fn ensure(root: &Path) {
     }
 }
 
-fn staged(target: &Path, pin: &str) -> bool {
+fn staged(target: &Path, pin: &str, overlay: &str) -> bool {
     let Ok(stamp) = fs::read_to_string(target.join(STAMP)) else {
         return false;
     };
     let Ok(stamp) = serde_json::from_str::<Value>(&stamp) else {
         return false;
     };
-    stamp["pin"].as_str() == Some(pin) && REQUIRED.iter().all(|name| target.join(name).is_file())
+    stamp["pin"].as_str() == Some(pin)
+        && stamp["overlay"].as_str() == Some(overlay)
+        && REQUIRED.iter().all(|name| target.join(name).is_file())
 }
 
-fn stage(root: &Path, target: &Path, pin: &str) {
+fn stage(root: &Path, target: &Path, pin: &str, overlay: &str) {
     let upstream: Value = serde_json::from_str(pin).unwrap_or_else(|error| panic!("{PIN} 不是合法 JSON: {error}"));
     let repository = field(&upstream, "repository");
     let revision = field(&upstream, "revision");
@@ -76,14 +85,110 @@ fn stage(root: &Path, target: &Path, pin: &str) {
         }
         fs::copy(cache.join(name), &destination).unwrap_or_else(|error| panic!("复制制谱器资源 {name} 失败: {error}"));
     }
+    apply_overlay(root, &cache, &staging);
     let manifest = serde_json::to_string_pretty(&upstream).unwrap() + "\n";
     fs::write(staging.join("UPSTREAM.json"), manifest).unwrap_or_else(|error| panic!("写入 UPSTREAM.json 失败: {error}"));
     remove(target);
     copy_tree(&staging, target);
     remove(&staging);
-    let stamp = serde_json::json!({ "pin": pin, "revision": revision });
+    let stamp = serde_json::json!({ "pin": pin, "revision": revision, "overlay": overlay });
     let stamp = serde_json::to_string_pretty(&stamp).unwrap() + "\n";
     fs::write(target.join(STAMP), stamp).unwrap_or_else(|error| panic!("写入 {STAMP} 失败: {error}"));
+}
+
+/// Copies the local patches onto a staged checkout. Every patch mirrors the path it
+/// replaces; files created by `derive` keep the pinned upstream file available under
+/// a second name so a patch can wrap it instead of forking it. The lock pins the
+/// upstream bytes each patch was written against, so bumping the pin fails loudly.
+fn apply_overlay(root: &Path, checkout: &Path, staging: &Path) {
+    let source = root.join(OVERLAY);
+    if !source.is_dir() {
+        return;
+    }
+    let text = fs::read_to_string(root.join(LOCK)).unwrap_or_else(|error| panic!("读取 {LOCK} 失败: {error}"));
+    let lock: Value = serde_json::from_str(&text).unwrap_or_else(|error| panic!("{LOCK} 不是合法 JSON: {error}"));
+    if lock["schema"].as_u64() != Some(1) {
+        panic!("{LOCK} 的 schema 不受支持");
+    }
+    let base = lock["base"].as_object().unwrap_or_else(|| panic!("{LOCK} 缺少 base 表"));
+    for (name, expected) in base {
+        if !valid_path(name) {
+            panic!("{LOCK} 含非法路径: {name}");
+        }
+        let bytes = fs::read(checkout.join(name)).unwrap_or_else(|error| panic!("读取上游 {name} 失败: {error}"));
+        let size = expected["bytes"].as_u64();
+        let digest = expected["crc32"].as_str();
+        if size != Some(bytes.len() as u64) || digest != Some(format!("{:08x}", crc32(0, &bytes)).as_str()) {
+            panic!("{name} 与 {LOCK} 记录的上游版本不一致；复核 {OVERLAY} 后更新基线");
+        }
+    }
+    let derive = lock["derive"].as_object().unwrap_or_else(|| panic!("{LOCK} 缺少 derive 表"));
+    for (destination, original) in derive {
+        let (Some(original), destination) = (original.as_str(), destination.as_str()) else {
+            panic!("{LOCK} 的 derive 表只能包含字符串");
+        };
+        if !valid_path(destination) || !valid_path(original) {
+            panic!("{LOCK} 含非法路径: {destination} <- {original}");
+        }
+        let target = staging.join(destination);
+        create_parent(&target);
+        fs::copy(staging.join(original), &target)
+            .unwrap_or_else(|error| panic!("复制 {original} 为 {destination} 失败: {error}"));
+    }
+    let mut names = Vec::new();
+    collect_files(&source, "", &[], &mut names);
+    if names.is_empty() {
+        panic!("{OVERLAY} 目录为空");
+    }
+    names.sort_unstable();
+    for name in &names {
+        if !valid_path(name) || derive.contains_key(name) {
+            panic!("{OVERLAY} 含冲突路径: {name}");
+        }
+        if checkout.join(name).is_file() && !base.contains_key(name) {
+            panic!("{name} 覆盖了未登记基线的上游文件；在 {LOCK} 中补上 base 条目");
+        }
+        let target = staging.join(name);
+        create_parent(&target);
+        fs::copy(source.join(name), &target).unwrap_or_else(|error| panic!("应用补丁 {name} 失败: {error}"));
+    }
+}
+
+fn create_parent(path: &Path) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).unwrap_or_else(|error| panic!("创建 {} 失败: {error}", parent.display()));
+    }
+}
+
+/// Stable across checkouts and Rust versions, unlike `DefaultHasher`.
+fn overlay_fingerprint(root: &Path) -> String {
+    let directory = root.join(OVERLAY);
+    let mut names = Vec::new();
+    if directory.is_dir() {
+        collect_files(&directory, "", &[], &mut names);
+        names.sort_unstable();
+    }
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for name in &names {
+        hash = fnv1a(hash, name.as_bytes());
+        hash = fnv1a(hash, b"\0");
+        let bytes = fs::read(directory.join(name)).unwrap_or_else(|error| panic!("读取 {name} 失败: {error}"));
+        hash = fnv1a(hash, &(bytes.len() as u64).to_le_bytes());
+        hash = fnv1a(hash, &bytes);
+    }
+    match fs::read(root.join(LOCK)) {
+        Ok(lock) => hash = fnv1a(hash, &lock),
+        Err(_) => hash = fnv1a(hash, b"no-lock"),
+    }
+    format!("{hash:016x}")
+}
+
+fn fnv1a(mut hash: u64, data: &[u8]) -> u64 {
+    for byte in data {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 fn field<'a>(upstream: &'a Value, name: &str) -> &'a str {

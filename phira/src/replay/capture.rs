@@ -53,8 +53,8 @@ impl Capture {
         anyhow::ensure!(
             self.inputs.iter().all(|input| {
                 let e = &input.event;
-                matches!(e.source.as_str(), "touch" | "mouse" | "keyboard")
-                    && matches!(e.phase.as_str(), "down" | "move" | "up" | "cancel" | "repeat")
+                matches!(e.source.as_ref(), "touch" | "mouse" | "keyboard")
+                    && matches!(e.phase.as_ref(), "down" | "move" | "up" | "cancel" | "repeat")
                     && time(e.observed_time)
                     && e.event_time.is_none_or(time)
                     && e.x.is_none_or(f32::is_finite)
@@ -123,10 +123,10 @@ impl Capture {
                 if e.phase == "move" && !active.contains_key(&id) {
                     continue;
                 }
-                if matches!(e.phase.as_str(), "up" | "cancel") && !active.contains_key(&id) {
+                if matches!(e.phase.as_ref(), "up" | "cancel") && !active.contains_key(&id) {
                     continue;
                 }
-                let phase = match e.phase.as_str() {
+                let phase = match e.phase.as_ref() {
                     "down" => super::PHASE_DOWN,
                     "move" => super::PHASE_MOVE,
                     "up" | "cancel" => super::PHASE_UP,

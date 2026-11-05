@@ -10,6 +10,7 @@
 - `phira/src/editor/` 负责资源准备、平台窗口、试玩和谱面副本适配。谱面库读写集中在 `library.rs`，通过既有新谱面导入流程创建副本，不改变判定、成绩或旧插件接口。
 - `assets/rpen-editor/` 是构建期生成的制谱器前端，已被 `.gitignore` 排除，不随仓库分发。`phira/build.rs`（`build_support/editor_assets.rs`）按 `scripts/editor/upstream.json` 固定的 Pro fork 提交浅克隆上游，读取该提交内的 `phira-pro-exclude.json`，剔除其中列出的开发用路径后打包其余全部文件，再生成网页资源索引。剔除表只列开发内容，上游新增文件默认进入打包，合并上游时不必对账。桌面、Android、iOS 都是先编译 `phira` 再收集资源，因此三条构建路径自动执行，无需额外步骤；离网构建或只需播放器时可设 `PHIRA_SKIP_EDITOR_ASSETS=1` 跳过，此时产物不含制谱器资源。
 - Pro 的桥接、触屏、布局代码、上游文件的局部修正和剔除表都提交在 [Phira-Pro/rpe-next](https://github.com/Phira-Pro/rpe-next) 上，本仓库只固定提交。`UPSTREAM.json` 记录上游版本和提交。升级时在该仓库推送新提交，再把提交号写进 `scripts/editor/upstream.json`，同步检查模组 API、平台存储契约、导出格式和原生播放兼容性。
+- `scripts/editor/overlay/` 存放尚未进入 fork 的临时修正，构建时叠加在固定提交之上，`overlay.lock.json` 记录每个补丁所依据的上游文件大小与 CRC32。上游文件变化后构建会中止并提示复核，避免补丁静默失效；修正合入 fork 并更新固定提交后应删除对应 overlay 条目。当前条目为模组装载：`src/ui/mod-runtime.mjs` 包装固定提交中的同名模块，`src/ui/mod-modules.mjs` 按依赖顺序把包内模块改写为 Blob URL 并直接导入入口，使 iOS 的 WebKit 不再依赖后注册的 import map；模块图存在环时回退固定提交的 import map 流程。包装模块同时用 `export *` 转发固定提交的全部导出，其它模块引用的符号不会在链接阶段缺失。
 
 上游界面的局部修正保留在对应模块：`src/ui/hotkey-settings.mjs` 明确设置非提交按钮类型，防止录入、清除、还原和导入导出操作关闭外层 `method="dialog"` 表单。快捷键持久化仍通过原有保存回调完成。
 `src/ui/settings.mjs` 仅为具有默认值的设置创建重置按钮，信息展示区不提供空操作。

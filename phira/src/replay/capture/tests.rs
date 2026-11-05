@@ -25,7 +25,7 @@ fn tape(viewport: [i32; 4], screen_height: f32, source: &str) -> Replay {
             frame: frame as u64,
             active: true,
             event: prpr::input_capture::Input {
-                source: source.into(),
+                source: source.to_owned().into(),
                 phase: phase.into(),
                 id: 7,
                 event_time: (source == "touch").then_some(time),

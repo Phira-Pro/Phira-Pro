@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "derive": {
+    "src/ui/mod-runtime.upstream.mjs": "src/ui/mod-runtime.mjs"
+  },
+  "base": {
+    "src/ui/mod-runtime.mjs": {
+      "bytes": 16976,
+      "crc32": "f3c62331"
+    }
+  }
+}

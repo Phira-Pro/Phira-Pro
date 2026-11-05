@@ -302,6 +302,24 @@ pub(crate) fn is_block_area_sidecar(path: &str) -> bool {
     name == "blockarealist.json" || name.ends_with(".blockarealist.json")
 }
 
+/// Some chart exports are PEC text that was saved with a `.json` extension.
+/// PEC is line based: the first line is the offset in milliseconds and the body
+/// always carries at least one `bp` timing point, so a JSON document (which
+/// starts with `{`) can never pass this probe.
+fn is_pec_text(bytes: &[u8]) -> bool {
+    let Ok(text) = std::str::from_utf8(crate::parse::json_bytes(bytes)) else {
+        return false;
+    };
+    let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
+    let Some(offset) = lines.next() else {
+        return false;
+    };
+    if !offset.parse::<f32>().is_ok_and(|it| it.is_finite()) {
+        return false;
+    }
+    text.lines().map(str::trim).any(|line| line.split_whitespace().next() == Some("bp"))
+}
+
 async fn is_chart_file(fs: &mut dyn FileSystem, path: &str) -> Result<bool> {
     if is_block_area_sidecar(path) {
         return Ok(false);
@@ -316,7 +334,7 @@ async fn is_chart_file(fs: &mut dyn FileSystem, path: &str) -> Result<bool> {
                 _lines: Vec<serde::de::IgnoredAny>,
             }
             let bytes = fs.load_file(path).await?;
-            Ok(serde_json::from_slice::<ChartProbe>(crate::parse::json_bytes(&bytes)).is_ok())
+            Ok(serde_json::from_slice::<ChartProbe>(crate::parse::json_bytes(&bytes)).is_ok() || is_pec_text(&bytes))
         }
         _ => Ok(true), // Explicit PEC/PBC paths retain their existing handling.
     }
@@ -525,6 +543,39 @@ mod music_inference_tests {
                 fix_info_with(&mut fs, &mut info, true).await.unwrap();
                 assert_eq!(info.music, "cue.wav", "an explicit valid music binding takes precedence");
             }
+        });
+    }
+}
+
+#[cfg(test)]
+mod chart_probe_tests {
+    use super::*;
+
+    const PEC_TEXT: &str = "115\nbp 0.000 120.000\n# 120.0\n1\n2\n";
+
+    #[test]
+    fn pec_text_is_recognized_without_a_json_tree() {
+        assert!(is_pec_text(PEC_TEXT.as_bytes()));
+        assert!(is_pec_text("\u{feff}0\r\nbp 0.0 120.0\r\n".as_bytes()), "BOM and CRLF exports are accepted");
+        assert!(!is_pec_text(br#"{"judgeLineList":[]}"#), "JSON charts keep their JSON probe");
+        assert!(!is_pec_text(b""), "empty files are not charts");
+        assert!(!is_pec_text(b"115\n1\n2\n"), "a PEC body needs a timing point");
+        assert!(!is_pec_text(b"not a number\nbp 0.0 120.0\n"), "the offset line must be numeric");
+    }
+
+    #[test]
+    fn json_extension_pec_chart_is_found_and_imported() {
+        let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        runtime.block_on(async {
+            let directory = tempfile::tempdir().unwrap();
+            std::fs::write(directory.path().join("chart.json"), PEC_TEXT).unwrap();
+            std::fs::write(directory.path().join("music.wav"), b"test music").unwrap();
+            let mut fs = ExternalFileSystem(Arc::new(crate::dir::Dir::new(directory.path()).unwrap()));
+            let mut info = ChartInfo::default();
+            info.chart = "chart.json".to_owned();
+            fix_info_with(&mut fs, &mut info, false).await.unwrap();
+            assert_eq!(info.chart, "chart.json");
+            assert_eq!(info.music, "music.wav", "the PEC chart still gets its music bound");
         });
     }
 }

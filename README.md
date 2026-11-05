@@ -11,7 +11,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.3 的**非�
 
 在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows、macOS、Linux 压缩包、Android arm64 APK 或 iOS 未签名 IPA。Windows 解压后运行 `phira-main.exe`，macOS / Linux 运行 `phira-main`；Android 更新时保留应用数据，iOS IPA 需自行签名安装。
 
-当前源码版本为 **pro.18 开发版**（应用内 `0.8.3-pro.18`，build 94），包含内置 RPEN 0.13.2 制谱工作台、谱面视频导出、Plugin API v3 和 PRCA 回放分析。本轮新增 Early/Late 跳字提示，修正快速触控的按下位置与时间被移动事件覆盖的问题，统一不同画质下的判定坐标，并调整 Android 无缝刷新率申请及 iOS 渲染驱动。移动设备的三指手势和实际高刷效果仍需真机验证，见 [触控与刷新率说明](docs/development/input-display-feedback.md)。此前已补齐 RPEN 0.13.1 的播放兼容和 Bezier 边界求值，并修复练习区间、普通 RPE 轨迹误报、回放触点与课题输入问题，移除内置多人房间及实时观战功能。源码版本与已发布附件分别维护，实际可下载版本以 Releases 页面为准。
+当前源码版本为 **pro.18 开发版**（应用内 `0.8.3-pro.18`，build 94），包含内置 RPEN 0.13.2 制谱工作台、谱面视频导出、Plugin API v3 和 PRCA 回放分析。本轮修复 iOS 上启用模组时报模块无法解析的问题（改为按依赖顺序逐模块装载，保留固定提交全部导出，不再依赖后注册的 import map），修复扩展名为 `.json`、内容为 PEC 文本的谱面无法导入的问题，并移除输入记录路径上每个触摸事件的堆分配。此前新增 Early/Late 跳字提示，修正快速触控的按下位置与时间被移动事件覆盖的问题，统一不同画质下的判定坐标，并调整 Android 无缝刷新率申请及 iOS 渲染驱动。移动设备的三指手势和实际高刷效果仍需真机验证，见 [触控与刷新率说明](docs/development/input-display-feedback.md)。此前已补齐 RPEN 0.13.1 的播放兼容和 Bezier 边界求值，并修复练习区间、普通 RPE 轨迹误报、回放触点与课题输入问题，移除内置多人房间及实时观战功能。源码版本与已发布附件分别维护，实际可下载版本以 Releases 页面为准。
 
 插件接口见 [开发说明](docs/plugins/README.md)，模块职责与审查方法见 [代码审查指南](docs/development/code-review-guide.md)。本版继续包含 [rpe-next 噪域兼容](docs/development/rpe-next-noise.md)、[回放录制与播放](docs/development/replays.md)及各平台帧率设置。历史更新见 [pro.16](docs/development/pro-16.md)、[pro.14-fix1](docs/development/pro-14-fix1.md)、[pro.14](docs/development/pro-14.md)、[pro.13](docs/development/pro-13.md)和 [pro.12](docs/development/pro-12.md)。版本维护、五个平台构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
 
@@ -19,7 +19,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.3 的**非�
 
 PPSR 分析浮窗使用当前曲绘的暗色半透明背景，以圆角数字框突出总难度，保留拖动、收起及十项细分难度。
 
-RPE/RPEN 导入按 JSON 结构选择主谱，排除附加配置、噪域数据和其他 JSON，优先使用主谱而非自动保存副本；重复导入和携带 `info.yml` 的二次导出保持同一谱面选择。读取支持 UTF-8 BOM 与前导空白，PPSR 使用相同解析规则。普通 RPE 位移和旋转事件沿用原有兼容解析，仅实际使用轨迹扩展的坐标轴进入轨迹校验，避免选谱分析和课题加载误报 `invalid trajectory time range`。空 `extra.json` 无需 BPM，含定时效果或视频但省略 BPM 时沿用主谱变速表；显式附加 BPM 仍优先使用，损坏配置继续报错。
+RPE/RPEN 导入按 JSON 结构选择主谱，排除附加配置、噪域数据和其他 JSON，优先使用主谱而非自动保存副本；扩展名为 `.json` 但内容为 PEC 文本的谱面按 PEC 识别并正常导入。重复导入和携带 `info.yml` 的二次导出保持同一谱面选择。读取支持 UTF-8 BOM 与前导空白，PPSR 使用相同解析规则。普通 RPE 位移和旋转事件沿用原有兼容解析，仅实际使用轨迹扩展的坐标轴进入轨迹校验，避免选谱分析和课题加载误报 `invalid trajectory time range`。空 `extra.json` 无需 BPM，含定时效果或视频但省略 BPM 时沿用主谱变速表；显式附加 BPM 仍优先使用，损坏配置继续报错。
 
 回放触点统一采用与游玩画面相同的纵向坐标方向，并补偿视口留边。已有 v6 回放在原始输入完整时重新计算显示触点，修正上下颠倒；判定记录及原始输入保持不变，旧版回放继续使用已有触点数据。
 

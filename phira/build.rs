@@ -3,6 +3,13 @@ mod editor_assets;
 #[path = "../build_support/version.rs"]
 mod version;
 
+// `#[path]` modules do not join this script's dep-info, so the shared build
+// support sources are pulled in here to make cargo recompile on their changes.
+const _: &str = concat!(
+    include_str!("../build_support/editor_assets.rs"),
+    include_str!("../build_support/version.rs"),
+);
+
 fn git_stdout(args: &[&str]) -> Option<String> {
     let output = std::process::Command::new("git").args(args).output().ok()?;
     if !output.status.success() {

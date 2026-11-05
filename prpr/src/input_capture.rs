@@ -1,13 +1,14 @@
 //! Bounded, observer-only input tap. Never feeds or changes the judgement path.
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
+use std::{borrow::Cow, cell::RefCell};
 
 pub const FRAME_LIMIT: usize = 16_384;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Input {
-    pub source: String,
-    pub phase: String,
+    // 静态标签借用存放，避免每个输入事件在 UI 回调里分配两次堆内存。
+    pub source: Cow<'static, str>,
+    pub phase: Cow<'static, str>,
     pub id: u64,
     /// Backend event time in the uptime clock, when actually supplied.
     pub event_time: Option<f64>,
@@ -80,7 +81,7 @@ pub fn begin_frame() {
     });
 }
 
-pub fn push(source: &str, phase: &str, id: u64, event_time: f64, position: Option<(f32, f32)>) {
+pub fn push(source: &'static str, phase: &'static str, id: u64, event_time: f64, position: Option<(f32, f32)>) {
     STATE.with(|state| {
         let mut state = state.borrow_mut();
         if !state.enabled {
@@ -91,8 +92,8 @@ pub fn push(source: &str, phase: &str, id: u64, event_time: f64, position: Optio
             return;
         }
         state.frame.inputs.push(Input {
-            source: source.into(),
-            phase: phase.into(),
+            source: Cow::Borrowed(source),
+            phase: Cow::Borrowed(phase),
             id,
             event_time: event_time.is_finite().then_some(event_time),
             observed_time: crate::judge::get_uptime(),
@@ -117,7 +118,7 @@ mod tests {
         push("touch", "cancel", 7, 1.001, Some((2., 3.)));
         push("keyboard", "down", 2, f64::NEG_INFINITY, None);
         let frame = snapshot();
-        assert_eq!(frame.inputs.iter().map(|e| e.phase.as_str()).collect::<Vec<_>>(), ["down", "cancel", "down"]);
+        assert_eq!(frame.inputs.iter().map(|e| e.phase.as_ref()).collect::<Vec<_>>(), ["down", "cancel", "down"]);
         assert_eq!(frame.inputs[2].event_time, None);
         for _ in 0..FRAME_LIMIT {
             push("touch", "move", 7, 2., None);

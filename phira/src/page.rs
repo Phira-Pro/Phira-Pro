@@ -18,6 +18,7 @@ pub mod plugins;
 pub mod replay_analysis;
 pub mod replays;
 pub mod tools;
+mod hotkeys;
 
 mod home;
 pub use home::HomePage;

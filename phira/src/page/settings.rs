@@ -1901,7 +1901,7 @@ fn export_logs(config: ExportConfig, manager: Option<Arc<LogManager>>) -> Result
 }
 
 struct DebugList {
-    tools: [DRectButton; 4],
+    tools: [DRectButton; 5],
     next_page: Option<NextPage>,
     sections: [DRectButton; 3],
     section_open: [bool; 3],
@@ -2028,7 +2028,8 @@ impl DebugList {
                     0 => NextPage::Overlay(Box::new(crate::page::tools::ToolsPage::new(false))),
                     1 => NextPage::Overlay(Box::new(crate::page::tools::ToolsPage::new(true))),
                     2 => NextPage::Overlay(Box::new(crate::page::RenderPage::new())),
-                    _ => NextPage::Overlay(Box::new(crate::editor::EditorPage::new())),
+                    3 => NextPage::Overlay(Box::new(crate::editor::EditorPage::new())),
+                    _ => NextPage::Overlay(Box::new(super::hotkeys::HotkeyPage::new())),
                 });
                 return Ok(Some(false));
             }
@@ -2206,7 +2207,8 @@ impl DebugList {
         }
         let rr = right_rect(w);
 
-        for (i, label) in ["画质设置", "问题诊断", "谱面渲染", "制谱工作台"].iter().enumerate() {
+        for (i, label) in ["画质设置", "问题诊断", "谱面渲染", "制谱工作台", "热键管理"].iter().enumerate() {
+            search::focus(ui, label);
             render_title(ui, *label, None);
             self.tools[i].render_text(ui, rr, t, "打开", 0.4, false);
             ui.dy(item_row_h());

@@ -2150,7 +2150,7 @@ impl Scene for GameScene {
         self.res.judge_line_color.a *= self.res.alpha;
         self.chart.update(&mut self.res);
         let res = &mut self.res;
-        if res.config.interactive && is_key_pressed(KeyCode::Space) {
+        if res.config.interactive && res.config.hotkeys.pressed(crate::hotkeys::Action::Pause) {
             if tm.paused() {
                 if matches!(self.state, State::Playing) {
                     self.music.play()?;
@@ -2164,19 +2164,19 @@ impl Scene for GameScene {
             }
         }
         if Self::interactive(res, &self.state) {
-            if is_key_pressed(KeyCode::Left) && res.config.use_keyboard {
+            if res.config.hotkeys.pressed(crate::hotkeys::Action::Backward) && res.config.use_keyboard {
                 res.time -= 1.;
                 let dst = (self.music.position() - 1.).max(0.);
                 self.music.seek_to(dst)?;
                 tm.seek_to(dst);
             }
-            if is_key_pressed(KeyCode::Right) && res.config.use_keyboard {
+            if res.config.hotkeys.pressed(crate::hotkeys::Action::Forward) && res.config.use_keyboard {
                 res.time += 5.;
                 let dst = (self.music.position() + 5.).min(res.track_length);
                 self.music.seek_to(dst)?;
                 tm.seek_to(dst);
             }
-            if is_key_pressed(KeyCode::Q) {
+            if res.config.hotkeys.pressed(crate::hotkeys::Action::Exit) {
                 self.should_exit = true;
             }
         }

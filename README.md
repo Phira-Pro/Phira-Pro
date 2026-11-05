@@ -1,6 +1,6 @@
 # Phira Pro
 
-Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非官方改版**。
+Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.3 的**非官方改版**。
 
 它在尽量不改变原有玩法与手感的前提下，补充了大量**练习、调试、外观自定义与本地成绩管理**相关的功能，适合练习高难谱面、研究判定手感或自建外观。
 
@@ -11,7 +11,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.2 的**非�
 
 在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows、macOS、Linux 压缩包、Android arm64 APK 或 iOS 未签名 IPA。Windows 解压后运行 `phira-main.exe`，macOS / Linux 运行 `phira-main`；Android 更新时保留应用数据，iOS IPA 需自行签名安装。
 
-当前源码版本为 **pro.18 开发版**（应用内 `0.8.2-pro.18`，build 94），包含内置 RPEN 0.13.2 制谱工作台、谱面视频导出、Plugin API v3 和 PRCA 回放分析。本轮新增 Early/Late 跳字提示，修正快速触控的按下位置与时间被移动事件覆盖的问题，统一不同画质下的判定坐标，并调整 Android 无缝刷新率申请及 iOS 渲染驱动。移动设备的三指手势和实际高刷效果仍需真机验证，见 [触控与刷新率说明](docs/development/input-display-feedback.md)。此前已补齐 RPEN 0.13.1 的播放兼容和 Bezier 边界求值，并修复练习区间、普通 RPE 轨迹误报、回放触点与课题输入问题，移除内置多人房间及实时观战功能。源码版本与已发布附件分别维护，实际可下载版本以 Releases 页面为准。
+当前源码版本为 **pro.18 开发版**（应用内 `0.8.3-pro.18`，build 94），包含内置 RPEN 0.13.2 制谱工作台、谱面视频导出、Plugin API v3 和 PRCA 回放分析。本轮新增 Early/Late 跳字提示，修正快速触控的按下位置与时间被移动事件覆盖的问题，统一不同画质下的判定坐标，并调整 Android 无缝刷新率申请及 iOS 渲染驱动。移动设备的三指手势和实际高刷效果仍需真机验证，见 [触控与刷新率说明](docs/development/input-display-feedback.md)。此前已补齐 RPEN 0.13.1 的播放兼容和 Bezier 边界求值，并修复练习区间、普通 RPE 轨迹误报、回放触点与课题输入问题，移除内置多人房间及实时观战功能。源码版本与已发布附件分别维护，实际可下载版本以 Releases 页面为准。
 
 插件接口见 [开发说明](docs/plugins/README.md)，模块职责与审查方法见 [代码审查指南](docs/development/code-review-guide.md)。本版继续包含 [rpe-next 噪域兼容](docs/development/rpe-next-noise.md)、[回放录制与播放](docs/development/replays.md)及各平台帧率设置。历史更新见 [pro.16](docs/development/pro-16.md)、[pro.14-fix1](docs/development/pro-14-fix1.md)、[pro.14](docs/development/pro-14.md)、[pro.13](docs/development/pro-13.md)和 [pro.12](docs/development/pro-12.md)。版本维护、五个平台构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
 
@@ -147,7 +147,7 @@ Windows 的「迁移 RPE」通过原生目录选择器关联 RPE 主目录：RPE
 
 - **按需安装 FFmpeg**：Windows 页面会检测可用的 H.264/AAC 编码器，未安装时提供「下载并安装 FFmpeg」按钮，从 [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) 下载 essentials ZIP，显示下载进度并支持取消和失败重试。下载包通过完整性校验、解压与实际编码验证后，安装到 `data/tools/ffmpeg/` 并自动使用，不修改系统 PATH，不增大主程序包；已有系统 FFmpeg 时可直接使用。其他桌面端仍需自行安装带 libx264 与 AAC 的 `ffmpeg`；Android 包已内置静态 FFmpeg（见下文）。
 - **渲染内核与扩展**：`prpr/src/chart_video/` 分离配置、时间轴、演出画面、音轨、编码器和会话。预留独立原生扩展实例、逐阶段回调、逐帧行为、分层绘制与音频处理接口，详见 [扩展约定](docs/development/chart-video-extensions.md)；脚本插件适配尚未接入。命令行示例 `prpr/examples/render_chart_video.rs` 支持 `FULL_PRESENTATION=1` 启用完整演出。实现及限制见 [谱面渲染](docs/development/pro-17-chart-video.md)。
-- **Android 构建**：`scripts/build-android-ffmpeg.sh` 会在 Gradle 构建时（任务 `ffmpegNdkBuild`）自动下载 x264 与 ffmpeg 源码并交叉编译成 `libffmpeg.so` 一起打进 APK，产物首次约需十几分钟，源码与中间结果缓存在 `target/android-ffmpeg`。渲染器的版本名为 `0.8.2-pro.17-render`（`applicationId` 与上游一致，安装会覆盖同名的官方包）。为了能启动这个内置的 ffmpeg 子进程，渲染器包的 `targetSdk` 是 28（Android 10+ 对 `targetSdk >= 29` 的应用禁止执行数据目录里的文件）。手机上渲染完成后视频会通过 MediaStore 存入系统「下载/PhiraPro」，可以直接在文件管理器里找到。
+- **Android 构建**：`scripts/build-android-ffmpeg.sh` 会在 Gradle 构建时（任务 `ffmpegNdkBuild`）自动下载 x264 与 ffmpeg 源码并交叉编译成 `libffmpeg.so` 一起打进 APK，产物首次约需十几分钟，源码与中间结果缓存在 `target/android-ffmpeg`。渲染器的版本名为 `0.8.3-pro.18-render`（`applicationId` 与上游一致，安装会覆盖同名的官方包）。为了能启动这个内置的 ffmpeg 子进程，渲染器包的 `targetSdk` 是 28（Android 10+ 对 `targetSdk >= 29` 的应用禁止执行数据目录里的文件）。手机上渲染完成后视频会通过 MediaStore 存入系统「下载/PhiraPro」，可以直接在文件管理器里找到。
 
 ### 其他
 
@@ -184,3 +184,12 @@ Kenari_15（Baiji666）、IRENyaaa、霜月Frostine（QQ1816）、Terrysquid、R
 - 特别感谢 [Phira Mod++](https://github.com/YiyiMo-git/Phira-Mod-New) 与 [Phira ad](https://github.com/Adai-add/PhiraiAd) 的功能探索及公开资料；
 - 内置字体 HarmonyOS Sans；
 - `assets/rpen/` 下的噪域皮肤与 shader 预设、内置 RPEN 制谱器前端为独立作品，按其 PolyForm Noncommercial 1.0.0 许可分发（见 [NOTICE](assets/rpen/NOTICE.txt)），不适用本项目的 GPL-3.0；这些资源以独立文件在运行时加载，不编译进主程序。
+
+### pro.18 输入与制谱修复
+
+- 设置 → 调试 → 热键管理：可点击完整键盘布局分配游玩操作，在下方列表编辑或删除热键、修改绑定按键，并恢复默认设置。音符判定仍需开启键盘模式。
+- Linux 制谱工作台容器打开失败时可直接返回并重试，不再等待不存在的网页确认。
+- iOS 制谱资源改为直接读取应用资源目录，保留中文文件名与原始 PNG 字节；资源缓存缺失文件时自动重新准备。
+- 键盘输入在重复事件状态异常时恢复按下状态，并通过原生按键快照补齐缺失事件，适用于课题模式及普通游玩。
+
+- RPEN 移动端的播放、工具、轨道面板支持同时展开，收起时保留原有入口排版。启用 ⇅ 后单指轻点放置音符，双指滑动定位或捏合缩放；帮助说明新增移动端映射教程。

@@ -113,7 +113,7 @@ pub fn catalog() -> Vec<(usize, String)> {
         })
         .map(|(tab, key)| (*tab, tl!(*key).into_owned()))
         .collect();
-    entries.extend([(3, "画质设置".into()), (3, "问题诊断".into())]);
+    entries.extend([(3, "画质设置".into()), (3, "问题诊断".into()), (3, "热键管理".into())]);
     entries
 }
 

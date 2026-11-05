@@ -15,6 +15,7 @@ mod file_import;
 pub mod fs;
 pub mod info;
 pub mod input_capture;
+pub mod hotkeys;
 pub mod loading_cpu;
 pub mod loading_work;
 pub mod practice;

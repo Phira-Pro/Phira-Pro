@@ -316,6 +316,7 @@ pub struct Config {
     /// 调试触点半径（屏幕坐标；1.0 约等于屏幕高度的一半），实时触点与回放触点共用。
     pub touch_point_size: f32,
     pub use_keyboard: bool,
+    pub hotkeys: crate::hotkeys::Bindings,
     /// Phira Pro：谱面流速。只等比缩放音符的**视觉**流速，音乐与音调完全不变。
     /// `1.0` 为官方表现。会改变成绩可比性，因此计入「不可上传」项。
     pub flow_speed: f32,
@@ -493,6 +494,7 @@ impl Default for Config {
             touch_point_alpha: 0.4,
             touch_point_size: 0.04,
             use_keyboard: false,
+            hotkeys: Default::default(),
             volume_music: 1.,
             volume_sfx: 1.,
             volume_bgm: 1.,

@@ -30,23 +30,38 @@ test('single-finger placement commits once on release and never after cancellati
   const state=setup();state.send('pointerdown',1,10,20);assert.equal(state.placements,0);state.send('pointerup',1,10,20);assert.equal(state.placements,1);
   state.send('pointerdown',2,10,20);state.send('pointercancel',2,10,20);assert.equal(state.placements,1);
 });
-test('pan changes time without placing objects and clears held input on mode changes',()=>{
-  const state=setup();state.controller.setMode('pan');state.send('pointerdown',1,10,20);state.send('pointermove',1,10,120);state.send('pointerup',1,10,120);
-  assert.equal(state.placements,0);assert.equal(state.position,4.2);
+test('navigation mode allows a single tap to place but never seeks with one finger',()=>{
+  const state=setup();state.controller.setMode('pan');
+  state.send('pointerdown',1,10,20);state.send('pointerup',1,10,20);
+  assert.equal(state.placements,1);assert.equal(state.position,4);
+  state.send('pointerdown',2,10,20);state.send('pointermove',2,10,120);state.send('pointerup',2,10,120);
+  assert.equal(state.placements,1);assert.equal(state.position,4);
   state.controller.setMode('box');assert.equal(globalThis.phiraEditor.pointerMode,'box');assert.equal(state.controller.points.size,0);
 });
-test('touch scrolling captures both note and event drags before selection handlers',()=>{
-  for(const id of ['notes','events']) {
-    const state=setup(id,0);state.controller.setMode('pan');
-    assert.equal(state.send('pointerdown',1,20,50).consumed,true);
-    assert.equal(state.send('pointermove',1,20,150).consumed,true);
-    assert.equal(state.send('pointerup',1,20,150).consumed,true);
-    assert.equal(state.position,4.2);assert.equal(state.placements,0);
-    state.controller.setMode('edit');
-    assert.equal(state.send('pointerdown',2,20,50).consumed,undefined);
-    state.send('pointercancel',2,20,50);
-  }
+
+test('two-finger navigation seeks without notes, including staggered release',()=>{
+  const state=setup();state.controller.setMode('pan');
+  state.send('pointerdown',1,20,50);state.send('pointerdown',2,120,50);
+  state.send('pointermove',1,20,150);state.send('pointermove',2,120,150);
+  assert.equal(state.position,3.8);
+  state.send('pointerup',2,120,150);
+  state.send('pointermove',1,20,50);state.send('pointerup',1,20,50);
+  assert.equal(state.placements,0);assert.equal(state.position,3.8);
+  state.send('pointerdown',3,20,50);state.send('pointerup',3,20,50);
+  assert.equal(state.placements,1);
 });
+
+test('navigation mode forwards single event taps and cancels interrupted taps',()=>{
+  const state=setup('events',0);let events=0;
+  state.editor.timeline.eventInteraction={down(){events++;},up(){}};
+  state.controller.setMode('pan');
+  state.send('pointerdown',1,20,50);assert.equal(events,0);
+  state.send('pointerup',1,20,50);assert.equal(events,1);
+  state.send('pointerdown',2,20,50);state.send('pointercancel',2,20,50);assert.equal(events,1);
+  state.send('pointerdown',3,20,50);state.send('pointerdown',4,120,50);
+  state.send('pointerup',3,20,50);state.send('pointerup',4,120,50);assert.equal(events,1);
+});
+
 test('touch scrolling leaves mouse input and preview canvases unchanged',()=>{
   const mouse=setup();mouse.controller.setMode('pan');
   assert.equal(mouse.send('pointerdown',1,20,50,'mouse').consumed,undefined);
@@ -54,4 +69,15 @@ test('touch scrolling leaves mouse input and preview canvases unchanged',()=>{
   const preview=setup('realtime-preview');preview.controller.setMode('pan');
   assert.equal(preview.send('pointerdown',1,20,50).consumed,undefined);
   assert.equal(preview.controller.points.size,0);
+});
+
+test('navigation mode supports all four note tools and pending Hold completion',()=>{
+  for(const tool of [1,2,3,4]) {
+    const state=setup('notes',tool);state.controller.setMode('pan');
+    state.send('pointerdown',1,20,50);state.send('pointerup',1,20,50);
+    assert.equal(state.placements,1);
+  }
+  const state=setup('notes',0);state.editor.timeline.pendingHold={};
+  assert.equal(state.send('pointerdown',1,20,50).consumed,true);
+  state.send('pointerup',1,20,50);assert.equal(state.placements,1);
 });

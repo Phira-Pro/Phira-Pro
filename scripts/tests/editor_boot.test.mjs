@@ -41,8 +41,10 @@ test('stalled host requests abort and clear their deadline',async()=>{
   const pending=state.context.phiraEditor.request('close','{}');[...state.timers.values()].at(-1)();
   await assert.rejects(pending,/操作结果尚未确认/);assert.equal(state.timers.size,1);
 });
-test('top panel switching opens only the requested panel and closing restores the dock',()=>{
-  let active=null;
-  for(const id of ['transport','tools','tracks']){active=toggleTopPanel(active,id);assert.equal(active,id);}
-  assert.equal(toggleTopPanel(active,'tracks'),null);
+test('top panels expand independently and each toggle preserves the others',()=>{
+  let open=[];
+  for(const id of ['transport','tools','tracks']) open=toggleTopPanel(open,id);
+  assert.deepEqual(open,['transport','tools','tracks']);
+  assert.deepEqual(toggleTopPanel(open,'tools'),['transport','tracks']);
+  assert.deepEqual(open,['transport','tools','tracks']);
 });

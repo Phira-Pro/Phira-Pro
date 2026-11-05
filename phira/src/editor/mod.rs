@@ -1,5 +1,6 @@
 //! RPEN integration point. Editor persistence and UI live outside game modules.
 mod platform;
+mod assets;
 mod trial;
 mod library;
 
@@ -50,13 +51,14 @@ impl EditorPage {
 }
 async fn prepare() -> Result<(EditorHost, PathBuf)> {
     let root = PathBuf::from(crate::dir::root()?).join("editor");
-    let assets = root.join(format!("runtime-{}", env!("PHIRA_BUILD_NUMBER")));
-    let manifest = load_file("rpen-editor/files.json").await?;
+    let assets = root.join(format!("runtime-{}-raw-v2", env!("PHIRA_BUILD_NUMBER")));
+    let manifest = assets::load("files.json").await?;
     let index: serde_json::Value = serde_json::from_slice(&manifest)?;
     let names: Vec<String> = serde_json::from_value(index["files"].clone())?;
     // Comparing the manifest also detects rebuilt resources with the same build
     // number, so local iteration cannot silently keep an older frontend.
-    if std::fs::read(assets.join(".complete")).ok().as_deref() != Some(manifest.as_slice()) {
+    if std::fs::read(assets.join(".complete")).ok().as_deref() != Some(manifest.as_slice())
+        || names.iter().any(|name| !assets.join(name).is_file()) {
         for name in names {
             anyhow::ensure!(
                 !name.contains(['\\', ':'])
@@ -65,7 +67,7 @@ async fn prepare() -> Result<(EditorHost, PathBuf)> {
                         .all(|c| matches!(c, std::path::Component::Normal(_))),
                 "无效的编辑器资源路径"
             );
-            let bytes = load_file(&format!("rpen-editor/{name}")).await?;
+            let bytes = assets::load(&name).await?;
             let path = assets.join(&name);
             std::fs::create_dir_all(path.parent().unwrap())?;
             std::fs::write(path, bytes)?;
@@ -117,7 +119,7 @@ impl Page for EditorPage {
                         self.window = Some(window);
                         self.status = "RPEN 编辑器已打开".into();
                     }
-                    Err(error) => self.status = error.to_string(),
+                    Err(error) => { self.status = error.to_string(); return Ok(()); },
                 };
                 self.host = Some(host);
             }
@@ -191,7 +193,7 @@ impl Page for EditorPage {
         Ok(())
     }
     fn on_back_pressed(&mut self, _: &mut SharedState) -> bool {
-        if let Some(host) = &self.host {
+        if let Some(host) = self.host.as_ref().filter(|_| self.window.is_some()) {
             host.request_close();
             if let Some(window) = &self.window {
                 window.visible(true);
@@ -206,6 +208,7 @@ impl Page for EditorPage {
             if let Some(window) = &self.window {
                 window.visible(true);
             }
+            if self.window.is_none() && self.opening.is_none() { self.opening = Some(Box::pin(prepare())); }
             return Ok(true);
         }
         Ok(false)
@@ -221,9 +224,9 @@ impl Page for EditorPage {
                 .size(0.36)
                 .max_width(r.w - 0.08)
                 .draw();
-            if self.window.is_some() && !self.trial_active {
+            if !self.trial_active {
                 self.reopen
-                    .render_text(ui, Rect::new(r.x + 0.04, r.y + 0.4, 0.5, 0.1), t, "回到编辑器", 0.42, false);
+                    .render_text(ui, Rect::new(r.x + 0.04, r.y + 0.4, 0.5, 0.1), t, if self.window.is_some() { "回到编辑器" } else { "重新打开" }, 0.42, false);
             }
         });
         Ok(())

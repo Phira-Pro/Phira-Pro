@@ -1246,14 +1246,13 @@ pub struct Judge {
 struct TouchStatus {
     touches: Vec<Touch>,
     held_keys: HashSet<KeyCode>,
-    keys_down: u32,
+    pressed_keys: Vec<KeyCode>,
 }
 
 impl TouchStatus {
-    fn press_key(&mut self, key: KeyCode, repeat: bool) {
-        // Space controls pause/resume and must never become a judgement finger.
-        if key != KeyCode::Space && !repeat && self.held_keys.insert(key) {
-            self.keys_down += 1;
+    fn press_key(&mut self, key: KeyCode, _repeat: bool) {
+        if self.held_keys.insert(key) {
+            self.pressed_keys.push(key);
         }
     }
 
@@ -1268,12 +1267,11 @@ impl TouchStatus {
         }
     }
 
-    fn keyboard_state(&self, enabled: bool) -> (u32, u32) {
-        if enabled {
-            (self.keys_down, self.held_keys.len() as u32)
-        } else {
-            (0, 0)
-        }
+    fn keyboard_state(&self, enabled: bool, bindings: &crate::hotkeys::Bindings) -> (u32, u32) {
+        if !enabled { return (0, 0); }
+        let hit = |key: &&KeyCode| bindings.action(**key) == crate::hotkeys::Action::Hit;
+        (self.pressed_keys.iter().filter(hit).count() as u32,
+         self.held_keys.iter().filter(hit).count() as u32)
     }
 }
 
@@ -1474,6 +1472,7 @@ impl Judge {
         let mut handler = Handler {
             status: TOUCHES.with(|it| it.borrow().next_frame()),
             wheel: (0., 0.),
+            seen_keys: HashSet::new(),
         };
         repeat_all_miniquad_input(&mut handler, *SUBSCRIBER_ID);
         handler.finalize();
@@ -1593,7 +1592,7 @@ impl Judge {
         let (events, keys_down, keys_held) = TOUCHES.with(|it| {
             let guard = it.borrow();
             let events = guard.touches.clone();
-            let (down, held) = guard.keyboard_state(res.config.use_keyboard);
+            let (down, held) = guard.keyboard_state(res.config.use_keyboard, &res.config.hotkeys);
             (events, down, held)
         });
         self.key_down_count = keys_held;
@@ -2432,9 +2431,14 @@ impl Judge {
 struct Handler {
     status: TouchStatus,
     wheel: (f32, f32),
+    seen_keys: HashSet<KeyCode>,
 }
 impl Handler {
     fn finalize(&mut self) {
+        // Recover missing subscriber events from the native frame snapshot.
+        for key in crate::hotkeys::pressed_keys() {
+            if !self.seen_keys.contains(&key) { self.status.press_key(key, false); }
+        }
         // Reconcile with the native snapshot if a release was lost (e.g. focus loss).
         self.status.held_keys.retain(|key| is_key_down(*key));
         if is_mouse_button_down(MouseButton::Left) {
@@ -2504,11 +2508,13 @@ impl EventHandler for Handler {
 
     fn key_down_event(&mut self, _ctx: &mut miniquad::Context, _keycode: KeyCode, _keymods: miniquad::KeyMods, repeat: bool) {
         crate::input_capture::push("keyboard", if repeat { "repeat" } else { "down" }, _keycode as u64, f64::NEG_INFINITY, None);
+        self.seen_keys.insert(_keycode);
         self.status.press_key(_keycode, repeat);
     }
 
     fn key_up_event(&mut self, _ctx: &mut miniquad::Context, _keycode: KeyCode, _keymods: miniquad::KeyMods) {
         crate::input_capture::push("keyboard", "up", _keycode as u64, f64::NEG_INFINITY, None);
+        self.seen_keys.insert(_keycode);
         self.status.release_key(_keycode);
     }
 

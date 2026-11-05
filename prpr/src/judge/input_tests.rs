@@ -53,27 +53,27 @@ fn touch(id: u64, phase: TouchPhase, position: Vec2) -> Touch {
 fn keyboard_snapshots_exclude_pause_repeats_and_unmatched_releases() {
     let mut input = TouchStatus::default();
     input.press_key(KeyCode::Space, false);
-    assert_eq!(input.keyboard_state(true), (0, 0));
+    assert_eq!(input.keyboard_state(true, &Default::default()), (0, 0));
     input.press_key(KeyCode::A, false);
     input.press_key(KeyCode::A, false);
     input.press_key(KeyCode::A, true);
     input.press_key(KeyCode::S, false);
-    assert_eq!(input.keyboard_state(true), (2, 2));
-    assert_eq!(input.keyboard_state(false), (0, 0));
+    assert_eq!(input.keyboard_state(true, &Default::default()), (2, 2));
+    assert_eq!(input.keyboard_state(false, &Default::default()), (0, 0));
     let mut input = input.next_frame();
-    assert_eq!(input.keyboard_state(true), (0, 2));
+    assert_eq!(input.keyboard_state(true, &Default::default()), (0, 2));
     input.release_key(KeyCode::A);
     input.release_key(KeyCode::A);
     input.release_key(KeyCode::Space);
-    assert_eq!(input.keyboard_state(true), (0, 1));
+    assert_eq!(input.keyboard_state(true, &Default::default()), (0, 1));
     input.release_key(KeyCode::S);
     input.press_key(KeyCode::Space, false);
-    assert_eq!(input.keyboard_state(true), (0, 0));
+    assert_eq!(input.keyboard_state(true, &Default::default()), (0, 0));
     // A complete quick tap still has a click edge but no held finger.
     input.press_key(KeyCode::A, false);
     input.release_key(KeyCode::A);
-    assert_eq!(input.keyboard_state(true), (1, 0));
-    assert_eq!(input.next_frame().keyboard_state(true), (0, 0));
+    assert_eq!(input.keyboard_state(true, &Default::default()), (1, 0));
+    assert_eq!(input.next_frame().keyboard_state(true, &Default::default()), (0, 0));
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn paused_releases_clear_mouse_and_touch_without_clearing_another_contact() {
     TOUCHES.with(|s| {
         let mut input = s.borrow().next_frame();
         input.press_key(KeyCode::Space, false);
-        assert_eq!(input.keyboard_state(true), (0, 0));
+        assert_eq!(input.keyboard_state(true, &Default::default()), (0, 0));
         *s.borrow_mut() = input;
     });
     judge.observe_paused_input();
@@ -267,4 +267,33 @@ fn pause_release_sequence_has_no_phantom_fingers_or_revived_holds() {
             }
         },
     );
+}
+
+#[test]
+fn repeat_flag_after_focus_loss_recovers_keyboard_on_each_stage() {
+    for _stage in 0..3 {
+        let mut input = TouchStatus::default();
+        input.press_key(KeyCode::A, true);
+        assert_eq!(input.keyboard_state(true, &Default::default()), (1, 1));
+        let mut input = input.next_frame();
+        input.press_key(KeyCode::A, true);
+        assert_eq!(input.keyboard_state(true, &Default::default()), (0, 1));
+        input.release_key(KeyCode::A);
+        input.press_key(KeyCode::A, true);
+        assert_eq!(input.keyboard_state(true, &Default::default()), (1, 1));
+    }
+}
+
+#[test]
+fn remapped_pause_and_disabled_keys_never_judge_and_space_can_be_assigned() {
+    let mut input = TouchStatus::default();
+    let mut bindings = crate::hotkeys::Bindings::default();
+    bindings.set(KeyCode::A, crate::hotkeys::Action::Pause);
+    bindings.set(KeyCode::S, crate::hotkeys::Action::Disabled);
+    bindings.set(KeyCode::Space, crate::hotkeys::Action::Hit);
+    input.press_key(KeyCode::A, false);
+    input.press_key(KeyCode::S, false);
+    input.press_key(KeyCode::Space, false);
+    assert_eq!(input.keyboard_state(true, &bindings), (1, 1));
+    assert_eq!(input.keyboard_state(false, &bindings), (0, 0));
 }

@@ -49,13 +49,15 @@ Windows 的「迁移 RPE」通过原生目录选择器关联 RPE 主目录：RPE
 兼容性诊断仅展示信息，不再显示无可重置内容的「恢复默认」按钮。
 网页启动由单一模块入口按依赖顺序载入 RPEN 与宿主适配，减少并行入口与扩展初始化的加载时序冲突；原生超时恢复和返回始终独立可用。
 
+本机工程列表、设置及素材等只读存储请求遇到短暂连接中断时，会逐步延长间隔并最多自动重试 3 次，所有尝试共用原请求的超时上限。界面显示重试、恢复及失败提示；失败后保留当前窗口，先备份未保存内容，再决定是否重新进入。保存、删除、导出及未知操作不会自动重发，响应丢失时会提示先确认操作结果，避免重复操作。
+
 移动端状态栏在窄屏内独立横向滚动，不再撑宽整页并触发浏览器自动缩放。
 
 「Pro 试玩」使用独立快照，可从头、当前播放头或指定秒数区间进入练习，返回后继续原编辑会话。试玩不挂接正常成绩保存或上传回调。触屏提供编辑、平移、框选、多选及面板切换；双指调整时间轴比例。桌面需要 Microsoft Edge WebView2 Runtime；Android 使用系统 WebView，iOS 使用 WKWebView。
 
 当前实现和验证范围见 [制谱工作台说明](docs/development/pro-18-editor.md)。RPEN 的第三方运行时效果需要播放器实现对应协议；编辑器中能运行的 JavaScript 模组不能据此认定可在原生试玩中执行。
 
-内置的 [Re:PhiEdit Next（RPEN）](https://github.com/kclg-YSJ/rpe-next) 原作者为 **cmdysj**，项目基于原 Re:PhiEdit（RPE）重构。当前编辑器同步至 **0.13.2**。Phira Pro 的宿主桥接、移动端适配与打包清单在独立的 [Pro fork](https://github.com/Phira-Pro/rpe-next) 维护，升级通过 Git 合并上游更新。前端不随本仓库分发，构建时按 `scripts/editor/upstream.json` 固定提交，并仅将 fork 内 `phira-pro-bundle.json` 列出的文件打包进发行版，保留其独立的 PolyForm Noncommercial 1.0.0 许可证及 NOTICE 中的署名、来源和第三方声明；第三方内容适用各自的许可。Phira Pro 原生宿主代码按本仓库 GPL-3.0 许可证分发。
+内置的 [Re:PhiEdit Next（RPEN）](https://github.com/kclg-YSJ/rpe-next) 原作者为 **cmdysj**，项目基于原 Re:PhiEdit（RPE）重构。当前编辑器同步至 **0.13.2**。Phira Pro 的宿主桥接、移动端适配与打包规则在独立的 [Pro fork](https://github.com/Phira-Pro/rpe-next) 维护，升级通过 Git 合并上游更新。前端不随本仓库分发，构建时按 `scripts/editor/upstream.json` 固定提交，排除 fork 内 `phira-pro-exclude.json` 指定的路径，其余受版本管理的资源打包进发行版，保留其独立的 PolyForm Noncommercial 1.0.0 许可证及 NOTICE 中的署名、来源和第三方声明；第三方内容适用各自的许可。Phira Pro 原生宿主代码按本仓库 GPL-3.0 许可证分发。
 
 0.13.2 新增的自定义判定线动画曲线在 Pro 试玩及存入本地谱面库时，转换为独立快照中的分段事件，RPEN 工程保留原定义。暂不支持转换的噪域或扩展曲线会明确提示使用编辑器预览；原生播放器尚未直接实现全部新曲线语义。RPEN 视频下载使用 Pro 保存通道，编码格式支持取决于系统网页视图。
 

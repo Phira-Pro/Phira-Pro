@@ -72,10 +72,6 @@ use std::{
 };
 use tracing::{error, info, warn};
 
-// Only used by the Android-only GTS anti-addiction callback below.
-#[cfg(target_os = "android")]
-use tracing::warn;
-
 #[cfg(target_os = "android")]
 use jni::{
     objects::{JClass, JObject, JString},

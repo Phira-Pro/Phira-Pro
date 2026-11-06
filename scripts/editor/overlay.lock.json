@@ -5,8 +5,8 @@
   },
   "base": {
     "src/ui/mod-runtime.mjs": {
-      "bytes": 16976,
-      "crc32": "f3c62331"
+      "bytes": 16832,
+      "crc32": "d6c8347e"
     }
   }
 }

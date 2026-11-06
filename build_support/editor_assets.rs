@@ -39,6 +39,8 @@ pub fn ensure(root: &Path) {
         println!("cargo:warning=缺少 {PIN}，跳过制谱器前端准备");
         return;
     };
+    // 印章与比较都用 LF 文本：Windows 工作区检出 CRLF 时不会误判为“未暂存”。
+    let pin = text_to_lf(&pin);
     let overlay = overlay_fingerprint(root);
     let mut staged_now = false;
     if !staged(&target, &pin, &overlay) {
@@ -99,7 +101,8 @@ fn stage(root: &Path, target: &Path, pin: &str, overlay: &str) {
 /// Copies the local patches onto a staged checkout. Every patch mirrors the path it
 /// replaces; files created by `derive` keep the pinned upstream file available under
 /// a second name so a patch can wrap it instead of forking it. The lock pins the
-/// upstream bytes each patch was written against, so bumping the pin fails loudly.
+/// upstream bytes (LF normalized) each patch was written against, so bumping the pin
+/// fails loudly.
 fn apply_overlay(root: &Path, checkout: &Path, staging: &Path) {
     let source = root.join(OVERLAY);
     if !source.is_dir() {
@@ -115,11 +118,21 @@ fn apply_overlay(root: &Path, checkout: &Path, staging: &Path) {
         if !valid_path(name) {
             panic!("{LOCK} 含非法路径: {name}");
         }
+        // 基线按 LF 换行记录：Windows 工作区会按 `.gitattributes` 检出 CRLF，
+        // CI 与其它平台则是 LF；不归一化就会让同一提交的字节数对不上。
         let bytes = fs::read(checkout.join(name)).unwrap_or_else(|error| panic!("读取上游 {name} 失败: {error}"));
+        let bytes = line_endings_to_lf(&bytes);
         let size = expected["bytes"].as_u64();
         let digest = expected["crc32"].as_str();
-        if size != Some(bytes.len() as u64) || digest != Some(format!("{:08x}", crc32(0, &bytes)).as_str()) {
-            panic!("{name} 与 {LOCK} 记录的上游版本不一致；复核 {OVERLAY} 后更新基线");
+        let actual = format!("{:08x}", crc32(0, &bytes));
+        if size != Some(bytes.len() as u64) || digest != Some(actual.as_str()) {
+            panic!(
+                "{name} 与 {LOCK} 记录的上游版本不一致（记录 {} 字节 / {}，实际 {} 字节 / {}）；复核 {OVERLAY} 后更新基线",
+                size.map_or_else(|| "?".to_owned(), |it| it.to_string()),
+                digest.unwrap_or("?"),
+                bytes.len(),
+                actual,
+            );
         }
     }
     let derive = lock["derive"].as_object().unwrap_or_else(|| panic!("{LOCK} 缺少 derive 表"));
@@ -173,11 +186,12 @@ fn overlay_fingerprint(root: &Path) -> String {
         hash = fnv1a(hash, name.as_bytes());
         hash = fnv1a(hash, b"\0");
         let bytes = fs::read(directory.join(name)).unwrap_or_else(|error| panic!("读取 {name} 失败: {error}"));
+        let bytes = if is_text_file(name) { line_endings_to_lf(&bytes) } else { bytes };
         hash = fnv1a(hash, &(bytes.len() as u64).to_le_bytes());
         hash = fnv1a(hash, &bytes);
     }
     match fs::read(root.join(LOCK)) {
-        Ok(lock) => hash = fnv1a(hash, &lock),
+        Ok(lock) => hash = fnv1a(hash, &line_endings_to_lf(&lock)),
         Err(_) => hash = fnv1a(hash, b"no-lock"),
     }
     format!("{hash:016x}")
@@ -332,6 +346,29 @@ fn collect(root: &Path, directory: &Path, names: &mut Vec<String>) {
         }
         names.push(name);
     }
+}
+
+fn text_to_lf(text: &str) -> String {
+    String::from_utf8(line_endings_to_lf(text.as_bytes())).unwrap_or_else(|error| panic!("文本不是合法 UTF-8: {error}"))
+}
+
+fn is_text_file(name: &str) -> bool {
+    const TEXT: [&str; 8] = [".js", ".mjs", ".json", ".css", ".html", ".md", ".txt", ".svg"];
+    TEXT.iter().any(|suffix| name.ends_with(suffix))
+}
+
+fn line_endings_to_lf(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'\r' && bytes.get(index + 1) == Some(&b'\n') {
+            index += 1;
+            continue;
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    out
 }
 
 fn crc32(seed: u32, data: &[u8]) -> u32 {

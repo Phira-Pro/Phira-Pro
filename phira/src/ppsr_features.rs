@@ -2358,6 +2358,7 @@ mod tests {
             color: Color::new(1.0, 1.0, 1.0, 1.0),
             fx_color: None,
             judge_area: 1.0,
+            hold_body_speed: None,
             above: true,
             multiple_hint: false,
             fake,

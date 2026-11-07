@@ -15,6 +15,7 @@ fn chart(notes: Vec<(f64, NoteKind)>) -> Chart {
             color: WHITE,
             fx_color: None,
             judge_area: 1.,
+            hold_body_speed: None,
             above: true,
             multiple_hint: false,
             fake: false,

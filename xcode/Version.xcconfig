@@ -1,4 +1,4 @@
 // Generated from version.json by scripts/version.py sync. Do not edit.
 MARKETING_VERSION = 0.8.18
-CURRENT_PROJECT_VERSION = 94
-PHIRA_PRO_VERSION = 0.8.3-pro.18
+CURRENT_PROJECT_VERSION = 95
+PHIRA_PRO_VERSION = 0.8.3-pro.18-fix1

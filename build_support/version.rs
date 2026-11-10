@@ -19,7 +19,7 @@ impl Version {
             serde_json::from_str(&fs::read_to_string(&path).expect("cannot read version.json")).expect("invalid version.json");
         let object = values.as_object().expect("version.json must be an object");
         assert!(
-            object.len() == 4
+            object.len() == 4 + usize::from(object.contains_key("pro_fix"))
                 && ["base_version", "pro_revision", "flash_revision", "build_number"]
                     .iter()
                     .all(|key| object.contains_key(*key)),
@@ -42,9 +42,14 @@ impl Version {
             value as u32
         };
         assert_eq!(base, env::var("CARGO_PKG_VERSION").unwrap(), "Cargo version is stale; run python scripts/version.py sync");
+        let suffix = if object.contains_key("pro_fix") {
+            format!("-fix{}", number("pro_fix"))
+        } else {
+            String::new()
+        };
         Self {
             base: base.into(),
-            pro: format!("{base}-pro.{}", number("pro_revision")),
+            pro: format!("{base}-pro.{}{suffix}", number("pro_revision")),
             ios: format!("{}.{}.{}", parts[0], parts[1], number("pro_revision")),
             flash: format!("flash.{}", number("flash_revision")),
             build: number("build_number"),

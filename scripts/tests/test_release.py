@@ -51,6 +51,20 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "missing"):
                 release.remote_commit(self.tag)
 
+    def test_explicit_fix_version_requires_its_exact_tag_and_package_names(self):
+        values = {"pro_version": "0.8.3-pro.18-fix1"}
+        release.check_tag("v0.8.3-pro.18-fix1", values)
+        release.check_tag("0.8.3-pro.18-fix1", values)
+        for tag in ["v0.8.3-pro.18", "v0.8.3-pro.18-fix2", "v0.8.3-pro.18-fix1-fix2"]:
+            with self.subTest(tag=tag), self.assertRaises(ValueError):
+                release.check_tag(tag, values)
+        assets = []
+        for path in self.packages():
+            renamed = path.with_name(path.name.replace("0.8.2-pro.9", values["pro_version"]))
+            path.rename(renamed)
+            assets.append(renamed)
+        self.assertEqual(set(release.collect_assets(self.directory, values)), set(assets))
+
     def test_fix_release_keeps_app_version_and_package_names(self):
         for tag in (self.tag + "-fix1", self.tag[1:] + "-fix2"):
             release.check_tag(tag, self.values)

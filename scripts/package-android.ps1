@@ -2,8 +2,8 @@
 param([switch]$SkipBuild)
 $ErrorActionPreference = 'Stop'
 $workspace = Split-Path -Parent $PSScriptRoot
-$versions = Get-Content -Raw -LiteralPath (Join-Path $workspace 'version.json') | ConvertFrom-Json
-$Version = "$($versions.base_version)-pro.$($versions.pro_revision)"
+$Version = & python (Join-Path $PSScriptRoot 'version.py') show --field pro_version
+if ($LASTEXITCODE -ne 0) { throw 'Cannot read the package version' }
 & python (Join-Path $PSScriptRoot 'version.py') check
 if ($LASTEXITCODE -ne 0) { throw 'Version definitions are inconsistent' }
 $androidProject = Join-Path $workspace 'phira-android'
@@ -30,9 +30,6 @@ New-Item -ItemType Directory -Path $deliveryRoot -Force | Out-Null
 $name = "PhiraPro-v$Version-android-arm64-v8a.apk"
 $destination = Join-Path $deliveryRoot $name
 Copy-Item -LiteralPath $apk -Destination $destination
-$hash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
-[System.IO.File]::WriteAllText("$destination.sha256", "$hash  $name`n", [System.Text.UTF8Encoding]::new($false))
 . (Join-Path $PSScriptRoot 'package-cleanup.ps1')
 Clear-OldPackages -DeliveryRoot $deliveryRoot -Version $Version
 Write-Output $destination
-Write-Output "SHA256: $hash"

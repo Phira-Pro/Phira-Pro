@@ -5,24 +5,27 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-KEYS = {"base_version", "pro_revision", "flash_revision", "build_number"}
+REQUIRED_KEYS = {"base_version", "pro_revision", "flash_revision", "build_number"}
+KEYS = REQUIRED_KEYS | {"pro_fix"}
 
 
 def load_version(root=ROOT):
     values = json.loads((root / "version.json").read_text(encoding="utf-8"))
-    if not isinstance(values, dict) or set(values) != KEYS:
-        raise ValueError("version.json must contain exactly: " + ", ".join(sorted(KEYS)))
+    if not isinstance(values, dict) or not REQUIRED_KEYS <= set(values) <= KEYS:
+        raise ValueError("version.json requires " + ", ".join(sorted(REQUIRED_KEYS)) + "; pro_fix is optional")
     base = values["base_version"]
     if not isinstance(base, str) or not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", base):
         raise ValueError("base_version must be a numeric major.minor.patch version")
-    for key in KEYS - {"base_version"}:
+    for key in set(values) - {"base_version"}:
         number = values[key]
         if type(number) is not int or not 1 <= number <= 2_100_000_000:
             raise ValueError(f"{key} must be a positive integer <= 2100000000")
     # iOS requires exactly three numeric components. Include the Pro revision
     # instead of keeping the system-visible version fixed at the upstream base.
     major, minor, _ = base.split(".")
-    return dict(values, pro_version=f"{base}-pro.{values['pro_revision']}",
+    fix = values.get("pro_fix", 0)
+    suffix = f"-fix{fix}" if fix else ""
+    return dict(values, pro_fix=fix, pro_version=f"{base}-pro.{values['pro_revision']}{suffix}",
                 ios_version=f"{major}.{minor}.{values['pro_revision']}", flash_version=f"flash.{values['flash_revision']}")
 
 

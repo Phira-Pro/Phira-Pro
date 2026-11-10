@@ -12,9 +12,10 @@ from version import ROOT, check_version
 
 
 def check_tag(tag, values):
-    # A fix release changes its tag/build identity, not the app's Pro revision
-    # or package filenames. Keep the base version match strict.
-    if not re.fullmatch(r"v?" + re.escape(values["pro_version"]) + r"(?:-fix[1-9][0-9]*)?", tag):
+    # Explicit fix revisions use their exact app/package identity. Historical
+    # version sources without pro_fix retain the tag-only fix convention.
+    suffix = "" if re.search(r"-fix[1-9][0-9]*$", values["pro_version"]) else r"(?:-fix[1-9][0-9]*)?"
+    if not re.fullmatch(r"v?" + re.escape(values["pro_version"]) + suffix, tag):
         raise ValueError(f"Release tag {tag!r} must match version.json: v{values['pro_version']}")
 
 

@@ -55,5 +55,34 @@ class VersionTests(unittest.TestCase):
                 self.values[key] = old
 
 
+    def test_fix_revision_is_shared_by_app_and_generated_ios_metadata(self):
+        self.values.update(pro_fix=1, build_number=45)
+        self.write_values()
+        version.sync_version(self.root)
+        values = version.check_version(self.root)
+        self.assertEqual(values["pro_version"], "0.8.2-pro.9-fix1")
+        self.assertEqual(values["ios_version"], "0.8.9")
+        self.assertEqual(values["build_number"], 45)
+        self.assertIn("PHIRA_PRO_VERSION = 0.8.2-pro.9-fix1", (self.root / "xcode/Version.xcconfig").read_text())
+        self.assertIn("CURRENT_PROJECT_VERSION = 45", (self.root / "xcode/Version.xcconfig").read_text())
+        del self.values["pro_fix"]
+        self.write_values()
+        self.assertEqual(version.load_version(self.root)["pro_fix"], 0)
+        self.assertEqual(version.load_version(self.root)["pro_version"], "0.8.2-pro.9")
+
+    def test_fix_revision_rejects_invalid_values_and_unknown_fields(self):
+        for invalid in [0, -1, True, "1", 1.5, 2100000001]:
+            with self.subTest(value=invalid):
+                self.values["pro_fix"] = invalid
+                self.write_values()
+                with self.assertRaises(ValueError):
+                    version.load_version(self.root)
+        self.values.pop("pro_fix")
+        self.values["extra"] = 1
+        self.write_values()
+        with self.assertRaises(ValueError):
+            version.load_version(self.root)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -27,6 +27,8 @@ mod mod_badges;
 /// 「已应用推荐偏移」提示：停留 5 秒后淡出。
 mod status;
 mod status_badge;
+#[cfg(all(test, not(any(target_os = "android", target_env = "ohos"))))]
+mod lifecycle_tests;
 use status::PlayStatus;
 
 const TOAST_HOLD: f32 = 5.0;
@@ -203,6 +205,7 @@ impl Scene for EndingScene {
     }
 
     fn resume(&mut self, tm: &mut TimeManager) -> Result<()> {
+        self.audio.recover_if_needed()?;
         self.bgm.play()?;
         tm.resume();
         Ok(())

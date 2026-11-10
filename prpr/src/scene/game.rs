@@ -19,6 +19,9 @@ mod video;
 #[cfg(test)]
 #[path = "game/chart_loading_tests.rs"]
 mod chart_loading_tests;
+#[cfg(all(test, not(any(target_os = "android", target_env = "ohos"))))]
+#[path = "game/lifecycle_tests.rs"]
+pub(super) mod lifecycle_tests;
 
 use super::{
     draw_background,
@@ -1765,6 +1768,10 @@ impl GameScene {
 impl Scene for GameScene {
     fn enter(&mut self, tm: &mut TimeManager, target: Option<RenderTarget>) -> Result<()> {
         tracing::info!("game entry begins");
+        // A results overlay owns lifecycle callbacks while this scene is hidden.
+        // Recover its interrupted stream before enqueueing reset/new-player
+        // commands, which otherwise can wait forever for an audio callback.
+        self.res.audio.recover_if_needed()?;
         #[cfg(target_arch = "wasm32")]
         on_game_start();
         #[cfg(target_env = "ohos")]
@@ -1785,6 +1792,7 @@ impl Scene for GameScene {
         // Loading already created the first renderer; recreate on re-entry.
         if self.entered {
             self.music = Self::new_music(&mut self.res, &self.practice_schedule)?;
+            self.res.invalidate_render_surface();
         }
         self.res.camera.render_target = target;
         tm.speed = self.res.config.speed as _;

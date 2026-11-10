@@ -1,5 +1,9 @@
 prpr_l10n::tl_file!("respack");
 
+#[cfg(test)]
+#[path = "respack/tests.rs"]
+mod tests;
+
 use super::{
     library::{request_export, resolve_export, take_export},
     Page, SharedState,
@@ -32,7 +36,12 @@ use std::{
 };
 
 fn build_emitter(pack: &ResourcePack) -> Result<ParticleEmitter> {
-    ParticleEmitter::new(pack, get_data().config.note_scale * 0.6, pack.info.hide_particles)
+    let mut emitter = ParticleEmitter::new(pack, get_data().config.note_scale * 0.6, pack.info.hide_particles)?;
+    // Preview particles live in the panel's coordinates, including particles
+    // already on screen when the HUD editor moves the panel.
+    emitter.emitter.config.local_coords = true;
+    emitter.emitter_square.config.local_coords = true;
+    Ok(emitter)
 }
 
 fn sanitize_filename(name: &str) -> String {
@@ -318,7 +327,8 @@ impl Page for ResPackPage {
         // HUD 自定义：左侧资源包列表 + 右侧预览，都可整块移动 / 缩放。
         let key = crate::hud::cur_page().key();
         let r = crate::hud::slot_or(ui, key, "list", crate::hud::Cap(true, true, true), Rect::new(-0.92, cr.y, 0.47, cr.h));
-        let cr = crate::hud::slot_or(ui, key, "preview", crate::hud::Cap(true, true, true), cr);
+        let default_cr = cr;
+        let cr = crate::hud::slot_or(ui, key, "preview", crate::hud::Cap(true, true, true), default_cr);
 
         s.render_fader(ui, |ui| {
             ui.fill_path(&r.rounded(0.005), semi_black(0.4));
@@ -366,7 +376,7 @@ impl Page for ResPackPage {
                 draw(r, *pack.note_style.drag, *pack.note_style_mh.drag);
                 r.y += sp;
                 draw(r, *pack.note_style.flick, *pack.note_style_mh.flick);
-                let mut r = Rect::new(0.1, cr.y + 0.1, width, cr.h - 0.38);
+                let mut r = Rect::new(cr.x + (0.1 - default_cr.x), cr.y + 0.1, width, cr.h - 0.38);
                 let draw = |mut r: Rect, style: &NoteStyle, width: f32| {
                     let conv = |r: Rect, tex: &SafeTexture| Rect::new(r.x * tex.width(), r.y * tex.height(), r.w * tex.width(), r.h * tex.height());
                     let tr = conv(style.hold_tail_rect(), &style.hold);
@@ -431,7 +441,10 @@ impl Page for ResPackPage {
                 draw(r, &pack.note_style_mh, width * pack.note_style_mh.hold.width() / pack.note_style.hold.width());
                 let x = cr.x + 0.05;
                 if let Some(emitter) = &mut self.emitter {
-                    emitter.draw(get_frame_time());
+                    let origin = ui.rect_to_global(Rect::new(cr.x, cr.y, 0., 0.));
+                    let dt = get_frame_time();
+                    emitter.emitter.draw(vec2(origin.x, origin.y), dt);
+                    emitter.emitter_square.draw(vec2(origin.x, origin.y), dt);
                 };
 
                 let inter = 1.5;
@@ -445,7 +458,7 @@ impl Page for ResPackPage {
                 };
                 let st = r.y + 0.06;
                 let cx = r.x + 0.43;
-                let line = 0.12;
+                let line = cr.y + (0.12 - default_cr.y);
                 ui.fill_rect(Rect::new(cx - 0.2, line - 0.004, 0.4, 0.008), WHITE);
                 let p = (t - inter * rnd) / 0.9;
                 if p <= 1. {
@@ -455,7 +468,7 @@ impl Page for ResPackPage {
                     ui.fill_rect(r, (tex, r, ScaleType::Fit));
                 } else if irnd != self.last_round {
                     if let Some(emitter) = &mut self.emitter {
-                        emitter.emit_at(vec2(cx, line), 0., pack.info.fx_perfect());
+                        emitter.emit_at(vec2(cx - cr.x, line - cr.y), 0., pack.info.fx_perfect());
                     }
                     if let Some(sfxs) = &mut self.sfxs {
                         let _ = sfxs[(irnd % 3) as usize].play(PlaySfxParams {

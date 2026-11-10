@@ -70,6 +70,7 @@
     (3, "item-chart-debug"),
     (3, "item-debug-line"),
     (3, "item-debug-note"),
+    (3, "item-legacy-hold"),
     (3, "item-show-fps"),
     (3, "item-fps-position"),
     (3, "item-desktop-fps"),

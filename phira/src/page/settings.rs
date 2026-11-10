@@ -69,6 +69,8 @@ const DESKTOP_FPS_LIMITS: [u16; 11] = [0, 60, 120, 144, 165, 185, 200, 240, 360,
 #[cfg(all(test, target_os = "windows"))]
 mod qa;
 #[cfg(all(test, target_os = "windows"))]
+mod hold_rendering_tests;
+#[cfg(all(test, target_os = "windows"))]
 pub(crate) fn verify_background_blur(painter: &mut prpr::ui::TextPainter) {
     qa::background_blur_regression(painter);
 }
@@ -1912,6 +1914,7 @@ struct DebugList {
     chart_debug_btn: DRectButton,
     chart_debug_line_btn: DRectButton,
     chart_debug_note_btn: DRectButton,
+    legacy_hold_btn: DRectButton,
     touch_debug_btn: DRectButton,
     touch_color_btn: DRectButton,
     touch_color_reset: DRectButton,
@@ -1956,6 +1959,7 @@ impl DebugList {
             chart_debug_btn: DRectButton::new(),
             chart_debug_line_btn: DRectButton::new(),
             chart_debug_note_btn: DRectButton::new(),
+            legacy_hold_btn: DRectButton::new(),
             touch_debug_btn: DRectButton::new(),
             touch_color_btn: DRectButton::new(),
             touch_color_reset: DRectButton::new(),
@@ -2062,6 +2066,10 @@ impl DebugList {
         }
         if self.section_open[0] && self.chart_debug_note_btn.touch(touch, t) {
             config.chart_debug_note ^= true;
+            return Ok(Some(true));
+        }
+        if self.section_open[0] && self.legacy_hold_btn.touch(touch, t) {
+            config.legacy_hold_rendering ^= true;
             return Ok(Some(true));
         }
         if self.section_open[1] && self.fps_position_btn.touch(touch, t) {
@@ -2238,6 +2246,10 @@ impl DebugList {
             item! {
                 render_title(ui, tl!("item-debug-note"), Some(tl!("item-debug-note-sub")));
                 render_switch(ui, rr, t, &mut self.chart_debug_note_btn, config.chart_debug_note);
+            }
+            item! {
+                render_title(ui, tl!("item-legacy-hold"), Some(tl!("item-legacy-hold-sub")));
+                render_switch(ui, rr, t, &mut self.legacy_hold_btn, config.legacy_hold_rendering);
             }
         }
         self.sections[1].render_text(

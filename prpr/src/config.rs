@@ -221,6 +221,8 @@ pub struct Config {
     pub chart_debug_line: bool,
     /// 音符调试：在音符旁显示线号 / 时间 / 高度 / 类型，并画出它的横向判定范围。
     pub chart_debug_note: bool,
+    /// Restore integral-based official Hold length for resource pack compatibility.
+    pub legacy_hold_rendering: bool,
     pub disable_effect: bool,
     pub double_click_to_pause: bool,
     pub double_hint: bool,
@@ -429,6 +431,7 @@ impl Default for Config {
             chart_debug: false,
             chart_debug_line: false,
             chart_debug_note: false,
+            legacy_hold_rendering: false,
             disable_effect: false,
             double_click_to_pause: true,
             double_hint: true,
@@ -996,6 +999,21 @@ mod tests {
         assert!(restored.show_early_late);
         assert_eq!(restored.early_late_position, 1);
         assert_eq!(before, restored.non_official_items(Mods::empty()));
+    }
+
+    #[test]
+    fn hold_rendering_switch_persists_without_changing_judgement_or_rating() {
+        let mut config: Config = serde_json::from_str("{}").unwrap();
+        assert!(!config.legacy_hold_rendering);
+        let eligibility = config.non_official_items(Mods::empty());
+        let windows = config.judge_windows();
+        config.legacy_hold_rendering = true;
+        let saved = serde_json::to_value(&config).unwrap();
+        assert_eq!(saved["legacyHoldRendering"], true);
+        let restored: Config = serde_json::from_value(saved).unwrap();
+        assert!(restored.legacy_hold_rendering);
+        assert_eq!(eligibility, restored.non_official_items(Mods::empty()));
+        assert_eq!(windows, restored.judge_windows());
     }
 
     #[test]

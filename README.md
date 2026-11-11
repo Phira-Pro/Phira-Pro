@@ -11,9 +11,15 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.3 的**非�
 
 在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows、macOS、Linux 压缩包、Android arm64 APK 或 iOS 未签名 IPA。Windows 解压后运行 `phira-main.exe`，macOS / Linux 运行 `phira-main`；Android 更新时保留应用数据，iOS IPA 需自行签名安装。
 
-当前源码版本为 **pro.18-fix1**（应用内 `0.8.3-pro.18-fix1`，build 95），包含内置 RPEN 0.13.2 制谱工作台、谱面视频导出、Plugin API v3 和 PRCA 回放分析。本轮修复 iOS 上启用模组时报模块无法解析的问题（改为按依赖顺序逐模块装载，保留固定提交全部导出，不再依赖后注册的 import map），修复扩展名为 `.json`、内容为 PEC 文本的谱面无法导入的问题，并移除输入记录路径上每个触摸事件的堆分配，同时修正制谱器补丁基线对换行的依赖，Windows 与 CI 检出同一固定提交都能正常暂存前端，Android 构建中的重复导入也一并修正。此前新增 Early/Late 跳字提示，修正快速触控的按下位置与时间被移动事件覆盖的问题，统一不同画质下的判定坐标，并调整 Android 无缝刷新率申请及 iOS 渲染驱动。移动设备的三指手势和实际高刷效果仍需真机验证，见 [触控与刷新率说明](docs/development/input-display-feedback.md)。此前已补齐 RPEN 0.13.1 的播放兼容和 Bezier 边界求值，并修复练习区间、普通 RPE 轨迹误报、回放触点与课题输入问题，移除内置多人房间及实时观战功能。源码版本与已发布附件分别维护，实际可下载版本以 Releases 页面为准。
+当前源码版本为 **pro.19 开发版**（应用内 `0.8.3-pro.19`，build 96），内置 RPEN 升级至 **0.14.0**，保留谱面视频导出、Plugin API v3 和 PRCA 回放分析。同步上游空间轨迹、二维移动、事件数值缩放、着色器编辑及 RPE Classic 皮肤；Pro 试玩和谱面库副本统一准备着色器源码，避免依赖缺失。升级范围和容器限制见 [pro.19 更新说明](docs/development/pro-19.md)。沿用 pro.18-fix1 的 iOS 模组加载修复、PEC 内容识别和触摸事件分配优化。此前新增 Early/Late 跳字提示，修正快速触控的位置与时间处理，统一不同画质下的判定坐标，并调整 Android 刷新率申请及 iOS 渲染驱动。移动设备的三指手势和实际高刷效果仍需真机验证，见 [触控与刷新率说明](docs/development/input-display-feedback.md)。源码版本与已发布附件分别维护，实际可下载版本以 Releases 页面为准。
 
-此修复版还包含自定义 HUD 资源包预览跟随修复、Android 结算页切后台后重试的音频恢复修复，以及官谱 Hold 长度修复和可切换的旧版显示模式。
+继续保留 pro.18-fix1 的自定义 HUD 资源包预览跟随修复、Android 结算页切后台后重试的音频恢复修复，以及官谱 Hold 长度修复和可切换的旧版显示模式。
+
+失败重试会恢复设定的播放倍速；从练习区间中途续练的轮次不会推进自动提速。还原备份后会尝试重载设置并刷新本地列表，外观和字体仍需重启生效。
+
+性能优化候选、验证结果和合入标准见 [性能优化审计](docs/development/performance-audit/README.md)。
+
+RPEN 设置 → 预览可切换 RPEN 或 Phira Pro 渲染。Pro 模式在同一预览区域显示原生离屏画面，跟随时间轴及编辑快照，音乐由 RPEN 播放；尚不支持的扩展运行时效果需使用 RPEN。RPE Classic 顶栏左侧保留图标和名称，按钮单行靠右；放不下时可在菜单上横向滑动或用鼠标滚轮浏览。触控箭头和白底操作按钮放在原三点入口处，触控命令长标签自动换行。语言设置新增日本語，主要编辑界面已翻译，部分专业工具使用英文回退。
 
 插件接口见 [开发说明](docs/plugins/README.md)，模块职责与审查方法见 [代码审查指南](docs/development/code-review-guide.md)。本版继续包含 [rpe-next 噪域兼容](docs/development/rpe-next-noise.md)、[回放录制与播放](docs/development/replays.md)及各平台帧率设置。历史更新见 [pro.16](docs/development/pro-16.md)、[pro.14-fix1](docs/development/pro-14-fix1.md)、[pro.14](docs/development/pro-14.md)、[pro.13](docs/development/pro-13.md)和 [pro.12](docs/development/pro-12.md)。版本维护、五个平台构建与 Actions 使用方法见 [构建说明](docs/development/build.md)。
 
@@ -59,9 +65,11 @@ Windows 的「迁移 RPE」通过原生目录选择器关联 RPE 主目录：RPE
 
 当前实现和验证范围见 [制谱工作台说明](docs/development/pro-18-editor.md)。RPEN 的第三方运行时效果需要播放器实现对应协议；编辑器中能运行的 JavaScript 模组不能据此认定可在原生试玩中执行。
 
-内置的 [Re:PhiEdit Next（RPEN）](https://github.com/kclg-YSJ/rpe-next) 原作者为 **cmdysj**，项目基于原 Re:PhiEdit（RPE）重构。当前编辑器同步至 **0.13.2**。Phira Pro 的宿主桥接、移动端适配与打包规则在独立的 [Pro fork](https://github.com/Phira-Pro/rpe-next) 维护，升级通过 Git 合并上游更新。前端不随本仓库分发，构建时按 `scripts/editor/upstream.json` 固定提交，排除 fork 内 `phira-pro-exclude.json` 指定的路径，其余受版本管理的资源打包进发行版，保留其独立的 PolyForm Noncommercial 1.0.0 许可证及 NOTICE 中的署名、来源和第三方声明；第三方内容适用各自的许可。Phira Pro 原生宿主代码按本仓库 GPL-3.0 许可证分发。
+内置的 [Re:PhiEdit Next（RPEN）](https://github.com/kclg-YSJ/rpe-next) 原作者为 **cmdysj**，项目基于原 Re:PhiEdit（RPE）重构。当前编辑器同步至 **0.14.0**。Phira Pro 的宿主桥接、移动端适配与打包规则在独立的 [Pro fork](https://github.com/Phira-Pro/rpe-next) 维护，升级通过 Git 合并上游正式标签。前端不随本仓库分发，构建时按 `scripts/editor/upstream.json` 固定提交，排除 fork 内 `phira-pro-exclude.json` 指定的路径，其余受版本管理的资源打包进发行版，保留其独立的 PolyForm Noncommercial 1.0.0 许可证及 NOTICE 中的署名、来源和第三方声明；第三方内容适用各自的许可。Phira Pro 原生宿主代码按本仓库 GPL-3.0 许可证分发。
 
 0.13.2 新增的自定义判定线动画曲线在 Pro 试玩及存入本地谱面库时，转换为独立快照中的分段事件，RPEN 工程保留原定义。暂不支持转换的噪域或扩展曲线会明确提示使用编辑器预览；原生播放器尚未直接实现全部新曲线语义。RPEN 视频下载使用 Pro 保存通道，编码格式支持取决于系统网页视图。
+
+0.14.0 的着色器编辑与模板在编辑器中使用上游实现，Pro 试玩及谱面库副本会将引用的内置着色器源码准备为独立素材，并保留自定义源码。整个编辑器画面的录制依赖 RPEN 桌面版专用捕获接口，Pro 网页容器暂不提供该接口；原有谱面视频渲染与操作按键显示保留。
 
 移动端常驻图标、曲名与文件操作菜单合为一行，窄屏可横向滑动菜单。播放、工具和轨道的三个折叠入口共用一行，展开时只显示当前面板，收起后恢复入口。属性页顶部标签随内容一起滚动，触控滑动开关采用反转后的时间轴方向。设置初始聚焦标题，点击搜索框后再弹出软键盘；软键盘占据大部分屏幕时，顶部和底部工具条临时隐藏，收起后恢复原布局。Android 加载界面提供独立原生返回通道，并在超时后提供重试及停用扩展重试；返回不依赖编辑器模块初始化成功。
 

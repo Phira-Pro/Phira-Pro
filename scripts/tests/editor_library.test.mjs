@@ -26,7 +26,7 @@ test('copy export uses edited chart and fresh metadata without mutating the impo
   const encode = value => new TextEncoder().encode(value);
   const assets = new Map([['info.yml', encode('chart: stale.json\nname: Original\n')], ['info.txt', encode('Name: Original\n')], ['music.wav', new Uint8Array([1, 2, 3])], ['chart.json', encode('{}')]]);
   const source = [...assets].map(([name, bytes]) => [name, [...bytes]]), before = JSON.stringify(chart);
-  const blob = copyExport({ chart, assets, chartName: 'chart.json' });
+  const blob = await copyExport({ chart, assets, chartName: 'chart.json' });
   const output = await readZip(await blob.arrayBuffer());
   assert.equal(output.has('info.yml'), false);
   assert.match(new TextDecoder().decode(output.get('info.txt')), /Name: Edited fixture/);
@@ -35,5 +35,5 @@ test('copy export uses edited chart and fresh metadata without mutating the impo
   assert.equal(saved.META.useRpen, true);
   assert.deepEqual([...assets].map(([name, bytes]) => [name, [...bytes]]), source);
   assert.equal(JSON.stringify(chart), before);
-  assert.throws(() => copyExport({ chart, assets: new Map(), chartName: 'chart.json' }), /音乐/);
+  await assert.rejects(copyExport({ chart, assets: new Map(), chartName: 'chart.json' }), /音乐/);
 });

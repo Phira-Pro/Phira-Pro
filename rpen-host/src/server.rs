@@ -37,6 +37,7 @@ struct Shared {
     message: Mutex<Option<String>>,
     stop: AtomicBool,
     library: Mutex<LibraryMailbox>,
+    preview: crate::PreviewBridge,
 }
 
 pub struct EditorHost {
@@ -63,6 +64,7 @@ impl EditorHost {
             message: Mutex::new(None),
             stop: AtomicBool::new(false),
             library: Mutex::new(LibraryMailbox::default()),
+            preview: crate::PreviewBridge::default(),
         });
         let thread_shared = shared.clone();
         let worker = std::thread::Builder::new().name("rpen-storage".into()).spawn(move || {
@@ -92,6 +94,7 @@ impl EditorHost {
     pub fn poll(&self) -> Option<EditorEvent> {
         self.events.try_recv().ok()
     }
+    pub fn preview(&self) -> crate::PreviewBridge { self.shared.preview.clone() }
     pub fn playing(&self) {
         *self.shared.state.lock().unwrap() = "playing";
     }
@@ -160,6 +163,25 @@ impl Service {
         }
         if route == "pro/control" && request.method() == &Method::Get {
             return json_response(json!({"state":*self.shared.state.lock().unwrap(),"message":self.shared.message.lock().unwrap().take()}));
+        }
+        if route == "pro/preview" && request.method() == &Method::Post {
+            let args: crate::preview::Request = serde_json::from_slice(&read_body(request, 8192)?)?;
+            return match args {
+                crate::preview::Request::Start { snapshot, width, height } => {
+                    Uuid::parse_str(&snapshot)?;
+                    let path = self.data.join("snapshots").join(format!("{snapshot}.pez"));
+                    let bytes = fs::read(&path)?;
+                    validate_snapshot(&bytes)?;
+                    let result = self.shared.preview.start(bytes, width, height)?;
+                    let _ = fs::remove_file(path);
+                    json_response(result)
+                }
+                crate::preview::Request::Seek { id, time, show_hud } => json_response(self.shared.preview.seek(&id, time, show_hud)?),
+                crate::preview::Request::Stop { id } => { self.shared.preview.stop(&id); json_response(json!({"ok":true})) }
+            };
+        }
+        if route == "pro/preview-frame" && request.method() == &Method::Get {
+            return Ok((200, "application/octet-stream", self.shared.preview.frame()));
         }
         if route == "pro/storage" && request.method() == &Method::Post {
             let args: Vec<Value> = serde_json::from_slice(&read_body(request, 8 * 1024 * 1024)?)?;

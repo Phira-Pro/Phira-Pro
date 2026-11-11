@@ -3,6 +3,8 @@ mod server;
 mod storage;
 mod library;
 mod linked;
+mod preview;
+pub use preview::{PreviewBridge, PreviewPosition, PreviewStart};
 
 pub use server::{EditorEvent, EditorHost, PlayRequest};
 pub use library::{LibraryReply, LibraryRequest};

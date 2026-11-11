@@ -3,6 +3,7 @@ mod platform;
 mod assets;
 mod trial;
 mod library;
+mod preview;
 
 use crate::page::{NextPage, Page, SharedState};
 use anyhow::Result;
@@ -30,6 +31,7 @@ pub(crate) struct EditorPage {
     trial_active: bool,
     reopen: DRectButton,
     library: library::LibraryAdapter,
+    preview: preview::Preview,
 }
 impl EditorPage {
     pub fn new() -> Self {
@@ -46,6 +48,7 @@ impl EditorPage {
             trial_active: false,
             reopen: DRectButton::new(),
             library: library::LibraryAdapter::default(),
+            preview: preview::Preview::default(),
         }
     }
 }
@@ -171,7 +174,10 @@ impl Page for EditorPage {
             }
         }
         crate::replay::poll_export();
-        if let Some(host) = &self.host { self.library.update(host, s); }
+        if let Some(host) = &self.host {
+            self.library.update(host, s);
+            if !self.trial_active && self.loading.is_none() { self.preview.update(&host.preview()); }
+        }
         Ok(())
     }
     fn resume(&mut self) -> Result<()> {
@@ -188,6 +194,7 @@ impl Page for EditorPage {
         Ok(())
     }
     fn exit(&mut self) -> Result<()> {
+        self.preview = preview::Preview::default();
         self.window = None;
         self.host = None;
         Ok(())
@@ -214,6 +221,9 @@ impl Page for EditorPage {
         Ok(false)
     }
     fn render(&mut self, ui: &mut Ui, s: &mut SharedState) -> Result<()> {
+        if !self.trial_active && self.loading.is_none() {
+            if let Some(host) = &self.host { self.preview.render(&host.preview(), ui.text_painter); }
+        }
         let t = s.t;
         s.render_fader(ui, |ui| {
             let r = ui.content_rect();

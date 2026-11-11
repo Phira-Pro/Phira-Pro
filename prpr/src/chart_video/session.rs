@@ -57,15 +57,21 @@ impl ChartVideoRenderer {
         out: PathBuf,
         extensions: Vec<Box<dyn RenderExtension>>,
     ) -> Result<Self> {
-        Self::load(source, options, Some(out), extensions).await
+        Self::load(source, options, Some(out), extensions, None).await
     }
 
     /// Preview uses the same renderer and clock, without FFmpeg or output files.
     pub async fn preview(source: PathBuf, options: VideoOptions) -> Result<Self> {
-        Self::load(source, options, None, vec![]).await
+        Self::load(source, options, None, vec![], None).await
     }
 
-    async fn load(source: PathBuf, mut options: VideoOptions, out: Option<PathBuf>, extensions: Vec<Box<dyn RenderExtension>>) -> Result<Self> {
+    /// Embedded editor preview inherits native gameplay appearance, without
+    /// persisting configuration or starting an interactive game session.
+    pub async fn preview_with_config(source: PathBuf, options: VideoOptions, config: Config) -> Result<Self> {
+        Self::load(source, options, None, vec![], Some(config)).await
+    }
+
+    async fn load(source: PathBuf, mut options: VideoOptions, out: Option<PathBuf>, extensions: Vec<Box<dyn RenderExtension>>, config: Option<Config>) -> Result<Self> {
         let mut extensions = ExtensionSet::new(extensions);
         for extension in &mut extensions.items {
             extension
@@ -96,7 +102,7 @@ impl ChartVideoRenderer {
         } else {
             None
         };
-        let mut config = Config::default();
+        let mut config = config.unwrap_or_default();
         config.mods = Mods::AUTOPLAY;
         config.volume_music = 0.;
         config.volume_sfx = 0.;
@@ -299,6 +305,31 @@ impl ChartVideoRenderer {
         let mut context = timeline.frame(frame, self.opts.width, self.opts.height).unwrap();
         context.preview = true;
         self.draw_frame(painter, context)
+    }
+
+    /// Music-relative, seekable RGBA frame for the editor's inline preview.
+    /// Readback is bottom-up, as in video export; the consumer flips it once.
+    pub fn preview_music_frame(&mut self, painter: &mut TextPainter, time: f64, show_hud: bool) -> Result<()> {
+        anyhow::ensure!(time.is_finite() && time >= 0., "Invalid preview time");
+        self.scene.hide_ui = !show_hud;
+        self.opts.show_hud = show_hud;
+        let segment = self.timeline.segment(RenderStage::Playing).context("No chart preview segment")?;
+        let local = ((time - self.timeline.music_start).max(0.) * self.opts.fps as f64).round() as u64;
+        let frame = segment.first_frame + local.min(segment.frames - 1);
+        let mut context = self.timeline.frame(frame, self.opts.width, self.opts.height).context("Empty preview timeline")?;
+        let target = context.music_time.unwrap() - self.offset;
+        let elapsed = self.simulated_time.map(|previous| target - previous);
+        // A seek reconstructs judgement state but must not leave every past
+        // hit particle alive. Continuous playback ages effects by audio time.
+        if elapsed.is_none_or(|delta| !(0. ..=0.25).contains(&delta)) {
+            self.advance_chart(target);
+            self.scene.res.emitter.emitter.reset();
+            self.scene.res.emitter.emitter_square.reset();
+        }
+        context.delta = elapsed.filter(|delta| (0. ..=0.25).contains(delta)).unwrap_or(0.);
+        self.draw_frame(painter, context)?;
+        self.read_pixels();
+        Ok(())
     }
 
     fn advance_chart(&mut self, target: f64) {

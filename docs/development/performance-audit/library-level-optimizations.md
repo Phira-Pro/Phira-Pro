@@ -10,7 +10,7 @@
 
 ### 0.1 一句话结论
 
-本文只有一个“主线已实施”口径：**Phira-Pro `main` 已合入并完成验收，且库级项已进入 `main` 所固定的生产库 rev。** 仅存在于 macroquad/miniquad 的 `master` 或参考实现，都不算主线已实施。按此口径，L-01..L-10 与 D-01 全部为“否”，即主线未实施（Phira-Pro `main` 的固定 rev 不含这些 API/改动）；X-01 的核心虽已以 squash 形式合入两个库的 `master`，但尚未进入 Phira-Pro `main` 所固定的生产组合，主线状态同样是“否”。
+本文只有一个“主线已实施”口径：**Phira-Pro `main` 已合入并达到最低可交付验证，且库级项已进入 `main` 所固定的生产库 rev。** 仅存在于 macroquad/miniquad 的 `master` 或参考实现，都不算主线已实施。按此口径，L-02 为“是”（库 pin 已进入 `main`）；L-01、L-03..L-10 与 D-01 为“否”，即主线未实施（`main` 的固定 rev 不含这些 API/改动）；X-01 的核心虽已以 squash 形式合入两个库的 `master`，但尚未进入 Phira-Pro `main` 所固定的生产组合，主线状态同样是“否”。
 
 这批工作可以分成四类，不能混成一张“优化收益表”：
 
@@ -57,7 +57,7 @@ X-01（共享 arena/连续 pass）的核心已经以 squash 形式合入两个�
 | ID | 优化项 | macroquad 侧 | miniquad 侧 | 实现侧 | 主线是否已实施（Phira-Pro main 的固定 rev） | 参考实现默认 | 当前判定 |
 |---|---|---|---|---|---|---|---|
 | L-01 | 固定 RGBA8 纹理存储 | `4b46e86`（仅 pin） | `19e97bd` | miniquad | 否 | 关（应用 flag） | 无优化（当前无收益证据；潜在正） |
-| L-02 | 缓冲扩容前清绑定缓存 | `de34611`（+5 行） | `1dfaa93` | macroquad + miniquad API | 否 | 开（库内自动） | 无优化（正确性修复，非性能） |
+| L-02 | 缓冲扩容前清绑定缓存 | `c350106`（含 `de34611` +5 行） | `8961ea6`（含 `1dfaa93` +17 行） | macroquad + miniquad API | 是（库 pin） | 开（库内自动） | 无优化（正确性修复，非性能） |
 | L-03 | 有界 PBO 字体上传 | `ed1db13`（仅 pin） | `4d85ed3` + `d7dc3f4` | miniquad | 否 | 关 | 无（潜在正，无稳定收益） |
 | L-04 | 流缓冲 discard 更新 | `cd0ab01`（仅 pin） | `4b26d71` | miniquad | 否 | 关 | 无/负（平均回归，冷帧改善） |
 | L-05 | uniform 按位缓存 | `a8aace0`（仅 pin） | `9466727` | miniquad | 否 | 关（unsafe 开启） | 无（调用降 67%–69%，墙钟无收益） |
@@ -786,20 +786,19 @@ miniquad 的清理 API（`1dfaa93`，`src/graphics.rs`）：
 
 ### 9. 主线实施状态与参考实现状态
 
-- **主线是否已实施：否（main）。** macroquad `de34611` 与 miniquad `1dfaa93` 都不在 Phira-Pro `main` 所固定的生产库 rev 中。
-- **参考实现：已落地。** `de34611` 的隔离改动只有 5 行；`1dfaa93` 提供 17 行 `clear_resource_bindings` API。
-- **参考实现默认：开。** 只要参考实现的库内扩容路径被触发就自动清理，不需要应用显式开启。
+- **主线是否已实施：是（main）。** Phira-Pro `Cargo.toml` 已固定 macroquad `c350106e8145c650b6296d79cc962c7481a318ce` 与 miniquad `8961ea6fb521c5ad540527d6a3ff4da311c8a740`；macroquad master 含 `de34611` 的 5 行调用，miniquad master 含 `1dfaa93` 的 17 行 `clear_resource_bindings`。
+- **参考实现：已合入。** `de34611` 的隔离改动只有 5 行；`1dfaa93` 提供 17 行 `clear_resource_bindings` API。
+- **默认：开。** 库内扩容路径自动清理，不需要应用显式开启。
 - **是否有调用方：有（库内）。** `QuadGl::draw` 的 arena 扩容路径；应用侧无需单独调用。
+- **验证证据：** `cargo check -p prpr`、`cargo check -p phira -p phira-main` 通过；锁文件只剩一套 miniquad `8961ea6`。没有独立的设备字体扩容回归；列未覆盖项，不阻塞状态。
 - **收益标注：正确性修复，不计性能收益。**
 
-### 10. 接入 Phira-Pro 的步骤与风险
+### 10. 已完成接入与后续增强（可选）
 
-接入步骤：
-
-1. 同时固定 macroquad `de34611` 与 miniquad `1dfaa93`（或包含该 API 的后续 rev）。
-2. 确认 `QuadGl::draw` 的扩容分支在删除前调用 `clear_resource_bindings`；不要在 `delete()` 之后才调用。
-3. 在真实字体扩容场景（首帧小 VBO、次帧大 VBO）做固定帧 RGBA 与 draw 顺序回归。
-4. 检查 raw GL 粒子/Paint/自定义材质是否在扩容后依赖旧 attribute 状态；如有，显式重建。
+- [x] 固定 macroquad `c350106` 与 miniquad `8961ea6`（含 `de34611` / `1dfaa93`）。
+- [x] 确认 `QuadGl::draw` 的扩容分支在删除前调用 `clear_resource_bindings`；不在 `delete()` 之后才调用。
+- [ ] 真实字体扩容场景（首帧小 VBO、次帧大 VBO）固定帧 RGBA 与 draw 顺序回归（后续增强，不阻塞）。
+- [ ] 检查 raw GL 粒子/Paint/自定义材质是否在扩容后依赖旧 attribute 状态；如有，显式重建（后续增强，不阻塞）。
 
 风险：
 
@@ -810,9 +809,9 @@ miniquad 的清理 API（`1dfaa93`，`src/graphics.rs`）：
 
 ### 11. 来源与可追溯性
 
-- macroquad 实现：`de34611bca60abda9c4a2d8ebea568970fd7a850`，`src/quad_gl.rs` +5。
-- miniquad API：`1dfaa933c642bc1b0ef3a27701a941b20ee084c1`，`src/graphics.rs` +17。
-- 代码位置：macroquad `src/quad_gl.rs:819`；miniquad `src/graphics.rs:785`。
+- macroquad 实现：`de34611bca60abda9c4a2d8ebea568970fd7a850`，`src/quad_gl.rs` +5；主线 pin `c350106e8145c650b6296d79cc962c7481a318ce`。
+- miniquad API：`1dfaa933c642bc1b0ef3a27701a941b20ee084c1`，`src/graphics.rs` +17；主线 pin `8961ea6fb521c5ad540527d6a3ff4da311c8a740`。
+- 代码位置：macroquad `src/quad_gl.rs` 扩容分支；miniquad `src/graphics.rs` `clear_resource_bindings`。
 - 隔离 diffstat：macroquad 1 文件 +5；miniquad 1 文件 +17。
 - 设备/回归记录：`Phira-Pro/本地证据/low-quality-normal/AGENTS.md` 第 19 行；`immutable-text-quality-v3-execution` 的 Case 0 原始结果。
 
@@ -4224,8 +4223,8 @@ git -C archived/prpr-macroquad grep -n "resident_geometry\|queued_texture_depend
 
 ## 附录 C：术语与口径
 
-- **主线已实施**：只指 Phira-Pro `main` 已合入并完成验收；库级项还必须进入 `main` 所固定的生产库 rev。参考实现存在、库 `master` 已合入，都不等于主线已实施。
-- **库 master 已合入**：只描述 macroquad/miniquad 的 `master` 状态，用于区分代码来源；不代表 Phira-Pro `main` 已固定该 rev，也不代表完成验收。
+- **主线已实施**：只指 Phira-Pro `main` 已合入并达到最低可交付验证；库级项还必须进入 `main` 所固定的生产库 rev。参考实现存在、库 `master` 已合入，都不等于主线已实施。
+- **库 master 已合入**：只描述 macroquad/miniquad 的 `master` 状态，用于区分代码来源；不代表 Phira-Pro `main` 已固定该 rev，也不代表达到最低验证。
 - **参考实现**：本地参考代码及其叠放提交链，不是生产 pin；文中用提交哈希、文件路径和隔离 diffstat 定位。
 - **墙钟/wall**：包含 CPU 执行、驱动调用、可能的驱动等待；不是纯 GPU 时间。
 - **completed**：如果带 `glFinish`，是同步完成时间，串行化 CPU/GPU；不能当 FPS。

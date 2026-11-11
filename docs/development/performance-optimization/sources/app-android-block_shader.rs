@@ -1,0 +1,1119 @@
+//! Rendering for official block-area ("noise field") zones.
+//!
+//! Visual masks use the native SubtractBlockBlender threshold window; this is
+//! intentionally separate from the already verified input parity semantics.
+//!
+//! Masks retain the native effect RT dimensions, with compose pixels refined to
+//! that grid instead of replicating each native 1/8-resolution pixel four times.
+//! They are then dilated as in
+//! `EdgeMask` / `GlowMask`. They are uploaded as an ordinary texture: no camera
+//! changes or additional framebuffer/render passes are needed. The scene color
+//! is copied from the existing chart pass (resolving its MSAA target first).
+//! Material arithmetic and texture settings come from the exported GLSL/.mat.
+
+use super::{BlockArea, BlockPhase, Resource, Vector};
+use macroquad::prelude::*;
+use miniquad::{TextureWrap, UniformType};
+use once_cell::sync::Lazy;
+use std::cell::RefCell;
+
+#[path = "block_mask.rs"]
+mod mask;
+#[path = "block_simple.rs"]
+mod simple;
+#[path = "block_touch.rs"]
+mod touch;
+#[cfg(any(feature = "render_bounds", not(feature = "render_research")))]
+#[path = "block_support.rs"]
+mod support;
+
+/// A resolved rectangle (axis-aligned in its own space).
+#[derive(Clone, PartialEq)]
+pub struct Zone {
+    pub center: Vector,
+    pub half: Vector,
+    pub angle: f32,
+    pub invert: bool,
+    pub active: bool,
+    /// Ready layer is selected in the last 0.5 seconds before enableTime.
+    pub ready: bool,
+    /// Initial DisabledBlockShow fades the sprite mask in over 0.5 seconds.
+    pub opacity: f32,
+}
+
+impl Zone {
+    pub fn from_area(area: &BlockArea, time: f64, aspect: f32) -> Option<Self> {
+        let phase = area.phase(time);
+        if phase == BlockPhase::Hidden {
+            return None;
+        }
+        let tr = area.transform(time, aspect);
+        let half = tr.size.map(|v| v.abs() * 0.5);
+        if half.x == 0. || half.y == 0. {
+            return None;
+        }
+        let active = phase == BlockPhase::Active;
+        let fades_in = !area.is_active(area.appear_time);
+        Some(Self {
+            center: tr.center,
+            half,
+            angle: tr.rotation.to_radians(),
+            invert: area.is_subtract,
+            active,
+            ready: !active && time < area.enable_time && time >= area.enable_time - 0.5,
+            opacity: if !active && fades_in {
+                ((time - area.appear_time) / 0.5).clamp(0., 1.) as f32
+            } else {
+                1.
+            },
+        })
+    }
+}
+
+fn tex(bytes: &[u8], wrap: TextureWrap) -> Texture2D {
+    // Exported PNG rows are top-down; Unity GLES samples these texture assets
+    // with (0,0) at their bottom-left. Macroquad uploads image bytes unchanged.
+    let source = image::load_from_memory(bytes).unwrap().to_rgba8();
+    let source = image::imageops::flip_vertical(&source);
+    let texture = Texture2D::from_rgba8(source.width() as u16, source.height() as u16, source.as_raw());
+    texture.set_filter(FilterMode::Nearest);
+    texture
+        .raw_miniquad_texture_handle()
+        .set_wrap(unsafe { get_internal_gl() }.quad_context, wrap);
+    texture
+}
+
+static DISPLACE_TEX: Lazy<Texture2D> = Lazy::new(|| tex(include_bytes!("../../../assets/blockarea/BlockNoise1.png"), TextureWrap::Mirror));
+static SPARK_TEX: Lazy<Texture2D> = Lazy::new(|| tex(include_bytes!("../../../assets/blockarea/PointNoise.png"), TextureWrap::Repeat));
+// This PNG is regenerated from original RGB565 with full 5/6-bit replication.
+// The initial exporter only shifted bits, which darkened the hover dissolve.
+static NOISE_TEX: Lazy<Texture2D> = Lazy::new(|| tex(include_bytes!("../../../assets/blockarea/FD_Noise_00000.png"), TextureWrap::Mirror));
+static EMPTY_TEX: Lazy<Texture2D> = Lazy::new(|| Texture2D::from_rgba8(1, 1, &[0; 4]));
+
+// Typed f32 values are essential: this macroquad fork rejects f64 for Float1.
+// Keep these uniforms, rather than folding their values into GLSL, so that the
+// native mediump arithmetic and GPU optimization stay identical to the export.
+const FLOATS: &[(&str, f32)] = &[
+    ("_EdgeOpacity", 0.8),
+    ("_FillStrength", 0.667),
+    ("_FillOpacity", 0.667),
+    ("_GlowIntensity", 0.8),
+    ("_SparkMapOpacity", 5.69),
+    ("_SparkHueShiftAmount", 0.2),
+    ("_SparkDisplaceIntensity", 2.39),
+    ("_DisplaceBlendIntensity", 0.411),
+    ("_DisplaceSpeed", 1.5),
+    ("_DisplaceStrength", 0.15),
+    ("_TouchPosShine", 0.),
+    ("_TouchPosRadius", 0.5),
+    ("_TouchPosSDFSmoothness", 0.47),
+    ("_TouchPosSDFFalloff", 0.41),
+    ("_BackgroundPixelScale", 6.),
+    ("uDisabledFillOpacity", 0.4),
+    ("uDisabledSparkOpacity", 3.5),
+    ("uDisabledSparkIntensity", 2.29),
+    ("uDisabledSpeed", 0.3),
+    ("_ShineSpeed", 37.9),
+    ("_ShineBrightness", 0.12),
+    ("_TouchDisplaceSpeed", 2.9),
+    ("_TouchDisplaceStrength", 0.08),
+    ("_NoiseEvoSpeed", 0.03),
+    ("_NoiseDirChangeSpeed", 60.),
+    ("_NoiseDisplaceStrength", 1.),
+    ("_NoiseRadius", 0.48),
+    ("_NoiseSmoothness", 1.),
+    ("_SDFCellSize", 0.11),
+    ("_SDFSmoothness", 0.63),
+    ("_SDFFalloff", 0.34),
+    ("_SDFMoveSpeed", 9.3),
+    ("_TouchBackgroundPixelScale", 8.),
+];
+const COLORS: &[(&str, [f32; 4])] = &[
+    ("_EdgeColor", [1., 0.33018857, 0.33018857, 1.]),
+    ("_FillColor", [0.7132075, 0.23549296, 0.23549296, 1.]),
+    ("_GlowColor", [1., 0.17924517, 0.17924517, 1.]),
+    ("_DisplaceDirection", [1., 1., 0., 0.]),
+    ("uDisabledFillColor", [0.497, 0.13766898, 0.13766898, 1.]),
+    ("_ShineColor", [1., 1., 1., 1.]),
+    ("_TouchDisplaceDirection", [1., 1., 0., 0.]),
+    ("_NoiseTint", [1., 0., 0., 1.]),
+    ("_TouchGlowColor", [1., 0., 0., 1.]),
+];
+
+#[derive(Default)]
+struct FrameTextures {
+    #[cfg(any(feature = "render_bounds", not(feature = "render_research")))]
+    support: support::Cache,
+    uploaded_masks: Option<u64>,
+    uploaded_aux: Option<u64>,
+    masks: mask::Masks,
+    effect: Option<Texture2D>,
+    aux: Option<Texture2D>,
+    scene: Option<Texture2D>,
+    scene_pass: Option<miniquad::RenderPass>,
+    scene_blit_rejected_for: Option<(u32, u32)>,
+    scene_blit: bool,
+    scene_shader_rejected: bool,
+    #[cfg(feature = "render_lifetime")]
+    source_image: Option<Image>,
+    #[cfg(feature = "render_lifetime")]
+    spare_masks: [MaskTextures; 2],
+    #[cfg(feature = "render_lifetime")]
+    spare_mask_index: usize,
+    #[cfg(feature = "render_lifetime")]
+    spare_viewport: MaskViewport,
+    #[cfg(feature = "render_lifetime")]
+    viewport_sizes: [Vec<[usize; 2]>; 2],
+    #[cfg(feature = "render_lifetime")]
+    scene_copy: Option<SceneCopy>,
+    touch: touch::TouchMask,
+    clock: Option<f32>,
+}
+
+#[cfg(feature = "render_lifetime")]
+#[derive(Default)]
+struct MaskTextures {
+    effect: Option<Texture2D>,
+    aux: Option<Texture2D>,
+    uploaded_masks: Option<u64>,
+    uploaded_aux: Option<u64>,
+}
+
+#[cfg(feature = "render_lifetime")]
+#[derive(Default)]
+struct MaskViewport {
+    masks: mask::Masks,
+    textures: MaskTextures,
+    #[cfg(feature = "render_bounds")]
+    support: support::Cache,
+}
+
+thread_local! {
+    static FRAME: RefCell<FrameTextures> = RefCell::new(FrameTextures::default());
+}
+
+#[cfg(feature = "render_research")]
+thread_local! {
+    static RESEARCH_CLOCK: std::cell::Cell<Option<f32>> = const { std::cell::Cell::new(None) };
+    static RESEARCH_TIMES: RefCell<(bool, [f64; 11])> = const { RefCell::new((false, [0.; 11])) };
+}
+
+#[cfg(feature = "render_research")]
+pub(crate) fn research_block_timing(enabled: Option<bool>) -> [f64; 11] {
+    RESEARCH_TIMES.with(|times| {
+        let mut times = times.borrow_mut();
+        if let Some(enabled) = enabled { times.0 = enabled; times.1 = [0.; 11]; }
+        times.1
+    })
+}
+
+#[cfg(feature = "render_research")]
+pub(crate) fn research_reset_block_timing() {
+    RESEARCH_TIMES.with(|times| times.borrow_mut().1 = [0.; 11]);
+}
+
+#[cfg(feature = "render_research")]
+fn research_begin() -> Option<std::time::Instant> {
+    RESEARCH_TIMES.with(|times| times.borrow().0.then(std::time::Instant::now))
+}
+
+#[cfg(feature = "render_research")]
+fn research_end(start: Option<std::time::Instant>, stage: usize) {
+    if let Some(start) = start {
+        RESEARCH_TIMES.with(|times| times.borrow_mut().1[stage] += start.elapsed().as_secs_f64() * 1000.);
+    }
+}
+
+#[cfg(feature = "render_research")]
+pub(crate) fn set_research_clock(time: Option<f32>) {
+    RESEARCH_CLOCK.with(|clock| clock.set(time));
+}
+
+#[cfg(any(feature = "render_bounds", not(feature = "render_research")))]
+thread_local! {
+    static SUPPORT_MODE: std::cell::Cell<u8> = const { std::cell::Cell::new(if cfg!(feature = "render_research") { 0 } else { 1 }) };
+}
+
+#[cfg(any(feature = "render_bounds", not(feature = "render_research")))]
+pub(crate) fn set_research_bounds(enabled: bool, tiles: bool) {
+    SUPPORT_MODE.with(|value| value.set(if !enabled { 0 } else if tiles { 2 } else { 1 }));
+}
+
+#[cfg(any(feature = "render_bounds", not(feature = "render_research")))]
+fn support_scissor(uv: [f32; 4], aspect: f32, viewport: (i32, i32, i32, i32), target_height: f32) -> Option<(i32, i32, i32, i32)> {
+    let gl = unsafe { get_internal_gl() };
+    let projection = gl.quad_gl.get_projection_matrix();
+    let model = gl.quad_gl.get_model_matrix();
+    let points = [(uv[0], uv[1]), (uv[2], uv[1]), (uv[2], uv[3]), (uv[0], uv[3])]
+        .map(|(u, v)| projection * (model * vec4(u * 2. - 1., (v * 2. - 1.) / aspect, 0., 1.)));
+    // Only affine, finite projections: perspective/clipped W falls back.
+    if points.iter().any(|p| !p.is_finite() || p.w <= 1e-6 || p.w != points[0].w) { return None; }
+    let mut lo = Vec2::splat(f32::INFINITY);
+    let mut hi = Vec2::splat(f32::NEG_INFINITY);
+    for p in points {
+        let screen = vec2(viewport.0 as f32 + (p.x / p.w * 0.5 + 0.5) * viewport.2 as f32,
+            target_height - (viewport.1 as f32 + (p.y / p.w * 0.5 + 0.5) * viewport.3 as f32));
+        lo = lo.min(screen); hi = hi.max(screen);
+    }
+    // Keep full-pixel rounding guard; intersect the existing logical scissor.
+    let old = gl.quad_gl.get_scissor().unwrap_or((viewport.0, target_height as i32 - viewport.1 - viewport.3, viewport.2, viewport.3));
+    let x0 = (lo.x.floor() as i32).saturating_sub(2).max(old.0);
+    let y0 = (lo.y.floor() as i32).saturating_sub(2).max(old.1);
+    let x1 = (hi.x.ceil() as i32).saturating_add(2).min(old.0.saturating_add(old.2));
+    let y1 = (hi.y.ceil() as i32).saturating_add(2).min(old.1.saturating_add(old.3));
+    Some((x0, y0, x1.saturating_sub(x0).max(0), y1.saturating_sub(y0).max(0)))
+}
+
+#[cfg(any(feature = "render_bounds", not(feature = "render_research")))]
+fn support_scissors(tiles: &[bool], uv: [f32; 4], effect_dim: (usize, usize), aspect: f32,
+    viewport: (i32, i32, i32, i32), target_dim: (f32, f32), sparse: bool) -> Option<Vec<(i32, i32, i32, i32)>> {
+    let bounding = support_scissor(uv, aspect, viewport, target_dim.1)?;
+    if !sparse { return Some(vec![bounding]); }
+    // Rasterize conservative UV-cell support into an integer screen grid.
+    // Grid cells do not overlap, including after rotation/rounding/MSAA. We
+    // redraw the SAME full quad; splitting geometry would change interpolation.
+    const CELL: i32 = 128;
+    let (w, h) = (target_dim.0 as i32, target_dim.1 as i32);
+    let (cols, rows) = (((w + CELL - 1) / CELL) as usize, ((h + CELL - 1) / CELL) as usize);
+    let mut grid = vec![false; cols * rows];
+    let pad = vec2(5. / effect_dim.0 as f32, 5. / effect_dim.1 as f32);
+    for (index, occupied) in tiles.iter().enumerate() {
+        if !occupied { continue; }
+        let x = (index % support::TILE_DIM) as f32 / support::TILE_DIM as f32;
+        let y = (index / support::TILE_DIM) as f32 / support::TILE_DIM as f32;
+        let step = 1. / support::TILE_DIM as f32;
+        let rect = support_scissor([(x - pad.x).max(0.), (y - pad.y).max(0.),
+            (x + step + pad.x).min(1.), (y + step + pad.y).min(1.)], aspect, viewport, target_dim.1)?;
+        if rect.2 <= 0 || rect.3 <= 0 { continue; }
+        let x0 = rect.0.max(0) as usize / CELL as usize;
+        let y0 = rect.1.max(0) as usize / CELL as usize;
+        let x1 = ((rect.0.saturating_add(rect.2).min(w).max(0) + CELL - 1) / CELL) as usize;
+        let y1 = ((rect.1.saturating_add(rect.3).min(h).max(0) + CELL - 1) / CELL) as usize;
+        for y in y0.min(rows)..y1.min(rows) { for x in x0.min(cols)..x1.min(cols) { grid[y * cols + x] = true; } }
+    }
+    let mut rects: Vec<(i32, i32, i32, i32)> = Vec::new();
+    for y in 0..rows {
+        let mut x = 0;
+        while x < cols {
+            if !grid[y * cols + x] { x += 1; continue; }
+            let start = x;
+            while x < cols && grid[y * cols + x] { x += 1; }
+            let x0 = (start as i32 * CELL).max(bounding.0);
+            let y0 = (y as i32 * CELL).max(bounding.1);
+            let x1 = (x as i32 * CELL).min(bounding.0 + bounding.2);
+            let y1 = ((y + 1) as i32 * CELL).min(bounding.1 + bounding.3);
+            if x1 <= x0 || y1 <= y0 { continue; }
+            if let Some(previous) = rects.iter_mut().find(|r| r.0 == x0 && r.2 == x1 - x0 && r.1 + r.3 == y0) {
+                previous.3 += y1 - y0;
+            } else { rects.push((x0, y0, x1 - x0, y1 - y0)); }
+        }
+    }
+    let area: i64 = rects.iter().map(|r| r.2 as i64 * r.3 as i64).sum();
+    // Avoid adding many state changes for a nearly solid mask. This is a
+    // research heuristic, not a correctness requirement.
+    if rects.len() > 32 || area as f64 >= bounding.2 as f64 * bounding.3 as f64 * 0.85 {
+        Some(vec![bounding])
+    } else { Some(rects) }
+}
+
+fn shader_time() -> f32 {
+    #[cfg(feature = "render_research")]
+    if let Some(time) = RESEARCH_CLOCK.with(|clock| clock.get()) {
+        return time;
+    }
+    get_time() as f32
+}
+
+fn load_block_material(disabled: bool, hover: bool) -> Result<Material, miniquad::ShaderError> {
+    let mut uniforms = vec![
+        ("uView".to_owned(), UniformType::Float3),
+        ("uUnityTime".to_owned(), UniformType::Float4),
+        ("_ScreenParams".to_owned(), UniformType::Float4),
+        ("_EffectRT_TexelSize".to_owned(), UniformType::Float4),
+        ("_SparkTint".to_owned(), UniformType::Float3),
+        ("uDisabledSparkTint".to_owned(), UniformType::Float3),
+        ("_TouchPosCount".to_owned(), UniformType::Int1),
+        ("uLayer".to_owned(), UniformType::Int1),
+    ];
+    uniforms.extend(FLOATS.iter().map(|(name, _)| (name.to_string(), UniformType::Float1)));
+    uniforms.extend(COLORS.iter().map(|(name, _)| (name.to_string(), UniformType::Float4)));
+    for i in 0..10 {
+        uniforms.push((format!("_TouchPos[{i}]"), UniformType::Float2));
+    }
+    let params = MaterialParams {
+        pipeline_params: PipelineParams {
+            color_blend: Some(miniquad::BlendState::new(
+                miniquad::Equation::Add,
+                miniquad::BlendFactor::One,
+                if disabled {
+                    miniquad::BlendFactor::One
+                } else {
+                    miniquad::BlendFactor::OneMinusValue(miniquad::BlendValue::SourceAlpha)
+                },
+            )),
+            ..Default::default()
+        },
+        uniforms,
+        textures: vec![
+            "uDisplaceTex".to_owned(),
+            "uSparkTex".to_owned(),
+            "uMasks".to_owned(),
+            "uScene".to_owned(),
+            "uAuxMasks".to_owned(),
+            "uNoiseTex".to_owned(),
+        ],
+    };
+    // Specialize uniform-only branches. On mobile GPUs the native hover SDF
+    // otherwise consumes registers/instructions even with zero fingers.
+    let mut fragment = FRAGMENT.replace("uniform int uLayer;", if disabled { "const int uLayer = 0;" } else { "const int uLayer = 3;" });
+    if !hover {
+        fragment = fragment.replace("uniform \tint _TouchPosCount;", "const int _TouchPosCount = 0;");
+        // Match the generated multi-line definition. Replacing the old one-line
+        // spelling silently failed and kept the complete hover SDF alive on GPUs.
+        let start = fragment.rfind("float hoverSample(vec2 uv) {").expect("hover shader definition");
+        let end = start + fragment[start..].find('}').expect("hover shader body") + 1;
+        fragment.replace_range(start..end, "float hoverSample(vec2 uv) { return 0.0; }");
+    }
+    load_material(VERTEX, &fragment, params).map(|material| {
+        for (name, value) in FLOATS {
+            material.set_uniform(name, *value);
+        }
+        for (name, value) in COLORS {
+            material.set_uniform(name, *value);
+        }
+        material.set_uniform("_SparkTint", vec3(1., 0.28490567, 0.28490567));
+        material.set_uniform("uDisabledSparkTint", vec3(0.31132078, 0.077830195, 0.077830195));
+        material.set_uniform("_TouchPosCount", 0_i32);
+        material.set_uniform("uLayer", if disabled { 0_i32 } else { 3_i32 });
+        for i in 0..10 {
+            material.set_uniform(&format!("_TouchPos[{i}]"), vec2(0., 0.));
+        }
+        material
+    })
+}
+
+static MATERIAL: Lazy<Option<[Material; 3]>> = Lazy::new(|| {
+    (|| {
+        Ok([
+            load_block_material(true, false)?,
+            load_block_material(false, false)?,
+            load_block_material(false, true)?,
+        ])
+    })()
+    .map_err(|e: miniquad::ShaderError| {
+        tracing::warn!("block-area shader failed: {e}");
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = std::fs::write(exe.with_file_name("block_shader_error.txt"), format!("{e}"));
+        }
+    })
+    .ok()
+});
+
+pub(crate) fn prepare_block_effects() {
+    #[cfg(feature = "render_research")]
+    let _span = crate::research_spikes::span("block_effects_prepare");
+    // Link shaders and decode their textures during chart loading, before a
+    // late first block would stall a live judgement frame.
+    Lazy::force(&MATERIAL);
+    Lazy::force(&DISPLACE_TEX);
+    Lazy::force(&SPARK_TEX);
+    Lazy::force(&NOISE_TEX);
+    // Some GLES drivers defer shader compilation until the first draw. Use the
+    // current loading pass, with empty masks which discard every fragment.
+    // No framebuffer/camera switch or visible loading-screen output is needed.
+    if let Some(materials) = MATERIAL.as_ref() {
+        let empty = *EMPTY_TEX;
+        for material in materials {
+            material.set_texture("uDisplaceTex", *DISPLACE_TEX);
+            material.set_texture("uSparkTex", *SPARK_TEX);
+            material.set_texture("uNoiseTex", *NOISE_TEX);
+            for sampler in ["uMasks", "uAuxMasks", "uScene"] {
+                material.set_texture(sampler, empty);
+            }
+            material.set_uniform("uView", vec3(1., 1., 1.));
+            material.set_uniform("uUnityTime", vec4(0., 0., 0., 0.));
+            material.set_uniform("_ScreenParams", vec4(1., 1., 2., 2.));
+            material.set_uniform("_EffectRT_TexelSize", vec4(1., 1., 1., 1.));
+            material.set_uniform("_TouchPosCount", 0_i32);
+            gl_use_material(*material);
+            draw_rectangle(0., 0., 0.001, 0.001, WHITE);
+        }
+        gl_use_default_material();
+        unsafe { get_internal_gl() }.flush();
+    }
+}
+
+pub(crate) fn prepare_block_geometry(areas: &[BlockArea], width: usize, height: usize, aspect: f32) {
+    FRAME.with(|frame| frame.borrow_mut().masks.prepare_geometry(width, height, aspect, areas));
+}
+
+pub(crate) fn clear_prepared_block_geometry() {
+    FRAME.with(|frame| frame.borrow_mut().masks.clear_prepared_geometry());
+}
+
+/// Draw the visible zones for the current frame.
+pub fn draw_zones(res: &mut Resource, aspect: f32, zones: &[Zone]) {
+    draw_layer_at(res, aspect, zones, shader_time(), false, &[]);
+}
+
+pub fn draw_disabled_zones(res: &mut Resource, aspect: f32, zones: &[Zone]) {
+    // Unity's _Time is constant for all passes in a frame. Chart invokes this
+    // before notes even when the disabled layer happens to be empty.
+    let time = shader_time();
+    FRAME.with(|frame| {
+        let mut frame = frame.borrow_mut();
+        frame.clock = Some(time);
+        #[cfg(feature = "render_lifetime")]
+        if res.buffer_mask_textures {
+            // Three ordinary texture versions; no animation/quality changes.
+            // Rotate once per chart frame, so disabled/active see the same pair.
+            let index = frame.spare_mask_index;
+            frame.spare_mask_index = (index + 1) % 2;
+            let FrameTextures { effect, aux, uploaded_masks, uploaded_aux, spare_masks, .. } = &mut *frame;
+            let spare = &mut spare_masks[index];
+            std::mem::swap(effect, &mut spare.effect);
+            std::mem::swap(aux, &mut spare.aux);
+            std::mem::swap(uploaded_masks, &mut spare.uploaded_masks);
+            std::mem::swap(uploaded_aux, &mut spare.uploaded_aux);
+        }
+    });
+    draw_layer_at(res, aspect, zones, time, true, &[]);
+}
+
+/// Touch centers are chart coordinates; IDs preserve native slot lifetimes.
+pub fn draw_zones_with_touches(res: &mut Resource, aspect: f32, zones: &[Zone], touches: &[(u64, Vector)], flip_x: bool) {
+    if res.config.block_area_simple {
+        simple::draw(aspect, zones, false);
+        return;
+    }
+    let projection = unsafe { get_internal_gl() }.quad_gl.get_projection_matrix();
+    let mut touches: Vec<_> = touches
+        .iter()
+        .map(|&(id, p)| {
+            let p = projection * vec4(if flip_x { -p.x } else { p.x }, -p.y, 0., 1.);
+            (id, vec2(p.x / p.w, p.y / p.w) * 0.5 + vec2(0.5, 0.5))
+        })
+        .collect();
+    // Judgement collects touches from a HashMap. Keep SDF accumulation order
+    // stable when another finger is added or removed.
+    touches.sort_by_key(|(id, _)| *id);
+    let time = FRAME.with(|frame| frame.borrow().clock).unwrap_or_else(shader_time);
+    draw_layer_at(res, aspect, zones, time, false, &touches);
+}
+
+pub(crate) fn reset_block_effects() {
+    FRAME.with(|frame| {
+        let mut frame = frame.borrow_mut();
+        frame.touch.reset();
+        frame.clock = None;
+        frame.scene_blit_rejected_for = None;
+        frame.scene_shader_rejected = false;
+        #[cfg(feature = "render_lifetime")]
+        { frame.source_image = None; }
+    });
+}
+
+// Shared with the native GPU probe, which supplies a fixed Unity _Time.y.
+#[allow(dead_code)] // Also compiled directly by the hidden GPU regression example.
+pub(crate) fn draw_zones_at(res: &mut Resource, aspect: f32, zones: &[Zone], time: f32) {
+    draw_layer_at(res, aspect, zones, time, true, &[]);
+    draw_layer_at(res, aspect, zones, time, false, &[]);
+}
+
+pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], time: f32, disabled: bool, touches: &[(u64, Vec2)]) {
+    if res.config.block_area_simple {
+        simple::draw(aspect, zones, disabled);
+        return;
+    }
+    let needed = if disabled {
+        zones.iter().any(|z| !z.active && z.opacity > 0.)
+    } else {
+        zones.iter().any(|z| z.active || z.ready) || !touches.is_empty() || FRAME.with(|frame| frame.borrow().touch.visible())
+    };
+    if !needed {
+        return;
+    }
+    let Some(m) = MATERIAL.as_ref() else {
+        simple::draw(aspect, zones, disabled);
+        return;
+    };
+    // ActiveBlock is postprocessing after sprites, notes and HUD; Disabled is
+    // the Background layer before judge lines. Restore the existing pass state.
+    let mut gl = unsafe { get_internal_gl() };
+    let pass = gl.quad_gl.get_active_render_pass();
+    let (width, height) = if let Some(pass) = pass {
+        let texture = pass.texture(gl.quad_context);
+        (texture.width as f32, texture.height as f32)
+    } else {
+        gl.quad_context.screen_size()
+    };
+    let viewport = gl.quad_gl.get_viewport().unwrap_or((0, 0, width as i32, height as i32));
+    #[cfg(any(feature = "render_bounds", not(feature = "render_research")))]
+    let target_height = height;
+    #[cfg(any(feature = "render_bounds", not(feature = "render_research")))]
+    let target_width = width;
+    FRAME.with(|frame| {
+        let mut frame = frame.borrow_mut();
+        let (width, height) = (viewport.2.max(1) as usize, viewport.3.max(1) as usize);
+        #[cfg(feature = "render_lifetime")]
+        {
+            let sizes = &mut frame.viewport_sizes[usize::from(!disabled)];
+            if !sizes.contains(&[width, height]) { sizes.push([width, height]); }
+            if res.cache_mask_viewports && !frame.masks.matches_viewport(width, height, aspect) {
+                // Retain the two alternating viewport states, including their
+                // geometry, animation caches and matching uploaded texture data.
+                // Identical viewports share the same cache as the original path.
+                let FrameTextures { masks, effect, aux, uploaded_masks, uploaded_aux, spare_viewport, .. } = &mut *frame;
+                std::mem::swap(masks, &mut spare_viewport.masks);
+                std::mem::swap(effect, &mut spare_viewport.textures.effect);
+                std::mem::swap(aux, &mut spare_viewport.textures.aux);
+                std::mem::swap(uploaded_masks, &mut spare_viewport.textures.uploaded_masks);
+                std::mem::swap(uploaded_aux, &mut spare_viewport.textures.uploaded_aux);
+                #[cfg(feature = "render_bounds")]
+                {
+                    let FrameTextures { support, spare_viewport, .. } = &mut *frame;
+                    std::mem::swap(support, &mut spare_viewport.support);
+                }
+            }
+        }
+        #[cfg(feature = "render_research")]
+        let mask_start = research_begin();
+        #[cfg(feature = "render_research")]
+        { frame.masks.timing_enabled = mask_start.is_some(); frame.masks.timings = [0.; 6]; }
+        frame.masks.render_displaced(width, height, aspect, zones, time);
+        #[cfg(feature = "render_research")]
+        { research_end(mask_start, 0);
+            RESEARCH_TIMES.with(|times| {
+                let mut times = times.borrow_mut();
+                for (index, value) in frame.masks.timings.iter().enumerate() { times.1[index + 5] += value; }
+            });
+        }
+        if !disabled {
+            frame.touch.update_fingers(touches, time);
+        }
+        let hover = !disabled && frame.touch.visible();
+        if !hover {
+            let visible = if disabled {
+                frame.masks.rgba.chunks_exact(4).any(|p| p[3] != 0)
+            } else {
+                frame.masks.rgba.chunks_exact(4).any(|p| p[..3] != [0, 0, 0]) || frame.masks.aux_rgba.chunks_exact(4).any(|p| p[..2] != [0, 0])
+            };
+            if !visible {
+                return;
+            }
+        }
+        #[cfg(any(feature = "render_bounds", not(feature = "render_research")))]
+        let clips = if !hover && SUPPORT_MODE.with(|value| value.get()) != 0 {
+            let FrameTextures { masks, support, .. } = &mut *frame;
+            support.update(&masks.rgba, &masks.aux_rgba, masks.width, masks.height, masks.revision, masks.aux_revision);
+            let bounds = if disabled { support.disabled } else { support.active };
+            bounds.and_then(|b| support_scissors(if disabled { &support.disabled_tiles } else { &support.active_tiles },
+                b.uv(masks.width, masks.height), (masks.width, masks.height), aspect, viewport, (target_width, target_height),
+                SUPPORT_MODE.with(|value| value.get()) == 2))
+        } else { None };
+        #[cfg(feature = "render_research")]
+        let flush_start = research_begin();
+        gl.flush();
+        #[cfg(feature = "render_research")]
+        research_end(flush_start, 1);
+        let m = m[if disabled {
+            0
+        } else if hover {
+            2
+        } else {
+            1
+        }];
+        if hover {
+            let bw = frame.masks.width / 2;
+            let bh = frame.masks.height / 2;
+            for pixel in frame.masks.aux_rgba.chunks_exact_mut(4) {
+                pixel[3] = 0;
+            }
+            let screen_aspect = width as f32 / height as f32;
+            let (min, max) = frame.touch.bounds(screen_aspect).unwrap_or((Vec2::ZERO, Vec2::ZERO));
+            let (x0, y0) = ((min.x * bw as f32).floor().max(0.) as usize, (min.y * bh as f32).floor().max(0.) as usize);
+            let (x1, y1) = ((max.x * bw as f32).ceil().min(bw as f32) as usize, (max.y * bh as f32).ceil().min(bh as f32) as usize);
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let value = frame
+                        .touch
+                        .sample(vec2((x as f32 + 0.5) / bw as f32, (y as f32 + 0.5) / bh as f32), width as f32 / height as f32);
+                    for dy in 0..2 {
+                        for dx in 0..2 {
+                            let i = ((y * 2 + dy) * frame.masks.width + x * 2 + dx) * 4 + 3;
+                            frame.masks.aux_rgba[i] = value;
+                        }
+                    }
+                }
+            }
+        }
+        let effect_dim = (frame.masks.width as u32, frame.masks.height as u32);
+        #[cfg(feature = "render_research")]
+        let upload_start = research_begin();
+        let resized = frame
+            .effect
+            .is_none_or(|texture| (texture.width() as u32, texture.height() as u32) != effect_dim);
+        if resized {
+            // Ordinary sampled textures, never attached to a new framebuffer.
+            // Allocate before deleting: GL may reuse a deleted name while the
+            // miniquad sampler cache still remembers its old binding.
+            let texture = Texture2D::from_rgba8(effect_dim.0 as u16, effect_dim.1 as u16, &frame.masks.rgba);
+            texture.set_filter(FilterMode::Linear);
+            if let Some(old) = frame.effect.replace(texture) {
+                old.delete();
+            }
+        } else if frame.uploaded_masks != Some(frame.masks.revision) {
+            frame
+                .effect
+                .unwrap()
+                .raw_miniquad_texture_handle()
+                .update(unsafe { get_internal_gl() }.quad_context, &frame.masks.rgba);
+        }
+        let aux = frame.aux;
+        let resized_aux = aux.is_none_or(|t| (t.width() as u32, t.height() as u32) != effect_dim);
+        if resized_aux {
+            let texture = Texture2D::from_rgba8(effect_dim.0 as u16, effect_dim.1 as u16, &frame.masks.aux_rgba);
+            texture.set_filter(FilterMode::Linear);
+            if let Some(old) = frame.aux.replace(texture) {
+                old.delete();
+            }
+        } else if hover || frame.uploaded_aux != Some(frame.masks.aux_revision) {
+            frame
+                .aux
+                .unwrap()
+                .raw_miniquad_texture_handle()
+                .update(unsafe { get_internal_gl() }.quad_context, &frame.masks.aux_rgba);
+        }
+        frame.uploaded_masks = Some(frame.masks.revision);
+        frame.uploaded_aux = Some(frame.masks.aux_revision);
+        #[cfg(feature = "render_research")]
+        research_end(upload_start, 2);
+        #[cfg(feature = "render_research")]
+        let snapshot_start = research_begin();
+        // Snapshot legality is independent of vertex instancing. Never inspect
+        // or rebind the disabled layer's unresolved multisample source here.
+        #[cfg(any(feature = "render_lifetime", not(feature = "render_research")))]
+        let can_blit = !disabled && snapshot_source_blit(res, pass)
+            && frame.scene_blit_rejected_for != Some((width as u32, height as u32));
+        // Preserve historical research profiles, which predate the capability API.
+        #[cfg(all(not(feature = "render_lifetime"), feature = "render_research"))]
+        let can_blit = unsafe { get_internal_gl() }.quad_context.features().instancing
+            && (pass.is_some() || {
+                // A multisampled system backbuffer cannot be resized in a blit.
+                // Game windows use one sample; keep probe/foreign-camera support.
+                let mut samples = 0;
+                unsafe {
+                    miniquad::gl::glGetIntegerv(0x80A9, &mut samples);
+                }
+                samples <= 1
+            });
+        #[cfg(feature = "render_lifetime")]
+        let mut shader_source = (res.snapshot_shader_copy && !disabled && !can_blit).then(|| res.chart_target.as_ref().and_then(|target| target.resolved_texture(pass))).flatten();
+        #[cfg(feature = "render_lifetime")]
+        if frame.scene_shader_rejected { shader_source = None; }
+        #[cfg(feature = "render_lifetime")]
+        if shader_source.is_some() && frame.scene_copy.is_none() {
+            match SceneCopy::new() {
+                Ok(copy) => frame.scene_copy = Some(copy),
+                Err(error) => {
+                    tracing::warn!("Using full scene snapshot after copy shader rejection: {error}");
+                    frame.scene_shader_rejected = true;
+                    shader_source = None;
+                }
+            }
+        }
+        #[cfg(not(feature = "render_lifetime"))]
+        let shader_source: Option<miniquad::Texture> = None;
+        let small_snapshot = can_blit || shader_source.is_some();
+        let copy_format = if small_snapshot { miniquad::TextureFormat::RGBA8 } else {
+            pass.map(|pass| pass.texture(unsafe { get_internal_gl() }.quad_context).format).unwrap_or(miniquad::TextureFormat::RGBA8)
+        };
+        let mut dim = if small_snapshot {
+            ((width / 6).max(1) as u32, (height / 6).max(1) as u32)
+        } else {
+            (width as u32, height as u32)
+        };
+        if !disabled && frame.scene.is_none_or(|texture| (texture.width() as u32, texture.height() as u32) != dim || texture.raw_miniquad_texture_handle().format != copy_format) {
+            let allocate = |dim: (u32, u32), format| miniquad::Texture::new(
+                unsafe { get_internal_gl() }.quad_context,
+                miniquad::TextureAccess::Static,
+                None,
+                miniquad::TextureParams {
+                    width: dim.0,
+                    height: dim.1,
+                    format,
+                    // Native SceneColor uses a linear /6 camera blit, followed
+                    // by point-sampled texel centers in snapshotSample.
+                    filter: miniquad::FilterMode::Linear,
+                    ..Default::default()
+                },
+            );
+            let mut texture = allocate(dim, copy_format);
+            let mut next_pass = small_snapshot.then(|| miniquad::RenderPass::new(unsafe { get_internal_gl() }.quad_context, texture, None));
+            #[cfg(any(feature = "render_lifetime", not(feature = "render_research")))]
+            if can_blit && next_pass.is_some_and(|pass| !normalized_single_sample_fbo(pass, Some(8))) {
+                // A failed optional destination must not disable the block effect.
+                // Keep the existing full-size CopyTexSubImage compatibility path.
+                next_pass.take().unwrap().delete(unsafe { get_internal_gl() }.quad_context);
+                frame.scene_blit_rejected_for = Some((width as u32, height as u32));
+                dim = (width as u32, height as u32);
+                let format = pass.map(|pass| pass.texture(unsafe { get_internal_gl() }.quad_context).format).unwrap_or(miniquad::TextureFormat::RGBA8);
+                texture = allocate(dim, format);
+            }
+            let old = frame.scene.replace(Texture2D::from_miniquad_texture(texture));
+            if let Some(pass) = std::mem::replace(&mut frame.scene_pass, next_pass) {
+                // RenderPass::delete also owns/deletes its color texture.
+                pass.delete(unsafe { get_internal_gl() }.quad_context);
+            } else if let Some(old) = old {
+                old.delete();
+            }
+        }
+        let scene = frame.scene.unwrap_or(*EMPTY_TEX);
+        if !disabled {
+            #[cfg(feature = "render_lifetime")]
+            if res.capture_snapshot_source {
+                if let Some(source) = res.chart_target.as_ref().and_then(|target| target.resolved_texture(pass)) {
+                    frame.source_image = Some(snapshot_image(Texture2D::from_miniquad_texture(source)));
+                }
+            }
+            frame.scene_blit = can_blit && frame.scene_pass.is_some();
+            #[cfg(feature = "render_lifetime")]
+            if let Some(source) = shader_source.filter(|_| !can_blit && frame.scene_pass.is_some()) {
+                let destination = frame.scene_pass.unwrap();
+                frame.scene_copy.as_mut().unwrap().draw(source, destination, viewport, dim);
+            } else { copy_scene(res, pass, viewport, scene, frame.scene_pass); }
+            #[cfg(not(feature = "render_lifetime"))]
+            copy_scene(res, pass, viewport, scene, frame.scene_pass);
+        }
+        #[cfg(feature = "render_research")]
+        research_end(snapshot_start, 3);
+        #[cfg(feature = "render_research")]
+        let record_start = research_begin();
+        m.set_texture("uDisplaceTex", *DISPLACE_TEX);
+        m.set_texture("uSparkTex", *SPARK_TEX);
+        m.set_texture("uMasks", frame.effect.unwrap());
+        m.set_texture("uScene", scene);
+        m.set_texture("uAuxMasks", frame.aux.unwrap());
+        m.set_texture("uNoiseTex", *NOISE_TEX);
+        m.set_uniform("uUnityTime", vec4(time / 20., time, time * 2., time * 3.));
+        m.set_uniform("uView", vec3(width as f32, height as f32, aspect));
+        m.set_uniform("_ScreenParams", vec4(width as f32, height as f32, 1. + 1. / width as f32, 1. + 1. / height as f32));
+        m.set_uniform("_EffectRT_TexelSize", vec4(1. / effect_dim.0 as f32, 1. / effect_dim.1 as f32, effect_dim.0 as f32, effect_dim.1 as f32));
+        m.set_uniform("_TouchPosCount", touches.len().min(10) as i32);
+        for (i, (_, uv)) in touches.iter().take(10).enumerate() {
+            m.set_uniform(&format!("_TouchPos[{i}]"), *uv * vec2(width as f32 / height as f32, 1.));
+        }
+        m.set_uniform("_TouchPosShine", (0.63 + 0.37 * ((time * 43.).sin() * 0.5 + 0.5)) * 2.);
+        gl_use_material(m);
+        #[cfg(any(feature = "render_bounds", not(feature = "render_research")))]
+        let old_clip = unsafe { get_internal_gl() }.quad_gl.get_scissor();
+        // Keep one quad: subdividing it changes vertex interpolation at point
+        // sample boundaries, moving a few spark/noise texels between frames.
+        // Specialize the expensive hover path instead of changing native UVs.
+        #[cfg(any(feature = "render_bounds", not(feature = "render_research")))]
+        if let Some(clips) = &clips {
+            for clip in clips {
+                unsafe { get_internal_gl() }.quad_gl.scissor(Some(*clip));
+                draw_rectangle(-1., -1. / aspect, 2., 2. / aspect, WHITE);
+            }
+        } else { draw_rectangle(-1., -1. / aspect, 2., 2. / aspect, WHITE); }
+        #[cfg(all(not(feature = "render_bounds"), feature = "render_research"))]
+        draw_rectangle(-1., -1. / aspect, 2., 2. / aspect, WHITE);
+        #[cfg(any(feature = "render_bounds", not(feature = "render_research")))]
+        if clips.is_some() { unsafe { get_internal_gl() }.quad_gl.scissor(old_clip); }
+        gl_use_default_material();
+        #[cfg(feature = "render_research")]
+        research_end(record_start, 4);
+    });
+}
+
+#[cfg(any(feature = "render_lifetime", not(feature = "render_research")))]
+fn snapshot_source_blit(res: &mut Resource, pass: Option<miniquad::RenderPass>) -> bool {
+    if res.deny_snapshot_blit || !unsafe { get_internal_gl() }.quad_context.supports_framebuffer_blit() {
+        return false;
+    }
+    // A system/foreign backbuffer has no owned attachment contract. Its original
+    // copy path is retained instead of inferring format from a GPU/API name.
+    let Some(pass) = pass else { return false; };
+    let pass = res.chart_target.as_ref().filter(|target| target.input().render_pass == pass)
+        .map_or(pass, |target| target.output().render_pass);
+    if let Some((_, allowed)) = res.snapshot_blit_sources.iter().find(|(source, _)| *source == pass) {
+        return *allowed;
+    }
+    let allowed = normalized_single_sample_fbo(pass, None);
+    res.snapshot_blit_sources.push((pass, allowed));
+    allowed
+}
+
+#[cfg(any(feature = "render_lifetime", not(feature = "render_research")))]
+fn normalized_single_sample_fbo(pass: miniquad::RenderPass, alpha_bits: Option<i32>) -> bool {
+    unsafe {
+        use miniquad::gl::*;
+        // The capability gate verified every entry used here. These queries run
+        // once per owned attachment, outside steady-state submission.
+        assert_eq!(glGetError(), GL_NO_ERROR, "GL error before snapshot attachment probe");
+        let mut read = 0;
+        let mut draw = 0;
+        glGetIntegerv(0x8CAA, &mut read);
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &mut draw);
+        let source = pass.gl_internal_id(get_internal_gl().quad_context);
+        if source != draw as u32 { glBindFramebuffer(GL_DRAW_FRAMEBUFFER, source); }
+        let mut samples = 0;
+        glGetIntegerv(0x80A9, &mut samples);
+        let mut color = [0; 6];
+        for (value, name) in color.iter_mut().zip([0x8212, 0x8213, 0x8214, 0x8215, 0x8211, 0x8210]) {
+            glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, name, value);
+        }
+        let complete = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+        let error = glGetError();
+        if source != draw as u32 { glBindFramebuffer(GL_DRAW_FRAMEBUFFER, draw as u32); }
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, read as u32);
+        let allowed = complete && samples <= 1 && color[..3] == [8, 8, 8]
+            && alpha_bits.map_or(color[3] == 0 || color[3] == 8, |bits| color[3] == bits)
+            && color[4..] == [0x8C17, 0x2601] && error == GL_NO_ERROR;
+        if !allowed { tracing::warn!("Using compatible scene snapshot: samples={samples}, color={color:?}, complete={complete}, error={error:#x}"); }
+        allowed
+    }
+}
+
+#[cfg(feature = "render_lifetime")]
+pub(crate) fn research_mask_lookup(enabled: bool, rows: bool) {
+    FRAME.with(|frame| {
+        let mut frame = frame.borrow_mut();
+        frame.masks.set_lookup_values(enabled);
+        frame.spare_viewport.masks.set_lookup_values(enabled);
+        frame.masks.row_bounds = rows;
+        frame.spare_viewport.masks.row_bounds = rows;
+    });
+}
+
+#[cfg(feature = "render_lifetime")]
+pub(crate) fn research_snapshot_info(res: &Resource) -> serde_json::Value {
+    FRAME.with(|frame| {
+        let frame = frame.borrow();
+        serde_json::json!({
+            "api_available":unsafe { get_internal_gl() }.quad_context.supports_framebuffer_blit(),
+            "denied":res.deny_snapshot_blit,
+            "keep_resolved_pass":res.keep_resolved_pass,
+            "buffer_mask_textures":res.buffer_mask_textures,
+            "cache_mask_viewports":res.cache_mask_viewports,
+            "mask_viewports_disabled_active":frame.viewport_sizes,
+            "mask_evaluation_counts_hit_geometry_binary_gray":frame.masks.evaluation_counts,
+            "mask_lookup_values":frame.masks.lookup_values,
+            "mask_compose_rows":frame.masks.row_bounds,
+            "mask_viewport_pairs":usize::from(frame.effect.is_some()) + usize::from(frame.spare_viewport.textures.effect.is_some()),
+            "mask_texture_pairs":usize::from(frame.effect.is_some()) + frame.spare_masks.iter().filter(|pair| pair.effect.is_some()).count(),
+            "strategy":if frame.scene.is_none() { "unused" } else if frame.scene_blit { "linear_blit" } else if frame.scene_pass.is_some() { "linear_shader" } else { "full_copy" },
+            "dimensions":frame.scene.map(|scene| [scene.width() as u32, scene.height() as u32]),
+            "source_probes":res.snapshot_blit_sources.len(),
+            "source_accepted":res.snapshot_blit_sources.iter().filter(|(_, accepted)| *accepted).count(),
+            "destination_rejected":frame.scene_blit_rejected_for.is_some(),
+            "shader_rejected":frame.scene_shader_rejected,
+            "shader_requested":res.snapshot_shader_copy,
+            "format":frame.scene.map(|scene| format!("{:?}", scene.raw_miniquad_texture_handle().format)),
+        })
+    })
+}
+
+#[cfg(feature = "render_lifetime")]
+pub(crate) fn research_snapshot_image() -> Option<Image> {
+    FRAME.with(|frame| frame.borrow().scene.map(snapshot_image))
+}
+
+#[cfg(feature = "render_lifetime")]
+pub(crate) fn research_snapshot_source_image() -> Option<Image> {
+    FRAME.with(|frame| frame.borrow_mut().source_image.take())
+}
+
+#[cfg(feature = "render_lifetime")]
+fn snapshot_image(scene: Texture2D) -> Image {
+        unsafe {
+            use miniquad::gl::*;
+            assert_eq!(glGetError(), GL_NO_ERROR, "GL error before snapshot capture");
+            let mut previous_read = 0;
+            let mut previous_draw = 0;
+            glGetIntegerv(0x8CAA, &mut previous_read);
+            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &mut previous_draw);
+            let mut fbo = 0;
+            glGenFramebuffers(1, &mut fbo);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+            glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                scene.raw_miniquad_texture_handle().gl_internal_id(), 0);
+            assert_eq!(glCheckFramebufferStatus(GL_READ_FRAMEBUFFER), GL_FRAMEBUFFER_COMPLETE);
+            let mut image = Image { width:scene.width() as u16,height:scene.height() as u16,
+                bytes:vec![0; scene.width() as usize * scene.height() as usize * 4] };
+            glReadPixels(0,0,image.width as _,image.height as _,GL_RGBA,GL_UNSIGNED_BYTE,image.bytes.as_mut_ptr() as _);
+            assert_eq!(glGetError(), GL_NO_ERROR, "Snapshot capture failed");
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, previous_read as u32);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, previous_draw as u32);
+            glDeleteFramebuffers(1, &fbo);
+            image
+        }
+}
+
+#[cfg(feature = "render_lifetime")]
+struct SceneCopy {
+    pipeline: miniquad::Pipeline,
+    bindings: miniquad::Bindings,
+    separate_bindings: bool,
+}
+
+#[cfg(feature = "render_lifetime")]
+impl SceneCopy {
+    fn new() -> Result<Self, miniquad::ShaderError> {
+        let ctx = unsafe { get_internal_gl() }.quad_context;
+        let shader = miniquad::Shader::new(ctx,
+            "#version 100\nattribute vec2 position; void main(){ gl_Position=vec4(position,0.0,1.0); }",
+            "#version 100\nprecision highp float; uniform highp sampler2D source; uniform vec4 sourceRect; void main(){ vec2 uv=gl_FragCoord.xy*sourceRect.zw+sourceRect.xy; gl_FragColor=texture2D(source,uv); }",
+            miniquad::ShaderMeta { images:vec!["source".into()], uniforms:miniquad::UniformBlockLayout { uniforms:vec![miniquad::UniformDesc::new("sourceRect", miniquad::UniformType::Float4)] } })?;
+        let pipeline = miniquad::Pipeline::with_params(ctx, &[miniquad::BufferLayout::default()],
+            &[miniquad::VertexAttribute::new("position", miniquad::VertexFormat::Float2)], shader, miniquad::PipelineParams::default());
+        let vertices = [[-1_f32,-1_f32],[1.,-1.],[1.,1.],[-1.,1.]];
+        let indices = [0_u16,1,2,0,2,3];
+        let bindings = miniquad::Bindings {
+            vertex_buffers:vec![miniquad::Buffer::immutable(ctx,miniquad::BufferType::VertexBuffer,&vertices)],
+            index_buffer:miniquad::Buffer::immutable(ctx,miniquad::BufferType::IndexBuffer,&indices),
+            images:vec![miniquad::Texture::empty()],
+        };
+        let version = unsafe { miniquad::gl::glGetString(miniquad::gl::GL_VERSION) };
+        let version = if version.is_null() { std::borrow::Cow::Borrowed("") } else { unsafe { std::ffi::CStr::from_ptr(version as _) }.to_string_lossy() };
+        let version = version.strip_prefix("OpenGL ES ").unwrap_or(&version);
+        let separate_bindings = ctx.supports_framebuffer_blit() || version.split('.').next().and_then(|v| v.parse::<u32>().ok()).is_some_and(|v| v >= 3);
+        Ok(Self { pipeline, bindings, separate_bindings })
+    }
+
+    fn draw(&mut self, source: miniquad::Texture, destination: miniquad::RenderPass,
+        viewport: (i32,i32,i32,i32), dim: (u32,u32)) {
+        unsafe {
+            use miniquad::gl::*;
+            let mut read = 0;
+            let mut draw = 0;
+            let mut previous_viewport = [0;4];
+            let mut scissor = 0;
+            let mut scissor_box = [0;4];
+            let mut dither = 0;
+            glGetIntegerv(GL_FRAMEBUFFER_BINDING, &mut draw);
+            if self.separate_bindings { glGetIntegerv(0x8CAA, &mut read); }
+            glGetIntegerv(0x0BA2, previous_viewport.as_mut_ptr());
+            glGetIntegerv(GL_SCISSOR_TEST, &mut scissor);
+            glGetIntegerv(0x0C10, scissor_box.as_mut_ptr());
+            glGetIntegerv(0x0BD0, &mut dither);
+            // Blits do not dither. Keep the same RGBA8 quantization boundary.
+            glDisable(0x0BD0);
+            let ctx = get_internal_gl().quad_context;
+            ctx.begin_pass(destination, miniquad::PassAction::Nothing);
+            ctx.apply_viewport(0,0,dim.0 as i32,dim.1 as i32);
+            ctx.apply_scissor_rect(0,0,dim.0 as i32,dim.1 as i32);
+            ctx.apply_pipeline(&self.pipeline);
+            self.bindings.images[0] = source;
+            ctx.apply_bindings(&self.bindings);
+            let rect = [viewport.0 as f32/source.width as f32,viewport.1 as f32/source.height as f32,
+                viewport.2 as f32/(source.width as f32*dim.0 as f32),viewport.3 as f32/(source.height as f32*dim.1 as f32)];
+            ctx.apply_uniforms(&rect);
+            ctx.draw(0,6,1);
+            ctx.end_render_pass_preserving_framebuffer();
+            if self.separate_bindings {
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, read as u32);
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, draw as u32);
+            } else { glBindFramebuffer(GL_FRAMEBUFFER, draw as u32); }
+            glViewport(previous_viewport[0],previous_viewport[1],previous_viewport[2],previous_viewport[3]);
+            glScissor(scissor_box[0],scissor_box[1],scissor_box[2],scissor_box[3]);
+            if scissor == 0 { glDisable(GL_SCISSOR_TEST); }
+            if dither != 0 { glEnable(0x0BD0); }
+        }
+    }
+}
+
+fn copy_scene(
+    res: &Resource,
+    pass: Option<miniquad::RenderPass>,
+    viewport: (i32, i32, i32, i32),
+    texture: Texture2D,
+    snapshot_pass: Option<miniquad::RenderPass>,
+) {
+    use miniquad::gl::*;
+    // These GLES3 constants are absent from this miniquad fork's desktop table.
+    const READ_FRAMEBUFFER_BINDING: u32 = 0x8CAA;
+    const ACTIVE_TEXTURE: u32 = 0x84E0;
+    const TEXTURE_BINDING_2D: u32 = 0x8069;
+    unsafe {
+        if let Some(destination) = snapshot_pass {
+            let mut read = 0;
+            let mut draw = 0;
+            glGetIntegerv(READ_FRAMEBUFFER_BINDING, &mut read);
+            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &mut draw);
+            let mut scissor = 0;
+            glGetIntegerv(GL_SCISSOR_TEST, &mut scissor);
+            glDisable(GL_SCISSOR_TEST);
+            let source = if let Some(target) = res.chart_target.as_ref().filter(|target| Some(target.input().render_pass) == pass) {
+                // Multisample resolve must keep the same size and use NEAREST;
+                // then downsample the resolved output with LINEAR.
+                target.blit();
+                target.output().render_pass.gl_internal_id(get_internal_gl().quad_context)
+            } else {
+                pass.map(|p| p.gl_internal_id(get_internal_gl().quad_context)).unwrap_or(read as u32)
+            };
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, source);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, destination.gl_internal_id(get_internal_gl().quad_context));
+            glBlitFramebuffer(
+                viewport.0,
+                viewport.1,
+                viewport.0 + viewport.2,
+                viewport.1 + viewport.3,
+                0,
+                0,
+                texture.width() as i32,
+                texture.height() as i32,
+                GL_COLOR_BUFFER_BIT,
+                GL_LINEAR,
+            );
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, read as u32);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, draw as u32);
+            if scissor != 0 {
+                glEnable(GL_SCISSOR_TEST);
+            }
+            return;
+        }
+        let restore = if let Some(target) = res.chart_target.as_ref().filter(|target| Some(target.input().render_pass) == pass) {
+            let mut read = 0;
+            let mut draw = 0;
+            glGetIntegerv(READ_FRAMEBUFFER_BINDING, &mut read);
+            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &mut draw);
+            target.blit();
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, target.output().render_pass.gl_internal_id(get_internal_gl().quad_context));
+            Some((read, draw))
+        } else {
+            // Miniquad end_render_pass restores its default framebuffer after
+            // flush. Select the logical pass explicitly for this copy, using
+            // GLES2-compatible FRAMEBUFFER APIs, then restore the GL binding.
+            let mut binding = 0;
+            glGetIntegerv(GL_FRAMEBUFFER_BINDING, &mut binding);
+            if let Some(pass) = pass {
+                glBindFramebuffer(GL_FRAMEBUFFER, pass.gl_internal_id(get_internal_gl().quad_context));
+            }
+            Some((binding, -1))
+        };
+        let mut active = 0;
+        let mut bound = 0;
+        glGetIntegerv(ACTIVE_TEXTURE, &mut active);
+        glActiveTexture(GL_TEXTURE0);
+        glGetIntegerv(TEXTURE_BINDING_2D, &mut bound);
+        glBindTexture(GL_TEXTURE_2D, texture.raw_miniquad_texture_handle().gl_internal_id());
+        // Storage is allocated on viewport changes above; do not reallocate
+        // a full-resolution texture on every frame.
+        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, viewport.0, viewport.1, viewport.2, viewport.3);
+        glBindTexture(GL_TEXTURE_2D, bound as u32);
+        glActiveTexture(active as u32);
+        if let Some((read, draw)) = restore {
+            if draw < 0 {
+                glBindFramebuffer(GL_FRAMEBUFFER, read as u32);
+            } else {
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, read as u32);
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, draw as u32);
+            }
+        }
+    }
+}
+
+const VERTEX: &str = include_str!("block_shader_full.vert");
+const FRAGMENT: &str = include_str!("block_shader_full.frag");

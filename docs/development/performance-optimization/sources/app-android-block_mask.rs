@@ -1,0 +1,1016 @@
+//! CPU equivalent of the native mask, EdgeMask and GlowMask passes.
+//! Bit rows keep the nine-tap dilation inexpensive without any offscreen FBOs.
+use super::Zone;
+#[path = "block_mask_values.rs"]
+mod values;
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
+
+static DISPLACE: Lazy<image::RgbImage> = Lazy::new(|| {
+    let source = image::load_from_memory(include_bytes!("../../../assets/blockarea/BlockNoise1.png"))
+        .unwrap()
+        .to_rgb8();
+    image::imageops::flip_vertical(&source)
+});
+
+#[derive(Default)]
+pub(super) struct Masks {
+    pub rgba: Vec<u8>,
+    /// Ready-only normal R, ready-only postprocessed subtract G, disabled compose, hover.
+    pub aux_rgba: Vec<u8>,
+    /// Point-sampled raw camera outputs, packed enabled N/S and disabled N/S.
+    pub sources_rgba: Vec<u8>,
+    /// Native camera capture is needed only by the independent mask oracle.
+    pub capture_sources: bool,
+    pub raw_disabled_green: Vec<u8>,
+    pub width: usize,
+    pub height: usize,
+    pub revision: u64,
+    pub aux_revision: u64,
+    #[cfg(feature = "render_lifetime")]
+    pub evaluation_counts: [u64; 4],
+    #[cfg(feature = "render_lifetime")]
+    pub lookup_values: bool,
+    #[cfg(feature = "render_lifetime")]
+    pub row_bounds: bool,
+    #[cfg(feature = "render_research")]
+    pub timing_enabled: bool,
+    #[cfg(feature = "render_research")]
+    pub timings: [f64; 6],
+    active: Vec<u64>,
+    ping: Vec<u64>,
+    pong: Vec<u64>,
+    last_dim: (usize, usize, f32),
+    last_zones: Vec<Zone>,
+    last_time: Option<f32>,
+    layers: [Vec<u8>; 6],
+    ready_green: Vec<u8>,
+    gray_ping: Vec<u8>,
+    gray_pong: Vec<u8>,
+    warp_x: Vec<(f32, usize, usize)>,
+    warp_y: Vec<(f32, usize)>,
+    enabled_compose: Vec<u8>,
+    uniform_compose: Option<u8>,
+    base_rgba: Vec<u8>,
+    coverage_diff: [Vec<i32>; 8],
+    blend_steps: HashMap<u32, Option<u8>>,
+    prepared_rows: HashMap<[u32; 5], Box<[(u16, u16, u16)]>>,
+    prepared_dim: (usize, usize, f32),
+    prepared_bytes: usize,
+    source_bounds: Option<(usize, usize, usize, usize)>,
+    group_index: HashMap<[u32; 5], usize>,
+    groups: Vec<(Zone, [i32; 8])>,
+}
+
+impl Masks {
+    #[cfg(feature = "render_lifetime")]
+    pub fn set_lookup_values(&mut self, enabled: bool) {
+        if enabled { values::prepare(); }
+        self.lookup_values = enabled;
+    }
+
+    #[cfg(feature = "render_research")]
+    fn research_begin(&self) -> Option<std::time::Instant> {
+        self.timing_enabled.then(std::time::Instant::now)
+    }
+
+    #[cfg(feature = "render_research")]
+    fn research_end(&mut self, start: Option<std::time::Instant>, stage: usize) {
+        if let Some(start) = start { self.timings[stage] += start.elapsed().as_secs_f64() * 1000.; }
+    }
+
+    #[cfg(feature = "render_lifetime")]
+    pub fn matches_viewport(&self, width: usize, height: usize, aspect: f32) -> bool {
+        self.last_dim == ((width / 8).max(1) * 2, (height / 8).max(1) * 2, aspect)
+    }
+
+    /// Pre-rasterize exact keyframe poses, never quantizing animated geometry
+    /// or chart time. Holds/static intervals reuse these poses; intermediates
+    /// fall back to live rasterization. Hard 16 MiB budget, retained on retry.
+    pub fn prepare_geometry(&mut self, width: usize, height: usize, aspect: f32, areas: &[super::BlockArea]) {
+        self.clear_prepared_geometry();
+        let (bw, bh) = ((width / 8).max(1) * 2, (height / 8).max(1) * 2);
+        self.prepared_dim = (bw, bh, aspect);
+        Lazy::force(&DISPLACE);
+        for area in areas {
+            let times = [area.appear_time, area.enable_time, area.disable_time, area.disappear_time.next_down()]
+                .into_iter()
+                .chain(area.rotate_events.iter().map(|e| e.time))
+                .chain(area.move_events.iter().map(|e| e.time))
+                .chain(area.scale_events.iter().map(|e| e.time));
+            for t in times {
+                let Some(zone) = super::Zone::from_area(area, t, aspect) else {
+                    continue;
+                };
+                let key = geometry_key(&zone);
+                if self.prepared_rows.contains_key(&key) {
+                    continue;
+                }
+                let mut rows = Vec::new();
+                raster_rows(bw, bh, aspect, &zone, |y, first, last| rows.push((y as u16, first as u16, last as u16)));
+                let bytes = rows.len() * std::mem::size_of::<(u16, u16, u16)>() + 96;
+                if self.prepared_bytes + bytes > 16 * 1024 * 1024 {
+                    return;
+                }
+                self.prepared_bytes += bytes;
+                self.prepared_rows.insert(key, rows.into_boxed_slice());
+            }
+        }
+    }
+
+    pub fn clear_prepared_geometry(&mut self) {
+        self.prepared_rows.clear();
+        self.prepared_bytes = 0;
+    }
+
+    pub fn render_displaced(&mut self, width: usize, height: usize, aspect: f32, zones: &[Zone], time: f32) {
+        // Refine Compose to the existing EffectRT grid: half-sized boundary
+        // cells without larger effect textures, more shader work or narrower
+        // edge/glow rings. Native geometry and displacement math stay intact.
+        let (bw, bh) = ((width / 8).max(1) * 2, (height / 8).max(1) * 2);
+        let (ew, eh) = (bw, bh);
+        if self.last_dim == (ew, eh, aspect) && self.last_zones == zones && (self.last_time == Some(time) || self.uniform_compose.is_some()) {
+            #[cfg(feature = "render_lifetime")]
+            { self.evaluation_counts[0] += 1; }
+            return;
+        }
+        #[cfg(feature = "render_research")]
+        let geometry_start = self.research_begin();
+        if self.last_dim != (ew, eh, aspect) || self.last_zones != zones {
+            #[cfg(feature = "render_lifetime")]
+            { self.evaluation_counts[1] += 1; }
+            self.last_dim = (ew, eh, aspect);
+            self.last_zones.clear();
+            self.last_zones.extend_from_slice(zones);
+            for layer in &mut self.layers {
+                layer.resize(bw * bh, 0);
+                layer.fill(0);
+            }
+            self.raw_disabled_green.resize(bw * bh, 0);
+            self.raw_disabled_green.fill(0);
+            self.ready_green.resize(bw * bh, 0);
+            self.ready_green.fill(0);
+            if self.prepared_dim != (bw, bh, aspect) {
+                self.clear_prepared_geometry();
+            }
+            if self.blend_steps.len() > 512 {
+                self.blend_steps.clear();
+            }
+            let mut used = [false; 8];
+            let mut additive = [true; 8];
+            let mut same_opacity = [true; 8];
+            let mut first_opacity = [None; 8];
+            for z in zones {
+                for (channel, opacity) in contributions(z).into_iter().flatten() {
+                    used[channel] = true;
+                    if let Some(first) = first_opacity[channel] {
+                        same_opacity[channel] &= first == opacity.to_bits();
+                    } else {
+                        first_opacity[channel] = Some(opacity.to_bits());
+                    }
+                    let step = *self.blend_steps.entry(opacity.to_bits()).or_insert_with(|| blend_step(opacity));
+                    additive[channel] &= step.is_some();
+                }
+            }
+            // Identical opacities need only a count and their reachable R8
+            // sequence, including .1's half-integer rounding. Mixed opacities
+            // use weighted sums only when every possible R8 input was proven.
+            let fast: [bool; 8] = std::array::from_fn(|c| used[c] && (same_opacity[c] || additive[c]));
+            let mut curves = [[0_u8; 256]; 8];
+            let mut curve_end = [0; 8];
+            for c in 0..8 {
+                if !used[c] || !same_opacity[c] {
+                    continue;
+                }
+                let opacity = f32::from_bits(first_opacity[c].unwrap());
+                for n in 1..256 {
+                    let value = unorm(curves[c][n - 1] as f32 / 255. + opacity);
+                    if value == curves[c][n - 1] {
+                        break;
+                    }
+                    curves[c][n] = value;
+                    curve_end[c] = n;
+                    if value == 255 {
+                        break;
+                    }
+                }
+            }
+            for channel in 0..8 {
+                if fast[channel] {
+                    self.coverage_diff[channel].resize((bw + 1) * bh, 0);
+                    self.coverage_diff[channel].fill(0);
+                }
+            }
+            self.group_index.clear();
+            self.groups.clear();
+            // The six official cameras capture enabled N/S, disabled N/S
+            // (including ready), and ready-only N/S. BlockSprite blends
+            // SrcAlpha, One; each subtract sprite has alpha .1.
+            for z in zones {
+                let mut weights = [0_i32; 8];
+                let mut slow = false;
+                for (channel, opacity) in contributions(z).into_iter().flatten() {
+                    if fast[channel] {
+                        weights[channel] += if same_opacity[channel] {
+                            1
+                        } else {
+                            self.blend_steps[&opacity.to_bits()].unwrap() as i32
+                        };
+                    } else {
+                        slow = true;
+                    }
+                }
+                if weights != [0; 8] {
+                    let key = geometry_key(z);
+                    let group = *self.group_index.entry(key).or_insert_with(|| {
+                        self.groups.push((z.clone(), [0; 8]));
+                        self.groups.len() - 1
+                    });
+                    for c in 0..8 {
+                        self.groups[group].1[c] += weights[c];
+                    }
+                }
+                if !slow {
+                    continue;
+                }
+                let mut write = |y: usize, first: usize, last: usize| {
+                    for (channel, opacity) in contributions(z).into_iter().flatten() {
+                        if !fast[channel] {
+                            // Half-integer blends can round differently depending
+                            // on the previous R8 value. Preserve source ordering.
+                            let plane = match channel {
+                                6 => &mut self.raw_disabled_green,
+                                7 => &mut self.ready_green,
+                                _ => &mut self.layers[channel],
+                            };
+                            for pixel in &mut plane[y * bw + first..y * bw + last] {
+                                *pixel = unorm(*pixel as f32 / 255. + opacity);
+                            }
+                        }
+                    }
+                };
+                if let Some(rows) = self.prepared_rows.get(&geometry_key(z)) {
+                    for &(y, first, last) in rows.iter() {
+                        write(y as usize, first as usize, last as usize);
+                    }
+                } else {
+                    raster_rows(bw, bh, aspect, z, write);
+                }
+            }
+            // Merge equal poses before visiting their rows. Source order is
+            // irrelevant only for the proven integer/count channels above.
+            for (z, weights) in &self.groups {
+                let mut write = |y: usize, first: usize, last: usize| {
+                    for c in 0..8 {
+                        if weights[c] == 0 {
+                            continue;
+                        }
+                        self.coverage_diff[c][y * (bw + 1) + first] += weights[c];
+                        self.coverage_diff[c][y * (bw + 1) + last] -= weights[c];
+                    }
+                };
+                if let Some(rows) = self.prepared_rows.get(&geometry_key(z)) {
+                    for &(y, first, last) in rows.iter() {
+                        write(y as usize, first as usize, last as usize);
+                    }
+                } else {
+                    raster_rows(bw, bh, aspect, z, write);
+                }
+            }
+            // Prefix sums make heavily overlapping active rectangles cost
+            // O(rectangles * rows + pixels), rather than O(sum of their areas).
+            // Retain the exact R8 quantization of every native additive blend.
+            for channel in 0..8 {
+                if !fast[channel] {
+                    continue;
+                }
+                let plane = match channel {
+                    6 => &mut self.raw_disabled_green,
+                    7 => &mut self.ready_green,
+                    _ => &mut self.layers[channel],
+                };
+                for y in 0..bh {
+                    let mut sum = 0_i32;
+                    for x in 0..bw {
+                        sum += self.coverage_diff[channel][y * (bw + 1) + x];
+                        plane[y * bw + x] = if same_opacity[channel] {
+                            curves[channel][sum.clamp(0, curve_end[channel] as i32) as usize]
+                        } else {
+                            sum.clamp(0, 255) as u8
+                        };
+                    }
+                }
+            }
+            #[cfg(feature = "render_research")]
+            self.research_end(geometry_start, 4);
+            #[cfg(feature = "render_research")]
+            let compose_start = self.research_begin();
+            #[cfg(feature = "render_lifetime")]
+            match (self.lookup_values, self.row_bounds) {
+                (false, false) => self.compose_masks::<false, false>(bw, bh),
+                (true, false) => self.compose_masks::<true, false>(bw, bh),
+                (false, true) => self.compose_masks::<false, true>(bw, bh),
+                (true, true) => self.compose_masks::<true, true>(bw, bh),
+            }
+            #[cfg(not(feature = "render_lifetime"))]
+            self.compose_masks::<false, false>(bw, bh);
+            if cfg!(test) || self.capture_sources {
+                self.sources_rgba.resize(bw * bh * 4, 0);
+                for i in 0..bw * bh {
+                    for c in 0..4 {
+                        self.sources_rgba[i * 4 + c] = self.layers[c][i];
+                    }
+                }
+            }
+            self.uniform_compose = self
+                .enabled_compose
+                .first()
+                .copied()
+                .filter(|v| self.enabled_compose.iter().all(|p| p == v));
+            self.aux_revision = self.aux_revision.wrapping_add(1);
+            #[cfg(feature = "render_research")]
+            self.research_end(compose_start, 5);
+        }
+        #[cfg(feature = "render_research")]
+        self.research_end(geometry_start, 0);
+        #[cfg(feature = "render_research")]
+        let displacement_start = self.research_begin();
+        self.width = ew;
+        self.height = eh;
+        // Only Compose/Edge/Glow evolve with noise time. Ready/Disabled camera
+        // channels stay unchanged until geometry/phase/opacity changes.
+        self.rgba.clone_from(&self.base_rgba);
+        let stride = ew.div_ceil(64);
+        self.active.resize(stride * eh, 0);
+        self.active.fill(0);
+        // Both native displacement samples share their Y coordinate. Compute
+        // mirrored texture indices per row/column, rather than running four
+        // floating-point remainders and image lookups for every mask pixel.
+        let texture = &*DISPLACE;
+        let pixels = texture.as_raw();
+        let texture_stride = texture.width() as usize * 3;
+        let d = 0.70703125_f32;
+        let dt = d * (time / 20. * 2.59);
+        self.warp_x.clear();
+        self.warp_y.clear();
+        if self.uniform_compose.is_none() {
+            self.warp_x.extend((0..bw).map(|x| {
+                let u = (x as f32 + 0.5) / bw as f32;
+                (u, noise_index(dt + u * 2.13, texture.width()) as usize * 3, noise_index(-dt + u * 2.13, texture.width()) as usize * 3)
+            }));
+            self.warp_y.extend((0..bh).map(|y| {
+                let v = (y as f32 + 0.5) / bh as f32;
+                (v, noise_index(dt + v * 1.02, texture.height()) as usize * texture_stride)
+            }));
+        }
+        static CENTERED_NOISE: Lazy<[f32; 256]> = Lazy::new(|| std::array::from_fn(|value| medium(medium(value as f32 / 255.) - 0.5)));
+        let centered = &*CENTERED_NOISE;
+        // Both centered noise channels lie in [-.5,.5]. The native normalized
+        // direction therefore displaces UV by at most .070704 per axis. A
+        // conservative .072 envelope skips empty pixels with identical samples.
+        let pad_x = (bw as f32 * 0.072).ceil() as usize + 1;
+        let pad_y = (bh as f32 * 0.072).ceil() as usize + 1;
+        let (x0, y0, x1, y1) = self
+            .source_bounds
+            .map(|(x0, y0, x1, y1)| (x0.saturating_sub(pad_x), y0.saturating_sub(pad_y), (x1 + pad_x).min(bw), (y1 + pad_y).min(bh)))
+            .unwrap_or((0, 0, 0, 0));
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let i = y * bw + x;
+                let mask = if let Some(value) = self.uniform_compose {
+                    value
+                } else {
+                    let (u, xa, xb) = self.warp_x[x];
+                    let (v, row) = self.warp_y[y];
+                    let a = centered[pixels[row + xa] as usize];
+                    let b = centered[pixels[row + xb] as usize];
+                    let duv = [(d * a + b * -d) * 0.1 + u, (d * a + b * d) * 0.1 + v];
+                    let sx = (duv[0] * bw as f32).floor().clamp(0., (bw - 1) as f32) as usize;
+                    let sy = (duv[1] * bh as f32).floor().clamp(0., (bh - 1) as f32) as usize;
+                    self.enabled_compose[sy * bw + sx]
+                };
+                let dst = i * 4;
+                self.rgba[dst] = mask;
+                if mask != 0 {
+                    self.active[y * stride + x / 64] |= 1 << (x % 64);
+                }
+            }
+        }
+        #[cfg(feature = "render_research")]
+        self.research_end(displacement_start, 1);
+        self.render_rings();
+        self.last_time = Some(time);
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    fn compose_masks<const LOOKUP: bool, const ROW_BOUNDS: bool>(&mut self, bw: usize, bh: usize) {
+        self.enabled_compose.resize(bw * bh, 0);
+        self.base_rgba.resize(bw * bh * 4, 0);
+        self.base_rgba.fill(0);
+        self.aux_rgba.resize(bw * bh * 4, 0);
+        self.aux_rgba.fill(0);
+        let mut bounds = (bw, bh, 0, 0);
+        for y in 0..bh {
+            for x in 0..bw {
+                let i = y * bw + x;
+                let invert = if LOOKUP { values::enabled(self.layers[1][i]) } else { subtract_enabled(self.layers[1][i]) == 1. };
+                self.enabled_compose[i] = self.layers[0][i].abs_diff(if invert { 255 } else { 0 });
+                if !ROW_BOUNDS && self.enabled_compose[i] != 0 {
+                    bounds.0 = bounds.0.min(x);
+                    bounds.1 = bounds.1.min(y);
+                    bounds.2 = bounds.2.max(x + 1);
+                    bounds.3 = bounds.3.max(y + 1);
+                }
+                let disabled = if LOOKUP {
+                    values::disabled(self.layers[2][i], self.layers[3][i], self.raw_disabled_green[i])
+                } else if self.layers[2][i] == 0 && self.layers[3][i] == 0 && self.raw_disabled_green[i] == 0 {
+                    0
+                } else {
+                    let (sr, sg) = subtract_disabled(self.layers[3][i], self.raw_disabled_green[i]);
+                    unorm((sr * sg - self.layers[2][i] as f32 / 255.).abs())
+                };
+                let ready_s = if LOOKUP {
+                    values::ready(self.layers[5][i], self.ready_green[i])
+                } else if self.ready_green[i] == 0 {
+                    0
+                } else {
+                    unorm(subtract_disabled(self.layers[5][i], self.ready_green[i]).1)
+                };
+                self.base_rgba[i * 4 + 3] = disabled;
+                self.aux_rgba[i * 4..i * 4 + 3].copy_from_slice(&[self.layers[4][i], ready_s, disabled]);
+            }
+        }
+        if ROW_BOUNDS {
+            // Max/min of all nonzero pixels is exactly the union of each
+            // nonempty row's first/last pixel. Update the bbox once per row,
+            // keeping the per-pixel compose loop free of four min/max ops.
+            for (y, row) in self.enabled_compose.chunks_exact(bw).enumerate() {
+                if let Some(first) = row.iter().position(|&value| value != 0) {
+                    let last = row.iter().rposition(|&value| value != 0).unwrap() + 1;
+                    bounds.0 = bounds.0.min(first);
+                    bounds.1 = bounds.1.min(y);
+                    bounds.2 = bounds.2.max(last);
+                    bounds.3 = bounds.3.max(y + 1);
+                }
+            }
+        }
+        self.source_bounds = (bounds.0 < bounds.2 && bounds.1 < bounds.3).then_some(bounds);
+    }
+
+    fn render_rings(&mut self) {
+        let (width, height) = (self.width, self.height);
+        #[cfg(feature = "render_research")]
+        let ring_start = self.research_begin();
+        if self.rgba.chunks_exact(4).any(|p| p[0] != 0 && p[0] != 255) {
+            #[cfg(feature = "render_lifetime")]
+            { self.evaluation_counts[3] += 1; }
+            self.render_gray_rings();
+            #[cfg(feature = "render_research")]
+            self.research_end(ring_start, 3);
+            return;
+        }
+        #[cfg(feature = "render_lifetime")]
+        { self.evaluation_counts[2] += 1; }
+        let stride = width.div_ceil(64);
+        self.ping.clone_from(&self.active);
+        self.pong.resize(self.active.len(), 0);
+        for (pass, weight) in glow_weights().into_iter().enumerate() {
+            if weight < 0.01 {
+                break;
+            }
+            dilate(&self.ping, &mut self.pong, width, height);
+            for y in 0..height {
+                for word in 0..stride {
+                    let i = y * stride + word;
+                    let mut ring = self.pong[i] & !self.ping[i];
+                    while ring != 0 {
+                        let bit = ring.trailing_zeros() as usize;
+                        let x = word * 64 + bit;
+                        if x < width {
+                            let dst = (y * width + x) * 4;
+                            if pass == 0 {
+                                self.rgba[dst + 1] = 255;
+                            }
+                            self.rgba[dst + 2] = unorm(weight);
+                        }
+                        ring &= ring - 1;
+                    }
+                }
+            }
+            std::mem::swap(&mut self.ping, &mut self.pong);
+        }
+        #[cfg(feature = "render_research")]
+        self.research_end(ring_start, 2);
+    }
+
+    fn render_gray_rings(&mut self) {
+        let (w, h) = (self.width, self.height);
+        self.gray_ping.resize(w * h, 0);
+        self.gray_pong.resize(w * h, 0);
+        for (i, p) in self.rgba.chunks_exact(4).enumerate() {
+            self.gray_ping[i] = p[0];
+        }
+        for (pass, weight) in glow_weights().into_iter().enumerate() {
+            if weight < 0.01 {
+                break;
+            }
+            for y in 0..h {
+                for x in 0..w {
+                    let i = y * w + x;
+                    let mut maximum = self.gray_ping[i];
+                    for yy in y.saturating_sub(1)..=(y + 1).min(h - 1) {
+                        for xx in x.saturating_sub(1)..=(x + 1).min(w - 1) {
+                            maximum = maximum.max(self.gray_ping[yy * w + xx]);
+                        }
+                    }
+                    self.gray_pong[i] = maximum;
+                    let delta = (maximum - self.gray_ping[i]) as f32 / 255.;
+                    if pass == 0 {
+                        self.rgba[i * 4 + 1] = maximum - self.gray_ping[i];
+                    }
+                    let outside = 1. - self.rgba[i * 4] as f32 / 255.;
+                    self.rgba[i * 4 + 2] = unorm(weight * (outside * delta) + self.rgba[i * 4 + 2] as f32 / 255.);
+                }
+            }
+            std::mem::swap(&mut self.gray_ping, &mut self.gray_pong);
+        }
+    }
+}
+
+fn glow_weights() -> [f32; 6] {
+    static WEIGHTS: Lazy<[f32; 6]> = Lazy::new(|| {
+        let sum: f32 = (1..=6).map(|k| (k as f32).powf(2.65)).sum();
+        std::array::from_fn(|pass| ((6 - pass) as f32).powf(2.65) / sum)
+    });
+    *WEIGHTS
+}
+
+fn unorm(v: f32) -> u8 {
+    (v.clamp(0., 1.) * 255.).round() as u8
+}
+
+fn subtract_enabled(red: u8) -> f32 {
+    // Native SubtractBlockBlender pass 0: a threshold window, not parity.
+    let r = red as f32 / 255.;
+    if (0.09..0.12).contains(&r) {
+        1.
+    } else {
+        0.
+    }
+}
+
+fn subtract_disabled(red: u8, green: u8) -> (f32, f32) {
+    let g = green as f32 / 255.;
+    let t = ((g - 0.2) * -10.).clamp(0., 1.);
+    let r = subtract_enabled(red) + t * t * (3. - 2. * t);
+    // The intermediate is RG16, clamped and rounded after shader output.
+    (unorm(r) as f32 / 255., unorm(g * r * 10.) as f32 / 255.)
+}
+
+pub(super) fn compose_uv(uv: [f32; 2], time: f32) -> [f32; 2] {
+    // BlockCompose pass 0, preserving the native normalized direction and ST.
+    // Native u_xlat16_* are mediump, not full-precision CPU floats. In the
+    // exported GLES shader the inverse length, direction, sampled noise and
+    // centered noise are separately rounded to binary16. Keeping the warp
+    // coordinates highp after those steps is essential at point boundaries.
+    let d = medium(0.5 * medium((0.5_f32).sqrt().recip()));
+    let t = time / 20. * 2.59;
+    let st = [uv[0] * 2.13, uv[1] * 1.02];
+    let a = medium(medium(noise([d * t + st[0], d * t + st[1]])) - 0.5);
+    let b = medium(medium(noise([-d * t + st[0], d * t + st[1]])) - 0.5);
+    [(d * a + b * -d) * 0.1 + uv[0], (d * a + b * d) * 0.1 + uv[1]]
+}
+
+fn medium(value: f32) -> f32 {
+    // The normalized noise/direction intermediates are zero or normal f16
+    // numbers. Round ten fraction bits with ties-to-even; no heap or new dep.
+    let bits = value.to_bits();
+    f32::from_bits((bits + 0xfff + ((bits >> 13) & 1)) & !0x1fff)
+}
+
+fn noise_index(v: f32, size: u32) -> u32 {
+    let v = v.rem_euclid(2.);
+    let v = if v > 1. { 2. - v } else { v };
+    (v * size as f32).floor().clamp(0., (size - 1) as f32) as u32
+}
+
+fn noise(uv: [f32; 2]) -> f32 {
+    // Match the vertically flipped rows uploaded by the material renderer.
+    DISPLACE.get_pixel(noise_index(uv[0], DISPLACE.width()), noise_index(uv[1], DISPLACE.height()))[0] as f32 / 255.
+}
+
+fn geometry_key(zone: &Zone) -> [u32; 5] {
+    [
+        zone.center.x.to_bits(),
+        zone.center.y.to_bits(),
+        zone.half.x.to_bits(),
+        zone.half.y.to_bits(),
+        zone.angle.to_bits(),
+    ]
+}
+
+fn contributions(z: &Zone) -> [Option<(usize, f32)>; 4] {
+    let layer = if z.active { usize::from(z.invert) } else { 2 + usize::from(z.invert) };
+    let opacity = if z.invert { 0.1 } else { z.opacity };
+    [
+        Some((layer, opacity)),
+        (z.invert && !z.active).then_some((6, 0.1 * z.opacity)),
+        z.ready.then_some((4 + usize::from(z.invert), opacity)),
+        (z.ready && z.invert).then_some((7, 0.1 * z.opacity)),
+    ]
+}
+
+fn blend_step(opacity: f32) -> Option<u8> {
+    let step = unorm(opacity);
+    (0..=255_u8)
+        .all(|previous| unorm(previous as f32 / 255. + opacity) == previous.saturating_add(step))
+        .then_some(step)
+}
+
+fn raster_rows(width: usize, height: usize, aspect: f32, zone: &Zone, mut write: impl FnMut(usize, usize, usize)) {
+    if zone.half.x <= 0. || zone.half.y <= 0. {
+        return;
+    }
+    let (s, c) = zone.angle.sin_cos();
+    let y_half = s.abs() * zone.half.x + c.abs() * zone.half.y;
+    let start = (((zone.center.y - y_half) * aspect + 1.) * height as f32 * 0.5 - 0.5)
+        .ceil()
+        .clamp(0., height as f32) as usize;
+    let end = ((((zone.center.y + y_half) * aspect + 1.) * height as f32 * 0.5 - 0.5).floor() + 1.).clamp(0., height as f32) as usize;
+    for y in start..end {
+        let dy = ((y as f32 + 0.5) * 2. / height as f32 - 1.) / aspect - zone.center.y;
+        let (mut lo, mut hi) = (-1.0_f32, 1.0_f32);
+        for (a, b, half) in [(c, s * dy, zone.half.x), (-s, c * dy, zone.half.y)] {
+            if a.abs() < 1e-7 {
+                if b.abs() > half {
+                    hi = lo - 1.;
+                    break;
+                }
+            } else {
+                let a0 = (-half - b) / a + zone.center.x;
+                let a1 = (half - b) / a + zone.center.x;
+                lo = lo.max(a0.min(a1));
+                hi = hi.min(a0.max(a1));
+            }
+        }
+        if lo > hi {
+            continue;
+        }
+        let first = ((lo + 1.) * width as f32 * 0.5 - 0.5).ceil().clamp(0., width as f32) as usize;
+        let last = (((hi + 1.) * width as f32 * 0.5 - 0.5).floor() + 1.).clamp(0., width as f32) as usize;
+        write(y, first, last);
+    }
+}
+
+fn dilate(source: &[u64], dest: &mut [u64], width: usize, height: usize) {
+    let stride = width.div_ceil(64);
+    let last_mask = u64::MAX >> ((64 - width % 64) % 64);
+    for y in 0..height {
+        for x in 0..stride {
+            let mut value = 0;
+            for row in y.saturating_sub(1)..=(y + 1).min(height - 1) {
+                let idx = row * stride + x;
+                let mid = source[idx];
+                let left = if x > 0 { source[idx - 1] >> 63 } else { 0 };
+                let right = if x + 1 < stride { source[idx + 1] << 63 } else { 0 };
+                value |= mid | (mid << 1) | left | (mid >> 1) | right;
+            }
+            dest[y * stride + x] = if x + 1 == stride { value & last_mask } else { value };
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::Vector;
+
+    #[cfg(feature = "render_lifetime")]
+    #[test]
+    fn lookup_matches_live_masks_with_mixed_fades_ready_motion_and_resize() {
+        for row_bounds in [false, true] {
+        let mut original = Masks::default();
+        let mut candidate = Masks::default();
+        candidate.set_lookup_values(true);
+        candidate.row_bounds = row_bounds;
+        for (width, height, aspect) in [(260, 156, 5. / 3.), (192, 256, 0.75), (8, 8, 1.)] {
+            for step in 0..18 {
+                let zones: Vec<_> = (0..37).map(|i| Zone {
+                    active: i % 4 == 0,
+                    ready: i % 4 == 1,
+                    opacity: [0., 0.1, 0.25, 0.5, 0.667, 1., 0.123456][(i + step) % 7],
+                    ..zone((i % 11) as f32 * 0.09 - 0.45 + step as f32 * 0.006,
+                        (i % 5) as f32 * 0.1 - 0.2, 0.3, 0.11, i as f32 * 0.17, i % 3 == 0)
+                }).collect();
+                let time = step as f32 * 0.17;
+                original.render_displaced(width, height, aspect, &zones, time);
+                candidate.render_displaced(width, height, aspect, &zones, time);
+                assert_eq!(candidate.rgba, original.rgba, "{width}x{height}, step={step}");
+                assert_eq!(candidate.aux_rgba, original.aux_rgba);
+                assert_eq!(candidate.sources_rgba, original.sources_rgba);
+                // Same-time cache hits and noise-only frames must also agree.
+                for repeated in [time, time + 0.001] {
+                    original.render_displaced(width, height, aspect, &zones, repeated);
+                    candidate.render_displaced(width, height, aspect, &zones, repeated);
+                    assert_eq!(candidate.rgba, original.rgba);
+                    assert_eq!(candidate.aux_rgba, original.aux_rgba);
+                }
+            }
+        }
+        }
+    }
+
+    #[test]
+    fn weighted_scanlines_match_ordered_r8_blending_with_fades_and_ready() {
+        let mut zones = Vec::new();
+        for i in 0..120 {
+            zones.push(Zone {
+                active: i % 4 == 0,
+                ready: i % 4 == 1,
+                opacity: [0., 0.1, 0.25, 0.5, 0.667, 1., 0.123456][i % 7],
+                ..zone((i % 11) as f32 * 0.09 - 0.45, (i % 5) as f32 * 0.1 - 0.2, 0.3, 0.11, i as f32 * 0.17, i % 3 == 0)
+            });
+        }
+        let (w, h) = (80, 48);
+        let mut reference: [Vec<u8>; 8] = std::array::from_fn(|_| vec![0; w * h]);
+        for z in &zones {
+            raster_rows(w, h, 16. / 9., z, |y, first, last| {
+                for (channel, opacity) in contributions(z).into_iter().flatten() {
+                    for p in &mut reference[channel][y * w + first..y * w + last] {
+                        *p = unorm(*p as f32 / 255. + opacity);
+                    }
+                }
+            });
+        }
+        let mut mask = Masks::default();
+        mask.render_displaced(w * 4, h * 4, 16. / 9., &zones, 1.);
+        for channel in 0..6 {
+            assert_eq!(mask.layers[channel], reference[channel], "camera {channel}");
+        }
+        assert_eq!(mask.raw_disabled_green, reference[6]);
+        assert_eq!(mask.ready_green, reference[7]);
+    }
+
+    #[test]
+    fn prepared_geometry_is_exact_and_invalidates_on_resolution_change() {
+        let area = super::super::BlockArea {
+            top_right: Vector::new(0.8, 0.7),
+            bottom_left: Vector::new(0.2, 0.3),
+            appear_time: 0.,
+            enable_time: 1.,
+            disable_time: 3.,
+            disappear_time: 4.,
+            is_subtract: true,
+            rotate_events: vec![],
+            move_events: vec![],
+            scale_events: vec![],
+        };
+        let mut prepared = Masks::default();
+        let z = Zone::from_area(&area, 2., 16. / 9.).unwrap();
+        prepared.prepare_geometry(960, 540, 16. / 9., &[area]);
+        assert!(!prepared.prepared_rows.is_empty());
+        assert!(prepared.prepared_rows.contains_key(&geometry_key(&z)));
+        let mut live = Masks::default();
+        for time in [1., 1.1, 2.] {
+            prepared.render_displaced(960, 540, 16. / 9., &[z.clone()], time);
+            live.render_displaced(960, 540, 16. / 9., &[z.clone()], time);
+            assert_eq!(prepared.rgba, live.rgba);
+            assert_eq!(prepared.aux_rgba, live.aux_rgba);
+        }
+        prepared.render_displaced(800, 600, 4. / 3., &[z], 3.);
+        assert!(prepared.prepared_rows.is_empty());
+        assert_eq!(prepared.prepared_bytes, 0);
+    }
+
+    #[test]
+    fn compose_uses_native_mediump_intermediate_rounding() {
+        assert_eq!(medium(0.5 * medium((0.5_f32).sqrt().recip())), 0.70703125);
+        assert_eq!(medium(medium(155. / 255.) - 0.5), 0.10791015625);
+        assert_eq!(medium(1. + 1. / 2048.), 1., "ties round to even");
+        assert_eq!(medium(1. + 3. / 2048.), 1.001953125);
+    }
+
+    fn zone(x: f32, y: f32, half_x: f32, half_y: f32, angle: f32, invert: bool) -> Zone {
+        Zone {
+            center: Vector::new(x, y),
+            half: Vector::new(half_x, half_y),
+            angle,
+            invert,
+            active: true,
+            ready: false,
+            opacity: 1.,
+        }
+    }
+
+    #[test]
+    fn nine_tap_dilation_matches_pixel_reference_across_word_boundaries() {
+        for width in [1_usize, 63, 64, 65, 129] {
+            let height = 9;
+            let stride = width.div_ceil(64);
+            let mut source = vec![0_u64; stride * height];
+            for y in 0..height {
+                for x in 0..width {
+                    if (x * 11 + y * 7) % 17 == 0 {
+                        source[y * stride + x / 64] |= 1 << (x % 64);
+                    }
+                }
+            }
+            let mut dest = vec![0; source.len()];
+            dilate(&source, &mut dest, width, height);
+            for y in 0..height {
+                for x in 0..width {
+                    let mut expected = false;
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            let sx = (x as i32 + dx).clamp(0, width as i32 - 1) as usize;
+                            let sy = (y as i32 + dy).clamp(0, height as i32 - 1) as usize;
+                            expected |= source[sy * stride + sx / 64] & (1 << (sx % 64)) != 0;
+                        }
+                    }
+                    assert_eq!(dest[y * stride + x / 64] & (1 << (x % 64)) != 0, expected, "{width}: ({x}, {y})");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn raw_camera_layers_match_resolved_rectangle_coverage() {
+        let zones = [
+            zone(0.1, -0.1, 0.45, 0.23, 0.57, false),
+            zone(-0.5, 0.13, 0.33, 0.09, -1.17, false),
+            zone(0.0, 0.0, 1.0, 0.6, 0.0, true),
+            zone(0.15, 0.2, 0.12, 0.21, 1.32, true),
+        ];
+        let (width, height, aspect) = (130, 76, 16. / 9.);
+        let mut masks = Masks::default();
+        masks.render_displaced(width * 4, height * 4, aspect, &zones, 0.);
+        for y in 0..height {
+            for x in 0..width {
+                let p = Vector::new((x as f32 + 0.5) * 2. / width as f32 - 1., ((y as f32 + 0.5) * 2. / height as f32 - 1.) / aspect);
+                let mut normal = false;
+                let mut subtract_count = 0_usize;
+                for z in &zones {
+                    let local = nalgebra::Rotation2::new(-z.angle) * (p - z.center);
+                    if local.x.abs() <= z.half.x && local.y.abs() <= z.half.y {
+                        if z.invert {
+                            subtract_count += 1;
+                        } else {
+                            normal = true;
+                        }
+                    }
+                }
+                assert_eq!(masks.sources_rgba[(y * width + x) * 4] != 0, normal, "normal ({x}, {y})");
+                assert_eq!(masks.sources_rgba[(y * width + x) * 4 + 1], [0, 26, 52][subtract_count], "subtract ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn exterior_rings_leave_fill_and_union_interiors_unchanged() {
+        let mut masks = Masks::default();
+        masks.render_displaced(800, 800, 1., &[zone(-0.2, 0., 0.3, 0.3, 0., false), zone(0.2, 0., 0.3, 0.3, 0., false)], 1.);
+        let p = (100 * masks.width + 100) * 4;
+        assert_eq!(&masks.rgba[p..p + 4], &[255, 0, 0, 0]);
+        for p in masks.rgba.chunks_exact(4) {
+            if p[0] == 255 {
+                assert_eq!(&p[1..3], &[0, 0]);
+            }
+            if p[1] == 255 {
+                assert_eq!(p[0], 0);
+                assert!(p[2] > 0);
+            }
+        }
+        assert!(masks.rgba.chunks_exact(4).any(|p| p[1] == 255));
+    }
+
+    #[test]
+    fn subtract_cancellation_has_no_phantom_edges_and_zone_count_is_unbounded() {
+        let mut masks = Masks::default();
+        masks.render_displaced(800, 800, 1., &[zone(0., 0., 0.5, 0.3, 0., true), zone(0., 0., 0.5, 0.3, 0., true)], 1.);
+        assert!(masks.rgba.iter().all(|&v| v == 0));
+        let mut zones: Vec<_> = (0..159).map(|_| zone(2., 2., 0.1, 0.1, 0., false)).collect();
+        zones.push(zone(0., 0., 0.2, 0.2, 0., false));
+        masks.render_displaced(800, 800, 1., &zones, 1.);
+        assert_eq!(masks.rgba[(100 * masks.width + 100) * 4], 255);
+        let previous = masks.rgba.clone();
+        masks.render_displaced(800, 800, 1., &zones, 1.);
+        assert_eq!(masks.rgba, previous);
+        masks.render_displaced(520, 560, 1., &zones, 1.);
+        assert_eq!((masks.width, masks.height), (130, 140));
+    }
+
+    #[test]
+    fn glow_weight_matches_native_material_and_skips_last_ring() {
+        let weights = glow_weights();
+        assert!((weights.iter().sum::<f32>() - 1.).abs() < 1e-6);
+        assert!((weights[4] - 0.024947807).abs() < 1e-7);
+        assert!(weights[5] < 0.01);
+    }
+
+    #[test]
+    fn refined_compose_reuses_effect_dimensions_without_two_by_two_replication() {
+        let mut masks = Masks::default();
+        masks.render_displaced(960, 540, 16. / 9., &[zone(0., 0., 0.5, 0.25, 0., false)], 1.);
+        assert_eq!((masks.width, masks.height), (240, 134));
+        assert_eq!(masks.sources_rgba.len(), 240 * 134 * 4);
+        // Detail must come from additional samples, not smoothed coarse cells.
+        assert!((0..134).step_by(2).any(|y| (0..240).step_by(2).any(|x| {
+            let sample = |px: usize, py: usize| masks.rgba[(py * 240 + px) * 4];
+            sample(x, y) != sample(x + 1, y) || sample(x, y) != sample(x, y + 1)
+        })));
+    }
+
+    #[test]
+    fn disabled_subtract_does_not_clip_enabled_region() {
+        let active = zone(0., 0., 0.5, 0.25, 0., false);
+        let disabled = Zone {
+            active: false,
+            invert: true,
+            ..active.clone()
+        };
+        let mut original = Masks::default();
+        original.render_displaced(960, 540, 16. / 9., &[active.clone()], 1.);
+        let mut mixed = Masks::default();
+        mixed.render_displaced(960, 540, 16. / 9., &[active, disabled], 1.);
+        assert!(original
+            .rgba
+            .chunks_exact(4)
+            .zip(mixed.rgba.chunks_exact(4))
+            .all(|(a, b)| a[..3] == b[..3]));
+        assert!(mixed.rgba.chunks_exact(4).any(|p| p[0] == 255 && p[3] == 255));
+    }
+
+    #[test]
+    fn visual_subtract_uses_threshold_window_including_three_overlaps() {
+        let sub = zone(0., 0., 1., 1., 0., true);
+        for (count, value) in [(1, 255), (2, 0), (3, 0)] {
+            let mut mask = Masks::default();
+            mask.render_displaced(128, 96, 4. / 3., &vec![sub.clone(); count], 2.);
+            assert!(mask.rgba.chunks_exact(4).all(|p| p[0] == value));
+        }
+    }
+
+    #[test]
+    fn ready_inputs_use_ready_only_cameras_and_disabled_compose() {
+        let disabled = Zone {
+            active: false,
+            ..zone(-0.5, 0., 0.2, 0.2, 0., false)
+        };
+        let ready = Zone {
+            active: false,
+            ready: true,
+            ..zone(0.5, 0., 0.2, 0.2, 0., false)
+        };
+        let mut mask = Masks::default();
+        mask.render_displaced(128, 96, 4. / 3., &[disabled, ready], 1.);
+        let pixel = |x: usize| &mask.aux_rgba[(12 * mask.width + x) * 4..(12 * mask.width + x) * 4 + 4];
+        assert_eq!(&pixel(8)[..3], &[0, 0, 255]);
+        assert_eq!(&pixel(24)[..3], &[255, 0, 255]);
+    }
+
+    #[test]
+    fn compose_displacement_animates_only_enabled_masks_and_uses_red_channel() {
+        let active = zone(0., 0., 0.5, 0.2, 0., false);
+        let disabled = Zone {
+            active: false,
+            ..active.clone()
+        };
+        let mut mask = Masks::default();
+        mask.render_displaced(960, 540, 16. / 9., &[active.clone(), disabled.clone()], 1.);
+        let before = mask.rgba.clone();
+        mask.render_displaced(960, 540, 16. / 9., &[active, disabled], 2.);
+        assert!(before.chunks_exact(4).zip(mask.rgba.chunks_exact(4)).any(|(a, b)| a[0] != b[0]));
+        assert!(before.chunks_exact(4).zip(mask.rgba.chunks_exact(4)).all(|(a, b)| a[3] == b[3]));
+        let pixel = DISPLACE.get_pixel(0, 0);
+        assert_eq!(noise([0.0001, 0.0001]), pixel[0] as f32 / 255.);
+        assert_ne!(pixel[0], pixel[1]);
+    }
+
+    #[test]
+    fn initial_subtract_show_fades_green_while_alpha_stays_point_one() {
+        let sub = Zone {
+            active: false,
+            opacity: 0.25,
+            ..zone(0., 0., 1., 1., 0., true)
+        };
+        let mut mask = Masks::default();
+        mask.render_displaced(128, 96, 4. / 3., &[sub], 1.);
+        assert_eq!(mask.sources_rgba[3], 26);
+        assert_eq!(mask.raw_disabled_green[0], 6);
+        assert_eq!(mask.rgba[3], 120);
+    }
+
+    #[test]
+    fn uniform_compose_reuses_masks_across_time_but_invalidates_on_geometry_change() {
+        let full = zone(0., 0., 3., 3., 0., false);
+        let mut masks = Masks::default();
+        masks.render_displaced(960, 540, 16. / 9., &[full.clone()], 1.);
+        let revision = masks.revision;
+        assert_eq!(masks.uniform_compose, Some(255));
+        masks.render_displaced(960, 540, 16. / 9., &[full], 2.);
+        assert_eq!(masks.revision, revision);
+        masks.render_displaced(960, 540, 16. / 9., &[zone(0., 0., 0.3, 0.2, 0., false)], 2.);
+        assert_eq!(masks.uniform_compose, None);
+        assert!(masks.revision > revision);
+    }
+}

@@ -24,6 +24,8 @@ pub(super) struct JudgeContext<'a> {
     pub now: f64,
     pub limits: &'a JudgeWindows,
     pub rules: &'a PhigrosRules,
+    /// Real frame time, used for cadence-independent hold release grace.
+    pub frame_seconds: f64,
 }
 
 #[derive(Clone, Default)]
@@ -49,7 +51,7 @@ impl ClickControl {
 pub(super) struct HoldControl {
     pub is_judged: bool,
     pub head: Option<(Judgement, f64)>,
-    pub safe: i32,
+    pub safe: f64,
     released: Option<f64>,
     pub hold_scored: bool,
 }
@@ -84,7 +86,7 @@ impl HoldControl {
             if self.is_judged && abs < side.acceptance() {
                 let judgement = judgement_at_distance(abs, &side, true);
                 self.head = Some((judgement, -dt));
-                self.safe = ctx.rules.hold_safe_frames;
+                self.safe = ctx.rules.hold_safe_seconds();
                 events.push(Event {
                     target: note.target,
                     action: Action::Head { judgement, offset: -dt },
@@ -114,11 +116,15 @@ impl HoldControl {
                 }
             } else {
                 if on_note {
-                    self.safe = ctx.rules.hold_safe_frames;
-                } else if self.safe < 0 {
-                    score = Some((Judgement::Miss, 0.));
+                    self.safe = ctx.rules.hold_safe_seconds();
                 } else {
-                    self.safe -= 1;
+                    // Cap one frame's contribution so a GC/layout stall cannot
+                    // consume the whole grace at once; low refresh rates keep
+                    // at least the same number of tolerated frames.
+                    self.safe -= ctx.frame_seconds.min(1. / 60.);
+                    if self.safe < -1e-9 {
+                        score = Some((Judgement::Miss, 0.));
+                    }
                 }
                 if score.is_none() && ctx.now > note.end - ctx.rules.hold_tail_ms / 1000. * speed {
                     score = Some(head);

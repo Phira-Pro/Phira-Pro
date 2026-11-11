@@ -86,7 +86,10 @@ fn scores(events: &[Event]) -> Vec<(u32, u8)> {
         .collect()
 }
 fn step(e: &mut Engine, cfg: &Config, now: f64, fingers: &[Finger]) -> Vec<Event> {
-    e.step(cfg, now, 1. / 120., 200., fingers, |_, _| Some((0., 0.))).1
+    step_dt(e, cfg, now, 1. / 120., fingers)
+}
+fn step_dt(e: &mut Engine, cfg: &Config, now: f64, frame_seconds: f64, fingers: &[Finger]) -> Vec<Event> {
+    e.step(cfg, now, frame_seconds, 200., fingers, |_, _| Some((0., 0.))).1
 }
 
 fn hold(e: &Engine, i: usize) -> &controls::HoldControl {
@@ -336,14 +339,30 @@ fn early_hold_waits_for_good_and_never_bad() {
 }
 
 #[test]
-fn hold_release_is_three_frames_not_fifty_ms() {
+fn hold_release_grace_is_time_based() {
+    let grace = config().phigros_rules.hold_safe_seconds();
     for fps in [60., 120., 240.] {
+        let dt = 1. / fps;
         let mut e = Engine::new(vec![spec(0, 0., Kind::Hold)]);
-        step(&mut e, &config(), 0., &[finger(true, 0.)]);
-        for frame in 1..=3 {
-            assert!(scores(&step(&mut e, &config(), frame as f64 / fps, &[])).is_empty());
+        step_dt(&mut e, &config(), 0., dt, &[finger(true, 0.)]);
+        let mut frame = 1u32;
+        while f64::from(frame) * dt <= grace + 1e-9 {
+            assert!(
+                scores(&step_dt(&mut e, &config(), f64::from(frame) * dt, dt, &[])).is_empty(),
+                "fps {fps} released too early at frame {frame}"
+            );
+            frame += 1;
         }
-        assert_eq!(scores(&step(&mut e, &config(), 4. / fps, &[])), [(0, Judgement::Miss as u8)]);
+        let miss_at = f64::from(frame) * dt;
+        assert_eq!(
+            scores(&step_dt(&mut e, &config(), miss_at, dt, &[])),
+            [(0, Judgement::Miss as u8)],
+            "fps {fps} did not miss after the grace"
+        );
+        assert!(
+            (miss_at - grace).abs() <= dt + 1e-9,
+            "fps {fps} missed at {miss_at}, expected about {grace}"
+        );
     }
     let mut e = Engine::new(vec![spec(0, 0., Kind::Hold)]);
     step(&mut e, &config(), 0., &[finger(true, 0.)]);
@@ -351,7 +370,19 @@ fn hold_release_is_three_frames_not_fifty_ms() {
         step(&mut e, &config(), frame as f64 / 120., &[]);
     }
     step(&mut e, &config(), 4. / 120., &[finger(false, 0.)]);
-    assert_eq!(hold(&e, 0).safe, 2, "recontact resets protection");
+    let expected = config().phigros_rules.hold_safe_seconds();
+    assert!(
+        (hold(&e, 0).safe - expected).abs() < 1e-9,
+        "recontact resets protection"
+    );
+}
+
+#[test]
+fn long_frame_does_not_consume_the_whole_grace() {
+    let mut e = Engine::new(vec![spec(0, 0., Kind::Hold)]);
+    step_dt(&mut e, &config(), 0., 1. / 60., &[finger(true, 0.)]);
+    // A one-second stall (GC/layout) must not burn the whole 50 ms grace.
+    assert!(scores(&step_dt(&mut e, &config(), 0.02, 1., &[])).is_empty());
 }
 
 #[test]

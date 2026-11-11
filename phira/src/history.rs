@@ -55,6 +55,13 @@ pub struct Record {
     pub hist: Vec<u32>,
     /// 本局成绩协议 RMS（秒）；旧存档可能保留旧版本的偏差标准差。
     pub std: f32,
+    /// 是否计入本地成绩榜；未评级/降速对局只保留历史与回放。
+    #[serde(default = "rated_default")]
+    pub rated: bool,
+}
+
+fn rated_default() -> bool {
+    true
 }
 
 impl Record {
@@ -80,6 +87,12 @@ impl Record {
 
 static RECORDS: Lazy<Mutex<Option<Vec<Record>>>> = Lazy::new(|| Mutex::new(None));
 static REVISION: AtomicU64 = AtomicU64::new(0);
+
+/// Drops the in-memory list so the next read reloads the file (after a restore).
+pub fn reload() {
+    *RECORDS.lock().unwrap() = None;
+    REVISION.fetch_add(1, Ordering::Relaxed);
+}
 
 pub fn revision() -> u64 {
     REVISION.load(Ordering::Relaxed)
@@ -202,6 +215,7 @@ pub fn record_play(
     grading: Option<prpr::config::JudgeGrading>,
     hist: &[u32],
     std: f32,
+    rated: bool,
 ) -> Result<i64> {
     let key = if let Some(id) = chart_id {
         format!("id:{id}")
@@ -226,6 +240,7 @@ pub fn record_play(
         grading,
         hist: hist.to_vec(),
         std,
+        rated,
         ..Default::default()
     })?;
     Ok(time)

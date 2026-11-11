@@ -228,6 +228,13 @@ impl Engine {
         mut geometry: impl FnMut((usize, u32), usize) -> Option<(f64, f64)>,
     ) -> (JudgeWindows, Vec<Event>) {
         debug_assert_eq!(cfg.judge_algorithm, JudgeAlgorithm::Phigros);
+        // Raw frame time still feeds flick sampling and window compensation;
+        // only the hold grace needs a finite fallback.
+        let hold_frame_seconds = if frame_seconds.is_finite() && frame_seconds > 0. {
+            frame_seconds
+        } else {
+            1. / 60.
+        };
         let speed = cfg.speed as f64;
         let limits = self.windows(cfg, frame_seconds);
         let mut rules = cfg.phigros_rules.clone();
@@ -276,7 +283,7 @@ impl Engine {
                 self.flicks.get_mut(&f.id).unwrap().new_flick = false;
             }
         }
-        let ctx = JudgeContext { cfg, now, limits: &limits, rules };
+        let ctx = JudgeContext { cfg, now, limits: &limits, rules, frame_seconds: hold_frame_seconds };
         self.note_update_manager.update(&self.specs, &mut self.states, &ctx, fingers, &mut geometry, &mut events);
         (limits, events)
     }

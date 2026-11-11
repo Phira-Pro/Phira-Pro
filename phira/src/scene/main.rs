@@ -394,6 +394,9 @@ impl Scene for MainScene {
     }
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
+        if crate::page::take_local_charts_dirty() {
+            self.state.reload_local_charts();
+        }
         /// HUD 编辑器请求切页：重建页面栈（根页面保留、不重建，因此不需要异步）。
         fn goto_hud_page(pages: &mut Vec<Box<dyn Page>>, icons: &Arc<Icons>, state: &mut SharedState, p: crate::hud::PageId) -> Result<()> {
             use crate::hud::PageId;

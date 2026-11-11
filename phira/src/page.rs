@@ -547,6 +547,17 @@ impl SharedState {
     }
 }
 
+static LOCAL_CHARTS_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Marks the cached chart list for reload on the next main-scene update.
+pub fn mark_local_charts_dirty() {
+    LOCAL_CHARTS_DIRTY.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn take_local_charts_dirty() -> bool {
+    LOCAL_CHARTS_DIRTY.swap(false, std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Default)]
 #[allow(dead_code)]
 pub enum NextPage {

@@ -5,6 +5,7 @@ prpr_l10n::tl_file!("settings");
 use super::{Page, SharedState};
 use crate::{data::LocalChart, get_data, get_data_mut, migrate, save_data, transfer};
 use anyhow::{anyhow, Result};
+use futures_util::FutureExt;
 use macroquad::prelude::*;
 use prpr::{
     ext::{semi_black, semi_white, RectExt},
@@ -130,13 +131,26 @@ impl TransferPage {
         format!("phira-backup-{}.zip", chrono::Local::now().format("%Y%m%d-%H%M%S"))
     }
 
+    fn is_busy(&self) -> bool {
+        self.busy.is_some() || self.backup_task.is_some() || self.pending_backup.is_some() || self.restore_scan.is_some()
+    }
+
     fn start_task(&mut self, f: impl FnOnce() -> Result<String> + Send + 'static) {
-        if self.busy.is_some() || self.backup_task.is_some() || self.pending_backup.is_some() || self.restore_scan.is_some() {
+        if self.is_busy() {
             return;
         }
         show_message(tl!("transfer-working")).ok();
         self.status = None;
         self.busy = Some(Task::new(async move { f() }));
+    }
+
+    fn start_async_task(&mut self, f: impl std::future::Future<Output = Result<String>> + Send + 'static) {
+        if self.is_busy() {
+            return;
+        }
+        show_message(tl!("transfer-working")).ok();
+        self.status = None;
+        self.busy = Some(Task::new(f));
     }
 }
 
@@ -276,11 +290,40 @@ impl Page for TransferPage {
             return Ok(true);
         }
         if self.restore_buttons[8].touch(touch, t) {
+            if self.is_busy() {
+                show_message(tl!("transfer-working")).warn();
+                return Ok(true);
+            }
             if let Some((path, _)) = self.restore_preview.take() {
                 let options = self.restore_options.clone();
-                self.start_task(move || {
-                    let (n, snapshot) = transfer::restore::apply(&path, &options)?;
-                    Ok(format!("已还原 {n} 个文件，请重新启动应用。恢复前快照：{}", snapshot.display()))
+                let replace = options.replace;
+                let appearance = options.selected[5];
+                self.start_async_task(async move {
+                    let (n, snapshot) = tokio::task::spawn_blocking(move || transfer::restore::apply(&path, &options)).await??;
+                    super::mark_local_charts_dirty();
+                    transfer::restore::mark_caches_dirty();
+                    if transfer::restore::config_restored() {
+                        let outcome = std::panic::AssertUnwindSafe(transfer::restore::reload_data()).catch_unwind().await;
+                        let failure = match outcome {
+                            Ok(Ok(())) => None,
+                            Ok(Err(err)) => Some(format!("{err:#}")),
+                            Err(_) => Some("内部错误".to_owned()),
+                        };
+                        if let Some(detail) = failure {
+                            return Ok(format!(
+                                "已还原 {n} 个文件，但设置重载失败：{detail}。请重新启动应用；重启前本会话不会写入 data.json。恢复前快照：{}",
+                                snapshot.display()
+                            ));
+                        }
+                    }
+                    let mut message = format!("已还原 {n} 个文件。恢复前快照：{}", snapshot.display());
+                    if !replace {
+                        message.push_str(" 同名文件保留本机版本；如需覆盖，请重新还原并选择「替换」。");
+                    }
+                    if appearance {
+                        message.push_str(" 外观与字体需重启应用后生效。");
+                    }
+                    Ok(message)
                 });
             }
             return Ok(true);

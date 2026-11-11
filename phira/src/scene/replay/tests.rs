@@ -778,7 +778,7 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
     }
     let mut scroll = 0.;
     input(&mut game, &mut tm, "practice_speed", "1.25");
-    assert_eq!(game.practice_round_count(), 0, "changing conditions starts a new statistics group");
+    assert_eq!(game.practice_round_count(), 1, "changing speed keeps the statistics group");
     render(&mut game, &mut tm, painter);
     let drawer = game.practice_control_point("drawer").unwrap();
     for phase in [TouchPhase::Started, TouchPhase::Ended] {

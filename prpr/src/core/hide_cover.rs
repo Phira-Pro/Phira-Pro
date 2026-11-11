@@ -45,7 +45,16 @@ pub(crate) fn draw(res: &Resource) {
         res.config.hide_lower_color
     };
     // Imported alpha never exposes the supposedly hidden notes.
-    draw_rectangle(-1., y, 2., height, Color::from_hex_rgb(color));
+    draw_rectangle(
+        -1.,
+        y,
+        2.,
+        height,
+        Color {
+            a: res.alpha,
+            ..Color::from_hex_rgb(color)
+        },
+    );
     if let Some(texture) = &res.hide_covers[side] {
         let max_height = full_height * 0.9;
         let scale = (2. / texture.width()).max(max_height / texture.height());
@@ -59,7 +68,7 @@ pub(crate) fn draw(res: &Resource) {
             **texture,
             -1.,
             y,
-            WHITE,
+            Color::new(1., 1., 1., res.alpha),
             DrawTextureParams {
                 dest_size: Some(vec2(2., height)),
                 source: Some(source),

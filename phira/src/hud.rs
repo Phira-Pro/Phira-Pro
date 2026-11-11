@@ -141,6 +141,11 @@ const VERSION: u32 = 1;
 
 static LAYOUT: Lazy<Mutex<Option<Layout>>> = Lazy::new(|| Mutex::new(None));
 
+/// Drops the cached layout so the next read reloads `hud.json` (after a restore).
+pub fn reload() {
+    *LAYOUT.lock().unwrap() = None;
+}
+
 /// Scope GPU regression saves to a fresh directory and restore all HUD globals.
 #[cfg(test)]
 pub(crate) struct IsolatedTestLayout {

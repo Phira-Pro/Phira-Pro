@@ -631,6 +631,9 @@ pub struct GameScene {
     auto_retry_count: u32,
     /// 断点续练的起始时刻；由 Starting -> BeforeMusic 的转场消费。
     retry_from: Option<f64>,
+    /// Set when the bounded audio command queue rejected a rate change; retried
+    /// each frame until the channel accepts it.
+    pending_music_rate: Option<f64>,
     /// 变速练习：已经完成的圈数。
     practice_loops: u32,
 
@@ -716,6 +719,13 @@ macro_rules! reset {
         $self.music.pause()?;
         $self.music.seek_to(0.)?;
         $tm.speed = $res.config.speed as _;
+        // The death fade slows the music together with the clock; every reset
+        // (manual retry, auto retry, practice loop) must restore both, otherwise
+        // a retried run plays at the last fade rate.
+        let rate = if $tm.speed.is_finite() { $tm.speed.max(0.01) } else { 1. };
+        $tm.speed = rate;
+        // Native audio uses a bounded queue; retry on later frames if it is full.
+        $self.pending_music_rate = (! $self.music.try_set_playback_rate(rate)).then_some(rate);
         $tm.reset();
         $self.last_update_time = $tm.real_time();
         $self.state = State::Starting;
@@ -1063,6 +1073,7 @@ impl GameScene {
             death_time: 0.,
             auto_retry_count: 0,
             retry_from: None,
+            pending_music_rate: None,
             practice_loops: 0,
 
             mode,
@@ -1831,6 +1842,11 @@ impl Scene for GameScene {
     }
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
+        if let Some(rate) = self.pending_music_rate {
+            if self.music.try_set_playback_rate(rate) {
+                self.pending_music_rate = None;
+            }
+        }
         self.offset_analysis
             .update(&self.chart, &self.res, self.info_offset, tm.real_time() as f32);
 
@@ -1884,10 +1900,14 @@ impl Scene for GameScene {
             }
             self.practice_last_events = self.practice_events();
             self.practice_last_touches = std::mem::take(&mut self.practice_tool_touches);
+            let partial = self.practice_partial;
             self.practice_progress
-                .finish(&self.res.config.practice.adaptive, self.judge.real_time_accuracy(), counts, self.practice_partial);
+                .finish(&self.res.config.practice.adaptive, self.judge.real_time_accuracy(), counts, partial);
             self.practice_partial = false;
-            self.practice_loops += 1;
+            // A partial round must not advance the speed ramp.
+            if !partial {
+                self.practice_loops += 1;
+            }
             let state = self.state.clone();
             reset!(self, self.res, tm);
             self.state = state;
@@ -1935,6 +1955,12 @@ impl Scene for GameScene {
                         start = target;
                     }
                     tm.seek_to(start);
+                    if self.mode == GameMode::Exercise {
+                        // Continuing from a retry lead is a partial round unless it
+                        // lands exactly on the segment start. A normal start must
+                        // clear a partial flag left by an earlier seek.
+                        self.practice_partial = retry.is_some() && start > self.exercise_range.start + 1e-6;
+                    }
                     if retry.is_some() {
                         // 断点续练：判定只能向前跳，这里正好是从头快进到目标时刻。
                         self.music.seek_to(start)?;
@@ -2011,30 +2037,33 @@ impl Scene for GameScene {
                     } else {
                         None
                     };
+                    // Every finished play is eligible for the local history and
+                    // replay; only the PB/upload gate below is restricted.
+                    let history_record = SimpleRecord {
+                        score: result.score as _,
+                        accuracy: result.accuracy as _,
+                        full_combo: result.max_combo == result.num_of_notes,
+                        max_combo: result.max_combo,
+                        num_of_notes: result.num_of_notes,
+                        // Perfect+ 并入 Perfect，让历史记录保持官方那套 4 档。
+                        counts: [result.counts[0] + result.counts[4], result.counts[1], result.counts[2], result.counts[3]],
+                        grade_counts: Some(result.counts),
+                        grading: Some(result.grading),
+                        hist: result.hist.to_vec(),
+                        std: result.std,
+                    };
                     let record = if self.res.config.mods.intersects(Mods::UNRATED) || self.res.config.speed < 1.0 - 1e-3 {
                         None
                     } else {
-                        Some(SimpleRecord {
-                            score: result.score as _,
-                            accuracy: result.accuracy as _,
-                            full_combo: result.max_combo == result.num_of_notes,
-                            max_combo: result.max_combo,
-                            num_of_notes: result.num_of_notes,
-                            // Perfect+ 并入 Perfect，让历史记录保持官方那套 4 档。
-                            counts: [result.counts[0] + result.counts[4], result.counts[1], result.counts[2], result.counts[3]],
-                            grade_counts: Some(result.counts),
-                            grading: Some(result.grading),
-                            hist: result.hist.to_vec(),
-                            std: result.std,
-                        })
+                        Some(history_record.clone())
                     };
                     self.next_scene = match self.mode {
                         GameMode::Normal | GameMode::View => {
                             let historic_best = self.player.as_ref().map_or(0, |it| it.historic_best);
+                            if let Some(f) = &self.save_fn {
+                                f(history_record.clone(), record.is_some())?;
+                            }
                             if let Some(new_rec) = &record {
-                                if let Some(f) = &self.save_fn {
-                                    f(new_rec.clone())?;
-                                }
                                 if let Some(best) = &mut self.best_record {
                                     if !new_rec.grading.is_some_and(|g| g.detailed) {
                                         best.update(new_rec);
@@ -2128,6 +2157,9 @@ impl Scene for GameScene {
             show_message(tl!("game-over")).error();
         }
         if self.dead {
+            // Death owns the playback rate; drop any pending reset retry so it
+            // cannot snap the audio back to normal speed mid-fade.
+            self.pending_music_rate = None;
             // 死亡过渡：谱面与音乐同步减速；结束后冻结，失败 UI 由 overlay_ui 渐显。
             let p = ((tm.real_time() - self.death_time) / DEATH_TIME).clamp(0., 1.);
             if p < 1. {
@@ -2159,7 +2191,9 @@ impl Scene for GameScene {
         self.chart.update(&mut self.res);
         let res = &mut self.res;
         if res.config.interactive && res.config.hotkeys.pressed(crate::hotkeys::Action::Pause) {
-            if tm.paused() {
+            // Resuming while dead would restart a clock frozen by the death fade
+            // at its final ~0 rate; the death overlay's retry is the only exit.
+            if tm.paused() && !self.dead {
                 if matches!(self.state, State::Playing) {
                     self.music.play()?;
                     tm.resume();
@@ -2177,12 +2211,18 @@ impl Scene for GameScene {
                 let dst = (self.music.position() - 1.).max(0.);
                 self.music.seek_to(dst)?;
                 tm.seek_to(dst);
+                if self.mode == GameMode::Exercise {
+                    self.practice_partial = true;
+                }
             }
             if res.config.hotkeys.pressed(crate::hotkeys::Action::Forward) && res.config.use_keyboard {
                 res.time += 5.;
                 let dst = (self.music.position() + 5.).min(res.track_length);
                 self.music.seek_to(dst)?;
                 tm.seek_to(dst);
+                if self.mode == GameMode::Exercise {
+                    self.practice_partial = true;
+                }
             }
             if res.config.hotkeys.pressed(crate::hotkeys::Action::Exit) {
                 self.should_exit = true;
@@ -2428,7 +2468,6 @@ impl Scene for GameScene {
         }
         self.gl.flush();
         self.gl.quad_gl.pop_model_matrix();
-        crate::core::hide_cover::draw(res);
         // Keep HUD/pause controls in the same framebuffer as the chart. A
         // camera reset to res.camera would draw them directly to the screen,
         // where the later FXAA/custom-effect composite would overwrite them.
@@ -2444,6 +2483,9 @@ impl Scene for GameScene {
         }
         // Every gameplay HUD element belongs to the scene sampled by noise.
         set_camera(&hud_camera);
+        // The practice covers belong to the screen, not the chart camera; draw
+        // them after switching so they stay pinned while zooming/panning.
+        crate::core::hide_cover::draw(res);
         if !self.hide_ui || self.video_indicators.is_some() {
             if self.chart.camera_follows_chart() {
                 let matrix = self.chart.camera_model(self.res.time, self.res.aspect_ratio, true);

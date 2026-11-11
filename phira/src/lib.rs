@@ -205,6 +205,15 @@ pub fn set_data(data: Data) {
     }
 }
 
+/// Swaps in data rebuilt after a restore. Worker threads may still hold
+/// references captured before the swap, so keep the old allocation alive
+/// instead of freeing it under their feet.
+pub fn replace_data(data: Data) {
+    let _guard = client::SESSION_UPDATE_LOCK.lock().unwrap();
+    let old = unsafe { DATA.replace(data) };
+    std::mem::forget(old);
+}
+
 #[allow(static_mut_refs)]
 pub fn get_data() -> &'static Data {
     unsafe { DATA.as_ref().unwrap() }
@@ -694,6 +703,24 @@ async fn the_main() -> Result<()> {
             }
             if prpr::practice::take_preferences(&mut get_data_mut().config) {
                 save_data()?;
+            }
+            // Any restore may replace history/HUD/blacklist files; drop their
+            // caches even when `data.json` itself was not restored.
+            if transfer::restore::take_caches_dirty() {
+                hud::reload();
+                history::reload();
+                blacklist::reload();
+            }
+            // A backup restore rebuilds `Data` in its worker; swap it in before
+            // any later save so the session keeps writing instead of silently
+            // dropping changes until the user restarts.
+            if let Some(data) = transfer::restore::take_reloaded_data() {
+                replace_data(data);
+                sync_data();
+                transfer::restore::finish_reload();
+                plugins::reload();
+                #[cfg(any(target_os = "android", target_os = "ios"))]
+                let _ = set_refresh_rate(get_data().config.preferred_refresh_rate);
             }
             let render_start = frame_profile.as_ref().map(|_| std::time::Instant::now());
             if let (Some(work), Some(render)) = (profile_work, render_start) {

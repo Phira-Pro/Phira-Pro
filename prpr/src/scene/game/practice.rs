@@ -8,25 +8,48 @@ fn control_scale(id: &str) -> f32 {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Restart {
+    Range,
+    Speed,
+    Audio,
+}
+
 impl GameScene {
     pub(super) fn practice_range_changed(&mut self, tm: &mut TimeManager) -> Result<()> {
-        self.practice_range_changed_at(tm, self.exercise_range.start)
+        self.practice_restart_at(tm, Restart::Range, self.exercise_range.start)
     }
 
     pub(super) fn practice_end_changed(&mut self, tm: &mut TimeManager) -> Result<()> {
         let position = practice::boundary_position(&self.exercise_range, tm.now());
-        self.practice_range_changed_at(tm, position)
+        self.practice_restart_at(tm, Restart::Range, position)
     }
 
-    fn practice_range_changed_at(&mut self, tm: &mut TimeManager, position: f64) -> Result<()> {
+    fn practice_restart(&mut self, tm: &mut TimeManager, kind: Restart) -> Result<()> {
+        self.practice_restart_at(tm, kind, self.exercise_range.start)
+    }
+
+    /// Restarts the practice segment. `Range` invalidates the round history,
+    /// `Speed` only the loop/adaptive progress, and `Audio` merely re-applies
+    /// the streaming options without moving the playhead.
+    fn practice_restart_at(&mut self, tm: &mut TimeManager, kind: Restart, position: f64) -> Result<()> {
+        if kind == Restart::Audio {
+            self.music.configure_practice(
+                self.res.config.practice.preserve_pitch,
+                self.res.config.practice.correct_sound || self.res.config.has_mod(Mods::PERFECT_SOUND),
+            )?;
+            return Ok(());
+        }
         self.practice_loops = 0;
         self.practice_progress = Default::default();
         self.practice_last_events.clear();
         self.practice_tool_touches.clear();
         self.practice_last_touches.clear();
-        self.practice_partial = position > self.exercise_range.start;
-        self.practice_statistics.clear();
-        self.last_practice_accuracy = None;
+        self.practice_partial = kind == Restart::Range && position > self.exercise_range.start + 1e-6;
+        if kind == Restart::Range {
+            self.practice_statistics.clear();
+            self.last_practice_accuracy = None;
+        }
         self.judge.reset();
         self.chart.reset();
         self.bad_notes.clear();
@@ -125,7 +148,7 @@ impl GameScene {
             PracticeAction::Toggle(id) => {
                 let cfg = &mut self.res.config;
                 let p = &mut cfg.practice;
-                let mut restart = true;
+                let mut restart = Some(Restart::Speed);
                 match id.as_str() {
                     "practice_adaptive" => {
                         p.adaptive.enabled ^= true;
@@ -133,25 +156,36 @@ impl GameScene {
                     }
                     "practice_goal_fc" => {
                         p.adaptive.full_combo ^= true;
+                        restart = Some(Restart::Speed);
                     }
                     "practice_goal_drop" => {
                         p.adaptive.lower_on_failure ^= true;
+                        restart = Some(Restart::Speed);
                     }
                     "practice_loop" => {
                         self.practice_auto ^= true;
-                        restart = false;
+                        restart = None;
                     }
-                    "practice_pitch" => p.preserve_pitch ^= true,
-                    "practice_correct" => p.correct_sound ^= true,
+                    "practice_pitch" => {
+                        p.preserve_pitch ^= true;
+                        restart = Some(Restart::Audio);
+                    }
+                    "practice_correct" => {
+                        p.correct_sound ^= true;
+                        restart = Some(Restart::Audio);
+                    }
                     "practice_ramp" => cfg.practice_ramp ^= true,
-                    "practice_inverse" => p.inverse_speed ^= true,
+                    "practice_inverse" => {
+                        p.inverse_speed ^= true;
+                        restart = Some(Restart::Range);
+                    }
                     "practice_view_reset" => {
                         p.view = Default::default();
-                        restart = false;
+                        restart = None;
                     }
                     "practice_ranges" => {
                         p.ranges ^= true;
-                        restart = false;
+                        restart = None;
                     }
                     "practice_range_anchor" => {
                         p.range_anchor = match p.range_anchor {
@@ -159,7 +193,7 @@ impl GameScene {
                             practice::RangeAnchor::Note => practice::RangeAnchor::Both,
                             practice::RangeAnchor::Both => practice::RangeAnchor::JudgeLine,
                         };
-                        restart = false;
+                        restart = None;
                     }
                     _ if id.starts_with("practice_tap_range_") => {
                         if let Ok(i) = id[19..].parse::<usize>() {
@@ -167,7 +201,7 @@ impl GameScene {
                                 *value ^= true;
                             }
                         }
-                        restart = false;
+                        restart = None;
                     }
                     _ if id.starts_with("practice_hold_range_") => {
                         if let Ok(i) = id[20..].parse::<usize>() {
@@ -175,19 +209,19 @@ impl GameScene {
                                 *value ^= true;
                             }
                         }
-                        restart = false;
+                        restart = None;
                     }
                     "practice_debug" => {
                         cfg.chart_debug ^= true;
-                        restart = false;
+                        restart = None;
                     }
                     "practice_debug_line" => {
                         cfg.chart_debug_line ^= true;
-                        restart = false;
+                        restart = None;
                     }
                     "practice_debug_note" => {
                         cfg.chart_debug_note ^= true;
-                        restart = false;
+                        restart = None;
                     }
                     "practice_behavior" => {
                         p.behavior = p.behavior.next();
@@ -202,6 +236,7 @@ impl GameScene {
                         self.judge.set_grading(self.res.config.judge_grading);
                         self.judge.set_hp_amount(self.res.config.hp_amount);
                         self.judge.set_hp_scale(self.res.config.hp_scale);
+                        restart = Some(Restart::Range);
                     }
                     _ if id.starts_with("practice_kind_") => {
                         if let Ok(i) = id[14..].parse::<usize>() {
@@ -209,13 +244,13 @@ impl GameScene {
                                 *kind ^= true;
                             }
                         }
-                        restart = false;
+                        restart = None;
                     }
                     _ => return Ok(()),
                 }
                 practice::save_preferences(&self.res.config);
-                if restart {
-                    self.practice_range_changed(tm)?;
+                if let Some(kind) = restart {
+                    self.practice_restart(tm, kind)?;
                 }
             }
             PracticeAction::Save => request_input(
@@ -303,7 +338,7 @@ impl GameScene {
                 self.music.seek_to(time.max(0.))?;
                 self.res.time = time - offset;
                 self.res.judge_line_color = self.res.res_pack.info.color_perfect();
-                self.practice_partial = true;
+                self.practice_partial = time > self.exercise_range.start + 1e-6;
                 self.state = if time < 0. { State::BeforeMusic } else { State::Playing };
             }
         }
@@ -360,7 +395,7 @@ impl GameScene {
         }
         let value = value / control_scale(id);
         let cfg = &mut self.res.config;
-        let mut restart = true;
+        let mut restart = Some(Restart::Speed);
         match id {
             "practice_speed" => {
                 self.practice_target_speed = practice::clamp_speed(value);
@@ -375,41 +410,42 @@ impl GameScene {
             "practice_ramp_step" => cfg.practice_speed_step = value.clamp(0.01, 0.5),
             "practice_retry" => {
                 cfg.auto_retry = value.clamp(0., 10.).round();
-                restart = false;
+                restart = None;
             }
             "practice_retry_lead" => {
                 cfg.retry_lead = value.clamp(0., 10.);
-                restart = false;
+                restart = None;
             }
             "practice_multiplier" => {
                 cfg.practice.judgement_multiplier = value.clamp(0.1, 3.);
                 cfg.practice.inverse_speed = false;
+                restart = Some(Restart::Range);
             }
             "practice_scale" => {
                 cfg.practice.view.scale = value.clamp(0.1, 5.);
-                restart = false;
+                restart = None;
             }
             "practice_x" => {
                 cfg.practice.view.x = value.clamp(-4., 4.);
-                restart = false;
+                restart = None;
             }
             "practice_y" => {
                 cfg.practice.view.y = value.clamp(-4., 4.);
-                restart = false;
+                restart = None;
             }
             "practice_range_alpha" => {
                 cfg.practice.range_alpha = value.clamp(0.02, 0.6);
-                restart = false;
+                restart = None;
             }
             "practice_horizon" => {
                 cfg.practice.range_horizon = value.clamp(0.1, 10.);
-                restart = false;
+                restart = None;
             }
             _ => return Ok(()),
         }
         practice::save_preferences(&self.res.config);
-        if restart {
-            self.practice_range_changed(tm)?;
+        if let Some(kind) = restart {
+            self.practice_restart(tm, kind)?;
         }
         Ok(())
     }

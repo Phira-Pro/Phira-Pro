@@ -950,6 +950,7 @@ impl SongScene {
                 new_rec.grading,
                 &new_rec.hist,
                 new_rec.std,
+                true,
             );
         }
         if new_rec.grading.is_some_and(|g| g.detailed) {
@@ -1112,7 +1113,7 @@ impl SongScene {
         let save_fn: Option<SaveFn> = Some(Box::new({
             let local_path = local_path.to_string();
             let chart_id = id;
-            move |new_rec| -> Result<()> {
+            move |new_rec, rated| -> Result<()> {
                 crate::plugins::result(&new_rec);
                 // 本地成绩历史：每一局都记一条（与「最佳成绩」的更新互相独立）。
                 if new_rec.num_of_notes > 0 {
@@ -1137,6 +1138,7 @@ impl SongScene {
                         new_rec.grading,
                         &new_rec.hist,
                         new_rec.std,
+                        rated,
                     )
                     .ok();
                     // 回放落盘：与成绩历史用同一时间戳命名，详情页据此按 key+time 命中。
@@ -1152,6 +1154,10 @@ impl SongScene {
                     crate::replay::discard_recording();
                 }
                 if new_rec.grading.is_some_and(|g| g.detailed) {
+                    return Ok(());
+                }
+                // Unrated plays keep their history and replay, but never touch PB.
+                if !rated {
                     return Ok(());
                 }
                 let rec = get_data_mut()

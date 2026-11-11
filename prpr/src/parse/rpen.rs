@@ -313,6 +313,20 @@ mod tests {
             assert!((anim.now() - expected).abs() < 1e-5);
         }
     }
+
+    #[test]
+    fn single_skew_keyframe_stays_constant() {
+        let anim = skew_anim(&[json!({"x":0,"skew":15})]).unwrap();
+        let mut anim = anim;
+        for time in [0., 5., 30.] {
+            anim.time = f64::NEG_INFINITY;
+            anim.set_time(time);
+            assert!((anim.now() - 15.).abs() < 1e-6, "t={time}");
+        }
+        let mut two = skew_anim(&[json!({"x":0,"skew":15}), json!({"x":2,"skew":15})]).unwrap();
+        two.set_time(1.);
+        assert!((two.now() - 15.).abs() < 1e-6);
+    }
 }
 
 pub fn apply_motion(raw: &Value, line: &mut crate::core::JudgeLine, r: &mut BpmList, bpm_factor: f64) -> Result<()> {
@@ -355,10 +369,22 @@ pub fn apply_motion(raw: &Value, line: &mut crate::core::JudgeLine, r: &mut BpmL
         }
     }
 
-    let mut points = raw["skewControl"].as_array().cloned().unwrap_or_default();
+    if let Some(skew) = skew_anim(raw["skewControl"].as_array().map(Vec::as_slice).unwrap_or(&[])) {
+        line.ctrl_obj.get_mut().skew = skew;
+    }
+    Ok(())
+}
+
+fn skew_anim(points: &[Value]) -> Option<AnimFloat> {
+    let mut points = points.to_vec();
     points.sort_by(|a, b| number(&a["x"], 0.).total_cmp(&number(&b["x"], 0.)));
-    if points.len() > 1 {
-        line.ctrl_obj.get_mut().skew = AnimFloat::new(
+    let first = points.first()?;
+    Some(if points.len() == 1 {
+        // A single keyframe is a constant curve in RPEN; keep it instead of
+        // silently falling back to zero skew.
+        AnimFloat::fixed(number(&first["skew"], 0.) as f32)
+    } else {
+        AnimFloat::new(
             points
                 .iter()
                 .enumerate()
@@ -367,7 +393,6 @@ pub fn apply_motion(raw: &Value, line: &mut crate::core::JudgeLine, r: &mut BpmL
                     Keyframe::new(number(&p["x"], 0.), number(&p["skew"], 0.) as f32, crate::parse::RPE_TWEEN_MAP[id])
                 })
                 .collect(),
-        );
-    }
-    Ok(())
+        )
+    })
 }

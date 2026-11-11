@@ -69,6 +69,12 @@ impl Default for PhigrosRules {
 }
 
 impl PhigrosRules {
+    /// Consecutive off-note frames tolerated at the reference 60 fps cadence,
+    /// expressed in real seconds so higher refresh rates keep the same grace.
+    pub fn hold_safe_seconds(&self) -> f64 {
+        (f64::from(self.hold_safe_frames.max(0)) + 1.) / 60.
+    }
+
     pub fn drag_sides(&self) -> [f64; 2] {
         self.drag_sides_ms.unwrap_or([self.drag_ms; 2])
     }

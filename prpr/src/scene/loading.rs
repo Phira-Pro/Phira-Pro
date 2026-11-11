@@ -28,7 +28,7 @@ const FADE_IN_TIME: f32 = 0.6;
 
 pub type UploadFn = Arc<dyn Fn(UploadScore) -> Task<Result<RecordUpdateState>>>;
 pub type UpdateFn = Box<dyn FnMut(f64, &mut Resource, &mut Judge)>;
-pub type SaveFn = Box<dyn Fn(SimpleRecord) -> Result<()>>;
+pub type SaveFn = Box<dyn Fn(SimpleRecord, bool) -> Result<()>>;
 
 fn transition_time() -> Option<f32> {
     if PREFER_REDUCED_MOTION.load(Ordering::Relaxed) {

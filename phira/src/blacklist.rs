@@ -34,6 +34,12 @@ pub struct Entry {
 
 static LIST: Lazy<Mutex<Option<Vec<Entry>>>> = Lazy::new(|| Mutex::new(None));
 
+/// Drops the cached list so the next read reloads the file (after a restore).
+pub fn reload() {
+    *LIST.lock().unwrap() = None;
+    VERSION.fetch_add(1, Ordering::Relaxed);
+}
+
 /// 每次增删自增。已经加载过排行榜的场景可以据此判断要不要重新拉取。
 static VERSION: AtomicU32 = AtomicU32::new(0);
 

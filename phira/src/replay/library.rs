@@ -351,7 +351,7 @@ pub async fn match_chart(replay: &Replay, preferred: Option<&str>, candidates: &
     })
 }
 pub fn board_records(key: &str) -> Vec<crate::history::Record> {
-    let mut records: Vec<_> = crate::history::all().into_iter().filter(|r| r.key == key).collect();
+    let mut records: Vec<_> = crate::history::all().into_iter().filter(|r| r.key == key && r.rated).collect();
     for item in all().unwrap_or_default() {
         if !item.imported() {
             if let Some(record) = records.iter_mut().find(|r| super::path_for(&r.key, r.time) == item.path) {
@@ -375,6 +375,7 @@ pub fn board_records(key: &str) -> Vec<crate::history::Record> {
                 difficulty: item.meta.difficulty,
                 time: item.meta.recorded_at.unwrap_or(0),
                 replay_result_unknown: true,
+                rated: true,
                 ..Default::default()
             });
             record.key = key.to_owned();

@@ -3,9 +3,50 @@ use super::*;
 use std::{
     collections::HashSet,
     io::{Read, Write},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
 };
 pub static CONFIG_RESTORED: AtomicBool = AtomicBool::new(false);
+static RELOADED: Mutex<Option<crate::data::Data>> = Mutex::new(None);
+
+/// Rebuild the in-memory `Data` from the restored `data.json`. Running this in
+/// the restore task keeps blocking directory scans off the frame loop; the main
+/// thread swaps the result in and clears `CONFIG_RESTORED`.
+pub async fn reload_data() -> Result<()> {
+    let root = data_dir()?;
+    let text = std::fs::read_to_string(root.join("data.json"))?;
+    let mut data: crate::data::Data = serde_json::from_str(&text)?;
+    data.init().await?;
+    *RELOADED.lock().unwrap() = Some(data);
+    Ok(())
+}
+
+pub fn take_reloaded_data() -> Option<crate::data::Data> {
+    RELOADED.lock().unwrap().take()
+}
+
+static CACHES_DIRTY: AtomicBool = AtomicBool::new(false);
+
+/// Marks json caches (history/HUD/blacklist) for reload after any restore,
+/// including restores that only replace those files.
+pub fn mark_caches_dirty() {
+    CACHES_DIRTY.store(true, Ordering::Relaxed);
+}
+
+pub fn take_caches_dirty() -> bool {
+    CACHES_DIRTY.swap(false, Ordering::Relaxed)
+}
+
+/// Whether the applied backup actually replaced `data.json` in this session.
+pub fn config_restored() -> bool {
+    CONFIG_RESTORED.load(Ordering::Relaxed)
+}
+
+pub fn finish_reload() {
+    CONFIG_RESTORED.store(false, Ordering::Relaxed);
+}
 pub const CATEGORIES: [&str; 7] = ["谱面", "资源包", "回放与成绩", "插件", "设置与布局", "外观与字体", "其他数据"];
 #[derive(Clone, Debug)]
 pub struct Preview {

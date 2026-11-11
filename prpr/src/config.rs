@@ -208,6 +208,8 @@ pub struct Config {
     pub aggressive: bool,
     /// Flat block ranges; skips materials, hover and music filtering, not judgement.
     pub block_area_simple: bool,
+    /// Skip transparent ordinary CPU judge lines whose blend is framebuffer-identity.
+    pub line_elision: bool,
     pub menu_playlist: Option<String>,
     pub noise_glow: bool,
     pub noise_refraction: bool,
@@ -421,6 +423,7 @@ impl Default for Config {
             adjust_time: false,
             aggressive: true,
             block_area_simple: false,
+            line_elision: true,
             menu_playlist: None,
             noise_glow: true,
             noise_refraction: true,
@@ -913,6 +916,12 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::{Config, Mods, UNLIMITED_FPS};
+
+    #[test]
+    fn line_elision_defaults_on() {
+        assert!(Config::default().line_elision);
+    }
+
     #[test]
     fn note_behavior_mod_is_exclusive_unrated_and_separate_from_practice() {
         use crate::practice::NoteBehavior::*;

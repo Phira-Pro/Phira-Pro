@@ -295,6 +295,8 @@ chart-import-desc = Import a zip produced by the official client's batch export 
 chart-import-btn = Choose file & import
 item-block-simple = Simple block areas
 item-block-simple-sub = Draw translucent ranges only; disable noise, touch effects and music filtering. Judgement is unchanged.
+item-line-elision = Transparent line elision
+item-line-elision-sub = Skip fully transparent ordinary judge lines when they cannot change the frame. Visual quality is unchanged; debug views and custom materials keep the original path.
 
 experience = Experience
 font-display-size = Font display size

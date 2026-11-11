@@ -294,6 +294,8 @@ chart-import-desc = 导入官方客户端「批量导出」生成的 zip（也�
 chart-import-btn = 选择文件并导入
 item-block-simple = 噪域低性能模式
 item-block-simple-sub = 仅显示半透明范围，关闭噪声材质、触摸特效和音乐滤波；判定规则不变
+item-line-elision = 透明判定线省略
+item-line-elision-sub = 跳过完全透明、不会改变画面的普通判定线；画质不变，调试视图和自定义材质仍走原路径
 
 experience = 体验
 font-display-size = 字体显示大小

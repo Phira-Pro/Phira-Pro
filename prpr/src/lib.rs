@@ -19,6 +19,7 @@ pub mod hotkeys;
 pub mod loading_cpu;
 pub mod loading_work;
 pub mod practice;
+pub mod render_elision;
 
 #[cfg(target_os = "windows")]
 pub mod desktop_pacing;

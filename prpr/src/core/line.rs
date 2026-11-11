@@ -356,6 +356,16 @@ impl JudgeLine {
                         // 判定线调试：本该淡出的线抬到至少 0.15 保留淡影。
                         color.a = parse_alpha(color.a, alpha.max(0.0), 0.15, res.config.chart_debug_line);
                         let len = res.info.line_length;
+                        if res.config.line_elision
+                            && crate::render_elision::try_skip_cpu_line(
+                                len,
+                                line_scaled,
+                                color,
+                                res.config.chart_debug || res.config.chart_debug_line,
+                            )
+                        {
+                            return;
+                        }
                         draw_line(-len, 0., len, 0., if line_scaled { 0.0076 } else { 0.01 }, color);
                     }
                     JudgeLineKind::Texture(texture, path) => {

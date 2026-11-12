@@ -19,15 +19,13 @@ dist-title = 判定分布：今回（青） / ベスト（灰）
 dist-legend = 早 ← → 遅
 latest = Latest
 list-title = 記録（新しい順）
-stat-pb = ベスト
+stat-all-title = すべての譜面
 stat-count = { $count } 件
 stat-latest = 最新
+stat-pb = ベスト
+stat-avg = 平均
 trend-axis = 古い ← → 新しい
 list-more = さらに { $count } 件の古い記録は非表示
-stat-avg = 平均
-stat-all-title = すべての譜面
-
-
 daily-title = デイリーチャレンジ
 daily-start = 開始
 daily-todo = 未達成
@@ -37,3 +35,4 @@ daily-speed = 速度 1.1x
 daily-strict = 厳格判定 ±60ms
 daily-health = ヘルスモード
 daily-nohints = ヒントなし
+detailed-grades = 细致判定 · 查看详情

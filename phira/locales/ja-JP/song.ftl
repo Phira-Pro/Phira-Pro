@@ -110,7 +110,7 @@ mods-no-shader = シェーダーなし
 mods-no-shader-sub = シェーダー効果を無効にします。※このModを有効にするとスコアをアップロードできなくなります
 mods-strict-judge = 厳格判定モード
 mods-strict-judge-sub = すべての判定幅を半分にする
-mods-strict-global-on = 全局严判已生效；本曲开关不会关闭全局严判，也不会再次缩小区间
+mods-strict-global-on = 全部厳格判定が有効になっています。この曲の切り替えによって全部厳格判定が無効になることも、判定範囲がさらに狭まることもありません
 mods-fullscreen-judge = 全画面判定
 mods-fullscreen-judge-sub = 画面のどこをタップしても判定される
 mods-no-fail = 失敗なし
@@ -146,8 +146,8 @@ ldb-acc = 精度
 ldb-local-title = ローカル記録
 ldb-local-empty = ローカル記録はまだありません。プレイ後にここで確認できます。
 ldb-local-no-hit = ローカル記録 { $count } 件、このクリックはどの行にも命中しませんでした
-mods-perfect-sound = Perfect-time sounds
-mods-perfect-sound-sub = Play cues at the chart's zero-error time for rhythm practice. Scores cannot be uploaded.
+mods-perfect-sound = Perfectタイム音
+mods-perfect-sound-sub = リズム練習用として、譜面の誤差0msのタイミングでキューを再生します。スコアのアップロードはできません。
 
 ## Leaderboard sources and server-specific ranks
 
@@ -172,6 +172,6 @@ ldb-mixed-hint = 各プレイヤーの良い記録を表示 · 混合順位な�
 ldb-pro-hint = Pro上位20件 · 順位はPro内のみ
 ldb-sign-in-hint = ログインしてProランキングを表示
 ldb-empty = 記録がありません
-mods-note-behavior = 音符行为
-mods-note-behavior-sub = 循环选择原始、Tap、Drag、Flick。转换全部音符，仍可游玩与结算，本局不计成绩
-mods-note-original = 原始
+mods-note-behavior = ノーツの動作
+mods-note-behavior-sub = タップ、ドラッグ、フリックの順に操作してください。すべての音符は変更されますが、ゲームプレイとスコアリングは継続されます。このラウンドではスコアは記録されません
+mods-note-original = オリジナル

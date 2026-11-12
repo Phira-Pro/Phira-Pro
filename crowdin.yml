@@ -1,3 +1,0 @@
-files:
-  - source: /phira/locales/zh-CN/**
-    translation: /phira/locales/%locale%/%original_file_name%

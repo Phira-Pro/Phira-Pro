@@ -5,6 +5,7 @@ register = 登録
 email = メールアドレス
 username = ユーザー名
 password = パスワード
+forget-password = パスワードを忘れた
 name-length-req = 名前は{ $min }〜{ $max }字以内にしてください
 name-has-illegal-char = ユーザー名に不正な文字が含まれています
 pwd-length-req = パスワードは{ $min }〜{ $max }字以内にしてください
@@ -25,7 +26,6 @@ action-failed =
     }
 email-sent = 確認メールを送信しました
 hykb-login-cancelled = 好游快爆へのログインはキャンセルされました
-forget-password = パスワードを忘れた
 login-method-title = ログイン方法を選択してください
 login-method-email = Eメールログイン
 login-method-hykb = 好游快爆ログイン

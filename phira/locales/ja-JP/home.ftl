@@ -12,3 +12,6 @@ update-desc =
 update-ignore = このバージョンは無視してください
 update-go = 更新
 change-char = キャラクターを変更する
+music-loading = 音楽を読み込んでいます...
+music-empty = 再生可能な曲はありません
+music-muted = 音声がミュートされています。再生ボタンをクリックして音声を復元してください

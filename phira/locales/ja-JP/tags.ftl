@@ -1,10 +1,10 @@
-cancel = キャンセル
-confirm = 確認
 filter = ラベルでフィルタリング
 edit = タグを編集
 invalid-tag = 無効なラベル
 wanted = 含めるタグ
 unwanted = 含めたくないタグ
+cancel = キャンセル
+confirm = 確認
 filter-by-rating = 評価で絞り込む
 regular = 通常
 troll = トロール

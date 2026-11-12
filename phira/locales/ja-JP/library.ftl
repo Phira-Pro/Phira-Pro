@@ -1,3 +1,4 @@
+label = 譜面ライブラリ
 local = ローカル
 popular = 人気
 page = ページ { $current } / { $total }
@@ -6,7 +7,6 @@ next-page = 次のページへ
 not-opened = 現在は利用できません
 failed-to-load-online = オンラインのビートマップの読み込みに失敗しました
 import = インポート
-label = 譜面ライブラリ
 offline-mode = オンライン譜面はオフラインモードでは読み込むことができません
 must-login = オンライン譜面を閲覧するにはログインが必要です
 order-by = 並べ替え: { $order }

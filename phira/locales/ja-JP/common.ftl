@@ -5,10 +5,10 @@ confirm = 確定
 release-to-refresh = 離して再読み込み
 switch-on = オン
 switch-off = オフ
-list-empty = まだ何もありません
 chart-ranked = stable
 chart-special = special
 chart-unstable = unstable
+list-empty = まだ何もありません
 tos-and-policy = 利用規約およびプライバシーポリシー
 tos-and-policy-desc = TeamFlosが提供するPhiraオンラインサービスのいずれかの部分を使用する前に、当社の利用規約およびプライバシーポリシーを読み、同意する必要があります。
 tos-deny = 同意しない
@@ -19,6 +19,7 @@ loading_tos_policy = 利用規約とプライバシーポリシーの取得
 fetch-tos-policy-failed = 利用規約とプライバシーポリシーの取得に失敗しました
 warn-deny-tos-policy = オンラインサービスを利用するには、利用規約に同意する必要があります
 open-in-web = ウェブサイトで開く
+main-character-name = 夕
 main-character-intro =
     廃墟から響く歌声、複雑な旋律が織りなすリズムは、まるで奇跡そのもの――あらゆる法則を超越した、謎めいた少女のようだ。
     彼女は未来から来たのに、世界の根源と繋がる、ある種の不朽の存在を宿しているように見える。だが、そんなことはどうでもいい。少女の記憶と共に、あらゆる形のもの、形のないものへの執着は消え去ってしまったのだから。
@@ -29,8 +30,7 @@ favorites-online-only = オンラインお気に入りフォルダにはオン�
 contains-banned-words = 入力内容に禁止語が含まれています。送信前にご確認ください
 hykb-not-bound-logout = あなたのアカウントは好游快爆にリンクされていないため、ログアウトされました
 hykb-login-cancelled = 好游快爆へのログインはキャンセルされました
-main-character-name = 夕
-
+hykb-account-mismatch = 現在使用している好游快爆アカウントは、ログインに使用したアカウントとは異なります。ユーザーはログアウトしました
 crash-title = Phira が予期せず停止しました
 crash-message = 予期しないエラーが発生したため、ゲームを安全に続行できません。原因の特定に役立てるため、最近のログをエクスポートできます。
 crash-summary = エラー：{ $error }

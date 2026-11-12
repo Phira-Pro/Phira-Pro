@@ -25,4 +25,4 @@ deeplink-dl-failed = ダウンロード失敗
 deeplink-too-large = ファイルサイズがリンクのインポート制限（100 MiB）を超えています
 deeplink-opening = 譜面を開く…
 deeplink-open-failed = 譜面を開くことができませんでした
-warning-rpen-features = 该谱面使用了RPEN引入的新特性。目前处于早期测试阶段，可能会导致显示错误，如有需要请在谱面信息中取消勾选“RPEN特性”
+warning-rpen-features = この譜面は、RPENによって導入された新機能を使用しています。現在、初期テスト段階のため、表示エラーが発生する可能性があります。必要に応じて、譜面情報にある「RPEN機能」オプションのチェックを外してください

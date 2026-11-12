@@ -416,9 +416,7 @@ item-show-judgement-details-sub = スコアと精度の下に、リアルタイ�
 item-show-perfect-combo = Perfect Combo表示
 item-show-perfect-combo-sub = Perfect+ / Perfectのみコンボカウント；その他の判定でコンボを中断しますが、スコアは変わりません
 item-gameplay-background-blur = ゲームプレイ中の背景をぼやかす
-item-fps-unlimited =
-    無制限
-    その他多くのボランティア譜面レビュアーの皆様に感謝します。完全なリストは https://phira.moe/staff をご覧ください。
+item-fps-unlimited = 無制限
 item-early-late = Early/Late 表示
 item-early-late-sub = Perfect+ / Perfect以外の判定の場合、有効判定表示によってジャンプテキストが早まったり遅れたりすることがあります
 item-early-late-position = 表示位置

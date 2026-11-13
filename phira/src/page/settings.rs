@@ -1925,6 +1925,8 @@ struct DebugList {
     chart_debug_line_btn: DRectButton,
     chart_debug_note_btn: DRectButton,
     legacy_hold_btn: DRectButton,
+    #[cfg(target_os = "android")]
+    rpen_software_btn: DRectButton,
     touch_debug_btn: DRectButton,
     touch_color_btn: DRectButton,
     touch_color_reset: DRectButton,
@@ -1970,6 +1972,8 @@ impl DebugList {
             chart_debug_line_btn: DRectButton::new(),
             chart_debug_note_btn: DRectButton::new(),
             legacy_hold_btn: DRectButton::new(),
+            #[cfg(target_os = "android")]
+            rpen_software_btn: DRectButton::new(),
             touch_debug_btn: DRectButton::new(),
             touch_color_btn: DRectButton::new(),
             touch_color_reset: DRectButton::new(),
@@ -2080,6 +2084,11 @@ impl DebugList {
         }
         if self.section_open[0] && self.legacy_hold_btn.touch(touch, t) {
             config.legacy_hold_rendering ^= true;
+            return Ok(Some(true));
+        }
+        #[cfg(target_os = "android")]
+        if self.section_open[0] && self.rpen_software_btn.touch(touch, t) {
+            config.rpen_software_rendering ^= true;
             return Ok(Some(true));
         }
         if self.section_open[1] && self.fps_position_btn.touch(touch, t) {
@@ -2260,6 +2269,11 @@ impl DebugList {
             item! {
                 render_title(ui, tl!("item-legacy-hold"), Some(tl!("item-legacy-hold-sub")));
                 render_switch(ui, rr, t, &mut self.legacy_hold_btn, config.legacy_hold_rendering);
+            }
+            #[cfg(target_os = "android")]
+            item! {
+                render_title(ui, tl!("item-rpen-software"), Some(tl!("item-rpen-software-sub")));
+                render_switch(ui, rr, t, &mut self.rpen_software_btn, config.rpen_software_rendering);
             }
         }
         self.sections[1].render_text(

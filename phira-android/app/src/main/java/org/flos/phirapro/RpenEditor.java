@@ -14,6 +14,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
@@ -39,9 +40,10 @@ final class RpenEditor {
     private final AtomicBoolean bootExit = new AtomicBoolean();
     private boolean booting = true;
     private boolean destroyed;
-    private final Runnable timeout = () -> failBoot("制谱器加载超时，可以重试或停用扩展重试");
+    private String bootStage = "";
+    private final Runnable timeout = () -> failBoot("制谱器加载超时：" + bootStage);
 
-    RpenEditor(Activity activity, String address) {
+    RpenEditor(Activity activity, String address, boolean softwareRendering) {
         this.activity=activity;
         picker=new RpenFilePicker(activity);
         this.address=address;
@@ -54,16 +56,38 @@ final class RpenEditor {
         settings.setAllowFileAccess(false);settings.setAllowContentAccess(true);settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setBuiltInZoomControls(false);settings.setDisplayZoomControls(false);settings.setSupportMultipleWindows(false);
         web.setBackgroundColor(Color.rgb(23,29,38));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            root.setForceDarkAllowed(false);
+            web.setForceDarkAllowed(false);
+            // RPEN already provides its own theme. The app targets Android 12 or lower.
+            settings.setForceDark(WebSettings.FORCE_DARK_OFF);
+        }
+        if (softwareRendering) web.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
         web.setWebViewClient(new WebViewClient(){
             @Override public void onPageStarted(WebView view,String url,android.graphics.Bitmap icon){startBoot();}
-            @Override public void onReceivedError(WebView view,WebResourceRequest request,WebResourceError error){if(request.isForMainFrame())failBoot("无法载入制谱器，请重试或返回 Pro");}
-            @Override public void onReceivedHttpError(WebView view,WebResourceRequest request,android.webkit.WebResourceResponse response){if(request.isForMainFrame())failBoot("无法载入制谱器，请重试或返回 Pro");}
+            @Override public void onPageFinished(WebView view,String url){
+                if(!booting||!url.equals(view.getUrl())||!url.startsWith(origin))return;
+                // Classic syntax: this can still run when the module entry cannot parse.
+                view.evaluateJavascript("typeof structuredClone === 'function' && typeof CSSStyleSheet !== 'undefined' && typeof CSSStyleSheet.prototype.replaceSync === 'function'", supported -> {
+                    if("false".equals(supported)&&url.equals(view.getUrl()))
+                        failBoot("当前 Android WebView 版本过旧，请更新 Android System WebView 或 Chrome 后重试。");
+                });
+            }
+            @Override public void onReceivedError(WebView view,WebResourceRequest request,WebResourceError error){if(request.isForMainFrame())failBoot("无法连接本机制谱器服务（" + error.getErrorCode() + "）");}
+            @Override public void onReceivedHttpError(WebView view,WebResourceRequest request,android.webkit.WebResourceResponse response){if(request.isForMainFrame())failBoot("无法载入制谱器页面（HTTP " + response.getStatusCode() + "）");}
             @Override public boolean shouldOverrideUrlLoading(WebView view,String url){return !url.startsWith(origin);}
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){return !request.getUrl().toString().startsWith(origin);}
         });
         web.addJavascriptInterface(new Object(){
             @JavascriptInterface public void ready(){activity.runOnUiThread(()->{
                 if(destroyed)return;booting=false;handler.removeCallbacks(timeout);loading.setVisibility(View.GONE);
+            });}
+            @JavascriptInterface public void bootStage(String text){activity.runOnUiThread(()->{
+                if(destroyed||!booting||text==null||text.length()>160)return;
+                bootStage=text;loadingText.setText(text);
+            });}
+            @JavascriptInterface public void bootFailed(String text){activity.runOnUiThread(()->{
+                if(text!=null&&text.length()<=160)failBoot(text);
             });}
             @JavascriptInterface public void closeBoot(){activity.runOnUiThread(()->requestBootExit());}
             @JavascriptInterface public boolean directoryPicker(){return true;}
@@ -78,15 +102,21 @@ final class RpenEditor {
         loadingText=new TextView(activity);loadingText.setTextColor(Color.WHITE);loadingText.setTextSize(16);loadingText.setGravity(Gravity.CENTER);loading.addView(loadingText);
         LinearLayout actions=new LinearLayout(activity);actions.setGravity(Gravity.CENTER);loading.addView(actions);
         Button back=new Button(activity);back.setAllCaps(false);back.setText("返回 Pro");back.setOnClickListener(v->requestBootExit());actions.addView(back);
-        retry=new Button(activity);retry.setText("重新加载");retry.setOnClickListener(v->web.reload());actions.addView(retry);
-        safe=new Button(activity);safe.setText("停用扩展重试");safe.setOnClickListener(v->web.loadUrl(Uri.parse(address).buildUpon().appendQueryParameter("mods","off").build().toString()));actions.addView(safe);
+        retry=new Button(activity);retry.setText("重新加载");retry.setOnClickListener(v->load(false));actions.addView(retry);
+        safe=new Button(activity);safe.setText("兼容模式重试");safe.setOnClickListener(v->load(true));actions.addView(safe);
         root.addView(loading,new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT));
         activity.addContentView(root,new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT));
-        startBoot();
-        web.loadUrl(address);
+        load(false);
     }
-    private void startBoot(){if(destroyed)return;booting=true;loading.setVisibility(View.VISIBLE);loadingText.setText("正在进入制谱器");retry.setVisibility(View.GONE);safe.setVisibility(View.GONE);handler.removeCallbacks(timeout);handler.postDelayed(timeout,20000);}
-    private void failBoot(String message){if(destroyed||!booting)return;loadingText.setText(message);retry.setVisibility(View.VISIBLE);safe.setVisibility(View.VISIBLE);}
+    private void load(boolean safeMode){
+        web.stopLoading();
+        startBoot();
+        Uri.Builder url=Uri.parse(address).buildUpon();
+        if(safeMode)url.appendQueryParameter("mods","off").appendQueryParameter("skin","default");
+        web.loadUrl(url.build().toString());
+    }
+    private void startBoot(){if(destroyed)return;booting=true;bootStage="正在载入制谱器页面";loading.setVisibility(View.VISIBLE);loadingText.setText(bootStage);retry.setVisibility(View.GONE);safe.setVisibility(View.GONE);handler.removeCallbacks(timeout);handler.postDelayed(timeout,50000);}
+    private void failBoot(String message){if(destroyed||!booting)return;handler.removeCallbacks(timeout);loadingText.setText(message);retry.setVisibility(View.VISIBLE);safe.setVisibility(View.VISIBLE);}
     private void requestBootExit(){if(!destroyed&&booting)bootExit.set(true);}
     boolean takeBootExit(){return bootExit.getAndSet(false);}
     void visible(boolean visible){root.setVisibility(visible?View.VISIBLE:View.GONE);if(visible){web.onResume();web.requestFocus();}else{web.evaluateJavascript("globalThis.rpenMods?.editor.pause()",null);web.onPause();}}

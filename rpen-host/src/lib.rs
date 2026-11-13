@@ -4,6 +4,7 @@ mod storage;
 mod library;
 mod linked;
 mod preview;
+mod audio;
 pub use preview::{PreviewBridge, PreviewPosition, PreviewStart};
 
 pub use server::{EditorEvent, EditorHost, PlayRequest};

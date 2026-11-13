@@ -225,6 +225,8 @@ pub struct Config {
     pub chart_debug_note: bool,
     /// Restore integral-based official Hold length for resource pack compatibility.
     pub legacy_hold_rendering: bool,
+    /// Android editor only: bypass the WebView GPU compositor if it shows black.
+    pub rpen_software_rendering: bool,
     pub disable_effect: bool,
     pub double_click_to_pause: bool,
     pub double_hint: bool,
@@ -435,6 +437,7 @@ impl Default for Config {
             chart_debug_line: false,
             chart_debug_note: false,
             legacy_hold_rendering: false,
+            rpen_software_rendering: false,
             disable_effect: false,
             double_click_to_pause: true,
             double_hint: true,

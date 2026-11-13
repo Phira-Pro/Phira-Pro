@@ -40,7 +40,7 @@ import org.json.JSONObject;
 public class MainActivity extends AppCompatActivity {
     private volatile RpenEditor rpenEditor;
     public boolean takeRpenEditorBootExit(){RpenEditor editor=rpenEditor;return editor!=null&&editor.takeBootExit();}
-    public void showRpenEditor(String url) { runOnUiThread(() -> { if (rpenEditor == null) rpenEditor = new RpenEditor(this, url); else rpenEditor.visible(true); }); }
+    public void showRpenEditor(String url, boolean softwareRendering) { runOnUiThread(() -> { if (rpenEditor == null) rpenEditor = new RpenEditor(this, url, softwareRendering); else rpenEditor.visible(true); }); }
     public void setRpenEditorVisible(boolean visible) { runOnUiThread(() -> { if (rpenEditor != null) rpenEditor.visible(visible); }); }
     public void closeRpenEditor() { runOnUiThread(() -> { if (rpenEditor != null) { rpenEditor.destroy(); rpenEditor = null; } }); }
     @Override public void onBackPressed() { if (rpenEditor == null || !rpenEditor.back()) super.onBackPressed(); }

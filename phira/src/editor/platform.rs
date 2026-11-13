@@ -43,7 +43,8 @@ fn android_call(url: Option<String>, visible: Option<bool>) -> Result<()> {
             let activity = unsafe { JObject::from_raw(env, ndk_context::android_context().context() as _) };
             if let Some(url) = url {
                 let url = env.new_string(url)?;
-                env.call_method(activity, jni_str!("showRpenEditor"), jni_sig!("(Ljava/lang/String;)V"), &[(&url).into()])?;
+                let software = crate::get_data().config.rpen_software_rendering;
+                env.call_method(activity, jni_str!("showRpenEditor"), jni_sig!("(Ljava/lang/String;Z)V"), &[(&url).into(), software.into()])?;
             } else if let Some(visible) = visible {
                 env.call_method(activity, jni_str!("setRpenEditorVisible"), jni_sig!("(Z)V"), &[visible.into()])?;
             } else {

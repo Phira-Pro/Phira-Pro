@@ -47,6 +47,14 @@ void rpen_ios_open(const char *url) {
         configuration.websiteDataStore=WKWebsiteDataStore.defaultDataStore;
         configuration.allowsInlineMediaPlayback=YES;
         configuration.mediaTypesRequiringUserActionForPlayback=WKAudiovisualMediaTypeNone;
+        // Earlier WKWebView releases cannot return a directory FileList.
+        if (@available(iOS 18.4, *)) {
+            // Use WebKit's native directory selection.
+        } else {
+            WKUserScript *fallback=[[WKUserScript alloc] initWithSource:@"globalThis.phiraIOSFolderZip = true;"
+                injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES];
+            [configuration.userContentController addUserScript:fallback];
+        }
         editor.web=[[WKWebView alloc] initWithFrame:root.bounds configuration:configuration];
         editor.web.navigationDelegate=editor;editor.web.UIDelegate=editor;
         editor.web.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;

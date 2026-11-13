@@ -164,6 +164,16 @@ impl Service {
         if route == "pro/control" && request.method() == &Method::Get {
             return json_response(json!({"state":*self.shared.state.lock().unwrap(),"message":self.shared.message.lock().unwrap().take()}));
         }
+        if route == "pro/decode-audio" && request.method() == &Method::Post {
+            ensure!(request.headers().iter().any(|h| h.field.equiv("Content-Type")
+                && h.value.as_str() == "application/octet-stream"), "Invalid audio request");
+            let bytes = read_body(request, crate::audio::MAX_INPUT)?;
+            let wave = crate::audio::wave(bytes);
+            return Ok(match wave {
+                Ok(wave) => (200, "audio/wav", wave),
+                Err(_) => (422, "text/plain", b"Unsupported or invalid audio".to_vec()),
+            });
+        }
         if route == "pro/preview" && request.method() == &Method::Post {
             let args: crate::preview::Request = serde_json::from_slice(&read_body(request, 8192)?)?;
             return match args {

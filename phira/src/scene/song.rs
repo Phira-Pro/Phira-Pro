@@ -1,5 +1,6 @@
 prpr_l10n::tl_file!("song");
 mod pack;
+mod preview;
 
 #[cfg(feature = "video")]
 use super::UnlockScene;
@@ -169,9 +170,12 @@ fn create_music(clip: AudioClip) -> Result<Music> {
 
 fn with_effects((mut frames, sample_rate): (Vec<Frame>, u32), range: Option<(f32, f32)>) -> Result<AudioClip> {
     if let Some((begin, end)) = range {
-        frames.drain(((end * sample_rate as f32) as usize).min(frames.len())..);
-        frames.drain(..((begin * sample_rate as f32) as usize));
+        let start = ((begin * sample_rate as f32) as usize).min(frames.len());
+        let end = ((end * sample_rate as f32) as usize).clamp(start, frames.len());
+        frames.truncate(end);
+        frames.drain(..start);
     }
+    anyhow::ensure!(!frames.is_empty(), "empty song preview");
     let len = (0.8 * sample_rate as f64) as usize;
     let len = len.min(frames.len() / 2);
     for (i, frame) in frames[..len].iter_mut().enumerate() {
@@ -515,8 +519,7 @@ impl SongScene {
                             Some((info.preview_start, info.preview_end.unwrap_or(info.preview_start + 15.))),
                         )
                     } else {
-                        let chart = Ptr::<Chart>::new(id.unwrap()).fetch().await?;
-                        with_effects(AudioClip::decode(chart.preview.fetch().await?.to_vec())?, None)
+                        preview::load_remote(id.context("missing chart id")?).await
                     }
                 }
             })),
@@ -2089,12 +2092,7 @@ impl Scene for SongScene {
             }
             self.preview = None;
             self.illu.task = None;
-            self.preview_task = self.info.id.map(|id| {
-                Task::new(async move {
-                    let chart = Ptr::<Chart>::new(id).fetch().await?;
-                    with_effects(AudioClip::decode(chart.preview.fetch().await?.to_vec())?, None)
-                })
-            });
+            self.preview_task = self.info.id.map(|id| Task::new(preview::load_remote(id)));
             self.record = None;
             self.fetch_best_task = if get_data().me.is_some() {
                 self.info.id.map(|id| Task::new(Client::best_record(id)))

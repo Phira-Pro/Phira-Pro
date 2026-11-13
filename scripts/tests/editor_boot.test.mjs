@@ -23,17 +23,22 @@ test('return during startup reaches native escape without waiting for a hung fet
   const state=setup(()=>new Promise(()=>{}));state.listeners.get('DOMContentLoaded')();
   state.controls.get('pro-loading-back').onclick();assert.equal(state.nativeExit,1);
 });
-test('a script error before DOM readiness still exposes retry and safe startup',()=>{
-  const state=setup();state.listeners.get('error')();state.listeners.get('DOMContentLoaded')();
+test('a missing startup script exposes retry with extensions off and the default skin',()=>{
+  const state=setup();state.listeners.get('error')({target:{matches:()=>true}});state.listeners.get('DOMContentLoaded')();
   assert.equal(state.controls.get('pro-loading-retry').hidden,false);assert.equal(state.controls.get('pro-loading-safe').hidden,false);
-  state.controls.get('pro-loading-safe').onclick();assert.equal(new URL(state.replaced).searchParams.get('mods'),'off');
+  state.controls.get('pro-loading-safe').onclick();const mode=new URL(state.replaced).searchParams;
+  assert.equal(mode.get('mods'),'off');assert.equal(mode.get('skin'),'default');
+});
+test('a failed lazy image does not interrupt startup',()=>{
+  const state=setup();state.listeners.get('error')({target:{matches:()=>false}});
+  assert.equal(state.controls.get('pro-loading-retry').hidden,true);
 });
 test('initialization deadline rejects instead of leaving an endless pending startup',async()=>{
   const state=setup();const task=state.context.phiraEditor.boot.wait(new Promise(()=>{}),'Preparing');
   [...state.timers.values()].at(-1)();await assert.rejects(task,/初始化超时/);
 });
 test('startup ready removes both loading surfaces and ignores late error notices',()=>{
-  const state=setup();state.context.phiraEditor.boot.ready();state.listeners.get('error')();
+  const state=setup();state.context.phiraEditor.boot.ready();state.listeners.get('error')({target:{matches:()=>true}});
   assert.equal(state.booting,false);assert.equal(state.controls.has('pro-loading'),false);assert.equal(state.nativeReady,1);assert.equal(state.timers.size,0);
 });
 test('stalled host requests abort and clear their deadline',async()=>{

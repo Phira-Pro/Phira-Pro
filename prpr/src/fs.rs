@@ -123,7 +123,7 @@ impl FileSystem for ExternalFileSystem {
 }
 
 #[derive(Clone)]
-pub struct ZipFileSystem(pub Arc<Mutex<ZipArchive<Cursor<Vec<u8>>>>>, String);
+pub struct ZipFileSystem(pub Arc<Mutex<ZipArchive<Cursor<Vec<u8>>>>>, String, Option<u64>);
 
 impl ZipFileSystem {
     pub fn new(bytes: Vec<u8>) -> Result<Self> {
@@ -133,7 +133,12 @@ impl ZipFileSystem {
             .filter(|it| it.ends_with('/') && it.find('/') == Some(it.len() - 1))
             .collect::<Vec<_>>();
         let root = if root_dirs.len() == 1 { root_dirs[0].to_owned() } else { String::new() };
-        Ok(Self(Arc::new(Mutex::new(zip)), root))
+        Ok(Self(Arc::new(Mutex::new(zip)), root, None))
+    }
+
+    pub fn with_entry_limit(mut self, bytes: u64) -> Self {
+        self.2 = Some(bytes);
+        self
     }
 }
 
@@ -142,11 +147,18 @@ impl FileSystem for ZipFileSystem {
     async fn load_file(&mut self, path: &str) -> Result<Vec<u8>> {
         let arc = Arc::clone(&self.0);
         let path = concat_string!(self.1, path);
+        let limit = self.2;
         spawn_task(move || {
             let mut zip = arc.lock().unwrap();
             let mut entry = zip.by_name(&path)?;
             let mut res = Vec::new();
-            entry.read_to_end(&mut res)?;
+            if let Some(limit) = limit {
+                anyhow::ensure!(entry.size() <= limit, "archive entry exceeds size limit");
+                entry.take(limit.saturating_add(1)).read_to_end(&mut res)?;
+                anyhow::ensure!(res.len() as u64 <= limit, "archive entry exceeds size limit");
+            } else {
+                entry.read_to_end(&mut res)?;
+            }
             Ok(res)
         })
         .await

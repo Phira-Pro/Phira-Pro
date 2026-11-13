@@ -4989,6 +4989,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "symphonia",
  "tao",
  "tiny_http",
  "uuid",

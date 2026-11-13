@@ -21,12 +21,12 @@ use crate::{
     dir, get_data,
     images::{THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH},
 };
-use anyhow::{bail, Result};
+use anyhow::{Context, Result};
 use bytes::Bytes;
 use image::DynamicImage;
 use lru::LruCache;
 use once_cell::sync::Lazy;
-use reqwest::Response;
+use reqwest::{Response, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize, Serializer};
 use std::{
     any::Any,
@@ -180,19 +180,41 @@ pub static CACHE_DIR: Lazy<String> = Lazy::new(|| format!("{}/http-cache", dir::
 pub struct File {
     pub url: String,
 }
+
+#[derive(Debug)]
+pub(crate) struct MissingFile;
+
+impl std::fmt::Display for MissingFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("remote file not found")
+    }
+}
+
+impl std::error::Error for MissingFile {}
+
+fn missing_file(status: StatusCode, body: &str) -> bool {
+    status == StatusCode::NOT_FOUND
+        || serde_json::from_str::<serde_json::Value>(body)
+            .ok()
+            .is_some_and(|json| json["code"].as_str() == Some("NOT_FOUND"))
+}
+
+#[cfg(test)]
+mod file_tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_http_and_api_not_found_without_masking_other_failures() {
+        assert!(missing_file(StatusCode::NOT_FOUND, "missing"));
+        assert!(missing_file(StatusCode::BAD_REQUEST, r#"{"code":"NOT_FOUND"}"#));
+        assert!(!missing_file(StatusCode::FORBIDDEN, r#"{"code":"FORBIDDEN"}"#));
+        assert!(!missing_file(StatusCode::BAD_GATEWAY, "NOT_FOUND"));
+    }
+}
+
 impl File {
-    fn request(&self) -> reqwest::RequestBuilder {
-        let mut req = basic_client_builder().build().unwrap().get(&self.url);
-        // TODO: thread safety?
-        if get_data().enable_anys {
-            let base = api_url();
-            if let Some(path) = self.url.strip_prefix(base.as_str()) {
-                if let Some(rest_path) = path.strip_prefix("/files/") {
-                    let url = format!("{base}/anys/{rest_path}");
-                    req = basic_client_builder().build().unwrap().get(url);
-                }
-            }
-        }
+    pub(crate) fn request_url(url: &str) -> reqwest::RequestBuilder {
+        let req = basic_client_builder().build().unwrap().get(url);
         if let Some(token) = CLIENT_TOKEN.load().as_ref() {
             req.header("Authorization", format!("Bearer {token}"))
         } else {
@@ -200,33 +222,42 @@ impl File {
         }
     }
 
-    pub async fn fetch(&self) -> Result<Bytes> {
-        async fn fetch_raw(f: &File) -> Result<Response> {
-            send_raw(f.request()).await
+    async fn fetch_remote(url: &str) -> Result<Bytes> {
+        let mut response: Response = send_raw(Self::request_url(url)).await?;
+        if response.status().is_redirection() {
+            let location = response.headers().get(reqwest::header::LOCATION)
+                .context("missing file redirect location")?.to_str()?;
+            let cid = location.strip_prefix("anys://").context("invalid file redirect")?;
+            let gateway_url = format!("{}/{}", get_data().anys_gateway.trim_end_matches('/'), cid);
+            debug!("fetching redirected file from ANYS");
+            response = send_raw(Self::request_url(&gateway_url)).await?;
         }
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await?;
+            let error = anyhow::anyhow!("file request failed (HTTP {status}): {body}");
+            return Err(if missing_file(status, &body) { error.context(MissingFile) } else { error });
+        }
+        Ok(response.bytes().await?)
+    }
+
+    pub async fn fetch(&self) -> Result<Bytes> {
         match cacache::read(&*CACHE_DIR, &self.url).await {
             Ok(data) => Ok(data.into()),
             Err(cacache::Error::EntryNotFound(..)) => {
-                let mut resp = fetch_raw(self).await?;
-                if resp.status().is_redirection() {
-                    let p2p_url = resp.headers().get("location").unwrap().to_str().unwrap().to_owned();
-                    if let Some(cid) = p2p_url.strip_prefix("anys://") {
-                        let cid = cid.to_owned();
-                        let data = get_data();
-                        let new_url = format!("{}/{}", data.anys_gateway, cid);
-                        debug!("p2p redirection: {} -> {}", p2p_url, new_url);
-                        resp = fetch_raw(&File { url: new_url }).await?
-                    } else {
-                        bail!("illegal p2p redirection: {}", p2p_url);
+                let base = api_url();
+                let alternate = get_data().enable_anys.then(|| self.url.strip_prefix(&format!("{base}/files/")))
+                    .flatten().map(|path| format!("{base}/anys/{path}"));
+                let bytes = if let Some(alternate) = alternate {
+                    match Self::fetch_remote(&alternate).await {
+                        Err(error) if error.is::<MissingFile>() => Self::fetch_remote(&self.url).await?,
+                        result => result?,
                     }
-                }
-                if !resp.status().is_success() {
-                    bail!("{}", resp.text().await?);
                 } else {
-                    let bytes = resp.error_for_status()?.bytes().await?;
-                    cacache::write(&*CACHE_DIR, &self.url, &bytes).await?;
-                    Ok(bytes)
-                }
+                    Self::fetch_remote(&self.url).await?
+                };
+                cacache::write(&*CACHE_DIR, &self.url, &bytes).await?;
+                Ok(bytes)
             }
             Err(err) => Err(err.into()),
         }

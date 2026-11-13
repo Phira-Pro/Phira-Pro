@@ -20,6 +20,15 @@ test('directory transport rejects missing root, traversal and empty folders',asy
  await assert.rejects(directoryFiles(await writeZip(new Map([['rootless.json',new Uint8Array()]])).arrayBuffer()),/路径/);
  await assert.rejects(directoryFiles(await writeZip(new Map([['root/./bad',new Uint8Array()]])).arrayBuffer()),/路径/);
 });
+test('iOS ZIP fallback accepts both Files archives and archives without a wrapper folder',async()=>{
+ const bytes=new Uint8Array([1,2]);
+ const wrapped=writeZip(new Map([['曲素材/manifest.json',bytes],['曲素材/sounds/song.ogg',bytes],['__MACOSX/._曲素材',bytes],['曲素材/.DS_Store',bytes]]));
+ assert.deepEqual((await directoryFiles(await wrapped.arrayBuffer(),'archive.zip')).map(file=>file.webkitRelativePath),
+   ['曲素材/manifest.json','曲素材/sounds/song.ogg']);
+ const flat=writeZip(new Map([['manifest.json',bytes],['sounds/song.ogg',bytes]]));
+ assert.deepEqual((await directoryFiles(await flat.arrayBuffer(),'曲素材.zip')).map(file=>file.webkitRelativePath),
+   ['曲素材/manifest.json','曲素材/sounds/song.ogg']);
+});
 test('directory handles re-read selected media instead of replaying the first snapshot',async()=>{
  const encode=new TextEncoder();
  const snapshot=async text=>directoryFiles(await writeZip(new Map([['root/skin.json',encode.encode(text)]])).arrayBuffer());

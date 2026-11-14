@@ -48,7 +48,7 @@ pub(super) fn item_row_h() -> f32 {
     crate::hud::param("settings", "row_h", 0.15).clamp(0.1, 0.3)
 }
 const INTERACT_WIDTH: f32 = 0.26;
-#[cfg(any(target_os = "windows", target_os = "android", target_os = "ios"))]
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "android", target_os = "ios"))]
 use prpr::config::UNLIMITED_FPS;
 
 /// 软件 UI 主题预设：(强调色, 表面色)，均为 0xRRGGBB。
@@ -64,7 +64,7 @@ const UI_PRESETS: [(u32, u32); 6] = [
 const REFRESH_RATES: [u16; 8] = [60, 120, 144, 165, 185, 200, 240, UNLIMITED_FPS];
 #[cfg(target_os = "ios")]
 const REFRESH_RATES: [u16; 3] = [60, 120, UNLIMITED_FPS];
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 const DESKTOP_FPS_LIMITS: [u16; 11] = [0, 60, 120, 144, 165, 185, 200, 240, 360, 480, UNLIMITED_FPS];
 #[cfg(all(test, target_os = "windows"))]
 mod qa;
@@ -1309,7 +1309,7 @@ struct AudioList {
     cali_btn: DRectButton,
     #[cfg(not(target_os = "android"))]
     preferred_sample_rate_btn: DRectButton,
-    #[cfg(target_env = "ohos")]
+    #[cfg(not(target_os = "android"))]
     audio_buffer_size_btn: DRectButton,
     cali_task: LocalTask<Result<OffsetPage>>,
     next_page: Option<NextPage>,
@@ -1325,7 +1325,7 @@ impl AudioList {
             cali_btn: DRectButton::new(),
             #[cfg(not(target_os = "android"))]
             preferred_sample_rate_btn: DRectButton::new(),
-            #[cfg(target_env = "ohos")]
+            #[cfg(not(target_os = "android"))]
             audio_buffer_size_btn: DRectButton::new(),
 
             cali_task: None,
@@ -1370,9 +1370,9 @@ impl AudioList {
             config.preferred_sample_rate = options[(selected + 1) % options.len()];
             return Ok(Some(true));
         }
-        #[cfg(target_env = "ohos")]
+        #[cfg(not(target_os = "android"))]
         if self.audio_buffer_size_btn.touch(touch, t) {
-            let options = [128u32, 256u32, 512u32];
+            let options = [128u32, 256u32, 512u32, 1024u32];
             let current = config.audio_buffer_size.unwrap_or(256);
             let selected = options.iter().position(|&r| r == current).unwrap_or(1);
             config.audio_buffer_size = Some(options[(selected + 1) % options.len()]);
@@ -1440,7 +1440,7 @@ impl AudioList {
             };
             self.preferred_sample_rate_btn.render_text(ui, rr, t, text, 0.5, false);
         }
-        #[cfg(target_env = "ohos")]
+        #[cfg(not(target_os = "android"))]
         item! {
             render_title(ui, tl!("item-audio-buffer-size"), None);
             let buf_size = config.audio_buffer_size.unwrap_or(256);
@@ -1917,9 +1917,9 @@ struct DebugList {
     next_page: Option<NextPage>,
     sections: [DRectButton; 3],
     section_open: [bool; 3],
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     desktop_fps_btn: ChooseButton,
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     desktop_fps_lang: Option<String>,
     chart_debug_btn: DRectButton,
     chart_debug_line_btn: DRectButton,
@@ -1957,14 +1957,14 @@ impl DebugList {
             next_page: None,
             sections: std::array::from_fn(|_| DRectButton::new()),
             section_open: [true; 3],
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             desktop_fps_btn: ChooseButton::new().with_compact_popup().with_options(Self::fps_options()).with_selected(
                 DESKTOP_FPS_LIMITS
                     .iter()
                     .position(|rate| *rate == get_data().config.desktop_fps_limit)
                     .unwrap_or(0),
             ),
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             desktop_fps_lang: get_data().language.clone(),
             chart_debug_btn: DRectButton::new(),
             chart_debug_line_btn: DRectButton::new(),
@@ -2012,14 +2012,14 @@ impl DebugList {
             }
             return true;
         }
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         if self.desktop_fps_btn.top_touch(_touch, _t) {
             return true;
         }
         false
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     fn fps_options() -> Vec<String> {
         DESKTOP_FPS_LIMITS
             .iter()
@@ -2062,7 +2062,7 @@ impl DebugList {
         }
         let data = get_data_mut();
         let config = &mut data.config;
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         if self.section_open[1] && self.desktop_fps_btn.touch(touch, t) {
             return Ok(Some(false));
         }
@@ -2139,7 +2139,7 @@ impl DebugList {
         if std::mem::take(&mut self.dirty) {
             return Ok(true);
         }
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         {
             let language = get_data().language.clone();
             if self.desktop_fps_lang != language {
@@ -2282,7 +2282,7 @@ impl DebugList {
                 let names = ["fps-top-center", "fps-bottom-center", "fps-top-left", "fps-top-right", "fps-bottom-left", "fps-bottom-right"];
                 self.fps_position_btn.render_text(ui, rr, t, tl!(names[config.fps_position.min(5) as usize]), 0.4, false);
             }
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             item! {
                 render_title(ui, tl!("item-desktop-fps"), Some(tl!("item-desktop-fps-sub")));
                 self.desktop_fps_btn.render(ui, rr, t);
@@ -2337,7 +2337,7 @@ impl DebugList {
                     .render(ui, rr, t, config.touch_point_size, format!("{:.3}", config.touch_point_size));
             }
         }
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         self.desktop_fps_btn.render_top(ui, t, 1.);
         item! {
             render_title(ui, tl!("item-export-logs"), Some(tl!("item-export-logs-sub")));

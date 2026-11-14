@@ -21,8 +21,14 @@ pub mod loading_work;
 pub mod practice;
 pub mod render_elision;
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 pub mod desktop_pacing;
+
+#[cfg(target_os = "linux")]
+pub mod desktop_memory;
+
+#[cfg(target_os = "linux")]
+pub mod desktop_priority;
 
 #[cfg(target_os = "ios")]
 pub mod frame_pacing;

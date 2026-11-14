@@ -263,7 +263,7 @@ pub struct Config {
     pub show_fps: bool,
     /// 0 top center, 1 bottom center, 2 top left, 3 top right, 4 bottom left, 5 bottom right.
     pub fps_position: u8,
-    /// Windows software frame limit. 0 follows the monitor; UNLIMITED_FPS skips pacing.
+    /// Desktop software frame limit. 0 follows the display; UNLIMITED_FPS skips pacing.
     pub desktop_fps_limit: u16,
     /// Android / iOS requested refresh rate in Hz; UNLIMITED_FPS requests the device maximum.
     pub preferred_refresh_rate: u16,

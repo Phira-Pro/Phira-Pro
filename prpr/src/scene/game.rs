@@ -650,7 +650,6 @@ pub struct GameScene {
     pub judge: Judge,
     pub gl: InternalGlContext<'static>,
     player: Option<BasicPlayer>,
-    chart_bytes: Vec<u8>,
     chart_format: ChartFormat,
     info_offset: f32,
     effects: Vec<Effect>,
@@ -1002,6 +1001,9 @@ impl GameScene {
         } else {
             Vec::new()
         };
+        // The raw source is only needed for the practice key; never keep a
+        // hundreds-of-megabytes chart file alive for the whole session.
+        drop(chart_bytes);
         let mut practice_originals = if mode == GameMode::Exercise || res.config.mods.intersects(Mods::NOTE_BEHAVIOR) {
             OriginalNotes::capture(&chart)
         } else {
@@ -1085,7 +1087,6 @@ impl GameScene {
             judge,
             gl: unsafe { get_internal_gl() },
             player,
-            chart_bytes,
             chart_format,
             effects,
             info_offset,

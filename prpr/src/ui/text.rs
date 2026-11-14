@@ -222,6 +222,23 @@ static TEXTURE_DIM: Lazy<u32> = Lazy::new(|| unsafe {
     (size as u32).min(2048)
 });
 
+/// Edge length used when a painter allocates its atlas.
+///
+/// The glyph cache grows on demand, so on Linux desktop (three long-lived
+/// painters in the UI) starting at 1024² leaves 12 MiB per painter free until
+/// the cache is actually full. Glyph rasterization, layout, UVs and filtering
+/// do not depend on the atlas size.
+fn initial_texture_dim() -> u32 {
+    #[cfg(target_os = "linux")]
+    {
+        (*TEXTURE_DIM).min(1024)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        *TEXTURE_DIM
+    }
+}
+
 #[derive(Clone)]
 struct MyVertex {
     pos: (f32, f32),
@@ -247,6 +264,8 @@ pub struct TextPainter {
     vertices_buffer: Vec<MyVertex>,
     draw_vertices: Vec<Vertex>,
     draw_indices: Vec<u16>,
+    #[cfg(target_os = "linux")]
+    trim_generation: u64,
 }
 
 impl TextPainter {
@@ -257,7 +276,7 @@ impl TextPainter {
         }
         MULTILINGUAL_FALLBACK.with(|font| fonts.extend(font.borrow().iter().cloned()));
         let mut brush = GlyphBrushBuilder::using_fonts(fonts).build();
-        let dim = *TEXTURE_DIM;
+        let dim = initial_texture_dim();
         brush.resize_texture(dim, dim);
         // TODO optimize
         let cache_texture = Self::new_cache_texture(brush.texture_dimensions());
@@ -270,6 +289,8 @@ impl TextPainter {
             vertices_buffer: Vec::new(),
             draw_vertices: Vec::new(),
             draw_indices: Vec::new(),
+            #[cfg(target_os = "linux")]
+            trim_generation: 0,
         }
     }
 
@@ -308,12 +329,40 @@ impl TextPainter {
         ))
     }
 
+    /// Release a grown glyph atlas under critical system-memory pressure.
+    /// The cache is rebuilt from the same fonts on demand, so this trades a
+    /// one-off rasterization burst for memory, not image quality.
+    #[cfg(target_os = "linux")]
+    fn trim_atlas(&mut self) {
+        let dim = initial_texture_dim();
+        let (width, height) = self.brush.texture_dimensions();
+        if width <= dim && height <= dim {
+            return;
+        }
+        unsafe { get_internal_gl() }.flush();
+        let texture = Self::new_cache_texture((dim, dim));
+        self.cache_texture.delete();
+        self.cache_texture = texture;
+        self.brush.resize_texture(dim, dim);
+        tracing::info!("trimmed font atlas {width}x{height} -> {dim}x{dim}");
+    }
+
     pub fn line_gap(&self, scale: f32) -> f32 {
         self.brush.fonts()[0].as_scaled(scale).line_gap()
     }
 
     fn submit(&mut self, tr: Matrix, alpha: f32) {
+        #[cfg(target_os = "linux")]
+        {
+            let generation = crate::desktop_memory::trim_generation();
+            if generation != self.trim_generation {
+                self.trim_generation = generation;
+                self.trim_atlas();
+            }
+        }
         let mut flushed = false;
+        #[cfg(target_os = "linux")]
+        let mut recycled = false;
         loop {
             match self.brush.process_queued(
                 |rect, tex_data| unsafe {
@@ -351,6 +400,23 @@ impl TextPainter {
                     if !flushed {
                         unsafe { get_internal_gl() }.flush();
                         flushed = true;
+                    }
+                    #[cfg(target_os = "linux")]
+                    if suggested.0 > *TEXTURE_DIM || suggested.1 > *TEXTURE_DIM {
+                        // The atlas already has the maximum edge. Doubling it
+                        // again would allocate 4096² (64 MiB) and keep growing;
+                        // recycle the glyph cache in place instead. The cache
+                        // is a pure rasterization cache, so dropping it changes
+                        // neither glyph pixels nor layout.
+                        if recycled {
+                            tracing::warn!("font atlas is full at {}x{}; skipping text this frame", *TEXTURE_DIM, *TEXTURE_DIM);
+                            break;
+                        }
+                        recycled = true;
+                        let max = *TEXTURE_DIM;
+                        self.brush.resize_texture(max, max);
+                        debug!("font atlas reached {max}x{max}; recycled glyph cache");
+                        continue;
                     }
                     let new_texture = Self::new_cache_texture(suggested);
                     self.cache_texture.delete();

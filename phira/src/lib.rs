@@ -592,8 +592,13 @@ async fn the_main() -> Result<()> {
     let mut fps_times = VecDeque::<f64>::with_capacity(FPS_BUF_SIZE);
     let mut last_frame_start = f64::NAN;
     let mut fps_time_sum = 0.;
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     let mut frame_pacer = prpr::desktop_pacing::Pacer::new();
+    #[cfg(target_os = "linux")]
+    {
+        prpr::desktop_priority::install();
+        prpr::desktop_memory::install();
+    }
     let mut frame_profile = frame_profile::FrameProfile::from_env();
     let mut profile_previous = std::time::Instant::now();
 
@@ -604,7 +609,7 @@ async fn the_main() -> Result<()> {
         #[cfg(target_os = "ios")]
         let ios_frame_start = std::time::Instant::now();
         let profile_start = frame_profile.as_ref().map(|_| std::time::Instant::now());
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         frame_pacer.wait(get_data().config.desktop_fps_limit);
         let profile_work = frame_profile.as_ref().map(|_| std::time::Instant::now());
         // 处理积压的暂停 / 恢复消息（以最后一条为准）。日志保留：暂停 / 恢复一旦不成对，
@@ -830,6 +835,20 @@ fn build_global_window_conf() -> Conf {
             .and_then(|r| std::fs::read_to_string(std::path::Path::new(&r).join("data.json")).ok())
             .and_then(|s| serde_json::from_str::<Data>(&s).ok())
             .is_some_and(|d| d.config.fullscreen_mode);
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // The X11/GLX swap path is smoothest while the compositor drives the
+        // cadence, so only "unlimited" starts with VSync off. Explicit caps are
+        // paced in the main loop; later setting changes go through the GLX swap
+        // interval extension.
+        let limit = dir::root()
+            .ok()
+            .and_then(|r| std::fs::read_to_string(std::path::Path::new(&r).join("data.json")).ok())
+            .and_then(|s| serde_json::from_str::<Data>(&s).ok())
+            .map_or(0, |d| d.config.desktop_fps_limit);
+        conf.platform.swap_interval = Some(if limit == prpr::config::UNLIMITED_FPS { 0 } else { 1 });
     }
 
     conf

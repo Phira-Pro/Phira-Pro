@@ -210,6 +210,8 @@ pub struct Config {
     pub block_area_simple: bool,
     /// Skip transparent ordinary CPU judge lines whose blend is framebuffer-identity.
     pub line_elision: bool,
+    /// 字形上传使用轮换图集版本，避免写入 GPU 仍在采样的纹理。
+    pub font_atlas_pool: bool,
     pub menu_playlist: Option<String>,
     pub noise_glow: bool,
     pub noise_refraction: bool,
@@ -426,6 +428,7 @@ impl Default for Config {
             aggressive: true,
             block_area_simple: false,
             line_elision: true,
+            font_atlas_pool: true,
             menu_playlist: None,
             noise_glow: true,
             noise_refraction: true,
@@ -923,6 +926,11 @@ mod tests {
     #[test]
     fn line_elision_defaults_on() {
         assert!(Config::default().line_elision);
+    }
+
+    #[test]
+    fn font_atlas_pool_defaults_on() {
+        assert!(Config::default().font_atlas_pool);
     }
 
     #[test]

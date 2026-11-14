@@ -18,6 +18,9 @@ use tracing::debug;
 mod layout;
 use layout::{layout_text, InkCache, LayoutOptions};
 
+use super::font_atlas_pool;
+use std::sync::atomic::Ordering;
+
 thread_local! {
     static MULTILINGUAL_FALLBACK: std::cell::RefCell<Option<FontArc>> = const { std::cell::RefCell::new(None) };
 }
@@ -260,12 +263,56 @@ pub struct TextPainter {
     ink_cache: InkCache,
     brush: GlyphBrush<[MyVertex; 4]>,
     cache_texture: Texture2D,
+    cache_context: usize,
+    atlas: Option<Atlas>,
+    atlas_blocked: bool,
     data_buffer: Vec<u8>,
     vertices_buffer: Vec<MyVertex>,
     draw_vertices: Vec<Vertex>,
     draw_indices: Vec<u16>,
     #[cfg(target_os = "linux")]
     trim_generation: u64,
+}
+
+/// Mirrored glyph-atlas state for the rotating pool. `shadow` is the
+/// authoritative RGBA image the pool patches from; `writes` are this frame's
+/// dirty rectangles.
+struct Atlas {
+    pool: font_atlas_pool::Pool,
+    shadow: Vec<u8>,
+    writes: Vec<[u32; 4]>,
+    dirty: bool,
+    enabled: bool,
+}
+
+fn context_id() -> usize {
+    unsafe { get_internal_gl() }.quad_context as *mut miniquad::Context as usize
+}
+
+impl Atlas {
+    /// Patch the mirror with the brush's alpha-only glyph data, using the same
+    /// white-RGB expansion the single-texture path uploads.
+    fn write(&mut self, width: u32, rect: (u32, u32, u32, u32), alphas: &[u8]) -> bool {
+        let (x, y, w, h) = rect;
+        if alphas.len() != (w as usize) * (h as usize) {
+            return false;
+        }
+        for row in 0..h as usize {
+            let dst_start = (((y as usize + row) * width as usize) + x as usize) * 4;
+            let dst_end = dst_start + (w as usize) * 4;
+            if dst_end > self.shadow.len() {
+                return false;
+            }
+            let src_start = row * w as usize;
+            for (dst, alpha) in self.shadow[dst_start..dst_end]
+                .chunks_exact_mut(4)
+                .zip(&alphas[src_start..src_start + w as usize])
+            {
+                dst.copy_from_slice(&[255, 255, 255, *alpha]);
+            }
+        }
+        true
+    }
 }
 
 impl TextPainter {
@@ -280,17 +327,125 @@ impl TextPainter {
         brush.resize_texture(dim, dim);
         // TODO optimize
         let cache_texture = Self::new_cache_texture(brush.texture_dimensions());
-        Self {
+        let mut painter = Self {
             primary_scale: 1.,
             ink_cache: InkCache::default(),
             brush,
             cache_texture,
+            cache_context: context_id(),
+            atlas: None,
+            atlas_blocked: false,
             data_buffer: Vec::new(),
             vertices_buffer: Vec::new(),
             draw_vertices: Vec::new(),
             draw_indices: Vec::new(),
             #[cfg(target_os = "linux")]
             trim_generation: 0,
+        };
+        painter.ensure_atlas();
+        painter
+    }
+
+    /// Keep the runtime switch and the pool state in step. Enabling re-uploads
+    /// the authoritative mirror into fresh versions, so glyphs cached by the
+    /// brush are never lost; disabling hands the current version back as an
+    /// ordinary mutable texture.
+    fn ensure_atlas(&mut self) {
+        let wanted = super::FONT_ATLAS_POOL.load(Ordering::Relaxed);
+        let active = self.atlas.as_ref().is_some_and(|atlas| atlas.enabled);
+        if wanted == active {
+            return;
+        }
+        if wanted {
+            if !self.atlas_blocked {
+                self.enable_atlas();
+            }
+        } else {
+            self.disable_atlas();
+        }
+    }
+
+    fn enable_atlas(&mut self) {
+        // The fence backend is Android-only; other targets never probe GL or
+        // allocate the mirror.
+        #[cfg(not(target_os = "android"))]
+        {
+            self.atlas_blocked = true;
+            return;
+        }
+        let (width, height) = self.brush.texture_dimensions();
+        let Some(bytes) = (width as usize).checked_mul(height as usize).and_then(|size| size.checked_mul(4)) else {
+            self.atlas_blocked = true;
+            return;
+        };
+        let mut atlas = self.atlas.take().unwrap_or_else(|| Atlas {
+            pool: font_atlas_pool::Pool::new(),
+            shadow: Vec::new(),
+            writes: Vec::new(),
+            dirty: false,
+            enabled: false,
+        });
+        // Desktop and other unsupported targets stop here, before allocating
+        // the 16 MiB mirror for a pool that can never be used.
+        if !atlas.pool.supported() {
+            self.atlas = None;
+            self.atlas_blocked = true;
+            return;
+        }
+        atlas.shadow.resize(bytes, 0);
+        match atlas.pool.warm(width, height, &atlas.shadow) {
+            Some(texture) => {
+                if texture != self.cache_texture && !atlas.pool.owns(self.cache_texture) && self.cache_context == context_id() {
+                    unsafe { get_internal_gl() }.flush();
+                    unsafe { get_internal_gl() }.quad_context.clear_resource_bindings();
+                    self.cache_texture.delete();
+                }
+                self.cache_texture = texture;
+                self.cache_context = context_id();
+                atlas.enabled = true;
+                self.atlas = Some(atlas);
+            }
+            None => {
+                self.atlas = None;
+                self.atlas_blocked = true;
+            }
+        }
+    }
+
+    fn disable_atlas(&mut self) {
+        let Some(atlas) = &mut self.atlas else { return };
+        if !atlas.enabled {
+            return;
+        }
+        let (width, height) = self.brush.texture_dimensions();
+        atlas.pool.release_to_caller(self.cache_texture, width, height, &atlas.shadow);
+        atlas.enabled = false;
+        atlas.dirty = false;
+        atlas.writes.clear();
+    }
+
+    /// Publish this frame's glyph changes before the vertices sampling them.
+    fn publish_atlas(&mut self) {
+        let (width, height) = self.brush.texture_dimensions();
+        let Some(atlas) = self.atlas.as_mut() else { return };
+        if !atlas.enabled || !atlas.dirty {
+            return;
+        }
+        let result = atlas.pool.publish(self.cache_texture, width, height, &atlas.shadow, &atlas.writes);
+        atlas.writes.clear();
+        atlas.dirty = false;
+        if result.texture != self.cache_texture && !atlas.pool.owns(self.cache_texture) && self.cache_context == context_id() {
+            unsafe { get_internal_gl() }.flush();
+            unsafe { get_internal_gl() }.quad_context.clear_resource_bindings();
+            self.cache_texture.delete();
+        }
+        self.cache_texture = result.texture;
+        self.cache_context = context_id();
+        if !result.valid || !result.pooled {
+            // The pool restored the single-texture contract; never re-enable
+            // from a state whose mirror may disagree with the uploaded image.
+            self.atlas = None;
+            self.atlas_blocked = true;
         }
     }
 
@@ -340,10 +495,16 @@ impl TextPainter {
             return;
         }
         unsafe { get_internal_gl() }.flush();
-        let texture = Self::new_cache_texture((dim, dim));
-        self.cache_texture.delete();
-        self.cache_texture = texture;
+        let pooled = self.atlas.as_ref().is_some_and(|atlas| atlas.pool.owns(self.cache_texture));
+        self.atlas = None;
+        if !pooled {
+            self.cache_texture.delete();
+        }
+        self.cache_texture = Self::new_cache_texture((dim, dim));
+        self.cache_context = context_id();
         self.brush.resize_texture(dim, dim);
+        self.atlas_blocked = false;
+        self.ensure_atlas();
         tracing::info!("trimmed font atlas {width}x{height} -> {dim}x{dim}");
     }
 
@@ -360,42 +521,62 @@ impl TextPainter {
                 self.trim_atlas();
             }
         }
+        self.ensure_atlas();
+        let (width, _) = self.brush.texture_dimensions();
         let mut flushed = false;
         #[cfg(target_os = "linux")]
         let mut recycled = false;
         loop {
-            match self.brush.process_queued(
-                |rect, tex_data| unsafe {
-                    if !flushed {
-                        get_internal_gl().flush();
-                        flushed = true;
-                    }
-                    self.data_buffer.clear();
-                    self.data_buffer.reserve(tex_data.len() * 4);
-                    for alpha in tex_data {
-                        self.data_buffer.extend_from_slice(&[255, 255, 255, *alpha]);
-                    }
-                    self.cache_texture.raw_miniquad_texture_handle().update_texture_part(
-                        get_internal_gl().quad_context,
-                        rect.min[0] as _,
-                        rect.min[1] as _,
-                        rect.width() as _,
-                        rect.height() as _,
-                        &self.data_buffer,
-                    );
-                },
-                |vertex| {
-                    let pos = &vertex.pixel_coords;
-                    let uv = &vertex.tex_coords;
-                    let color: Color = vertex.extra.color.into();
-                    [
-                        MyVertex::new(pos.min.x, pos.min.y, uv.min.x, uv.min.y, color),
-                        MyVertex::new(pos.max.x, pos.min.y, uv.max.x, uv.min.y, color),
-                        MyVertex::new(pos.min.x, pos.max.y, uv.min.x, uv.max.y, color),
-                        MyVertex::new(pos.max.x, pos.max.y, uv.max.x, uv.max.y, color),
-                    ]
-                },
-            ) {
+            let outcome = {
+                let atlas = &mut self.atlas;
+                let data_buffer = &mut self.data_buffer;
+                let cache_texture = self.cache_texture;
+                self.brush.process_queued(
+                    |rect, tex_data| {
+                        let (x0, y0) = (rect.min[0], rect.min[1]);
+                        let (x1, y1) = (rect.max[0], rect.max[1]);
+                        if let Some(atlas) = atlas.as_mut().filter(|atlas| atlas.enabled) {
+                            if atlas.write(width, (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0)), tex_data) {
+                                let write: [u32; 4] = [x0, y0, x1, y1];
+                                if atlas.writes.last() != Some(&write) {
+                                    atlas.writes.push(write);
+                                }
+                                atlas.dirty = true;
+                            }
+                            return;
+                        }
+                        if !flushed {
+                            unsafe { get_internal_gl() }.flush();
+                            flushed = true;
+                        }
+                        data_buffer.clear();
+                        data_buffer.reserve(tex_data.len() * 4);
+                        for alpha in tex_data {
+                            data_buffer.extend_from_slice(&[255, 255, 255, *alpha]);
+                        }
+                        cache_texture.raw_miniquad_texture_handle().update_texture_part(
+                            unsafe { get_internal_gl() }.quad_context,
+                            rect.min[0] as _,
+                            rect.min[1] as _,
+                            rect.width() as _,
+                            rect.height() as _,
+                            data_buffer,
+                        );
+                    },
+                    |vertex| {
+                        let pos = &vertex.pixel_coords;
+                        let uv = &vertex.tex_coords;
+                        let color: Color = vertex.extra.color.into();
+                        [
+                            MyVertex::new(pos.min.x, pos.min.y, uv.min.x, uv.min.y, color),
+                            MyVertex::new(pos.max.x, pos.min.y, uv.max.x, uv.min.y, color),
+                            MyVertex::new(pos.min.x, pos.max.y, uv.min.x, uv.max.y, color),
+                            MyVertex::new(pos.max.x, pos.max.y, uv.max.x, uv.max.y, color),
+                        ]
+                    },
+                )
+            };
+            match outcome {
                 Err(BrushError::TextureTooSmall { suggested }) => {
                     if !flushed {
                         unsafe { get_internal_gl() }.flush();
@@ -405,31 +586,53 @@ impl TextPainter {
                     if suggested.0 > *TEXTURE_DIM || suggested.1 > *TEXTURE_DIM {
                         // The atlas already has the maximum edge. Doubling it
                         // again would allocate 4096² (64 MiB) and keep growing;
-                        // recycle the glyph cache in place instead. The cache
-                        // is a pure rasterization cache, so dropping it changes
-                        // neither glyph pixels nor layout.
+                        // recycle the glyph cache instead. The cache is a pure
+                        // rasterization cache, so dropping it changes neither
+                        // glyph pixels nor layout.
                         if recycled {
                             tracing::warn!("font atlas is full at {}x{}; skipping text this frame", *TEXTURE_DIM, *TEXTURE_DIM);
                             break;
                         }
                         recycled = true;
                         let max = *TEXTURE_DIM;
+                        let pooled = self.atlas.as_ref().is_some_and(|atlas| atlas.pool.owns(self.cache_texture));
+                        self.atlas = None;
+                        if !pooled {
+                            self.cache_texture.delete();
+                        }
+                        self.cache_texture = Self::new_cache_texture((max, max));
+                        self.cache_context = context_id();
                         self.brush.resize_texture(max, max);
+                        self.atlas_blocked = false;
+                        self.ensure_atlas();
                         debug!("font atlas reached {max}x{max}; recycled glyph cache");
                         continue;
                     }
-                    let new_texture = Self::new_cache_texture(suggested);
-                    self.cache_texture.delete();
-                    self.cache_texture = new_texture;
+                    // Pool versions die with the old shape. Queue their
+                    // deletion by dropping the state before replacing the
+                    // texture the painter currently points at.
+                    let pooled = self.atlas.as_ref().is_some_and(|atlas| atlas.pool.owns(self.cache_texture));
+                    self.atlas = None;
+                    if !pooled {
+                        self.cache_texture.delete();
+                    }
+                    self.cache_texture = Self::new_cache_texture(suggested);
+                    self.cache_context = context_id();
                     self.brush.resize_texture(suggested.0, suggested.1);
+                    // glyph_brush re-rasterizes after a resize, so a zeroed
+                    // mirror is the correct starting image.
+                    self.atlas_blocked = false;
+                    self.ensure_atlas();
                 }
                 Ok(BrushAction::Draw(vertices)) => {
                     self.vertices_buffer.clear();
                     self.vertices_buffer.extend(vertices.into_iter().flatten());
+                    self.publish_atlas();
                     self.redraw(tr, alpha);
                     break;
                 }
                 Ok(BrushAction::ReDraw) => {
+                    self.publish_atlas();
                     self.redraw(tr, alpha);
                     break;
                 }
@@ -464,6 +667,11 @@ impl TextPainter {
 
 impl Drop for TextPainter {
     fn drop(&mut self) {
-        crate::ext::queue_texture_deletion(self.cache_texture);
+        // Pool-owned versions are queued by the pool itself; queueing the
+        // current one here as well would delete the same GL name twice.
+        let pooled = self.atlas.as_ref().is_some_and(|atlas| atlas.pool.owns(self.cache_texture));
+        if !pooled {
+            crate::ext::queue_texture_deletion(self.cache_texture);
+        }
     }
 }

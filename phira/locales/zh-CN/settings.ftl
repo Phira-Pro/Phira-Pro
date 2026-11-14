@@ -453,3 +453,6 @@ item-early-late-sub = 非 Perfect+ / Perfect 的有效击打显示提前或延�
 item-early-late-position = 提示位置
 item-early-late-indicator = 判定偏移指示器下方
 item-early-late-bottom = 游玩区域最下方
+
+item-font-atlas-pool = 字体图集版本池
+item-font-atlas-pool-sub = 轮换字形图集版本，避免 HUD 文字写入 GPU 仍在采样的纹理；画面与排版不变。仅在排查文字渲染问题时关闭，欢迎反馈效果。

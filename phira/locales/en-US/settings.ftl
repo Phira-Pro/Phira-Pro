@@ -454,3 +454,6 @@ item-early-late-sub = Brief timing feedback for non-Perfect hits with a measured
 item-early-late-position = Feedback position
 item-early-late-indicator = Below offset indicator
 item-early-late-bottom = Bottom of playfield
+
+item-font-atlas-pool = Pooled font atlas
+item-font-atlas-pool-sub = Rotate glyph-atlas versions so HUD text never overwrites the texture the GPU is still sampling. Pixels and layout are unchanged. Disable this only when diagnosing text rendering; feedback is welcome.

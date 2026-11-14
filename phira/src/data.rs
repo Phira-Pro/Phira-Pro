@@ -350,6 +350,7 @@ impl Data {
 
         self.config.init();
         PREFER_REDUCED_MOTION.store(self.prefer_reduced_motion, Ordering::Relaxed);
+        prpr::ui::FONT_ATLAS_POOL.store(self.config.font_atlas_pool, Ordering::Relaxed);
         Ok(())
     }
 

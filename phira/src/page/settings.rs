@@ -586,6 +586,7 @@ fn reset_all_settings() {
         let data = get_data();
         PREFER_REDUCED_MOTION.store(data.prefer_reduced_motion, Ordering::Relaxed);
         prpr::ui::SHOW_FPS.store(data.config.show_fps, Ordering::Relaxed);
+        prpr::ui::FONT_ATLAS_POOL.store(data.config.font_atlas_pool, Ordering::Relaxed);
         UI_SFX_VOLUME.store(data.config.volume_sfx.to_bits(), Ordering::Relaxed);
         data.config.apply_ui_colors();
     }
@@ -1465,6 +1466,7 @@ struct ChartList {
     opt_btn: DRectButton,
     block_simple_btn: DRectButton,
     line_elision_btn: DRectButton,
+    font_atlas_pool_btn: DRectButton,
     shader_pre_render_btn: DRectButton,
     use_keyboard_btn: DRectButton,
     speed_slider: Slider,
@@ -1509,6 +1511,7 @@ impl ChartList {
             opt_btn: DRectButton::new(),
             block_simple_btn: DRectButton::new(),
             line_elision_btn: DRectButton::new(),
+            font_atlas_pool_btn: DRectButton::new(),
             shader_pre_render_btn: DRectButton::new(),
             use_keyboard_btn: DRectButton::new(),
             speed_slider: Slider::new(if cfg!(flash) { 1.0..2.0 } else { 0.5..2.0 }, 0.01),
@@ -1581,6 +1584,11 @@ impl ChartList {
         }
         if self.line_elision_btn.touch(touch, t) {
             config.line_elision ^= true;
+            return Ok(Some(true));
+        }
+        if self.font_atlas_pool_btn.touch(touch, t) {
+            config.font_atlas_pool ^= true;
+            prpr::ui::FONT_ATLAS_POOL.store(config.font_atlas_pool, Ordering::Relaxed);
             return Ok(Some(true));
         }
         if self.shader_pre_render_btn.touch(touch, t) {
@@ -1758,6 +1766,10 @@ impl ChartList {
         item! {
             render_title(ui, tl!("item-line-elision"), Some(tl!("item-line-elision-sub")));
             render_switch(ui, rr, t, &mut self.line_elision_btn, config.line_elision);
+        }
+        item! {
+            render_title(ui, tl!("item-font-atlas-pool"), Some(tl!("item-font-atlas-pool-sub")));
+            render_switch(ui, rr, t, &mut self.font_atlas_pool_btn, config.font_atlas_pool);
         }
         item! {
             render_title(ui, tl!("item-shader-pre-render"), Some(tl!("item-shader-pre-render-sub")));

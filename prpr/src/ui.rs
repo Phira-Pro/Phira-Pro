@@ -36,6 +36,7 @@ mod shadow;
 pub use shadow::*;
 
 mod text;
+mod font_atlas_pool;
 pub use text::{parse_font, set_multilingual_fallback, DrawText, TextPainter};
 
 pub use glyph_brush::ab_glyph::FontArc;
@@ -78,6 +79,8 @@ pub static UI_SURFACE: AtomicU32 = AtomicU32::new(0x2a323c);
 pub static CURRENT_FPS: AtomicU32 = AtomicU32::new(0);
 /// 是否显示帧率数字（由配置同步）。
 pub static SHOW_FPS: AtomicBool = AtomicBool::new(false);
+/// 字形上传使用轮换图集版本（由配置同步，默认开启）。
+pub static FONT_ATLAS_POOL: AtomicBool = AtomicBool::new(true);
 pub static FPS_POSITION: AtomicU32 = AtomicU32::new(0);
 /// Android / iOS display's highest supported refresh rate, stored as `f32::to_bits`.
 pub static MAX_DEVICE_REFRESH_RATE: AtomicU32 = AtomicU32::new(0);

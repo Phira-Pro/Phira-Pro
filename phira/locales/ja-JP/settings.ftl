@@ -424,3 +424,5 @@ item-early-late-sub = Perfect+ / Perfect 以外の有効な判定で、入力が
 item-early-late-position = 表示位置
 item-early-late-indicator = 判定タイミングバーの下
 item-early-late-bottom = プレイ画面の下端
+item-font-atlas-pool = フォントアトラスのプール
+item-font-atlas-pool-sub = グリフアトラスを複数バージョンで切り替え、HUD テキストが GPU のサンプリング中のテクスチャへ書き込まないようにします。画素とレイアウトは変わりません。テキスト描画の診断時のみオフにしてください。

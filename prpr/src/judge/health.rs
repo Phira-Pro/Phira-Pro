@@ -5,8 +5,18 @@ const TENTHS_PER_POINT: u32 = 10;
 
 #[derive(Clone)]
 pub(super) enum Health {
-    Points { left: u32, full: u32, damage: u32 },
-    Legacy { ratio: f32, damage: f32, scale: f32 },
+    Points {
+        left: u32,
+        full: u32,
+        damage: u32,
+        healing: bool,
+    },
+    Legacy {
+        ratio: f32,
+        damage: f32,
+        scale: f32,
+        healing: bool,
+    },
 }
 
 impl Default for Health {
@@ -16,22 +26,25 @@ impl Default for Health {
             left: full,
             full,
             damage: TENTHS_PER_POINT,
+            healing: true,
         }
     }
 }
 
 impl Health {
     pub(super) fn from_config(config: &Config) -> Self {
+        let healing = !config.hp_mode || !config.hp_disable_healing;
         if config.legacy_hp_damage {
             Self::Legacy {
                 ratio: 1.,
                 damage: config.hp_amount.max(0.),
                 scale: config.hp_scale.max(0.),
+                healing,
             }
         } else {
             let full = config.hp_capacity() * TENTHS_PER_POINT;
             let damage = (config.hp_damage() * TENTHS_PER_POINT as f32).round() as u32;
-            Self::Points { left: full, full, damage }
+            Self::Points { left: full, full, damage, healing }
         }
     }
 
@@ -52,23 +65,21 @@ impl Health {
     pub(super) fn apply(&mut self, judgement: Judgement) {
         use Judgement::*;
         match self {
-            Self::Points { left, full, damage } => {
-                // Keep the existing fractional healing while making each damaging hit exact.
-                match judgement {
-                    Bad | Miss => *left = left.saturating_sub(*damage),
-                    _ => {
-                        let heal = match judgement {
-                            PerfectPlus => 20,
-                            Perfect => 10,
-                            Great => 6,
-                            Good => 2,
-                            _ => 0,
-                        };
-                        *left = (*left + heal).min(*full);
-                    }
+            Self::Points { left, full, damage, healing } => match judgement {
+                Bad | Miss => *left = left.saturating_sub(*damage),
+                _ if *healing => {
+                    let heal = match judgement {
+                        PerfectPlus => 20,
+                        Perfect => 10,
+                        Great => 6,
+                        Good => 2,
+                        _ => 0,
+                    };
+                    *left = (*left + heal).min(*full);
                 }
-            }
-            Self::Legacy { ratio, damage, scale } => {
+                _ => {}
+            },
+            Self::Legacy { ratio, damage, scale, healing } => {
                 let base = match judgement {
                     PerfectPlus => 0.02,
                     Perfect => 0.01,
@@ -78,6 +89,9 @@ impl Health {
                     Bad => -0.06,
                     Miss => -0.12,
                 };
+                if base > 0. && !*healing {
+                    return;
+                }
                 let delta = base * *scale * if base < 0. { *damage } else { 1. };
                 *ratio = (*ratio + delta).clamp(0., 1.);
             }
@@ -91,7 +105,8 @@ mod tests {
 
     #[test]
     fn both_damage_grades_use_life_points_and_reach_exactly_zero() {
-        let mut config = Config::default();
+        let mut config: Config = serde_yaml::from_str("hpMode: true").unwrap();
+        assert!(config.hp_disable_healing);
         for (capacity, damage) in [(100, 1.), (200, 10.), (20, 1.5)] {
             config.set_hp_capacity(capacity);
             config.hp_amount = damage;
@@ -99,6 +114,11 @@ mod tests {
             life.apply(Judgement::Bad);
             life.apply(Judgement::Miss);
             assert!((life.ratio() * capacity as f32 - (capacity as f32 - 2. * damage)).abs() < 0.001);
+            let damaged = life.ratio();
+            for grade in [Judgement::PerfectPlus, Judgement::Perfect, Judgement::Great, Judgement::Good] {
+                life.apply(grade);
+                assert_eq!(life.ratio(), damaged);
+            }
             life.reset();
             let hits = (capacity as f32 / damage).ceil() as u32;
             for _ in 1..hits {
@@ -108,10 +128,26 @@ mod tests {
             life.apply(Judgement::Miss);
             assert_eq!(life.ratio(), 0.);
             life.apply(Judgement::Good);
-            assert!((life.ratio() * capacity as f32 - 0.2).abs() < 0.001);
+            assert_eq!(life.ratio(), 0.);
             life.reset();
             life.apply(Judgement::PerfectPlus);
             assert_eq!(life.ratio(), 1.);
+        }
+    }
+
+    #[test]
+    fn turning_off_disable_healing_restores_fractional_recovery() {
+        let config: Config = serde_yaml::from_str("hpMode: true\nhpDisableHealing: false\nhpAmount: 10").unwrap();
+        let mut life = Health::from_config(&config);
+        life.apply(Judgement::Miss);
+        for (grade, expected) in [
+            (Judgement::PerfectPlus, 92.),
+            (Judgement::Perfect, 93.),
+            (Judgement::Great, 93.6),
+            (Judgement::Good, 93.8),
+        ] {
+            life.apply(grade);
+            assert!((life.ratio() * 100. - expected).abs() < 0.001);
         }
     }
 

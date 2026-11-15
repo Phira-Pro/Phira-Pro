@@ -2033,7 +2033,7 @@ impl Scene for GameScene {
                 time
             }
             State::Playing => {
-                if time > self.res.track_length + WAIT_TIME {
+                if time > self.res.track_length + WAIT_TIME && self.failure.is_none() {
                     self.state = State::Ending;
                     #[cfg(target_env = "ohos")]
                     miniquad::native::set_interceptor_state(false);
@@ -2044,9 +2044,13 @@ impl Scene for GameScene {
                 let t = time - self.res.track_length - WAIT_TIME;
                 if t >= AFTER_TIME + 0.3 {
                     let result = self.judge.result(self.res.config.has_mod(Mods::NO_COMBO_SCORE));
-                    // 成绩上传（固定到 Phira Pro 私服）：只有「未改动判定 / 玩法」的对局
-                    // （`is_official_play`）才构造可上传的成绩；其余对局只存本机。
-                    let record_data = if self.upload_fn.is_some() && self.res.config.is_official_play(self.res.config.mods) {
+                    // 续练可能跳过一部分音符，血条模式需要完整判完谱面才计成绩。
+                    let complete_life_run = !self.res.config.hp_mode || result.counts.iter().sum::<u32>() == result.num_of_notes;
+                    let record_data = if self.mode == GameMode::Normal
+                        && complete_life_run
+                        && self.upload_fn.is_some()
+                        && self.res.config.is_official_play(self.res.config.mods)
+                    {
                         self.res.info.id.map(|chart| UploadScore {
                             chart,
                             perfect: (result.counts[0] + result.counts[4]) as i32,
@@ -2081,7 +2085,7 @@ impl Scene for GameScene {
                         hist: result.hist.to_vec(),
                         std: result.std,
                     };
-                    let record = if self.res.config.mods.intersects(Mods::UNRATED) || self.res.config.speed < 1.0 - 1e-3 {
+                    let record = if !complete_life_run || self.res.config.mods.intersects(Mods::UNRATED) || self.res.config.speed < 1.0 - 1e-3 {
                         None
                     } else {
                         Some(history_record.clone())
@@ -2172,15 +2176,22 @@ impl Scene for GameScene {
             WHITE
         };
         let empty_life = self.res.config.hp_mode && self.judge.hp() <= 0.;
-        if self.failure.is_none()
-            && matches!(self.state, State::Playing)
-            && !self.res.config.mods.contains(Mods::NO_FAIL)
-            && (self.res.config.mods.contains(Mods::INSTANT_DEATH_AP) && counts[1] + counts[2] + counts[3] + counts[5] + counts[6] + counts[7] > 0
-                || self.res.config.mods.contains(Mods::INSTANT_DEATH_FC) && counts[2] + counts[3] > 0
-                || empty_life)
-        {
+        let failed = match self.state {
+            State::Playing => {
+                empty_life
+                    || self.res.config.mods.contains(Mods::INSTANT_DEATH_AP)
+                        && counts[1] + counts[2] + counts[3] + counts[5] + counts[6] + counts[7] > 0
+                    || self.res.config.mods.contains(Mods::INSTANT_DEATH_FC) && counts[2] + counts[3] > 0
+            }
+            // Judgements may still be applied in the first frames of the ending.
+            State::Ending => empty_life,
+            _ => false,
+        };
+        if failed && self.failure.is_none() && !self.res.config.mods.contains(Mods::NO_FAIL) {
             use crate::config::HealthFailureEffect;
             let effect = if empty_life { self.res.config.hp_failure_effect } else { HealthFailureEffect::Slowdown };
+            self.state = State::Playing;
+            self.res.alpha = 1.;
             self.failure = Some(failure::Failure::new(effect, tm.real_time()));
             #[cfg(target_env = "ohos")]
             miniquad::native::set_interceptor_state(false);

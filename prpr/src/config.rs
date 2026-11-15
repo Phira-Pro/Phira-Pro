@@ -244,6 +244,8 @@ pub struct Config {
     pub fxaa: bool,
     /// Phira Pro：血条模式。
     pub hp_mode: bool,
+    /// 血条模式下禁用正确打击回血。
+    pub hp_disable_healing: bool,
     /// 血条模式的扣血倍率（越大越难）。
     pub hp_amount: f32,
     /// LIFE 流光厚度倍率。
@@ -460,6 +462,7 @@ impl Default for Config {
             double_hint: true,
             fxaa: false,
             hp_mode: false,
+            hp_disable_healing: true,
             hp_amount: 1.0,
             hp_height: 1.5,
             hp_width: 0.6,
@@ -750,7 +753,7 @@ impl Config {
 
     /// 列出当前配置里「会改变判定 / 玩法、且不是官方默认值」的项。
     ///
-    /// 返回空表示本局与官方默认模式完全一致。返回的是稳定的英文标识，用于日志与提示。
+    /// 返回空表示本局的判定和玩法设置符合成绩上传规则。返回的是稳定的英文标识，用于日志与提示。
     ///
     /// 这些项之所以被算进来，是因为它们会让成绩与官方默认模式**不可比**
     /// （要么放宽了判定，要么改变了判定归属 / 生存条件）：
@@ -760,7 +763,7 @@ impl Config {
     /// - 判定窗口 `lim_*_ms` 不是官方默认值
     /// - 晚按补偿 `late_leniency_ms` 不为 0
     /// - Hold 尾判
-    /// 黄/红键保护、血条参数、流速与判定颜色允许计入成绩。
+    /// 黄/红键保护、血条模式（含回血设置）、流速与判定颜色允许计入成绩。
     pub fn non_official_items(&self, run_mods: Mods) -> Vec<&'static str> {
         let mods = self.mods | run_mods;
         let mut items = Vec::new();
@@ -1177,8 +1180,13 @@ mod tests {
         c.hp_scale = 0.5;
         c.flow_speed = 1.23;
         c.judge_grading.colors[0] = Some(0x12ab34);
-        assert!(c.is_official_play(Mods::empty()));
-        assert!(c.force_official_play(&mut Mods::empty()).is_empty());
+        for disable_healing in [true, false] {
+            c.hp_disable_healing = disable_healing;
+            assert!(c.is_official_play(Mods::empty()));
+            assert!(c.force_official_play(&mut Mods::empty()).is_empty());
+            assert_eq!(c.hp_disable_healing, disable_healing);
+            assert!(!c.is_official_play(Mods::NO_FAIL));
+        }
         assert!(c.drag_protect && c.flick_protect && c.hp_mode);
     }
 

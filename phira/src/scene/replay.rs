@@ -1391,7 +1391,14 @@ fn recording_info(replay: &Replay, config: &Config) -> Vec<String> {
     }
     if let Some(g) = &replay.gameplay {
         let capacity = prpr::config::Config::hp_capacity_for_scale(g.hp_scale);
-        lines.push(format!("血条 {}，扣血 {:.2}×，最大血量 {}，键盘 {}", on(g.hp_mode), g.hp_amount, capacity, on(g.use_keyboard)));
+        lines.push(format!(
+            "血条 {}，禁用回血 {}，扣血 {:.2}×，最大血量 {}，键盘 {}",
+            on(g.hp_mode),
+            on(g.hp_disable_healing),
+            g.hp_amount,
+            capacity,
+            on(g.use_keyboard)
+        ));
     }
     lines
 }

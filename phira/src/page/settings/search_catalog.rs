@@ -54,6 +54,7 @@
     (2, "judgement-settings"),
     (2, "replays-settings"),
     (2, "item-hp-mode"),
+    (2, "item-hp-disable-healing"),
     (2, "item-hp-failure-effect"),
     (2, "item-hp-capacity"),
     (2, "item-hp-amount"),

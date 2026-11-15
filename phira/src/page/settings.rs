@@ -1462,6 +1462,7 @@ struct ChartList {
     early_late_btn: DRectButton,
     early_late_position_btn: DRectButton,
     hp_mode_btn: DRectButton,
+    hp_disable_healing_btn: DRectButton,
     hp_failure_btn: DRectButton,
     hp_amount_slider: Slider,
     hp_width_slider: Slider,
@@ -1498,6 +1499,7 @@ impl ChartList {
             early_late_btn: DRectButton::new(),
             early_late_position_btn: DRectButton::new(),
             hp_mode_btn: DRectButton::new(),
+            hp_disable_healing_btn: DRectButton::new(),
             hp_failure_btn: DRectButton::new(),
             hp_amount_slider: Slider::new(Config::MIN_HP_DAMAGE..Config::MAX_HP_DAMAGE, 0.1),
             hp_width_slider: Slider::new(0.1..1.0, 0.01),
@@ -1624,6 +1626,10 @@ impl ChartList {
         }
         if self.hp_mode_btn.touch(touch, t) {
             config.hp_mode ^= true;
+            return Ok(Some(true));
+        }
+        if self.hp_disable_healing_btn.touch(touch, t) {
+            config.hp_disable_healing ^= true;
             return Ok(Some(true));
         }
         if self.hp_failure_btn.touch(touch, t) {
@@ -1790,6 +1796,10 @@ impl ChartList {
         item! {
             render_title(ui, tl!("item-hp-mode"), Some(tl!("item-hp-mode-sub")));
             render_switch(ui, rr, t, &mut self.hp_mode_btn, config.hp_mode);
+        }
+        item! {
+            render_title(ui, tl!("item-hp-disable-healing"), Some(tl!("item-hp-disable-healing-sub")));
+            render_switch(ui, rr, t, &mut self.hp_disable_healing_btn, config.hp_disable_healing);
         }
         item! {
             render_title(ui, tl!("item-hp-failure-effect"), None);

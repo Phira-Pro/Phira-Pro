@@ -138,6 +138,9 @@ pub struct Metadata {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Gameplay {
     pub hp_mode: bool,
+    // Older recordings predate the option and always allowed healing.
+    #[serde(default)]
+    pub hp_disable_healing: bool,
     pub hp_amount: f32,
     pub hp_scale: f32,
     #[serde(default)]
@@ -151,6 +154,7 @@ impl Gameplay {
     fn capture(c: &prpr::config::Config) -> Self {
         Self {
             hp_mode: c.hp_mode,
+            hp_disable_healing: c.hp_disable_healing,
             hp_amount: c.hp_amount,
             hp_scale: c.hp_scale,
             points_damage: !c.legacy_hp_damage,
@@ -162,6 +166,7 @@ impl Gameplay {
     }
     pub fn apply(&self, c: &mut prpr::config::Config) {
         c.hp_mode = self.hp_mode;
+        c.hp_disable_healing = self.hp_disable_healing;
         c.hp_amount = self.hp_amount;
         c.hp_scale = self.hp_scale;
         c.legacy_hp_damage = !self.points_damage;
@@ -563,6 +568,21 @@ fn parse_phirarec(bytes: &[u8], version: u32) -> Result<Replay> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replay_restores_recorded_healing_and_keeps_healing_for_older_tapes() {
+        let mut config: prpr::config::Config = serde_yaml::from_str("hpMode: true").unwrap();
+        let mut stored = serde_json::to_value(Gameplay::capture(&config)).unwrap();
+        config.hp_disable_healing = false;
+        let recorded: Gameplay = serde_json::from_value(stored.clone()).unwrap();
+        recorded.apply(&mut config);
+        assert!(config.hp_disable_healing);
+
+        stored.as_object_mut().unwrap().remove("hp_disable_healing");
+        let old_recording: Gameplay = serde_json::from_value(stored).unwrap();
+        old_recording.apply(&mut config);
+        assert!(!config.hp_disable_healing);
+    }
 
     #[test]
     fn old_unsorted_tapes_are_stably_repaired_and_contact_lifetimes_are_numbered() {

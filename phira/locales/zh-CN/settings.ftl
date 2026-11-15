@@ -473,3 +473,9 @@ item-noise-refraction = 噪域折射
 item-sample-count = 抗锯齿采样
 item-sample-count-sub = 1× / 2× / 4×；越高越平滑，GPU 开销越大
 item-fxaa = FXAA
+
+item-aa = 抗锯齿
+item-aa-off = 关闭
+item-aa-fxaa = FXAA
+item-aa-msaa2 = MSAA 2×
+item-aa-msaa4 = MSAA 4×

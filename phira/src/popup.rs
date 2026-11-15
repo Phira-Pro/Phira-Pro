@@ -292,6 +292,12 @@ impl ChooseButton {
         self.control_text_size = Some(size);
         self
     }
+
+    pub fn with_popup_height(mut self, height: f32) -> Self {
+        self.height = height;
+        self
+    }
+
     #[cfg(test)]
     pub(crate) fn popup_rect(&self) -> Rect {
         self.popup.rect()

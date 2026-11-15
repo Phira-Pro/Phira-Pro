@@ -865,6 +865,14 @@ impl Config {
         crate::ui::UI_SURFACE.store(parse_hex(&self.ui_surface, 0x2a323c), std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// MSAA and FXAA are alternative anti-aliasing modes; configs written by
+    /// older builds may still have both enabled.
+    pub fn normalize_antialiasing(&mut self) {
+        if self.sample_count != 1 {
+            self.fxaa = false;
+        }
+    }
+
     pub fn init(&mut self) {
         self.gameplay_background_blur = if self.gameplay_background_blur.is_finite() {
             self.gameplay_background_blur.clamp(0., 1.)
@@ -875,6 +883,7 @@ impl Config {
             self.theoretical_score = false;
         }
         self.phigros_rules.sanitize();
+        self.normalize_antialiasing();
         crate::ui::FONT_DISPLAY_SCALE.store(self.font_scale().to_bits(), std::sync::atomic::Ordering::Relaxed);
         if let Some(flag) = self.autoplay {
             self.mods.set(Mods::AUTOPLAY, flag);
@@ -1045,6 +1054,26 @@ mod tests {
         let restored: Config = serde_json::from_str(&saved).unwrap();
         assert_eq!(restored.desktop_fps_limit, 240);
         assert_eq!(restored.preferred_refresh_rate, 120);
+    }
+
+    #[test]
+    fn antialiasing_modes_are_exclusive_on_init() {
+        let mut config = Config::default();
+        config.sample_count = 4;
+        config.fxaa = true;
+        config.init();
+        assert_eq!(config.sample_count, 4);
+        assert!(!config.fxaa);
+
+        config.sample_count = 1;
+        config.fxaa = true;
+        config.init();
+        assert!(config.fxaa);
+
+        config.sample_count = 2;
+        config.fxaa = true;
+        config.normalize_antialiasing();
+        assert!(!config.fxaa);
     }
 
     #[test]

@@ -443,3 +443,9 @@ item-noise-refraction = ノイズ屈折
 item-sample-count = アンチエイリアスサンプル
 item-sample-count-sub = 1× / 2× / 4×；高いほど滑らかになりますが、GPU 負荷も増えます
 item-fxaa = FXAA
+
+item-aa = アンチエイリアス
+item-aa-off = オフ
+item-aa-fxaa = FXAA
+item-aa-msaa2 = MSAA 2×
+item-aa-msaa4 = MSAA 4×

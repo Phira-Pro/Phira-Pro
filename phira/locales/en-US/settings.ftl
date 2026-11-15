@@ -474,3 +474,9 @@ item-noise-refraction = Noise refraction
 item-sample-count = Anti-aliasing samples
 item-sample-count-sub = 1× / 2× / 4×; higher is smoother and costs more GPU time
 item-fxaa = FXAA
+
+item-aa = Anti-aliasing
+item-aa-off = Off
+item-aa-fxaa = FXAA
+item-aa-msaa2 = MSAA 2×
+item-aa-msaa4 = MSAA 4×

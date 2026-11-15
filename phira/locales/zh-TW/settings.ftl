@@ -382,3 +382,9 @@ item-sample-count-sub = 1× / 2× / 4×；越高越平滑，GPU 開銷越大
 item-fxaa = FXAA
 item-line-elision = 透明判定線省略
 item-line-elision-sub = 跳過完全透明、不會改變畫面的普通判定線；畫質不變，偵錯檢視與自訂材質仍走原路徑
+
+item-aa = 抗鋸齒
+item-aa-off = 關閉
+item-aa-fxaa = FXAA
+item-aa-msaa2 = MSAA 2×
+item-aa-msaa4 = MSAA 4×

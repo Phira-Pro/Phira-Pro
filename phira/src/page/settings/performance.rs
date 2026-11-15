@@ -1,6 +1,5 @@
 //! Runtime quality, frame-rate and rendering-optimization settings.
 use super::{item_row_h, render_switch, render_title, right_rect, L10N_LOCAL};
-#[cfg(any(target_os = "windows", target_os = "linux"))]
 use crate::popup::ChooseButton;
 use crate::{get_data, get_data_mut};
 use anyhow::Result;
@@ -42,7 +41,40 @@ fn apply_quality_preset(config: &mut Config, index: usize) {
             config.noise_glow = true;
             config.noise_refraction = true;
             config.sample_count = 4;
+            config.fxaa = false;
+        }
+    }
+}
+
+fn aa_index(config: &Config) -> usize {
+    if config.sample_count >= 4 {
+        3
+    } else if config.sample_count >= 2 {
+        2
+    } else if config.fxaa {
+        1
+    } else {
+        0
+    }
+}
+
+fn apply_antialiasing(config: &mut Config, index: usize) {
+    match index {
+        1 => {
+            config.sample_count = 1;
             config.fxaa = true;
+        }
+        2 => {
+            config.sample_count = 2;
+            config.fxaa = false;
+        }
+        3 => {
+            config.sample_count = 4;
+            config.fxaa = false;
+        }
+        _ => {
+            config.sample_count = 1;
+            config.fxaa = false;
         }
     }
 }
@@ -54,8 +86,8 @@ pub(super) struct PerformanceList {
     particle: DRectButton,
     noise_glow: DRectButton,
     noise_refraction: DRectButton,
-    sample_count: DRectButton,
-    fxaa: DRectButton,
+    antialiasing: ChooseButton,
+    aa_lang: Option<String>,
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     desktop_fps: ChooseButton,
     #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -79,8 +111,12 @@ impl PerformanceList {
             particle: DRectButton::new(),
             noise_glow: DRectButton::new(),
             noise_refraction: DRectButton::new(),
-            sample_count: DRectButton::new(),
-            fxaa: DRectButton::new(),
+            antialiasing: ChooseButton::new()
+                .with_compact_popup()
+                .with_popup_height(0.42)
+                .with_options(Self::aa_options())
+                .with_selected(aa_index(&get_data().config)),
+            aa_lang: get_data().language.clone(),
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             desktop_fps: ChooseButton::new().with_compact_popup().with_options(Self::fps_options()).with_selected(
                 DESKTOP_FPS_LIMITS
@@ -99,6 +135,15 @@ impl PerformanceList {
             font_atlas_pool: DRectButton::new(),
             reduced_motion: DRectButton::new(),
         }
+    }
+
+    fn aa_options() -> Vec<String> {
+        vec![
+            tl!("item-aa-off").into_owned(),
+            tl!("item-aa-fxaa").into_owned(),
+            tl!("item-aa-msaa2").into_owned(),
+            tl!("item-aa-msaa4").into_owned(),
+        ]
     }
 
     #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -122,6 +167,9 @@ impl PerformanceList {
     }
 
     pub fn top_touch(&mut self, touch: &Touch, t: f32) -> bool {
+        if self.antialiasing.top_touch(touch, t) {
+            return true;
+        }
         #[cfg(any(target_os = "windows", target_os = "linux"))]
         {
             self.desktop_fps.top_touch(touch, t)
@@ -155,6 +203,7 @@ impl PerformanceList {
             for (i, button) in self.presets.iter_mut().enumerate() {
                 if button.touch(touch, t) {
                     apply_quality_preset(config, i);
+                    self.antialiasing.set_selected(aa_index(config));
                     return Ok(Some(true));
                 }
             }
@@ -170,17 +219,8 @@ impl PerformanceList {
                 config.noise_refraction ^= true;
                 return Ok(Some(true));
             }
-            if self.sample_count.touch(touch, t) {
-                config.sample_count = match config.sample_count {
-                    1 => 2,
-                    2 => 4,
-                    _ => 1,
-                };
-                return Ok(Some(true));
-            }
-            if self.fxaa.touch(touch, t) {
-                config.fxaa ^= true;
-                return Ok(Some(true));
+            if self.antialiasing.touch(touch, t) {
+                return Ok(Some(false));
             }
         }
         if self.section_open[1] {
@@ -223,9 +263,20 @@ impl PerformanceList {
     }
 
     pub fn update(&mut self, t: f32) -> Result<bool> {
+        let language = get_data().language.clone();
+        if self.aa_lang != language {
+            self.aa_lang = language.clone();
+            self.antialiasing.set_options(Self::aa_options());
+        }
+        self.antialiasing.update(t);
+        if self.antialiasing.changed() {
+            apply_antialiasing(&mut get_data_mut().config, self.antialiasing.selected());
+            return Ok(true);
+        }
+        self.antialiasing.set_selected(aa_index(&get_data().config));
+
         #[cfg(any(target_os = "windows", target_os = "linux"))]
         {
-            let language = get_data().language.clone();
             if self.desktop_fps_lang != language {
                 self.desktop_fps_lang = language;
                 self.desktop_fps.set_options(Self::fps_options());
@@ -248,10 +299,9 @@ impl PerformanceList {
     }
 
     pub fn render_top(&mut self, ui: &mut Ui, t: f32) {
+        self.antialiasing.render_top(ui, t, 1.);
         #[cfg(any(target_os = "windows", target_os = "linux"))]
         self.desktop_fps.render_top(ui, t, 1.);
-        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-        let _ = (ui, t);
     }
 
     pub fn render(&mut self, ui: &mut Ui, r: Rect, t: f32) -> (f32, f32) {
@@ -306,12 +356,8 @@ impl PerformanceList {
                 render_switch(ui, rr, t, &mut self.noise_refraction, config.noise_refraction);
             }
             item! {
-                render_title(ui, tl!("item-sample-count"), Some(tl!("item-sample-count-sub")));
-                self.sample_count.render_text(ui, rr, t, format!("{}×", config.sample_count), 0.5, false);
-            }
-            item! {
-                render_title(ui, tl!("item-fxaa"), None);
-                render_switch(ui, rr, t, &mut self.fxaa, config.fxaa);
+                render_title(ui, tl!("item-aa"), None);
+                self.antialiasing.render(ui, rr, t);
             }
         }
 
@@ -407,10 +453,10 @@ impl PerformanceList {
 
 #[cfg(test)]
 mod tests {
-    use super::apply_quality_preset;
+    use super::{aa_index, apply_antialiasing, apply_quality_preset};
 
     #[test]
-    fn quality_presets_cover_particles_noise_samples_and_fxaa() {
+    fn quality_presets_cover_particles_noise_and_samples() {
         let mut config = prpr::config::Config::default();
         apply_quality_preset(&mut config, 0);
         assert!(!config.particle && !config.noise_glow && !config.noise_refraction);
@@ -425,6 +471,17 @@ mod tests {
         apply_quality_preset(&mut config, 2);
         assert!(config.particle && config.noise_glow && config.noise_refraction);
         assert_eq!(config.sample_count, 4);
-        assert!(config.fxaa);
+        assert!(!config.fxaa);
+    }
+
+    #[test]
+    fn antialiasing_is_a_single_choice() {
+        let mut config = prpr::config::Config::default();
+        for (index, sample_count, fxaa) in [(0, 1, false), (1, 1, true), (2, 2, false), (3, 4, false)] {
+            apply_antialiasing(&mut config, index);
+            assert_eq!(config.sample_count, sample_count);
+            assert_eq!(config.fxaa, fxaa);
+            assert_eq!(aa_index(&config), index);
+        }
     }
 }

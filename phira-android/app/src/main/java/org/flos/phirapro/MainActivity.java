@@ -1,5 +1,7 @@
 package org.flos.phirapro;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.res.Configuration;
@@ -38,6 +40,24 @@ import org.json.JSONObject;
 
 /** 游戏主 Activity：只做胶水，游戏本体在 libphira.so。 */
 public class MainActivity extends AppCompatActivity {
+    @androidx.annotation.Keep
+    public boolean copyTextToClipboard(String text) {
+        try {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (clipboard == null) return false;
+            clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.app_name), text));
+            return true;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Could not write to the clipboard", e);
+            return false;
+        }
+    }
+
+    @androidx.annotation.Keep
+    public void copy(String text) {
+        copyTextToClipboard(text);
+    }
+
     private volatile RpenEditor rpenEditor;
     public boolean takeRpenEditorBootExit(){RpenEditor editor=rpenEditor;return editor!=null&&editor.takeBootExit();}
     public void showRpenEditor(String url, boolean softwareRendering) { runOnUiThread(() -> { if (rpenEditor == null) rpenEditor = new RpenEditor(this, url, softwareRendering); else rpenEditor.visible(true); }); }

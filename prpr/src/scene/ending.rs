@@ -34,6 +34,30 @@ use status::PlayStatus;
 const TOAST_HOLD: f32 = 5.0;
 const TOAST_FADE: f32 = 0.8;
 
+pub(super) struct RetryOffset(pub f32);
+
+fn recommended_offset(config: &Config, samples: &[f64]) -> Option<f32> {
+    if config.autoplay() || !config.speed.is_finite() || config.speed <= 0. || !config.offset.is_finite() {
+        return None;
+    }
+    let mut samples: Vec<_> = samples.iter().copied().filter(|v| v.is_finite()).collect();
+    if samples.len() < 8 {
+        return None;
+    }
+    let middle = samples.len() / 2;
+    let even = samples.len() % 2 == 0;
+    let (lower, upper_middle, _) = samples.select_nth_unstable_by(middle, f64::total_cmp);
+    let median = if even {
+        (lower.iter().copied().max_by(f64::total_cmp).unwrap() + *upper_middle) / 2.
+    } else {
+        *upper_middle
+    };
+    // Samples are real seconds; the global offset is subtracted in chart seconds.
+    let delta = median * config.speed as f64;
+    let offset = (config.offset as f64 + delta).clamp(-0.5, 0.5) as f32;
+    ((offset - config.offset).abs() * 1000. >= 0.5).then_some(offset)
+}
+
 #[derive(Deserialize)]
 pub struct RecordUpdateState {
     /// 本局是否刷新了该谱面的最佳成绩。
@@ -85,8 +109,8 @@ pub struct EndingScene {
 
     avg_fps: Option<f32>,
 
-    /// Phira Pro：本局是否已经点过「应用推荐偏移」，避免重复叠加。
-    offset_applied: bool,
+    recommended_offset: Option<f32>,
+    applied_offset: Option<f32>,
     /// 点下「应用推荐偏移」的时刻（场景时间），用于提示字样在 5 秒后淡出。
     applied_t: f32,
 }
@@ -151,6 +175,7 @@ impl EndingScene {
 
             info,
             display_score: result.displayed_score(config.theoretical_score),
+            recommended_offset: recommended_offset(config, &result.offsets),
             result,
             player_name: config.player_name.clone(),
             player_rks,
@@ -175,14 +200,9 @@ impl EndingScene {
 
             avg_fps,
 
-            offset_applied: false,
+            applied_offset: None,
             applied_t: 0.,
         })
-    }
-
-    /// 是否适合给出「应用推荐偏移」：自动游玩没有真实击打，样本太少或偏差过小时推荐值也没意义。
-    fn can_apply(&self) -> bool {
-        !self.autoplay && self.result.offsets.len() >= 8 && (self.result.mean * 1000.).round().abs() >= 1.
     }
 }
 
@@ -231,10 +251,11 @@ impl Scene for EndingScene {
             }
             return Ok(true);
         }
-        if self.btn_apply.touch(touch, t) && self.can_apply() && !self.offset_applied {
+        if let Some(offset) = self.recommended_offset.filter(|_| self.btn_apply.touch(touch, t)) {
             button_hit();
-            crate::config::request_offset_delta(self.result.mean);
-            self.offset_applied = true;
+            crate::config::request_global_offset(offset);
+            self.recommended_offset = None;
+            self.applied_offset = Some(offset);
             self.applied_t = t;
             return Ok(true);
         }
@@ -627,7 +648,7 @@ impl Scene for EndingScene {
             self.btn_detail.set(ui, dr.feather(0.02));
 
             // 「已应用推荐偏移」提示：与「详情」同高、右对齐在其左侧，显示 5 秒后淡出。
-            if self.offset_applied {
+            if self.applied_offset.is_some() {
                 let a = ((TOAST_HOLD + TOAST_FADE - (t - self.applied_t)) / TOAST_FADE).clamp(0., 1.);
                 if a > 0. {
                     ui.text(tl!("offset-applied"))
@@ -674,7 +695,7 @@ impl Scene for EndingScene {
                 r.x += r.w + 0.02;
                 r.y -= r.h + 0.02;
             }
-            if !self.offset_applied && self.can_apply() {
+            if self.recommended_offset.is_some() {
                 self.btn_apply.render_shadow(ui, r, t, |ui, path| {
                     ui.fill_path(&path, Color::from_hex_rgb(0x78909c));
                     ui.text(tl!("apply-offset"))
@@ -717,7 +738,9 @@ impl Scene for EndingScene {
         }
         match self.next {
             0 => NextScene::None,
-            1 => NextScene::Pop,
+            1 => self
+                .applied_offset
+                .map_or(NextScene::Pop, |offset| NextScene::PopWithResult(Box::new(RetryOffset(offset)))),
             2 => {
                 if let Some(rec) = &self.best_record {
                     NextScene::PopNWithResult(2, Box::new(rec.clone()))
@@ -727,5 +750,38 @@ impl Scene for EndingScene {
             }
             _ => unreachable!(),
         }
+    }
+}
+
+#[cfg(test)]
+mod offset_tests {
+    use super::*;
+
+    #[test]
+    fn offset_recommendation_centers_the_typical_hit_at_the_played_speed() {
+        let mut config = Config::default();
+        config.offset = 0.03;
+        config.speed = 1.5;
+        // Six late hits and two badly early hits: the old mean says to move earlier.
+        let samples = [-0.180, 0.018, 0.010, -0.150, 0.014, 0.022, 0.016, 0.020];
+        assert!(samples.iter().sum::<f64>() < 0.);
+        for direction in [-1., 1.] {
+            let samples = samples.map(|offset| offset * direction);
+            let updated = recommended_offset(&config, &samples).unwrap();
+            let chart_delta = (updated - config.offset) as f64;
+            let median = direction * 0.015;
+            assert!((median - chart_delta / config.speed as f64).abs() < 1e-8);
+        }
+    }
+
+    #[test]
+    fn offset_recommendation_needs_enough_hits_and_respects_the_offset_limit() {
+        let mut config = Config::default();
+        config.offset = 0.49;
+        assert_eq!(recommended_offset(&config, &[0.08; 7]), None);
+        assert_eq!(recommended_offset(&config, &[0.0001; 8]), None);
+        assert_eq!(recommended_offset(&config, &[0.08; 8]), Some(0.5));
+        config.offset = 0.5;
+        assert_eq!(recommended_offset(&config, &[0.08; 8]), None);
     }
 }

@@ -14,7 +14,7 @@ pub(super) fn run(game: &mut GameScene, painter: &mut TextPainter) {
     game.res.config.practice_multiplier = 1.;
     game.res.config.speed = 1.;
     game.res.config.flow_speed = 1.;
-    game.res.config.late_leniency_ms = 0.;
+    game.res.config.input_latency_compensation_ms = 0.;
     game.res.config.judge_algorithm = prpr::config::JudgeAlgorithm::PhiraPro;
     game.res.config.judge_grading = Default::default();
     game.res.windows = game.res.config.judge_windows();

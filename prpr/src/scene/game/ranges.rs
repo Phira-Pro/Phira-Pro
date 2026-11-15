@@ -156,7 +156,6 @@ fn head_bands(res: &Resource, kind: usize) -> (Vec<Band>, bool) {
     let p = &res.config.practice;
     let hold = kind == 1;
     let phigros = res.config.judge_algorithm == crate::config::JudgeAlgorithm::Phigros;
-    let leniency = res.config.late_leniency();
     if kind >= 2 {
         let sides = if phigros && kind == 2 {
             res.config.phigros_rules.drag_sides().map(|v| v / 1000. * res.config.practice_multiplier)
@@ -168,7 +167,7 @@ fn head_bands(res: &Resource, kind: usize) -> (Vec<Band>, bool) {
         };
         return (
             vec![Band {
-                window: Window::new(sides[0], sides[1] + leniency),
+                window: Window::new(sides[0], sides[1]),
                 color: if kind == 2 { DRAG } else { FLICK },
                 enabled: true,
             }],
@@ -179,7 +178,7 @@ fn head_bands(res: &Resource, kind: usize) -> (Vec<Band>, bool) {
     let mut bands = Vec::with_capacity(7);
     let mut add = |grade: usize, early: f64, late: f64, fallback: Color, enabled: bool| {
         bands.push(Band {
-            window: Window::new(early, late + leniency),
+            window: Window::new(early, late),
             color: w.grading.color(grade, fallback),
             enabled,
         });

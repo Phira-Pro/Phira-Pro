@@ -151,8 +151,8 @@ item-flick-protect-sub = Si Tap / Hold est encore en avance, un Flick plus proch
 item-combo-text = Texte de combo
 item-combo-text-sub = Texte affiché sous le compteur de combo (16 caractères max)
 combo-text-default = Par défaut
-item-late-leniency = Tolérance tardive
-item-late-leniency-sub = Retire autant aux frappes tardives ; 0 = symétrique avec tôt
+item-late-leniency = Compensation de la latence d’entrée
+item-late-leniency-sub = Soustrait le délai de chaque entrée avant le jugement
 item-judge-chart = Distribution des jugements
 item-judge-chart-sub = Dessine une distribution temporelle sur l'écran de résultat (tôt → tard)
 item-hp-capacity = Points de vie max.

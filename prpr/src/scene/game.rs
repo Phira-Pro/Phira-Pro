@@ -29,7 +29,7 @@ pub(super) mod lifecycle_tests;
 
 use super::{
     draw_background,
-    ending::RecordUpdateState,
+    ending::{RecordUpdateState, RetryOffset},
     loading::{BasicPlayer, SaveFn, UpdateFn, UploadFn},
     request_input, return_input, show_message, take_input, EndingScene, NextScene, Scene,
 };
@@ -291,15 +291,13 @@ fn debug_overlay(res: &Resource, chart: &Chart, ui: &mut Ui) {
             let line_height = line.height.now() as f64;
             let incline = line.incline.now_opt().unwrap_or_default().to_radians().sin();
             let mut ctrl = line.ctrl_obj.borrow().clone();
-            // Sample the real scrolling track: speed events and time scaling
-            // must affect the displayed timing bands, including late leniency.
+            // Sample the real scrolling track so the bands follow speed events.
             let spans = debug_height_spans_sided(
                 &line.height,
                 res.time,
                 [3, 2, 1, 0].map(|i| limits.early[i]),
                 [3, 2, 1, 0].map(|i| limits.late[i]),
                 res.config.speed as f64,
-                res.config.late_leniency(),
             );
             for note in &line.notes {
                 if note.fake || matches!(note.judge, crate::judge::JudgeStatus::Judged) || note.object.now_alpha() == 0. {
@@ -340,7 +338,6 @@ fn debug_overlay(res: &Resource, chart: &Chart, ui: &mut Ui) {
                         special_window.map_or([3, 2, 1, 0].map(|i| limits.early[i]), |w| [w[0], 0., 0., 0.]),
                         special_window.map_or([3, 2, 1, 0].map(|i| limits.late[i]), |w| [w[1], 0., 0., 0.]),
                         res.config.speed as f64,
-                        res.config.late_leniency(),
                     )
                 } else {
                     spans
@@ -423,8 +420,8 @@ fn debug_screen_transform(flip_x: bool) -> Matrix {
 }
 
 #[cfg(test)]
-fn debug_height_spans(height: &crate::core::AnimFloat, time: f64, windows: [f64; 4], speed: f64, late: f64) -> [(f64, f64); 4] {
-    debug_height_spans_sided(height, time, windows, windows, speed, late)
+fn debug_height_spans(height: &crate::core::AnimFloat, time: f64, windows: [f64; 4], speed: f64) -> [(f64, f64); 4] {
+    debug_height_spans_sided(height, time, windows, windows, speed)
 }
 
 fn debug_height_spans_sided(
@@ -433,7 +430,6 @@ fn debug_height_spans_sided(
     early: [f64; 4],
     late_windows: [f64; 4],
     speed: f64,
-    late: f64,
 ) -> [(f64, f64); 4] {
     let mut sample = height.clone();
     sample.set_time(time);
@@ -442,7 +438,7 @@ fn debug_height_spans_sided(
         let window = early[i];
         sample.set_time(time - window * speed);
         let early = sample.now() as f64 - center;
-        sample.set_time(time + (late_windows[i] + late) * speed);
+        sample.set_time(time + late_windows[i] * speed);
         (early, sample.now() as f64 - center)
     })
 }
@@ -456,9 +452,9 @@ mod debug_overlay_tests {
     fn timing_bands_follow_speed_events_and_do_not_mutate_chart() {
         let mut height = AnimFloat::new(vec![Keyframe::new(0., 0., 2), Keyframe::new(1., 2., 2), Keyframe::new(2., 8., 2)]);
         height.set_time(1.);
-        let spans = debug_height_spans(&height, 1., [0.22, 0.16, 0.08, 0.016], 1.5, 0.03);
+        let spans = debug_height_spans(&height, 1., [0.22, 0.16, 0.08, 0.016], 1.5);
         assert!((spans[0].0 + 0.66).abs() < 1e-6);
-        assert!((spans[0].1 - 2.25).abs() < 1e-6);
+        assert!((spans[0].1 - 1.98).abs() < 1e-6);
         assert!(spans[0].0 < spans[1].0 && spans[1].0 < spans[2].0 && spans[2].0 < spans[3].0);
         assert!(spans[0].1 > spans[1].1 && spans[1].1 > spans[2].1 && spans[2].1 > spans[3].1);
         assert_eq!(height.time, 1.);
@@ -1222,7 +1218,7 @@ impl GameScene {
                 State::BeforeMusic => 1.,
                 State::Playing => 1.,
                 State::Ending => {
-                    let t = time - self.res.track_length - WAIT_TIME;
+                    let t = time - self.ending_start_time();
                     1. - (t / (AFTER_TIME + 0.3)).min(1.).powi(2)
                 }
             } as f32,
@@ -1670,6 +1666,18 @@ impl GameScene {
         self.chart.offset + self.res.config.offset + self.info_offset
     }
 
+    fn live_input_delay(&self) -> f64 {
+        if self.mode == GameMode::View || self.res.config.autoplay() {
+            0.
+        } else {
+            self.res.config.input_latency_chart_seconds()
+        }
+    }
+
+    fn ending_start_time(&self) -> f64 {
+        self.res.track_length + WAIT_TIME + self.live_input_delay()
+    }
+
     /// Offline export owns its clock and never enters the interactive scene lifecycle.
     pub fn set_video_frame(&mut self, time: f64, opacity: f32, delta: f32) {
         self.state = State::Playing;
@@ -1845,6 +1853,10 @@ impl Scene for GameScene {
     }
 
     fn on_result(&mut self, tm: &mut TimeManager, result: Box<dyn Any>) -> Result<()> {
+        if let Some(offset) = result.downcast_ref::<RetryOffset>() {
+            self.res.config.offset = offset.0;
+            return Ok(());
+        }
         if let Ok(selection) = result.downcast::<practice::tools::Selection>() {
             let start = (selection.start + self.offset() as f64).clamp(self.offset().min(0.) as f64, self.res.track_length - 0.05);
             let end = (selection.end + self.offset() as f64).clamp(start + 0.05, self.res.track_length);
@@ -1901,14 +1913,15 @@ impl Scene for GameScene {
         if matches!(self.state, State::Playing) {
             tm.update(self.music.position());
         }
-        if self.mode == GameMode::Exercise && tm.now() > self.exercise_range.end && !tm.paused() {
+        if self.mode == GameMode::Exercise && tm.now() > self.exercise_range.end + self.live_input_delay() && !tm.paused() {
             // Resolve the final frame before resetting. A frame that crosses
             // the boundary must not drop its last Miss or Hold judgement.
-            self.res.time = self.exercise_range.end - self.offset() as f64 + 1e-6;
+            let cutoff = self.exercise_range.end - self.offset() as f64 + 1e-6;
+            self.res.time = cutoff + self.live_input_delay();
             self.chart.update(&mut self.res);
             self.judge.update(&mut self.res, &mut self.chart, &mut self.bad_notes);
             self.judge
-                .finish_practice_round(&mut self.chart, self.res.time, self.res.config.hold_tail_judge);
+                .finish_practice_round(&mut self.chart, cutoff, self.res.config.hold_tail_judge);
             self.last_practice_accuracy = Some(self.judge.real_time_accuracy());
             let counts = self.judge.counts();
             let played = counts.iter().sum::<u32>();
@@ -2033,7 +2046,7 @@ impl Scene for GameScene {
                 time
             }
             State::Playing => {
-                if time > self.res.track_length + WAIT_TIME && self.failure.is_none() {
+                if time > self.ending_start_time() && self.failure.is_none() {
                     self.state = State::Ending;
                     #[cfg(target_env = "ohos")]
                     miniquad::native::set_interceptor_state(false);
@@ -2041,7 +2054,7 @@ impl Scene for GameScene {
                 time
             }
             State::Ending => {
-                let t = time - self.res.track_length - WAIT_TIME;
+                let t = time - self.ending_start_time();
                 if t >= AFTER_TIME + 0.3 {
                     let result = self.judge.result(self.res.config.has_mod(Mods::NO_COMBO_SCORE));
                     // 续练可能跳过一部分音符，血条模式需要完整判完谱面才计成绩。

@@ -171,11 +171,7 @@ impl Engine {
             now,
             speed,
             if flick { flick_early } else { limits.early[3] },
-            if flick {
-                flick_late + cfg.late_leniency()
-            } else {
-                limits.late_acceptance() + cfg.late_leniency()
-            },
+            if flick { flick_late } else { limits.late_acceptance() },
             rules.late_overrun,
         );
         let mut best: Option<(usize, f64, f64)> = None;
@@ -228,6 +224,7 @@ impl Engine {
         mut geometry: impl FnMut((usize, u32), usize) -> Option<(f64, f64)>,
     ) -> (JudgeWindows, Vec<Event>) {
         debug_assert_eq!(cfg.judge_algorithm, JudgeAlgorithm::Phigros);
+        let now = now - cfg.input_latency_chart_seconds();
         // Raw frame time still feeds flick sampling and window compensation;
         // only the hold grace needs a finite fallback.
         let hold_frame_seconds = if frame_seconds.is_finite() && frame_seconds > 0. {

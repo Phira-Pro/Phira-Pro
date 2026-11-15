@@ -134,8 +134,8 @@ item-flick-protect-sub = Saat Tap / Hold masih early, Flick yang minimal 10ms le
 item-combo-text = Teks kombo
 item-combo-text-sub = Teks di bawah penghitung kombo (maks 16 karakter)
 combo-text-default = Bawaan
-item-late-leniency = Toleransi telat
-item-late-leniency-sub = Dikurangi sebanyak ini untuk ketukan telat; 0 = simetris dengan awal
+item-late-leniency = Kompensasi latensi input
+item-late-leniency-sub = Kurangi waktu tunda perangkat dari waktu input sebelum penilaian
 item-judge-chart = Distribusi penilaian
 item-judge-chart-sub = Menggambar distribusi waktu di layar hasil (awal ke telat)
 item-hp-capacity = Nyawa maksimum

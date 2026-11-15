@@ -136,8 +136,8 @@ impl PlayStatus {
         if c.hold_tail_judge {
             options.push("HOLD TAIL".to_owned());
         }
-        if c.late_leniency() > 0. {
-            options.push(format!("LATE +{:.1}ms", c.late_leniency() * 1000.));
+        if c.input_latency_compensation() > 0. {
+            options.push(format!("INPUT −{:.1}ms", c.input_latency_compensation() * 1000.));
         }
         if (c.flow_speed - 1.).abs() > 1e-3 {
             options.push(format!("FLOW {:.2}x", c.flow_speed));
@@ -158,11 +158,11 @@ impl PlayStatus {
         if od.is_some() {
             details.push_str("\nosu!mania ScoreV2 timing shortcut");
         }
-        let summary = format!("\n\nPERFECT+: {}\nDrag protection: {}\nFlick protection: {}\nHold tail judgement: {}\nLate leniency: {:.1}ms\nSpeed: {:.2}x\nFlow: {:.2}x\nOffset: {:+.1}ms\n",
+        let summary = format!("\n\nPERFECT+: {}\nDrag protection: {}\nFlick protection: {}\nHold tail judgement: {}\nInput latency compensation: {:.1}ms\nSpeed: {:.2}x\nFlow: {:.2}x\nOffset: {:+.1}ms\n",
             on_off(c.judge_grading.perfect_plus), on_off(c.drag_protect), on_off(c.flick_protect),
-            on_off(c.hold_tail_judge), c.late_leniency()*1000., c.speed, c.flow_speed, c.offset*1000.);
+            on_off(c.hold_tail_judge), c.input_latency_compensation()*1000., c.speed, c.flow_speed, c.offset*1000.);
         // JudgeWindows already includes strict overrides and normalization.
-        // Late leniency is separate and intentionally not added twice here.
+        // Input latency compensation shifts input time and leaves the widths intact.
         if c.judge_algorithm == JudgeAlgorithm::Phigros && c.mods.contains(Mods::STRICT_JUDGE) && rules.frame_compensation {
             details.push_str("\nBase windows below; frame compensation adds half the recent frame duration.\n");
         }

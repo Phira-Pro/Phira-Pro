@@ -125,7 +125,8 @@ impl TimeManager {
         }
         let original_start = self.start_time;
         let original_speed = self.speed;
-        self.seek_to(time);
+        // A transient input timestamp must not restart the audio sync wait.
+        self.start_time = self.real_time() - time / self.speed;
         let temporary_start = self.start_time;
         let result = handle(self);
         if self.start_time == temporary_start && self.speed == original_speed {
@@ -181,5 +182,30 @@ mod tests {
         assert_eq!(tm.now(), 3.);
         tm.with_event_time(2.95, |tm| tm.seek_to(5.));
         assert_eq!(tm.now(), 5.);
+    }
+
+    #[test]
+    fn continuous_input_does_not_defer_audio_clock_sync() {
+        for bias in [-0.040, 0.040] {
+            let real = std::rc::Rc::new(std::cell::Cell::new(10.));
+            let clock = real.clone();
+            let mut tm = TimeManager::manual(Box::new(move || clock.get()));
+            tm.adjust_time = true;
+            tm.seek_to(1.);
+
+            for frame in 1..=120 {
+                let elapsed = frame as f64 / 120.;
+                real.set(10. + elapsed);
+                tm.with_event_time(tm.now() - 0.002, |_| ());
+                let audio = 1. + elapsed + bias;
+                let error_before = (audio - tm.now()).abs();
+                tm.update(audio);
+                if elapsed < 0.1 {
+                    assert_eq!((audio - tm.now()).abs(), error_before, "a real seek still delays audio sync");
+                } else if elapsed > 0.1 {
+                    assert!((audio - tm.now()).abs() < error_before, "touches cannot block either correction direction");
+                }
+            }
+        }
     }
 }

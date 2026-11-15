@@ -23,7 +23,7 @@ pub enum JudgeAlgorithm {
     PhiraPro,
     Phigros,
 }
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::cell::Cell;
 
 pub static TIPS: Lazy<Vec<String>> = Lazy::new(|| include_str!("tips.txt").split('\n').map(str::to_owned).collect());
 
@@ -33,28 +33,17 @@ pub static TIPS: Lazy<Vec<String>> = Lazy::new(|| include_str!("tips.txt").split
 /// 单谱排行榜把官服与自服的记录合并展示。**固定值，不可配置。**
 pub const PRO_API_URL: &str = "https://api.phira.pro";
 
-/// Phira Pro：结算界面「应用推荐偏移」请求的落点。
-///
-/// `prpr` 拿不到客户端持有的全局配置，因此这里放一个单向通道：结算界面把要叠加到
-/// `config.offset` 的增量（秒）写入，客户端主循环取出后写回配置并持久化。
-static OFFSET_DELTA_PENDING: AtomicBool = AtomicBool::new(false);
-static PENDING_OFFSET_DELTA: AtomicU32 = AtomicU32::new(0);
-
-/// 请求把 `delta`（秒）叠加到全局 `config.offset`。`delta` 为 0 时忽略。
-pub fn request_offset_delta(delta: f32) {
-    if delta != 0. {
-        PENDING_OFFSET_DELTA.store(delta.to_bits(), Ordering::Relaxed);
-        OFFSET_DELTA_PENDING.store(true, Ordering::Relaxed);
-    }
+thread_local! {
+    static GLOBAL_OFFSET_REQUEST: Cell<Option<f32>> = const { Cell::new(None) };
 }
 
-/// 取出并清除待应用的偏移增量；返回 `None` 表示没有待处理请求。
-pub fn take_offset_delta() -> Option<f32> {
-    if OFFSET_DELTA_PENDING.swap(false, Ordering::Relaxed) {
-        Some(f32::from_bits(PENDING_OFFSET_DELTA.load(Ordering::Relaxed)))
-    } else {
-        None
-    }
+/// Pass the absolute offset (chart seconds) to the client on the scene thread for persistence.
+pub(crate) fn request_global_offset(offset: f32) {
+    GLOBAL_OFFSET_REQUEST.set(Some(offset));
+}
+
+pub fn take_global_offset_request() -> Option<f32> {
+    GLOBAL_OFFSET_REQUEST.take()
 }
 
 /// LIFE 流光配色。
@@ -262,9 +251,9 @@ pub struct Config {
     /// Older replays retain their recorded Bad/Miss damage formula.
     #[serde(skip)]
     pub legacy_hp_damage: bool,
-    /// 晚按补偿（毫秒）：晚按（偏差为负）时额外放宽的量，默认 0 = 早/晚完全对称。
-    /// 上游把 70ms 写死在代码里且只作用在晚按一侧（等于「晚按白送 70ms」），这里改为可配置。
-    pub late_leniency_ms: f32,
+    /// Measured device input delay in real milliseconds. Preserve the existing config key.
+    #[serde(rename = "lateLeniencyMs")]
+    pub input_latency_compensation_ms: f32,
     /// 黄键保护：Drag 至少近 10ms 时拦截 early 蓝键/hold 点击，且仅一次。
     pub drag_protect: bool,
     /// 红键保护：Flick 至少近 10ms 时拦截 early 蓝键/hold 点击，可多次。
@@ -470,7 +459,7 @@ impl Default for Config {
             hp_color: HealthBarColor::default(),
             hp_failure_effect: HealthFailureEffect::default(),
             legacy_hp_damage: false,
-            late_leniency_ms: 0.,
+            input_latency_compensation_ms: 0.,
             drag_protect: true,
             flick_protect: true,
             flow_speed: 1.,
@@ -661,16 +650,21 @@ impl Config {
         self.lim_bad_ms = v[3];
     }
 
-    /// 晚按补偿的上限（毫秒）。
-    pub const LATE_LENIENCY_MAX: f32 = 200.;
+    /// Maximum device input delay in milliseconds.
+    pub const INPUT_LATENCY_COMPENSATION_MAX: f32 = 200.;
 
-    /// 晚按补偿（秒），夹在 0..=200ms；默认 0 = 早按晚按完全对称。
+    /// Input delay in real seconds, clamped to the supported range.
     #[inline]
-    pub fn late_leniency(&self) -> f64 {
-        if !self.late_leniency_ms.is_finite() {
+    pub fn input_latency_compensation(&self) -> f64 {
+        if !self.input_latency_compensation_ms.is_finite() {
             return 0.;
         }
-        (self.late_leniency_ms.clamp(0., Self::LATE_LENIENCY_MAX) as f64) / 1000.
+        (self.input_latency_compensation_ms.clamp(0., Self::INPUT_LATENCY_COMPENSATION_MAX) as f64) / 1000.
+    }
+
+    /// Convert real input delay to chart time for matching timestamped and frame-based input.
+    pub(crate) fn input_latency_chart_seconds(&self) -> f64 {
+        self.input_latency_compensation() * self.speed as f64
     }
 
     /// 把配置里的毫秒窗口折算成判定用的秒数；开启 `Mods::STRICT_JUDGE` 时 PERFECT 及以下窗口减半，Perfect+ 保持用户配置。
@@ -761,7 +755,7 @@ impl Config {
     /// - 谱面 mod 或全局 mod 里带 `UNRATED`（自动游玩、全屏判定、无失败、去连击分……）
     ///   或 `STRICT_JUDGE`（判定窗口减半，成绩同样不可比）
     /// - 判定窗口 `lim_*_ms` 不是官方默认值
-    /// - 晚按补偿 `late_leniency_ms` 不为 0
+    /// - 自定义输入延迟补偿
     /// - Hold 尾判
     /// 黄/红键保护、血条模式（含回血设置）、流速与判定颜色允许计入成绩。
     pub fn non_official_items(&self, run_mods: Mods) -> Vec<&'static str> {
@@ -801,7 +795,7 @@ impl Config {
                 items.push(name);
             }
         }
-        if self.late_leniency_ms > 0.5 {
+        if self.input_latency_compensation_ms > 0.5 {
             items.push("late_leniency");
         }
         if self.hold_tail_judge {
@@ -844,7 +838,7 @@ impl Config {
                 "lim_perfect" => self.lim_perfect_ms = (crate::judge::LIMIT_PERFECT * 1000.) as f32,
                 "lim_good" => self.lim_good_ms = (crate::judge::LIMIT_GOOD * 1000.) as f32,
                 "lim_bad" => self.lim_bad_ms = (crate::judge::LIMIT_BAD * 1000.) as f32,
-                "late_leniency" => self.late_leniency_ms = 0.,
+                "late_leniency" => self.input_latency_compensation_ms = 0.,
                 "drag_protect" => self.drag_protect = false,
                 "flick_protect" => self.flick_protect = false,
                 "hold_tail_judge" => self.hold_tail_judge = false,
@@ -870,7 +864,7 @@ impl Config {
         self.lim_perfect_ms = (crate::judge::LIMIT_PERFECT * 1000.) as f32;
         self.lim_good_ms = (crate::judge::LIMIT_GOOD * 1000.) as f32;
         self.lim_bad_ms = (crate::judge::LIMIT_BAD * 1000.) as f32;
-        self.late_leniency_ms = 0.;
+        self.input_latency_compensation_ms = 0.;
         self.drag_protect = false;
         self.flick_protect = false;
         self.hold_tail_judge = false;
@@ -897,7 +891,7 @@ impl Config {
         self.lim_perfect_ms = (crate::judge::LIMIT_PERFECT * 1000.) as f32;
         self.lim_good_ms = (crate::judge::LIMIT_GOOD * 1000.) as f32;
         self.lim_bad_ms = (crate::judge::LIMIT_BAD * 1000.) as f32;
-        self.late_leniency_ms = 0.;
+        self.input_latency_compensation_ms = 0.;
         self.drag_protect = false;
         self.flick_protect = false;
         self.hold_tail_judge = false;
@@ -949,9 +943,9 @@ impl Config {
         self.hp_width = self.hp_width.clamp(0.1, 1.0);
         self.hp_height = self.hp_height.clamp(0.5, 3.0);
         self.hp_scale = Self::valid_hp_scale(self.hp_scale);
-        // 晚按补偿：NaN / 越界都夹回合法区间。
-        self.late_leniency_ms = if self.late_leniency_ms.is_finite() {
-            self.late_leniency_ms.clamp(0., Self::LATE_LENIENCY_MAX)
+        // Clamp invalid or out-of-range input delay from old settings files.
+        self.input_latency_compensation_ms = if self.input_latency_compensation_ms.is_finite() {
+            self.input_latency_compensation_ms.clamp(0., Self::INPUT_LATENCY_COMPENSATION_MAX)
         } else {
             0.
         };
@@ -1283,8 +1277,8 @@ mod tests {
         assert_eq!(conf.force_official_play(&mut Mods::empty()), vec!["lim_perfect"]);
         assert!(conf.is_official_play(Mods::empty()));
 
-        // 保护、HP 参数与流速仍计入成绩；晚按补偿和尾判改变计分口径。
-        conf.late_leniency_ms = 70.;
+        // 保护、HP 参数与流速仍计入成绩。输入延迟补偿和尾判受上传规则限制。
+        conf.input_latency_compensation_ms = 70.;
         conf.drag_protect = true;
         conf.hold_tail_judge = true;
         assert_eq!(conf.non_official_items(Mods::empty()).len(), 2);

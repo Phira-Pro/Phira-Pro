@@ -138,8 +138,8 @@ item-flick-protect-sub = Tap / Hold erken taraftayken en az 10ms daha yakın kı
 item-combo-text = Combo metni
 item-combo-text-sub = Combo sayacının altında gösterilen metin (en fazla 16 karakter)
 combo-text-default = Varsayılan
-item-late-leniency = Geç toleransı
-item-late-leniency-sub = Geç vuruşlardan bu kadar düşülür; 0 = erken ile tam simetrik
+item-late-leniency = Girdi gecikmesi telafisi
+item-late-leniency-sub = Yargılamadan önce cihaz gecikmesini girdi zamanından çıkarır
 item-judge-chart = Yargı dağılımı
 item-judge-chart-sub = Sonuç ekranına zamanlama dağılımı çizer (erken → geç)
 item-hp-capacity = Azami can

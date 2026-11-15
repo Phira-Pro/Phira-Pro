@@ -218,6 +218,9 @@ impl ReplayScene {
         if let Some(gameplay) = &replay.gameplay {
             gameplay.apply(&mut config);
         }
+        if !replay.gameplay.as_ref().is_some_and(|settings| settings.input_time_corrected) {
+            config.input_latency_compensation_ms = 0.;
+        }
         // Judgement/playback settings belong to the replay; note textures and
         // sounds come from the viewer's current resource pack, as in gameplay.
         config.res_pack_path = crate::get_data().selected_respack_path()?;
@@ -1367,7 +1370,12 @@ fn recording_info(replay: &Replay, config: &Config) -> Vec<String> {
         }
         lines.push(format!("严格判定 {} · 全屏判定 {} · 去连击分 {}", on(s.strict), on(s.fullscreen), on(s.no_combo_score)));
         lines.push(format!("黄键保护 {} · 红键保护 {} · 尾判 {}", on(s.drag_protect), on(s.flick_protect), on(s.hold_tail)));
-        lines.push(format!("晚按补偿 {:.2}ms · 理论值计分 {}", s.late_ms, on(replay.theoretical_score)));
+        let compensation = if replay.gameplay.as_ref().is_some_and(|settings| settings.input_time_corrected) {
+            "输入延迟补偿"
+        } else {
+            "晚侧额外容差"
+        };
+        lines.push(format!("{compensation} {:.2}ms，理论值计分 {}", s.late_ms, on(replay.theoretical_score)));
         if matches!(s.algorithm, prpr::config::JudgeAlgorithm::Phigros) {
             let p = &s.phigros;
             lines.push(format!(

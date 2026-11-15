@@ -1,5 +1,5 @@
 use super::{Action, Config, Event, Finger, JudgeWindows, Judgement, Kind, PhigrosRules, Spec};
-use super::super::{judge_distance, judgement_at_distance, judgement_of_offset, UP_TOLERANCE};
+use super::super::{judgement_at_distance, judgement_of_offset, timing_error, UP_TOLERANCE};
 
 #[derive(Clone, Default)]
 pub(super) struct NoteState {
@@ -35,13 +35,12 @@ pub(super) struct ClickControl {
 
 impl ClickControl {
     fn judge(&mut self, note: &Spec, state: &mut NoteState, ctx: &JudgeContext, events: &mut Vec<Event>) {
-        let dt = (note.time - ctx.now) / ctx.cfg.speed as f64;
+        let offset = timing_error(ctx.now, note.time, ctx.cfg.speed as f64);
         self.is_judged |= state.is_judged;
         if self.is_judged {
-            let side = ctx.limits.for_offset(-dt);
-            let abs = judge_distance(-dt, ctx.cfg.late_leniency());
-            state.score(note, judgement_at_distance(abs, &side, true), -dt, events);
-        } else if dt < -ctx.limits.late_acceptance() - ctx.cfg.late_leniency() {
+            let side = ctx.limits.for_offset(offset);
+            state.score(note, judgement_at_distance(offset.abs(), &side, true), offset, events);
+        } else if offset > ctx.limits.late_acceptance() {
             state.score(note, Judgement::Miss, 0., events);
         }
     }
@@ -74,22 +73,21 @@ impl HoldControl {
             return;
         }
         let speed = ctx.cfg.speed as f64;
-        let dt = (note.time - ctx.now) / speed;
-        let side = ctx.limits.for_offset(-dt);
-        let abs = judge_distance(-dt, ctx.cfg.late_leniency());
+        let offset = timing_error(ctx.now, note.time, speed);
+        let side = ctx.limits.for_offset(offset);
         let mut score = None;
         if self.head.is_none() {
             self.is_judged |= state.is_judged;
-            if !self.is_judged && dt < -ctx.limits.late_acceptance() - ctx.cfg.late_leniency() {
+            if !self.is_judged && offset > ctx.limits.late_acceptance() {
                 score = Some((Judgement::Miss, 0.));
             }
-            if self.is_judged && abs < side.acceptance() {
-                let judgement = judgement_at_distance(abs, &side, true);
-                self.head = Some((judgement, -dt));
+            if self.is_judged && offset.abs() < side.acceptance() {
+                let judgement = judgement_at_distance(offset.abs(), &side, true);
+                self.head = Some((judgement, offset));
                 self.safe = ctx.rules.hold_safe_seconds();
                 events.push(Event {
                     target: note.target,
-                    action: Action::Head { judgement, offset: -dt },
+                    action: Action::Head { judgement, offset },
                 });
             } else if self.is_judged {
                 state.is_judged = false;
@@ -111,7 +109,7 @@ impl HoldControl {
                     score = Some((Judgement::Miss, 0.));
                 }
                 if score.is_none() && ctx.now >= note.end {
-                    let off = self.released.map_or(0., |up| (up - note.end) / speed);
+                    let off = self.released.map_or(0., |up| timing_error(up, note.end, speed));
                     score = Some((judgement_of_offset(off, ctx.limits), off));
                 }
             } else {
@@ -163,13 +161,13 @@ impl DragControl {
     ) {
         let dt = (note.time - ctx.now) / ctx.cfg.speed as f64;
         let [early, late] = ctx.rules.drag_sides().map(|v| v / 1000.);
-        if judge_distance(-dt, ctx.cfg.late_leniency()) <= if dt >= 0. { early } else { late } && !self.is_judged {
+        if dt.abs() <= if dt >= 0. { early } else { late } && !self.is_judged {
             self.is_judged = fingers
                 .iter()
                 .enumerate()
                 .any(|(finger, _)| geometry(note.target, finger).is_some_and(|(dx, _)| dx < ctx.rules.special_width));
         }
-        if !self.is_judged && dt < -late - ctx.cfg.late_leniency() {
+        if !self.is_judged && dt < -late {
             state.score(note, Judgement::Miss, 0., events);
         } else if self.is_judged && dt < ctx.rules.special_early_ms / 1000. {
             state.score(note, Judgement::Perfect, 0., events);
@@ -187,7 +185,7 @@ impl FlickControl {
         let dt = (note.time - ctx.now) / ctx.cfg.speed as f64;
         let [_, late] = ctx.rules.flick_sides();
         self.is_judged |= state.is_judged_for_flick;
-        if !self.is_judged && dt < -ctx.limits.late[1] * late - ctx.cfg.late_leniency() {
+        if !self.is_judged && dt < -ctx.limits.late[1] * late {
             state.score(note, Judgement::Miss, 0., events);
             state.is_judged_for_flick = true;
         } else if self.is_judged && dt < ctx.rules.special_early_ms / 1000. {

@@ -1,7 +1,7 @@
 prpr_l10n::tl_file!("dialog");
 
 use super::{DRectButton, RectButton, Scroll, Ui};
-use crate::{core::BOLD_FONT, ext::RectExt, scene::show_message};
+use crate::{core::BOLD_FONT, ext::RectExt, scene::{copy_to_clipboard, show_message}};
 use anyhow::Error;
 use macroquad::prelude::*;
 
@@ -84,12 +84,18 @@ impl Dialog {
         let error = format!("{error:?}");
         Self {
             title: tl!("error").to_string(),
-            message: error.clone(),
+            message: error,
             buttons: vec![tl!("error-copy").to_string(), tl!("ok").to_string()],
-            listener: Some(Box::new(move |_dialog, pos| {
+            listener: Some(Box::new(|dialog, pos| {
                 if pos == 0 {
-                    unsafe { get_internal_gl() }.quad_context.clipboard_set(&error);
-                    show_message(tl!("error-copied")).ok();
+                    match copy_to_clipboard(&dialog.message) {
+                        Ok(()) => { show_message(tl!("error-copied")).ok(); }
+                        Err(err) => {
+                            tracing::warn!(?err, "Failed to copy error details");
+                            show_message(tl!("error-copy-failed")).warn();
+                        }
+                    }
+                    return true;
                 }
                 false
             })),

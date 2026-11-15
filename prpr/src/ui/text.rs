@@ -58,6 +58,7 @@ pub struct DrawText<'a, 's, 'ui> {
     multiline: bool,
     scale: Matrix,
     h_align: HorizontalAlign,
+    font: Option<usize>,
 }
 
 impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
@@ -74,11 +75,17 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
             multiline: false,
             scale: Matrix::identity(),
             h_align: HorizontalAlign::Left,
+            font: None,
         }
     }
 
     pub fn h_center(mut self) -> Self {
         self.h_align = HorizontalAlign::Center;
+        self
+    }
+
+    pub fn with_font_face(mut self, face: Option<usize>) -> Self {
+        self.font = face;
         self
     }
 
@@ -153,6 +160,7 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
                 multiline: self.multiline,
                 h_align: self.h_align,
                 color: self.color.into(),
+                font: self.font,
             },
         )
     }
@@ -316,6 +324,10 @@ impl Atlas {
 }
 
 impl TextPainter {
+    pub fn face_covering(&self, label: &str) -> Option<usize> {
+        layout::face_covering(self.brush.fonts(), label)
+    }
+
     pub fn new(font: FontArc, fallback: Option<FontArc>) -> Self {
         let mut fonts = vec![font];
         if let Some(fallback) = fallback {

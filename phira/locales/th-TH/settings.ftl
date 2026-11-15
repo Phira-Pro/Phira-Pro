@@ -151,8 +151,8 @@ item-flick-protect-sub = เมื่อ Tap / Hold ยังอยู่ฝั�
 item-combo-text = ข้อความคอมโบ
 item-combo-text-sub = ข้อความใต้ตัวนับคอมโบ (ไม่เกิน 16 ตัวอักษร)
 combo-text-default = ค่าเริ่มต้น
-item-late-leniency = ชดเชยการกดช้า
-item-late-leniency-sub = หักออกเท่านี้สำหรับการกดช้า; 0 = สมมาตรกับการกดเร็ว
+item-late-leniency = ชดเชยความหน่วงของอินพุต
+item-late-leniency-sub = หักความหน่วงของอุปกรณ์ออกจากเวลาอินพุตก่อนตัดสิน
 item-judge-chart = กราฟการตัดสิน
 item-judge-chart-sub = วาดกราฟการกระจายเวลาตัดสินบนหน้าผลลัพธ์ (เร็ว → ช้า)
 item-hp-capacity = พลังชีวิตสูงสุด

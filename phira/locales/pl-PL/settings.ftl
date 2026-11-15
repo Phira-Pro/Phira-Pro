@@ -45,7 +45,7 @@ item-lowq = Niska jakość
 item-lowq-sub = Włącz tą opcje, jeśli UI się zacina
 
 item-adjust = Automatyczne ustawienie opóźnienia
-item-adjust-sub = Ustaw opóźnienie automatycznie, aby zsynchronizować muzykę i beatmapę
+item-adjust-sub = Synchronizuje czas mapy z odtwarzaniem muzyki.
 item-music = Głośność muzyki
 item-sfx = Głośność SFX
 item-cali = Ustaw opóźnienie
@@ -130,8 +130,8 @@ item-flick-protect-sub = Gdy Tap / Hold jest po wczesnej stronie, czerwona nuta 
 item-combo-text = Tekst combo
 item-combo-text-sub = Tekst pod licznikiem combo (maks. 16 znaków)
 combo-text-default = Domyślny
-item-late-leniency = Tolerancja spóźnień
-item-late-leniency-sub = Tyle odejmuje się od spóźnionych trafień; 0 = symetrycznie do wczesnych
+item-late-leniency = Kompensacja opóźnienia wejścia
+item-late-leniency-sub = Odejmuje opóźnienie urządzenia od czasu wejścia przed oceną
 item-judge-chart = Rozkład ocen
 item-judge-chart-sub = Rysuje rozkład czasów ocen na ekranie wyniku (wcześnie → późno)
 item-hp-capacity = Maksymalna liczba punktów życia

@@ -18,4 +18,12 @@ impl EndingScene {
         self.tr_start = f32::NAN;
         assert!(matches!(self.next_scene(tm), NextScene::Pop));
     }
+
+    pub(in crate::scene) fn retry_after_offset(&mut self, tm: &mut TimeManager, offset: f32) -> Box<dyn std::any::Any> {
+        self.applied_offset = Some(offset);
+        let NextScene::PopWithResult(result) = self.next_scene(tm) else {
+            panic!("retry must pass the applied offset back to gameplay");
+        };
+        result
+    }
 }

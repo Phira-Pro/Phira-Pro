@@ -83,7 +83,7 @@ fn results_retry_recovers_before_full_audio_queue() {
             };
             let mut tm = TimeManager::default();
             game.enter(&mut tm, None).unwrap();
-            for _ in 0..3 {
+            for attempt in 0..3 {
                 let mut ending = EndingScene::new(
                     game.ending_background.clone(),
                     game.res.illustration.clone(),
@@ -107,6 +107,8 @@ fn results_retry_recovers_before_full_audio_queue() {
                 ending.enter(&mut tm, None).unwrap();
                 ending.pause(&mut tm).unwrap();
                 ending.check_interrupted_resume(&mut tm);
+                let offset = 0.025 * (attempt + 1) as f32;
+                let result = ending.retry_after_offset(&mut tm, offset);
                 drop(ending);
 
                 let (mut audio, starts) = interrupted_audio();
@@ -114,9 +116,11 @@ fn results_retry_recovers_before_full_audio_queue() {
                     .map(|_| audio.create_music(game.res.music.clone(), MusicParams::default()).unwrap())
                     .collect();
                 game.res.audio = audio;
+                game.on_result(&mut tm, result).unwrap();
                 game.enter(&mut tm, None).unwrap();
                 assert_eq!(starts.load(Ordering::SeqCst), 2, "retry must restart hidden gameplay audio before adding a player");
                 assert!(matches!(game.state, State::Starting));
+                assert_eq!(game.offset(), offset, "a result-page retry must use the new global offset");
                 assert!(!tm.paused());
                 game.update(&mut tm).unwrap();
                 drop(pending);

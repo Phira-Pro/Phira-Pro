@@ -11,7 +11,7 @@ pub fn config(source: &Config) -> Config {
     c.mods = Mods::STRICT_JUDGE | Mods::NO_COMBO_SCORE;
     c.clear_legacy_autoplay();
     c.speed = 1.;
-    c.late_leniency_ms = 0.;
+    c.input_latency_compensation_ms = 0.;
     c.hold_tail_judge = false;
     c.drag_protect = true;
     c.flick_protect = true;

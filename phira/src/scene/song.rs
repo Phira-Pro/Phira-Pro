@@ -3274,19 +3274,28 @@ impl Scene for SongScene {
         let r = ui.back_rect();
         self.back_btn.set(ui, r);
         ui.fill_rect(r, (*self.icons.back, r, ScaleType::Fit));
+        let has_chart_actions = self.local_path.as_ref().is_none_or(|path| !path.starts_with(':'));
+        let toolbar_size = 0.08;
+        let toolbar_gap = 0.03;
+        let toolbar_right = 1. - 0.03;
+        let toolbar_slots = if has_chart_actions { 5. } else { 3. };
+        let toolbar_left = toolbar_right - toolbar_slots * toolbar_size - (toolbar_slots - 1.) * toolbar_gap;
+        let title_left = r.right() + 0.02;
+        let title_right = if self.pack_view.is_some() { 0.40 } else { toolbar_left - toolbar_gap };
 
         let alpha = fade_in_time().map_or(1., |tt| ((t - self.fade_start) / tt).clamp(-1., 0.) + 1.);
         ui.alpha::<Result<()>>(if self.pack_view.is_some() { 1. } else { alpha }, |ui| {
             let r = ui
                 .text(self.pack_view.as_ref().map_or(self.info.name.as_str(), |p| p.title.as_str()))
-                .max_width(if self.pack_view.is_some() { 0.40 - r.right() } else { 0.57 - r.right() })
+                .max_width(title_right - title_left)
                 .size(1.2)
-                .pos(r.right() + 0.02, r.y)
+                .pos(title_left, r.y)
                 .draw();
             if self.pack_view.is_none() {
                 ui.text(&self.info.composer)
                     .size(0.5)
-                    .pos(r.x + 0.02, r.bottom() + 0.03)
+                    .max_width(title_right - title_left)
+                    .pos(title_left, r.bottom() + 0.03)
                     .color(semi_white(0.8))
                     .draw();
             }
@@ -3358,9 +3367,9 @@ impl Scene for SongScene {
             });
 
             ui.scope(|ui| {
-                ui.dx(1. - 0.03);
+                ui.dx(toolbar_right);
                 ui.dy(-ui.top + 0.03);
-                let s = 0.08;
+                let s = toolbar_size;
                 let r = Rect::new(-s, 0., s, s);
                 let cc = semi_white(0.4);
                 ui.fill_rect(r, (*self.icons.menu, r, ScaleType::Fit, if self.menu_options.is_empty() { cc } else { WHITE }));
@@ -3373,12 +3382,12 @@ impl Scene for SongScene {
                     let h = self.menu_options.len().min(5) as f32 * 0.1;
                     self.menu.show(ui, t, Rect::new(r.x - d, r.bottom() + 0.02, r.w + d, h));
                 }
-                ui.dx(-r.w - 0.03);
+                ui.dx(-r.w - toolbar_gap);
                 ui.fill_rect(r, (*self.icons.info, r, ScaleType::Fit));
                 self.info_btn.set(ui, r);
-                ui.dx(-r.w - 0.03);
+                ui.dx(-r.w - toolbar_gap);
 
-                if self.local_path.as_ref().is_none_or(|it| !it.starts_with(':')) {
+                if has_chart_actions {
                     // 收藏按钮 || Favorites button
                     // TODO cache
                     let is_fav = if let Some(fav) = self.is_fav {
@@ -3400,11 +3409,11 @@ impl Scene for SongScene {
                         let h = self.fav_menu_options.len().min(5) as f32 * 0.1;
                         self.fav_menu.show(ui, t, Rect::new(r.x - d, r.bottom() + 0.02, r.w + d, h));
                     }
-                    ui.dx(-r.w - 0.03);
+                    ui.dx(-r.w - toolbar_gap);
 
                     ui.fill_rect(r, (*self.icons.edit, r, ScaleType::Fit, if self.local_path.is_some() { WHITE } else { cc }));
                     self.edit_btn.set(ui, r);
-                    ui.dx(-r.w - 0.03);
+                    ui.dx(-r.w - toolbar_gap);
                 }
                 ui.fill_rect(r, (*self.icons.r#mod, r, ScaleType::Fit, if self.local_path.is_some() { WHITE } else { cc }));
                 self.mod_btn.set(ui, r);

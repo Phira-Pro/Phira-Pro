@@ -450,9 +450,30 @@ pub fn return_file(id: String, file: String) {
 }
 
 /// 复制文本到系统剪贴板。
-pub fn copy_to_clipboard(text: &str) {
-    unsafe { get_internal_gl() }.quad_context.clipboard_set(text);
+pub fn copy_to_clipboard(text: &str) -> Result<()> {
+    #[cfg(target_os = "windows")]
+    windows_clipboard::copy(text)?;
+    #[cfg(target_os = "android")]
+    {
+        use jni::{jni_sig, jni_str, objects::JObject, vm::JavaVM};
+        let copied = JavaVM::singleton()?.attach_current_thread(|env| -> jni::errors::Result<bool> {
+            let activity = unsafe { JObject::from_raw(env, ndk_context::android_context().context() as _) };
+            let text = env.new_string(text)?;
+            env.call_method(activity, jni_str!("copyTextToClipboard"), jni_sig!("(Ljava/lang/String;)Z"), &[(&text).into()])?.z()
+        })?;
+        anyhow::ensure!(copied, "Android clipboard unavailable");
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "android")))]
+    {
+        let text = text.replace('\0', "�");
+        std::panic::catch_unwind(|| unsafe { get_internal_gl() }.quad_context.clipboard_set(&text))
+            .map_err(|_| anyhow::anyhow!("System clipboard unavailable"))?;
+    }
+    Ok(())
 }
+
+#[cfg(target_os = "windows")]
+mod windows_clipboard;
 
 pub trait Scene {
     fn enter(&mut self, _tm: &mut TimeManager, _target: Option<RenderTarget>) -> Result<()> {

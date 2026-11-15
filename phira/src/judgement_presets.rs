@@ -33,7 +33,7 @@ impl JudgeSettings {
             timing: c.judge_timing.clone(),
             grading: c.judge_grading,
             windows_ms: [c.lim_perfect_plus_ms, c.lim_perfect_ms, c.lim_good_ms, c.lim_bad_ms],
-            late_ms: c.late_leniency_ms,
+            late_ms: c.input_latency_compensation_ms,
             drag_protect: c.drag_protect,
             flick_protect: c.flick_protect,
             hold_tail: c.hold_tail_judge,
@@ -86,7 +86,7 @@ impl JudgeSettings {
         c.judge_algorithm = self.algorithm;
         c.judge_timing = self.timing.clone();
         [c.lim_perfect_plus_ms, c.lim_perfect_ms, c.lim_good_ms, c.lim_bad_ms] = self.windows_ms;
-        c.late_leniency_ms = self.late_ms;
+        c.input_latency_compensation_ms = self.late_ms;
         c.drag_protect = self.drag_protect;
         c.flick_protect = self.flick_protect;
         c.hold_tail_judge = self.hold_tail;
@@ -96,7 +96,7 @@ impl JudgeSettings {
         c.mods.set(Mods::FULLSCREEN_JUDGE, self.fullscreen);
         c.mods.set(Mods::NO_COMBO_SCORE, self.no_combo_score);
         c.clamp_judge_windows();
-        c.late_leniency_ms = (c.late_leniency() * 1000.) as f32;
+        c.input_latency_compensation_ms = (c.input_latency_compensation() * 1000.) as f32;
     }
     pub fn normalize(&mut self) {
         let mut c = Config::default();

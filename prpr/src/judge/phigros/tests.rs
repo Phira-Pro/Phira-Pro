@@ -562,8 +562,8 @@ fn ten_ms_tie_survives_chart_timestamp_subtraction() {
 }
 
 #[test]
-fn custom_late_leniency_applies_to_all_head_note_types() {
-    let mut cfg = config(); cfg.late_leniency_ms = 50.;
+fn device_input_delay_is_compensated_for_all_head_note_types() {
+    let mut cfg = config(); cfg.input_latency_compensation_ms = 50.;
     let mut e = Engine::new(vec![spec(0, 0., Kind::Tap)]);
     assert_eq!(scores(&step(&mut e, &cfg, 0.22, &[finger(true, 0.)])), [(0, Judgement::Good as u8)]);
     let mut e = Engine::new(vec![spec(0, 0., Kind::Hold)]);
@@ -571,11 +571,28 @@ fn custom_late_leniency_applies_to_all_head_note_types() {
         Action::Head { judgement: Judgement::Good, .. }));
     let mut e = Engine::new(vec![spec(0, 0., Kind::Drag)]);
     assert_eq!(scores(&step(&mut e, &cfg, 0.14, &[finger(false, 0.)])), [(0, Judgement::Perfect as u8)]);
-    // A future non-Flick keeps the normal range nonempty, so this checks real
-    // late-window expansion instead of passing accidentally via sparse fallback.
+    // A future non-Flick keeps the normal range nonempty so this exercises matching.
     let mut e = Engine::new(vec![spec(0, 0., Kind::Flick), spec(1, 0.18, Kind::Tap)]);
     step(&mut e, &cfg, 0.15, &[finger(true, 0.)]);
     assert_eq!(scores(&step(&mut e, &cfg, 0.16, &[finger(false, 0.4)])), [(0, Judgement::Perfect as u8)]);
+}
+
+#[test]
+fn input_compensation_does_not_widen_phigros_windows_and_centers_delayed_hits() {
+    let mut cfg = config();
+    cfg.input_latency_compensation_ms = 15.;
+    cfg.speed = 1.5;
+    cfg.lim_perfect_plus_ms = 6.;
+    for (observed_ms, expected_ms, expected_grade) in [
+        (15., 0., Judgement::PerfectPlus),
+        (5., -10., Judgement::Perfect),
+        (25., 10., Judgement::Perfect),
+    ] {
+        let mut e = Engine::new(vec![spec(0, 1., Kind::Tap)]);
+        let events = step(&mut e, &cfg, 1. + observed_ms * 1.5 / 1000., &[finger(true, 0.)]);
+        assert!(matches!(events[0].action, Action::Score { judgement, offset }
+            if judgement as u8 == expected_grade as u8 && (offset * 1000. - expected_ms).abs() < 1e-8));
+    }
 }
 
 #[test]

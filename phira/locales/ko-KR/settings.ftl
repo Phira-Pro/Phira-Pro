@@ -146,8 +146,8 @@ item-flick-protect-sub = 탭 / 홀드가 early 쪽이고 적색 노트가 현재
 item-combo-text = 콤보 문구
 item-combo-text-sub = 콤보 수 아래에 표시할 문구 (최대 16자)
 combo-text-default = 기본
-item-late-leniency = 늦은 입력 보정
-item-late-leniency-sub = 늦은 입력의 오차를 이만큼 빼줍니다; 0 = 빠른 입력과 완전 대칭
+item-late-leniency = 입력 지연 보정
+item-late-leniency-sub = 판정 전에 입력 시각을 입력한 지연 시간만큼 앞당깁니다
 item-judge-chart = 판정 분포도
 item-judge-chart-sub = 결과 화면에 판정 타이밍 분포를 그립니다 (빠름 ← → 늦음)
 item-hp-capacity = 최대 체력

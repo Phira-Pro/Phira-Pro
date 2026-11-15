@@ -138,8 +138,8 @@ item-flick-protect-sub = Enquanto Tap / Hold estiver adiantado, um Flick pelo me
 item-combo-text = Texto do combo
 item-combo-text-sub = Texto exibido sob o contador de combo (até 16 caracteres)
 combo-text-default = Padrão
-item-late-leniency = Tolerância de atraso
-item-late-leniency-sub = Subtrai isso dos toques atrasados; 0 = simétrico aos adiantados
+item-late-leniency = Compensação de latência de entrada
+item-late-leniency-sub = Subtrai o atraso do dispositivo do horário da entrada antes do julgamento
 item-judge-chart = Distribuição de julgamentos
 item-judge-chart-sub = Desenha a distribuição de tempo na tela de resultado (adiantado → atrasado)
 item-hp-capacity = Vida máxima

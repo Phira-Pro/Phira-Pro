@@ -104,8 +104,8 @@ item-flick-protect-sub = Tap / Hold эрт талдаа байхад дор ха
 item-combo-text = Комбо бичвэр
 item-combo-text-sub = Комбо тооны доор харуулах бичвэр (дээд тал нь 16 тэмдэгт)
 combo-text-default = Анхдагч
-item-late-leniency = Хожуу даралтын нөхөлт
-item-late-leniency-sub = Хожуу даралтын алдаанаас ийм хэмжээг хасна; 0 = эрт даралттай бүрэн тэгш
+item-late-leniency = Оролтын хоцролтын нөхөлт
+item-late-leniency-sub = Үнэлэхээс өмнө оролтын цагаас төхөөрөмжийн хоцролтыг хасна
 item-judge-chart = Шийдвэрийн тархалт
 item-judge-chart-sub = Үр дүнгийн дэлгэцэд цаг хугацааны тархалтын зураг зурна (эрт → хожуу)
 item-hp-capacity = Амийн дээд хэмжээ

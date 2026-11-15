@@ -141,6 +141,9 @@ pub struct Gameplay {
     // Older recordings predate the option and always allowed healing.
     #[serde(default)]
     pub hp_disable_healing: bool,
+    /// Older tapes store the original error and used a wider late window.
+    #[serde(default)]
+    pub input_time_corrected: bool,
     pub hp_amount: f32,
     pub hp_scale: f32,
     #[serde(default)]
@@ -155,6 +158,7 @@ impl Gameplay {
         Self {
             hp_mode: c.hp_mode,
             hp_disable_healing: c.hp_disable_healing,
+            input_time_corrected: true,
             hp_amount: c.hp_amount,
             hp_scale: c.hp_scale,
             points_damage: !c.legacy_hp_damage,
@@ -1192,6 +1196,7 @@ pub fn recorder(chart: Option<ChartRef>, offset: f32, speed: f32, mods: u32) -> 
             p.gameplay = Some(Gameplay::capture(&res.config));
             p.theoretical_score = res.config.theoretical_score;
             p.player = Some(res.config.player_name.clone());
+            p.offset = res.config.offset;
             p.speed = res.config.speed;
             p.grading = res.config.judge_grading;
             // 触摸帧：非 Stationary 才记录，避免一帧刷好几条重复数据。

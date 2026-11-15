@@ -10,7 +10,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 struct CachedLine {
     text: String,
-    metrics: [u32; 4],
+    metrics: [u32; 5],
     bounds: (f32, f32, f32, f32),
 }
 
@@ -48,6 +48,11 @@ pub(super) struct LayoutOptions {
     pub multiline: bool,
     pub h_align: HorizontalAlign,
     pub color: [f32; 4],
+    pub font: Option<usize>,
+}
+
+pub(super) fn face_covering(fonts: &[FontArc], label: &str) -> Option<usize> {
+    fonts.iter().position(|font| label.chars().all(|c| c.is_whitespace() || font.glyph_id(c).0 != 0))
 }
 
 fn font_id(fonts: &[FontArc], c: char) -> usize {
@@ -61,7 +66,10 @@ fn runs<'a>(text: &'a str, fonts: &[FontArc], options: LayoutOptions) -> Vec<Tex
     let mut start = 0;
     let mut current = 0;
     for (index, c) in text.char_indices() {
-        let id = font_id(fonts, c);
+        let id = options
+            .font
+            .filter(|&index| fonts.get(index).is_some_and(|font| font.glyph_id(c).0 != 0))
+            .unwrap_or_else(|| font_id(fonts, c));
         if id != current {
             if start < index {
                 result.push(run(&text[start..index], current, options));
@@ -117,6 +125,7 @@ pub(super) fn layout_text<'a>(
             options.primary_scale.to_bits(),
             options.baseline as u32,
             options.h_align as u32,
+            options.font.map_or(u32::MAX, |font| font as u32),
         ];
         let mut hasher = DefaultHasher::new();
         text.hash(&mut hasher);
@@ -293,6 +302,7 @@ mod tests {
                 multiline: false,
                 h_align: HorizontalAlign::Left,
                 color: [1.; 4],
+                font: None,
             },
         )
     }
@@ -485,6 +495,7 @@ mod tests {
                             multiline: false,
                             h_align: HorizontalAlign::Left,
                             color: [1.; 4],
+                            font: None,
                         };
                         let (_, b) = layout_text(&mut brush, &mut cache, label.trim(), options);
                         assert!(b.2 <= width + 0.001 && b.3.is_finite(), "{label}: {b:?}");
@@ -494,6 +505,23 @@ mod tests {
             }
         }
         assert!(count > 100);
+    }
+
+    #[test]
+    fn course_title_selects_one_face_for_all_four_characters() {
+        let fonts = [
+            FontArc::try_from_slice(include_bytes!("../../../../assets/bold.ttf")).unwrap(),
+            FontArc::try_from_slice(include_bytes!("../../../../assets/harmonyos.ttf")).unwrap(),
+            FontArc::try_from_slice(include_bytes!("../../../../assets/font.ttf")).unwrap(),
+        ];
+        let title = "课题模式";
+        let face = face_covering(&fonts, title).expect("bundled fonts must include a complete face for the course title");
+        let (_, _, mut options) = setup();
+        options.font = Some(face);
+        let runs = runs(title, &fonts, options);
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].font_id.0, face);
+        assert!("课题模式".chars().all(|c| fonts[face].glyph_id(c).0 != 0));
     }
 
     #[test]

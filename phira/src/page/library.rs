@@ -606,6 +606,9 @@ pub fn request_export(suggested_name: String) -> bool {
         if #[cfg(target_os = "android")] {
             unsafe {
                 let env = miniquad::native::attach_jni_env();
+                if (**env).PushLocalFrame.unwrap()(env, 8) != 0 {
+                    return false;
+                }
                 let ctx = ndk_context::android_context().context();
                 let class = (**env).GetObjectClass.unwrap()(env, ctx);
                 let method =
@@ -617,6 +620,7 @@ pub fn request_export(suggested_name: String) -> bool {
                     method,
                     (**env).NewStringUTF.unwrap()(env, url.as_ptr()),
                 );
+                (**env).PopLocalFrame.unwrap()(env, std::ptr::null_mut());
             }
             true
         } else if #[cfg(target_os = "ios")] {

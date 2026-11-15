@@ -222,6 +222,9 @@ pub fn request_file(id: impl Into<String>) {
         if #[cfg(target_os = "android")] {
             unsafe {
                 let env = miniquad::native::attach_jni_env();
+                if (**env).PushLocalFrame.unwrap()(env, 8) != 0 {
+                    return;
+                }
                 let ctx = ndk_context::android_context().context();
                 let class = (**env).GetObjectClass.unwrap()(env, ctx);
                 // 图片类优先用相册（GET_CONTENT image/*）；老包里没有 choosePhoto 时回退文件选择器。
@@ -241,7 +244,7 @@ pub fn request_file(id: impl Into<String>) {
                         show_error(anyhow::anyhow!("无法打开 Android 文件选择器"));
                     }
                 }
-                (**env).DeleteLocalRef.unwrap()(env, class);
+                (**env).PopLocalFrame.unwrap()(env, std::ptr::null_mut());
             }
         } else if #[cfg(target_os = "ios")] {
             use objc2::runtime::{AnyObject, ProtocolObject};

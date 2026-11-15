@@ -637,6 +637,9 @@ pub fn open_url(url: &str) -> Result<()> {
         if #[cfg(target_os = "android")] {
             unsafe {
                 let env = miniquad::native::attach_jni_env();
+                if (**env).PushLocalFrame.unwrap()(env, 8) != 0 {
+                    return Err(anyhow::anyhow!("Android JNI local frame allocation failed"));
+                }
                 let ctx = ndk_context::android_context().context();
                 let class = (**env).GetObjectClass.unwrap()(env, ctx);
                 let method =
@@ -648,6 +651,7 @@ pub fn open_url(url: &str) -> Result<()> {
                     method,
                     (**env).NewStringUTF.unwrap()(env, url.as_ptr()),
                 );
+                (**env).PopLocalFrame.unwrap()(env, std::ptr::null_mut());
             }
         } else if #[cfg(target_os = "ios")] {
             use objc2::MainThreadMarker;

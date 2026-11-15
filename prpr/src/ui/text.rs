@@ -366,13 +366,6 @@ impl TextPainter {
     }
 
     fn enable_atlas(&mut self) {
-        // The fence backend is Android-only; other targets never probe GL or
-        // allocate the mirror.
-        #[cfg(not(target_os = "android"))]
-        {
-            self.atlas_blocked = true;
-            return;
-        }
         let (width, height) = self.brush.texture_dimensions();
         let Some(bytes) = (width as usize).checked_mul(height as usize).and_then(|size| size.checked_mul(4)) else {
             self.atlas_blocked = true;
@@ -403,6 +396,7 @@ impl TextPainter {
                 self.cache_texture = texture;
                 self.cache_context = context_id();
                 atlas.enabled = true;
+                tracing::debug!("font atlas pool enabled: {width}x{height}, {} versions", font_atlas_pool::SLOTS);
                 self.atlas = Some(atlas);
             }
             None => {

@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Long-lived UI painters (PGR font, default, bold). Four versions keep two
 /// frames of draw latency covered without ever blocking on a fence.
-const SLOTS: usize = 4;
+pub(crate) const SLOTS: usize = 4;
 const BUDGET: usize = 64 * 1024 * 1024;
 /// Process-wide cap across painters: the first two may pool, later ones fall
 /// back instead of quietly adding another 64 MiB each.
@@ -125,22 +125,96 @@ impl Delta {
     }
 }
 
-/// Zero-timeout sync objects. Android exposes core ES3 fences through EGL;
-/// other targets keep the pool unavailable and use the original path.
-#[cfg(target_os = "android")]
+/// Zero-timeout sync objects.
+///
+/// GL fences exist on desktop GL 3.2+ and GLES 3.0+. The pinned miniquad
+/// bindings do not declare them, so the entry points are resolved through the
+/// platform loader: EGL on Android/Linux, WGL on Windows. Unsupported systems
+/// simply leave the pool disabled and keep the original single-texture path.
 mod sync_api {
     use std::ffi::{c_char, c_void, CStr};
 
-    #[link(name = "EGL")]
-    unsafe extern "C" {
-        fn eglGetProcAddress(name: *const c_char) -> *const c_void;
-    }
+    pub type Fence = *mut c_void;
 
     type Insert = unsafe extern "C" fn(u32, u32) -> *mut c_void;
     type Poll = unsafe extern "C" fn(*mut c_void, u32, u64) -> u32;
     type Delete = unsafe extern "C" fn(*mut c_void);
 
-    pub type Fence = *mut c_void;
+    #[cfg(target_os = "android")]
+    fn lookup(name: &CStr) -> *const c_void {
+        #[link(name = "EGL")]
+        unsafe extern "C" {
+            fn eglGetProcAddress(name: *const c_char) -> *const c_void;
+        }
+        unsafe { eglGetProcAddress(name.as_ptr()) }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn lookup(name: &CStr) -> *const c_void {
+        #[link(name = "opengl32")]
+        unsafe extern "system" {
+            fn wglGetProcAddress(name: *const c_char) -> *const c_void;
+        }
+        unsafe {
+            let pointer = wglGetProcAddress(name.as_ptr());
+            // WGL returns 1/2/3/-1 sentinels for unsupported entries.
+            if pointer as usize > 3 { pointer } else { std::ptr::null() }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn lookup(name: &CStr) -> *const c_void {
+        use std::sync::OnceLock;
+        type EglGetProc = unsafe extern "C" fn(*const c_char) -> *const c_void;
+        static EGL: OnceLock<Option<EglGetProc>> = OnceLock::new();
+        let get = EGL.get_or_init(|| unsafe {
+            let handle = libc::dlopen(c"libEGL.so.1".as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL);
+            if handle.is_null() {
+                return None;
+            }
+            let symbol = libc::dlsym(handle, c"eglGetProcAddress".as_ptr());
+            if symbol.is_null() {
+                return None;
+            }
+            Some(std::mem::transmute::<*mut c_void, EglGetProc>(symbol))
+        });
+        unsafe {
+            if let Some(get) = get {
+                let pointer = get(name.as_ptr());
+                if !pointer.is_null() {
+                    return pointer;
+                }
+            }
+            // Mesa also exports core entry points directly.
+            let direct = libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr());
+            if !direct.is_null() {
+                return direct;
+            }
+            std::ptr::null()
+        }
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "windows", target_os = "linux")))]
+    fn lookup(_: &CStr) -> *const c_void {
+        std::ptr::null()
+    }
+
+    fn numbers(version: &str) -> Option<(u32, u32)> {
+        let mut parts = version.split(|c: char| !c.is_ascii_digit()).filter(|part| !part.is_empty());
+        let major = parts.next()?.parse().ok()?;
+        let minor = parts.next().unwrap_or("0").parse().ok()?;
+        Some((major, minor))
+    }
+
+    /// GL_VERSION is "4.6.0 - Build ..." on Windows, "4.6 (Core Profile)..."
+    /// on Linux and "OpenGL ES 3.2 ..." on Android.
+    fn fence_capable(version: &str) -> bool {
+        if let Some(rest) = version.strip_prefix("OpenGL ES ") {
+            return numbers(rest).is_some_and(|(major, _)| major >= 3);
+        }
+        let rest = version.strip_prefix("OpenGL ").unwrap_or(version);
+        numbers(rest).is_some_and(|(major, minor)| major > 3 || (major == 3 && minor >= 2))
+    }
 
     #[derive(Clone, Copy)]
     pub struct Api {
@@ -150,25 +224,21 @@ mod sync_api {
     }
 
     impl Api {
-        pub fn load() -> Result<Self, ()> {
+        pub fn load() -> Result<Self, &'static str> {
             unsafe {
                 let pointer = miniquad::gl::glGetString(0x1f02);
                 if pointer.is_null() {
-                    return Err(());
+                    return Err("no current GL context");
                 }
-                let version = CStr::from_ptr(pointer.cast()).to_string_lossy();
-                let major = version
-                    .strip_prefix("OpenGL ES ")
-                    .and_then(|s| s.split('.').next())
-                    .and_then(|s| s.parse::<u32>().ok());
-                if major.unwrap_or(0) < 3 {
-                    return Err(());
+                let version = CStr::from_ptr(pointer.cast()).to_string_lossy().into_owned();
+                if !fence_capable(&version) {
+                    return Err("GL/ES version has no fence objects");
                 }
                 macro_rules! load {
                     ($name:literal, $ty:ty) => {{
-                        let pointer = eglGetProcAddress(concat!($name, "\0").as_ptr().cast());
+                        let pointer = lookup(CStr::from_bytes_with_nul_unchecked(concat!($name, "\0").as_bytes()));
                         if pointer.is_null() {
-                            return Err(());
+                            return Err(concat!("missing ", $name));
                         }
                         std::mem::transmute::<*const c_void, $ty>(pointer)
                     }};
@@ -183,26 +253,26 @@ mod sync_api {
                 api.delete(fence);
                 ready?;
                 if miniquad::gl::glGetError() != 0 {
-                    return Err(());
+                    return Err("fence probe left a GL error");
                 }
                 Ok(api)
             }
         }
 
-        pub fn insert(&self) -> Result<Fence, ()> {
+        pub fn insert(&self) -> Result<Fence, &'static str> {
             let fence = unsafe { (self.insert)(0x9117, 0) };
             if fence.is_null() {
-                Err(())
+                Err("glFenceSync returned null")
             } else {
                 Ok(fence)
             }
         }
 
-        pub fn ready(&self, fence: Fence) -> Result<bool, ()> {
+        pub fn ready(&self, fence: Fence) -> Result<bool, &'static str> {
             match unsafe { (self.poll)(fence, 0, 0) } {
                 0x911a | 0x911c => Ok(true),
                 0x911b => Ok(false),
-                _ => Err(()),
+                _ => Err("sync poll failed"),
             }
         }
 
@@ -211,27 +281,6 @@ mod sync_api {
                 (self.delete)(fence);
             }
         }
-    }
-}
-
-#[cfg(not(target_os = "android"))]
-mod sync_api {
-    pub type Fence = usize;
-
-    #[derive(Clone, Copy)]
-    pub struct Api;
-
-    impl Api {
-        pub fn load() -> Result<Self, ()> {
-            Err(())
-        }
-        pub fn insert(&self) -> Result<Fence, ()> {
-            unreachable!()
-        }
-        pub fn ready(&self, _: Fence) -> Result<bool, ()> {
-            unreachable!()
-        }
-        pub fn delete(&self, _: Fence) {}
     }
 }
 
@@ -320,9 +369,10 @@ impl Pool {
         let context = context_id();
         let api = match Api::load() {
             Ok(api) => Some(api),
-            Err(()) => {
+            Err(reason) => {
                 #[cfg(target_os = "android")]
                 drain_errors();
+                tracing::debug!("font atlas pool unavailable: {reason}");
                 None
             }
         };
@@ -439,7 +489,7 @@ impl Pool {
         };
         let fence = match api.insert() {
             Ok(fence) => fence,
-            Err(()) => return self.mutable_fallback(previous, width, height, shadow),
+            Err(_) => return self.mutable_fallback(previous, width, height, shadow),
         };
         if let Some(old) = self.slots[current].fence.replace(fence) {
             api.delete(old);
@@ -459,7 +509,7 @@ impl Pool {
                     break;
                 }
                 Ok(false) => {}
-                Err(()) => return self.mutable_fallback(previous, width, height, shadow),
+                Err(_) => return self.mutable_fallback(previous, width, height, shadow),
             }
         }
         if let Some(index) = available {

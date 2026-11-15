@@ -1,8 +1,12 @@
 #![allow(unused)]
 
 prpr_l10n::tl_file!("game");
+#[path = "game/failure.rs"]
+mod failure;
 #[path = "game/judgement_details.rs"]
 mod judgement_details;
+#[path = "game/life_bar.rs"]
+mod life_bar;
 #[path = "game/timing_feedback.rs"]
 mod timing_feedback;
 #[path = "game/lifecycle.rs"]
@@ -231,11 +235,6 @@ fn draw_offset_indicator(ui: &mut Ui, res: &Resource, recent: &[RecentHit], top:
 }
 
 const PAUSE_CLICK_INTERVAL: f32 = 0.7;
-
-/// 死亡过渡时长：谱面继续前进但逐渐减速的时长（秒）。
-const DEATH_TIME: f64 = 2.;
-/// 死亡过渡结束后，失败遮罩与按钮渐显的时长（秒）。
-const DEATH_FADE: f64 = 0.5;
 
 /// 谱面调试叠加层：判定线的编号 / 线高 / z-index / 类型，以及音符的时间 / 高度 / 类型
 /// 与横向判定范围。移植自上游改版 Phirc Mod++。
@@ -623,10 +622,10 @@ enum State {
 }
 
 pub struct GameScene {
+    life_bar: life_bar::LifeBar,
     should_exit: bool,
     next_scene: Option<NextScene>,
-    /// 失败（血条或即时死亡）发生的时刻，用于死亡过渡动画。
-    death_time: f64,
+    failure: Option<failure::Failure>,
     /// 本次游玩已经自动重试了几次。
     auto_retry_count: u32,
     /// 断点续练的起始时刻；由 Starting -> BeforeMusic 的转场消费。
@@ -705,13 +704,13 @@ pub struct GameScene {
     fps_total_time: f64,
     fps_last_frame_time: f64,
 
-    dead: bool,
 }
 
 macro_rules! reset {
     ($self:ident, $res:expr, $tm:ident) => {{
         $self.bad_notes.clear();
         $self.judge.reset();
+        $self.life_bar.reset();
         $self.chart.reset();
         $self.block_audio.reset();
         $res.judge_line_color = $res.res_pack.info.color_perfect();
@@ -731,7 +730,7 @@ macro_rules! reset {
         $self.fps_frame_count = 0;
         $self.fps_total_time = 0.0;
         $self.fps_last_frame_time = $tm.real_time();
-        $self.dead = false;
+        $self.failure = None;
         // Notify the recorder immediately, including retries triggered while
         // rendering the pause menu. No previous attempt survives this reset.
         $self.judge.set_recording_active(false);
@@ -1061,8 +1060,7 @@ impl GameScene {
         let exercise_range = (chart.offset + info_offset + res.config.offset) as f64..res.track_length;
 
         let mut judge = Judge::new(&chart, res.config.hold_tail_judge);
-        judge.set_hp_amount(res.config.hp_amount);
-        judge.set_hp_scale(res.config.hp_scale);
+        judge.configure_health(&res.config);
         judge.set_grading(res.config.judge_grading);
 
         let music = Self::new_music(&mut res, &practice_schedule)?;
@@ -1070,9 +1068,10 @@ impl GameScene {
         crate::core::reset_block_effects();
 
         Ok(Self {
+            life_bar: life_bar::LifeBar::default(),
             should_exit: false,
             next_scene: None,
-            death_time: 0.,
+            failure: None,
             auto_retry_count: 0,
             retry_from: None,
             pending_music_rate: None,
@@ -1144,7 +1143,6 @@ impl GameScene {
             fps_total_time: 0.0,
             fps_last_frame_time: 0.0,
 
-            dead: false,
         })
     }
 
@@ -1337,7 +1335,7 @@ impl GameScene {
             } else {
                 self.judge.combo()
             };
-            if displayed_combo >= 3 {
+            if !res.config.hp_mode && displayed_combo >= 3 {
                 if legacy_aui {
                     let combo_top = top + eps * 2. - (1. - p) * 0.4;
                     let btm = self
@@ -1392,15 +1390,6 @@ impl GameScene {
             }
             if res.config.show_early_late {
                 timing_feedback::draw(ui, res, self.judge.recent_hits(), top);
-            }
-            // 血条模式：与暂停按钮同高、紧贴其右侧；长度由配置控制，高度是相对暂停按钮的倍率。
-            if res.config.hp_mode {
-                let h = pause_h * res.config.hp_height;
-                let w = res.config.hp_width;
-                let r = Rect::new(pause_center.x + pause_w * 1.5 + 0.04, pause_center.y - h / 2., w, h);
-                ui.fill_rect(r, Color::new(0., 0., 0., 0.35));
-                let (cr, cg, cb) = res.config.hp_color.rgb();
-                ui.fill_rect(Rect::new(r.x, r.y, r.w * self.judge.hp().clamp(0., 1.), r.h), Color::new(cr, cg, cb, 0.9));
             }
             // 谱面调试叠加层（判定线 / 音符的编号、线高、时间、横向判定范围）。
             if res.config.chart_debug_line || res.config.chart_debug_note {
@@ -1458,12 +1447,9 @@ impl GameScene {
     }
 
     fn overlay_ui(&mut self, ui: &mut Ui, tm: &mut TimeManager) -> Result<()> {
-        // 失败时，遮罩与按钮在减速过渡结束后渐显；普通暂停保持原样。
-        let fade = if self.dead {
-            (((tm.real_time() - self.death_time) - DEATH_TIME) / DEATH_FADE).clamp(0., 1.) as f32
-        } else {
-            1.
-        };
+        let failed = self.failure.is_some();
+        let flash = self.has_flash_failure();
+        let fade = self.failure.as_ref().map_or(1., |failure| failure.controls_alpha(tm.real_time()));
         let c = semi_white(self.res.alpha * fade);
         let res = &mut self.res;
         if tm.paused() {
@@ -1486,17 +1472,19 @@ impl GameScene {
             let r = Rect::new(0., o, 0., 0.).feather(s);
             let disabled_color = semi_white(res.alpha * 0.4 * fade);
             ui.fill_rect(r, (*res.icon_retry, r.feather(0.02), ScaleType::Fit, if no_retry { disabled_color } else { c }));
-            draw_texture_ex(
-                *res.icon_resume,
-                s + w,
-                -s + o,
-                if self.dead { disabled_color } else { c },
-                DrawTextureParams {
-                    dest_size: Some(vec2(s * 2., s * 2.)),
-                    ..Default::default()
-                },
-            );
-            if res.config.interactive && !(self.mode == GameMode::Exercise && self.practice_panel.modal(tm.real_time() as f32)) {
+            if !flash {
+                draw_texture_ex(
+                    *res.icon_resume,
+                    s + w,
+                    -s + o,
+                    if failed { disabled_color } else { c },
+                    DrawTextureParams {
+                        dest_size: Some(vec2(s * 2., s * 2.)),
+                        ..Default::default()
+                    },
+                );
+            }
+            if res.config.interactive && (!flash || fade >= 1.) && !(self.mode == GameMode::Exercise && self.practice_panel.modal(tm.real_time() as f32)) {
                 let mut clicked = None;
                 for touch in Judge::get_touches_in(res.camera.viewport.unwrap_or(res.last_vp)) {
                     if touch.phase != TouchPhase::Started {
@@ -1513,7 +1501,7 @@ impl GameScene {
                         }
                     }
                 }
-                if no_retry && clicked == Some(0) || self.dead && clicked == Some(1) {
+                if no_retry && clicked == Some(0) || failed && clicked == Some(1) {
                     clicked = None;
                 }
                 let mut pos = self.music.position();
@@ -1576,7 +1564,7 @@ impl GameScene {
                     _ => {}
                 }
             }
-            if self.mode == GameMode::Exercise {
+            if self.mode == GameMode::Exercise && !flash {
                 let interactive = !self.practice_panel.modal(tm.real_time() as f32);
                 let parent = self.res.last_vp;
                 let fitted = self.res.camera.viewport.unwrap_or(parent);
@@ -1610,6 +1598,9 @@ impl GameScene {
                     self.practice_action(tm, action)?;
                 }
             }
+        }
+        if flash {
+            return Ok(());
         }
         if let Some(time) = self.pause_rewind {
             let dt = tm.now() - time;
@@ -1645,6 +1636,36 @@ impl GameScene {
         res.config.interactive && matches!(state, State::Playing)
     }
 
+    fn has_flash_failure(&self) -> bool {
+        self.failure.as_ref().is_some_and(failure::Failure::is_flash)
+    }
+
+    fn update_failure(&mut self, tm: &mut TimeManager) -> Result<()> {
+        let Some(failure) = &self.failure else { return Ok(()) };
+        let now = tm.real_time();
+        self.pending_music_rate = None;
+        if let Some(factor) = failure.slowdown_factor(now) {
+            let speed = self.res.config.speed as f64 * factor;
+            if (tm.speed - speed).abs() > 1e-6 {
+                let time = tm.now();
+                tm.speed = speed;
+                tm.seek_to(time);
+            }
+            self.music.try_set_playback_rate(speed.max(0.01));
+        } else if !tm.paused() {
+            self.music.pause()?;
+            tm.pause();
+            self.block_audio.suspend(&mut self.music);
+        } else if failure.controls_alpha(now) >= 1. && self.res.config.auto_retry as u32 > self.auto_retry_count {
+            let target = (tm.now() - self.res.config.retry_lead as f64).max(0.);
+            self.auto_retry_count += 1;
+            self.retry_from = (target > 0.).then_some(target);
+            let res = &mut self.res;
+            reset!(self, *res, tm);
+        }
+        Ok(())
+    }
+
     pub fn offset(&self) -> f32 {
         self.chart.offset + self.res.config.offset + self.info_offset
     }
@@ -1671,10 +1692,14 @@ impl GameScene {
         self.video_progress = Some(progress.clamp(0., 1.));
     }
 
+    /// Drop the displayed interpolation when the replay seeks.
+    pub fn reset_life_display(&mut self) {
+        self.life_bar.reset();
+    }
+
     /// 回放 / 观战专用：按调用方已设置好的 `res.time` 刷新谱面动画、特效与判定线颜色。
     ///
     /// 不推进状态机、不处理输入判定（判定由回放器自行 `judge.commit`）。
-    /// 曲名/分数等 HUD 由 `render` 内的 `ui()` 正常绘制，此处只补状态机之外的那部分。
     pub fn tick_replay(&mut self) {
         let counts = self.judge.counts();
         self.res.judge_line_color = if self.res.config.ap_fc_indicator {
@@ -1843,6 +1868,9 @@ impl Scene for GameScene {
     }
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
+        if self.has_flash_failure() {
+            return self.update_failure(tm);
+        }
         if let Some(rate) = self.pending_music_rate {
             if self.music.try_set_playback_rate(rate) {
                 self.pending_music_rate = None;
@@ -2143,58 +2171,35 @@ impl Scene for GameScene {
         } else {
             WHITE
         };
-        if !self.dead
+        let empty_life = self.res.config.hp_mode && self.judge.hp() <= 0.;
+        if self.failure.is_none()
             && matches!(self.state, State::Playing)
             && !self.res.config.mods.contains(Mods::NO_FAIL)
             && (self.res.config.mods.contains(Mods::INSTANT_DEATH_AP) && counts[1] + counts[2] + counts[3] + counts[5] + counts[6] + counts[7] > 0
                 || self.res.config.mods.contains(Mods::INSTANT_DEATH_FC) && counts[2] + counts[3] > 0
-                || self.res.config.hp_mode && self.judge.hp() <= 0.)
+                || empty_life)
         {
-            // 这里不立刻冻结：交给下面的死亡过渡，让谱面减速后再停下。
-            self.dead = true;
-            self.death_time = tm.real_time();
+            use crate::config::HealthFailureEffect;
+            let effect = if empty_life { self.res.config.hp_failure_effect } else { HealthFailureEffect::Slowdown };
+            self.failure = Some(failure::Failure::new(effect, tm.real_time()));
             #[cfg(target_env = "ohos")]
             miniquad::native::set_interceptor_state(false);
+            if self.has_flash_failure() {
+                self.pause_rewind = None;
+                self.practice_panel.hide();
+                self.practice_base.cancel();
+                return self.update_failure(tm);
+            }
             show_message(tl!("game-over")).error();
         }
-        if self.dead {
-            // Death owns the playback rate; drop any pending reset retry so it
-            // cannot snap the audio back to normal speed mid-fade.
-            self.pending_music_rate = None;
-            // 死亡过渡：谱面与音乐同步减速；结束后冻结，失败 UI 由 overlay_ui 渐显。
-            let p = ((tm.real_time() - self.death_time) / DEATH_TIME).clamp(0., 1.);
-            if p < 1. {
-                let factor = (1. - p).powi(2);
-                let speed = self.res.config.speed as f64 * factor;
-                if (tm.speed - speed).abs() > 1e-6 {
-                    // TimeManager 的时间是「真实流逝时间 × speed」，所以改速度必须重锚
-                    // start_time，否则整条时间轴会被重新缩放，表现为跳回开头。
-                    let now = tm.now();
-                    tm.speed = speed;
-                    tm.seek_to(now);
-                }
-                self.music.try_set_playback_rate(speed.max(0.01));
-            } else if !tm.paused() {
-                self.music.pause()?;
-                tm.pause();
-            } else if self.res.config.auto_retry as u32 > self.auto_retry_count && tm.real_time() - self.death_time >= DEATH_TIME + DEATH_FADE {
-                // 自动重试：沿用与手动重试完全相同的一条路径（reset! 会重置判定、时间与音乐）。
-                // 续练的起始时刻交给 Starting -> BeforeMusic 的转场统一处理——那里才是真正设定
-                // 起始时间的地方，在这里改会被随后的 tm.reset() 覆盖。
-                let target = (tm.now() - self.res.config.retry_lead as f64).max(0.);
-                self.auto_retry_count += 1;
-                self.retry_from = (target > 0.).then_some(target);
-                let res = &mut self.res;
-                reset!(self, *res, tm);
-            }
-        }
+        self.update_failure(tm)?;
         self.res.judge_line_color.a *= self.res.alpha;
         self.chart.update(&mut self.res);
         let res = &mut self.res;
         if res.config.interactive && res.config.hotkeys.pressed(crate::hotkeys::Action::Pause) {
             // Resuming while dead would restart a clock frozen by the death fade
             // at its final ~0 rate; the death overlay's retry is the only exit.
-            if tm.paused() && !self.dead {
+            if tm.paused() && self.failure.is_none() {
                 if matches!(self.state, State::Playing) {
                     self.music.play()?;
                     tm.resume();
@@ -2311,6 +2316,9 @@ impl Scene for GameScene {
     }
 
     fn touch(&mut self, tm: &mut TimeManager, touch: &Touch) -> Result<bool> {
+        if self.has_flash_failure() {
+            return Ok(false);
+        }
         if self.mode == GameMode::TweakOffset {
             self.offset_analysis.touch(touch, tm.real_time() as f32);
         }
@@ -2335,6 +2343,9 @@ impl Scene for GameScene {
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
+        if self.draw_failure_screen(tm, ui)? {
+            return Ok(());
+        }
         if self.mode == GameMode::Exercise {
             let eligible = Self::implicit_msaa_eligible(&self.chart, &self.res);
             self.res
@@ -2487,6 +2498,12 @@ impl Scene for GameScene {
         // The practice covers belong to the screen, not the chart camera; draw
         // them after switching so they stay pinned while zooming/panning.
         crate::core::hide_cover::draw(res);
+        if !self.hide_ui && res.config.hp_mode {
+            let old_top = std::mem::replace(&mut ui.top, 1. / res.aspect_ratio);
+            let opacity = res.alpha * self.video_entrance.map_or(1., |(_, hud)| hud);
+            self.life_bar.draw(ui, &res.config, self.judge.hp(), res.time, opacity);
+            ui.top = old_top;
+        }
         if !self.hide_ui || self.video_indicators.is_some() {
             if self.chart.camera_follows_chart() {
                 let matrix = self.chart.camera_model(self.res.time, self.res.aspect_ratio, true);
@@ -2574,6 +2591,10 @@ impl Scene for GameScene {
             ui.fill_rect(ui.screen_rect(), crate::ext::semi_black(1. - self.res.alpha));
         }
         Ok(())
+    }
+
+    fn suppresses_overlays(&self) -> bool {
+        self.has_flash_failure()
     }
 
     fn next_scene(&mut self, tm: &mut TimeManager) -> NextScene {

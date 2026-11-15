@@ -140,7 +140,10 @@ item-late-leniency = Geç toleransı
 item-late-leniency-sub = Geç vuruşlardan bu kadar düşülür; 0 = erken ile tam simetrik
 item-judge-chart = Yargı dağılımı
 item-judge-chart-sub = Sonuç ekranına zamanlama dağılımı çizer (erken → geç)
-item-hp-scale = Can barı çarpanı
+item-hp-capacity = Azami can
+item-hp-failure-effect = Can bitiş efekti
+hp-failure-red-flash = Phigros efekti
+hp-failure-slowdown = Phira Pro efekti
 item-hp-color = Can barı rengi
 item-history = Skor geçmişi
 item-history-sub = Her oyun yerel olarak kaydedilir: liste / eğilim / PB karşılaştırması / yargı dağılımı / içe ve dışa aktarma

@@ -477,6 +477,10 @@ pub trait Scene {
     }
     fn update(&mut self, tm: &mut TimeManager) -> Result<()>;
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()>;
+    /// An opaque scene transition can reserve the screen from app overlays.
+    fn suppresses_overlays(&self) -> bool {
+        false
+    }
     fn next_scene(&mut self, _tm: &mut TimeManager) -> NextScene {
         NextScene::None
     }
@@ -648,7 +652,7 @@ impl Main {
         let mut ui = Ui::new(painter, self.viewport);
         ui.set_touches(self.touches.take());
         ui.scope(|ui| self.scenes.last_mut().unwrap().render(&mut self.tm, ui))?;
-        if self.top_level {
+        if self.top_level && !self.suppresses_overlays() {
             push_camera_state();
             set_camera(&ui.camera());
             let mut gl = unsafe { get_internal_gl() };
@@ -713,6 +717,10 @@ impl Main {
 
     pub fn paused(&self) -> bool {
         self.paused
+    }
+
+    pub fn suppresses_overlays(&self) -> bool {
+        self.scenes.last().is_some_and(|scene| scene.suppresses_overlays())
     }
 
     pub fn should_exit(&self) -> bool {

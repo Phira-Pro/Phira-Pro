@@ -153,7 +153,10 @@ item-late-leniency = Tolérance tardive
 item-late-leniency-sub = Retire autant aux frappes tardives ; 0 = symétrique avec tôt
 item-judge-chart = Distribution des jugements
 item-judge-chart-sub = Dessine une distribution temporelle sur l'écran de résultat (tôt → tard)
-item-hp-scale = Multiplicateur de vie
+item-hp-capacity = Points de vie max.
+item-hp-failure-effect = Effet à vie nulle
+hp-failure-red-flash = Effet Phigros
+hp-failure-slowdown = Effet Phira Pro
 item-hp-color = Couleur de la barre de vie
 item-history = Historique des scores
 item-history-sub = Chaque partie enregistrée en local : liste / tendance / comparaison PB / répartition des jugements / import-export

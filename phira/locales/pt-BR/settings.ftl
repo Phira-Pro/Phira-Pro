@@ -140,7 +140,10 @@ item-late-leniency = Tolerância de atraso
 item-late-leniency-sub = Subtrai isso dos toques atrasados; 0 = simétrico aos adiantados
 item-judge-chart = Distribuição de julgamentos
 item-judge-chart-sub = Desenha a distribuição de tempo na tela de resultado (adiantado → atrasado)
-item-hp-scale = Multiplicador da barra de vida
+item-hp-capacity = Vida máxima
+item-hp-failure-effect = Efeito ao zerar a vida
+hp-failure-red-flash = Efeito do Phigros
+hp-failure-slowdown = Efeito do Phira Pro
 item-hp-color = Cor da barra de vida
 item-history = Histórico de pontuações
 item-history-sub = Cada partida salva localmente: lista / tendência / comparação de PB / distribuição de julgamentos / importar e exportar

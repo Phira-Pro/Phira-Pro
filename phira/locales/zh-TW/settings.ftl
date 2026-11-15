@@ -153,7 +153,10 @@ item-late-leniency = 晚按補償
 item-late-leniency-sub = 判定時把「按晚了」的誤差減掉這麼多；0 = 與早按完全對稱
 item-judge-chart = 結算判定分布圖
 item-judge-chart-sub = 結算畫面畫一張判定時間分布圖（早 ← → 晚），0ms 居中、左藍右橙
-item-hp-scale = 血條整體倍率
+item-hp-capacity = 最大血量
+item-hp-failure-effect = 血條失敗效果
+hp-failure-red-flash = 本家效果
+hp-failure-slowdown = Phira Pro效果
 item-hp-color = 血條顏色
 item-history = 成績歷史
 item-history-sub = 本機保存的每次遊玩記錄：列表 / 趨勢 / PB 對比 / 判定分布對比 / 匯入匯出

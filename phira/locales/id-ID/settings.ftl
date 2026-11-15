@@ -136,7 +136,10 @@ item-late-leniency = Toleransi telat
 item-late-leniency-sub = Dikurangi sebanyak ini untuk ketukan telat; 0 = simetris dengan awal
 item-judge-chart = Distribusi penilaian
 item-judge-chart-sub = Menggambar distribusi waktu di layar hasil (awal ke telat)
-item-hp-scale = Pengali bilah nyawa
+item-hp-capacity = Nyawa maksimum
+item-hp-failure-effect = Efek saat nyawa habis
+hp-failure-red-flash = Efek Phigros
+hp-failure-slowdown = Efek Phira Pro
 item-hp-color = Warna bilah nyawa
 item-history = Riwayat skor
 item-history-sub = Setiap permainan disimpan lokal: daftar / tren / perbandingan PB / distribusi penilaian / impor & ekspor

@@ -21,6 +21,8 @@ use std::{
 };
 
 pub const FLICK_SPEED_THRESHOLD: f32 = 0.8;
+#[cfg(not(closed))]
+mod health;
 #[cfg(test)]
 #[path = "judge/input_tests.rs"]
 mod input_tests;
@@ -417,12 +419,7 @@ pub(crate) struct JudgeInner {
     offsets: Vec<f64>,
     /// 判定时间误差分布（-HIST_MAX_MS .. +HIST_MAX_MS，共 HIST_BUCKETS 个桶）。
     hist: [u32; HIST_BUCKETS],
-    /// 血条模式的当前血量（0..=1）。
-    hp: f32,
-    /// 血条扣血倍率。
-    hp_amount: f32,
-    /// 血条整体倍率（回血与扣血同乘）。
-    hp_scale: f32,
+    health: health::Health,
 }
 
 #[cfg(not(closed))]
@@ -442,22 +439,12 @@ impl JudgeInner {
             recent: Vec::new(),
             offsets: Vec::new(),
             hist: [0; HIST_BUCKETS],
-            hp: 1.,
-            hp_amount: 1.,
-            hp_scale: 1.,
+            health: health::Health::default(),
         }
     }
 
-    pub fn set_hp_amount(&mut self, amount: f32) {
-        self.hp_amount = amount.max(0.);
-    }
-
-    pub fn set_hp_scale(&mut self, scale: f32) {
-        self.hp_scale = if scale.is_finite() { scale.max(0.) } else { 1. };
-    }
-
     pub fn hp(&self) -> f32 {
-        self.hp
+        self.health.ratio()
     }
 
     /// 记录一次命中的真实偏移。Miss 与拖拽/滑动音符没有有意义的偏移，不记录。
@@ -534,19 +521,7 @@ impl JudgeInner {
         } else {
             0
         };
-        // 血条：Perfect+ / Perfect 回血，Good 微增，Bad 小扣，Miss 大扣。
-        let base = match what {
-            PerfectPlus => 0.02,
-            Perfect => 0.01,
-            Great => 0.006,
-            Good => 0.002,
-            Ok | Meh => 0.,
-            Bad => -0.06,
-            Miss => -0.12,
-        };
-        // 扣血再乘 hp_amount；回血 / 扣血统一再乘 hp_scale（总体倍率）。
-        let delta = base * self.hp_scale * if base < 0. { self.hp_amount } else { 1. };
-        self.hp = (self.hp + delta).clamp(0., 1.);
+        self.health.apply(what);
         match what {
             Perfect | PerfectPlus | Great | Good | Ok | Meh => {
                 self.combo += 1;
@@ -571,7 +546,7 @@ impl JudgeInner {
         self.recent.clear();
         self.offsets.clear();
         self.hist = [0; HIST_BUCKETS];
-        self.hp = 1.;
+        self.health.reset();
     }
 
     /// Perfect+ 与 Perfect 同权，因此结果与接入 Perfect+ 之前逐位相同。
@@ -1183,30 +1158,6 @@ mod tests {
         assert_eq!(j.recent_hits().len(), MAX_RECENT_HITS);
     }
 
-    /// 血条：Perfect+/Perfect 回血、Bad/Miss 扣血；扣血受倍率影响，且夹在 0..=1，重开回到满血。
-    #[test]
-    fn hp_drains_and_heals() {
-        let mut j = JudgeInner::new(64);
-        assert!((j.hp() - 1.).abs() < 1e-5);
-
-        j.commit(Judgement::Miss, 0.);
-        assert!((j.hp() - 0.88).abs() < 1e-5);
-        j.commit(Judgement::Bad, 0.);
-        assert!((j.hp() - 0.82).abs() < 1e-5);
-        j.commit(Judgement::Good, 0.);
-        assert!((j.hp() - 0.822).abs() < 1e-5);
-        j.commit(Judgement::Perfect, 0.);
-        assert!((j.hp() - 0.832).abs() < 1e-5);
-        j.commit(Judgement::PerfectPlus, 0.);
-        assert!((j.hp() - 0.852).abs() < 1e-5);
-
-        j.set_hp_amount(2.);
-        j.commit(Judgement::Miss, 0.);
-        assert!((j.hp() - 0.612).abs() < 1e-5);
-
-        j.reset();
-        assert!((j.hp() - 1.).abs() < 1e-5);
-    }
 }
 
 #[rustfmt::skip]
@@ -2419,12 +2370,16 @@ impl Judge {
         self.inner.hp()
     }
 
-    pub fn set_hp_amount(&mut self, amount: f32) {
-        self.inner.set_hp_amount(amount);
-    }
-
-    pub fn set_hp_scale(&mut self, scale: f32) {
-        self.inner.set_hp_scale(scale);
+    pub fn configure_health(&mut self, config: &Config) {
+        #[cfg(not(closed))]
+        {
+            self.inner.health = health::Health::from_config(config);
+        }
+        #[cfg(closed)]
+        {
+            self.inner.set_hp_amount(config.hp_amount);
+            self.inner.set_hp_scale(config.hp_scale);
+        }
     }
 }
 

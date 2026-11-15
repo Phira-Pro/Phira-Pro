@@ -140,6 +140,8 @@ pub struct Gameplay {
     pub hp_mode: bool,
     pub hp_amount: f32,
     pub hp_scale: f32,
+    #[serde(default)]
+    pub points_damage: bool,
     pub use_keyboard: bool,
     pub note_scale: f32,
     pub flow_speed: f32,
@@ -151,6 +153,7 @@ impl Gameplay {
             hp_mode: c.hp_mode,
             hp_amount: c.hp_amount,
             hp_scale: c.hp_scale,
+            points_damage: !c.legacy_hp_damage,
             use_keyboard: c.use_keyboard,
             note_scale: c.note_scale,
             flow_speed: c.flow_speed,
@@ -161,6 +164,7 @@ impl Gameplay {
         c.hp_mode = self.hp_mode;
         c.hp_amount = self.hp_amount;
         c.hp_scale = self.hp_scale;
+        c.legacy_hp_damage = !self.points_damage;
         c.use_keyboard = self.use_keyboard;
         c.note_scale = self.note_scale;
         c.flow_speed = self.flow_speed;

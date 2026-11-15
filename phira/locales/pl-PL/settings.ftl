@@ -132,7 +132,10 @@ item-late-leniency = Tolerancja spóźnień
 item-late-leniency-sub = Tyle odejmuje się od spóźnionych trafień; 0 = symetrycznie do wczesnych
 item-judge-chart = Rozkład ocen
 item-judge-chart-sub = Rysuje rozkład czasów ocen na ekranie wyniku (wcześnie → późno)
-item-hp-scale = Mnożnik paska życia
+item-hp-capacity = Maksymalna liczba punktów życia
+item-hp-failure-effect = Efekt utraty życia
+hp-failure-red-flash = Efekt Phigros
+hp-failure-slowdown = Efekt Phira Pro
 item-hp-color = Kolor paska życia
 item-history = Historia wyników
 item-history-sub = Każda rozgrywka zapisana lokalnie: lista / trend / porównanie PB / rozkład ocen / import i eksport

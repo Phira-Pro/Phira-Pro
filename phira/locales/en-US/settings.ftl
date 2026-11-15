@@ -176,7 +176,10 @@ item-late-leniency = Late Leniency
 item-late-leniency-sub = Subtracts this much from late hits when judging; 0 = symmetric with early
 item-judge-chart = Judgement Chart
 item-judge-chart-sub = Draw a judgement timing distribution chart on the ending screen (early <- -> late)
-item-hp-scale = Health Bar Rate
+item-hp-capacity = Max Life
+item-hp-failure-effect = Life failure effect
+hp-failure-red-flash = Phigros effect
+hp-failure-slowdown = Phira Pro effect
 item-hp-color = Health Bar Color
 item-history = Score History
 item-history-sub = Every play saved locally: list / trend / PB comparison / judgement distribution / import & export

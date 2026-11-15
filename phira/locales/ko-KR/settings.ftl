@@ -148,7 +148,10 @@ item-late-leniency = 늦은 입력 보정
 item-late-leniency-sub = 늦은 입력의 오차를 이만큼 빼줍니다; 0 = 빠른 입력과 완전 대칭
 item-judge-chart = 판정 분포도
 item-judge-chart-sub = 결과 화면에 판정 타이밍 분포를 그립니다 (빠름 ← → 늦음)
-item-hp-scale = 체력바 배율
+item-hp-capacity = 최대 체력
+item-hp-failure-effect = 체력 소진 효과
+hp-failure-red-flash = Phigros 효과
+hp-failure-slowdown = Phira Pro 효과
 item-hp-color = 체력바 색상
 item-history = 점수 기록
 item-history-sub = 모든 플레이를 기기에 저장: 목록 / 추세 / PB 비교 / 판정 분포 / 가져오기·내보내기

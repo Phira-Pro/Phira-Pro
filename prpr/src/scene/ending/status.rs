@@ -143,7 +143,7 @@ impl PlayStatus {
             options.push(format!("FLOW {:.2}x", c.flow_speed));
         }
         if c.hp_mode {
-            options.push(format!("HP ×{:.2} / {:.2}", c.hp_amount, c.hp_scale));
+            options.push(format!("LIFE {} / DMG ×{:.2}", c.hp_capacity(), c.hp_amount));
         }
         let w = c.judge_windows();
         if w.early != w.late || (w.grading.detailed && w.extended_early != w.extended_late) {

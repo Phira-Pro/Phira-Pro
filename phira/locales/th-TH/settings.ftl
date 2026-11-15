@@ -153,7 +153,10 @@ item-late-leniency = ชดเชยการกดช้า
 item-late-leniency-sub = หักออกเท่านี้สำหรับการกดช้า; 0 = สมมาตรกับการกดเร็ว
 item-judge-chart = กราฟการตัดสิน
 item-judge-chart-sub = วาดกราฟการกระจายเวลาตัดสินบนหน้าผลลัพธ์ (เร็ว → ช้า)
-item-hp-scale = ตัวคูณแถบพลังชีวิต
+item-hp-capacity = พลังชีวิตสูงสุด
+item-hp-failure-effect = เอฟเฟกต์เมื่อพลังชีวิตหมด
+hp-failure-red-flash = เอฟเฟกต์ Phigros
+hp-failure-slowdown = เอฟเฟกต์ Phira Pro
 item-hp-color = สีแถบพลังชีวิต
 item-history = ประวัติคะแนน
 item-history-sub = ทุกการเล่นถูกบันทึกไว้ในเครื่อง: รายการ / แนวโน้ม / เทียบ PB / กราฟการตัดสิน / นำเข้าและส่งออก

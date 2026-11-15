@@ -106,7 +106,10 @@ item-late-leniency = Хожуу даралтын нөхөлт
 item-late-leniency-sub = Хожуу даралтын алдаанаас ийм хэмжээг хасна; 0 = эрт даралттай бүрэн тэгш
 item-judge-chart = Шийдвэрийн тархалт
 item-judge-chart-sub = Үр дүнгийн дэлгэцэд цаг хугацааны тархалтын зураг зурна (эрт → хожуу)
-item-hp-scale = Амьдралын мөрний үржүүлэгч
+item-hp-capacity = Амийн дээд хэмжээ
+item-hp-failure-effect = Амь дуусах эффект
+hp-failure-red-flash = Phigros эффект
+hp-failure-slowdown = Phira Pro эффект
 item-hp-color = Амьдралын мөрний өнгө
 item-history = Онооны түүх
 item-history-sub = Тоглолт бүр төхөөрөмжид хадгалагдана: жагсаалт / чиг хандлага / PB харьцуулалт / шийдвэрийн тархалт / импорт ба экспорт

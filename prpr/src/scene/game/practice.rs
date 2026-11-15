@@ -234,8 +234,7 @@ impl GameScene {
                         self.music.schedule(self.practice_schedule.clone())?;
                         self.judge = Judge::new(&self.chart, self.res.config.hold_tail_judge);
                         self.judge.set_grading(self.res.config.judge_grading);
-                        self.judge.set_hp_amount(self.res.config.hp_amount);
-                        self.judge.set_hp_scale(self.res.config.hp_scale);
+                        self.judge.configure_health(&self.res.config);
                         restart = Some(Restart::Range);
                     }
                     _ if id.starts_with("practice_kind_") => {
@@ -290,8 +289,7 @@ impl GameScene {
                 self.music.schedule(self.practice_schedule.clone())?;
                 self.judge = Judge::new(&self.chart, self.res.config.hold_tail_judge);
                 self.judge.set_grading(self.res.config.judge_grading);
-                self.judge.set_hp_amount(self.res.config.hp_amount);
-                self.judge.set_hp_scale(self.res.config.hp_scale);
+                self.judge.configure_health(&self.res.config);
                 self.practice_range_changed(tm)?;
                 practice::save_preferences(&self.res.config);
             }

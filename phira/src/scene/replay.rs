@@ -368,6 +368,7 @@ impl ReplayScene {
         {
             let scene = &mut self.game_scene;
             scene.judge.reset();
+            scene.reset_life_display();
             scene.chart.reset();
             scene.bad_notes.clear();
             scene.res.emitter.emitter.reset();
@@ -1389,7 +1390,8 @@ fn recording_info(replay: &Replay, config: &Config) -> Vec<String> {
         lines.push("旧格式未记录完整判定配置，不能推断原始判定窗口。".into());
     }
     if let Some(g) = &replay.gameplay {
-        lines.push(format!("血条 {} · 扣血 {:.2}× · 血量倍率 {:.2}× · 键盘 {}", on(g.hp_mode), g.hp_amount, g.hp_scale, on(g.use_keyboard)));
+        let capacity = prpr::config::Config::hp_capacity_for_scale(g.hp_scale);
+        lines.push(format!("血条 {}，扣血 {:.2}×，最大血量 {}，键盘 {}", on(g.hp_mode), g.hp_amount, capacity, on(g.use_keyboard)));
     }
     lines
 }

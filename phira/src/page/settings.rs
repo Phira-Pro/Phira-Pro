@@ -28,6 +28,7 @@ use macroquad::prelude::*;
 use once_cell::sync::Lazy;
 use prpr::ui::Dialog;
 use prpr::{
+    config::{Config, HealthFailureEffect},
     core::BOLD_FONT,
     ext::{open_url, poll_future, semi_white, LocalTask, RectExt, SafeTexture},
     log::{self, LogManager},
@@ -1461,10 +1462,11 @@ struct ChartList {
     early_late_btn: DRectButton,
     early_late_position_btn: DRectButton,
     hp_mode_btn: DRectButton,
+    hp_failure_btn: DRectButton,
     hp_amount_slider: Slider,
     hp_width_slider: Slider,
     hp_height_slider: Slider,
-    hp_scale_slider: Slider,
+    hp_capacity_slider: Slider,
     hp_color_btn: DRectButton,
     combo_text_btn: DRectButton,
     judge_chart_btn: DRectButton,
@@ -1496,10 +1498,11 @@ impl ChartList {
             early_late_btn: DRectButton::new(),
             early_late_position_btn: DRectButton::new(),
             hp_mode_btn: DRectButton::new(),
-            hp_amount_slider: Slider::new(0.2..3.0, 0.1),
+            hp_failure_btn: DRectButton::new(),
+            hp_amount_slider: Slider::new(Config::MIN_HP_DAMAGE..Config::MAX_HP_DAMAGE, 0.1),
             hp_width_slider: Slider::new(0.1..1.0, 0.01),
             hp_height_slider: Slider::new(0.5..3.0, 0.1),
-            hp_scale_slider: Slider::new(0.2..3.0, 0.1),
+            hp_capacity_slider: Slider::new(Config::MIN_HP_CAPACITY as f32..Config::MAX_HP_CAPACITY as f32, 1.),
             hp_color_btn: DRectButton::new(),
             combo_text_btn: DRectButton::new(),
             judge_chart_btn: DRectButton::new(),
@@ -1604,9 +1607,12 @@ impl ChartList {
             config.ending_judge_chart ^= true;
             return Ok(Some(true));
         }
-        if let wt @ Some(_) = self.hp_scale_slider.touch(touch, t, &mut config.hp_scale) {
-            config.hp_scale = config.hp_scale.clamp(0.2, 3.0);
-            return Ok(wt);
+        let mut hp_capacity = config.hp_capacity() as f32;
+        if let Some(changed) = self.hp_capacity_slider.touch(touch, t, &mut hp_capacity) {
+            if changed {
+                config.set_hp_capacity(hp_capacity as u32);
+            }
+            return Ok(Some(changed));
         }
         if self.hp_color_btn.touch(touch, t) {
             config.hp_color = config.hp_color.next();
@@ -1618,6 +1624,13 @@ impl ChartList {
         }
         if self.hp_mode_btn.touch(touch, t) {
             config.hp_mode ^= true;
+            return Ok(Some(true));
+        }
+        if self.hp_failure_btn.touch(touch, t) {
+            config.hp_failure_effect = match config.hp_failure_effect {
+                HealthFailureEffect::RedFlash => HealthFailureEffect::Slowdown,
+                HealthFailureEffect::Slowdown => HealthFailureEffect::RedFlash,
+            };
             return Ok(Some(true));
         }
         if let wt @ Some(_) = self.hp_amount_slider.touch(touch, t, &mut config.hp_amount) {
@@ -1779,8 +1792,22 @@ impl ChartList {
             render_switch(ui, rr, t, &mut self.hp_mode_btn, config.hp_mode);
         }
         item! {
+            render_title(ui, tl!("item-hp-failure-effect"), None);
+            let label = match config.hp_failure_effect {
+                HealthFailureEffect::RedFlash => tl!("hp-failure-red-flash"),
+                HealthFailureEffect::Slowdown => tl!("hp-failure-slowdown"),
+            };
+            self.hp_failure_btn.render_text(ui, rr, t, label, 0.46, false);
+        }
+        item! {
+            let capacity = config.hp_capacity();
+            render_title(ui, tl!("item-hp-capacity"), None);
+            self.hp_capacity_slider.render(ui, rr, t, capacity as f32, capacity.to_string());
+        }
+        item! {
             render_title(ui, tl!("item-hp-amount"), None);
-            self.hp_amount_slider.render(ui, rr, t, config.hp_amount, format!("{:.1}x", config.hp_amount));
+            let damage = config.hp_damage();
+            self.hp_amount_slider.render(ui, rr, t, damage, format!("{damage:.1}x"));
         }
         item! {
             render_title(ui, tl!("item-hp-width"), None);
@@ -1803,10 +1830,6 @@ impl ChartList {
         item! {
             render_title(ui, tl!("item-judge-chart"), Some(tl!("item-judge-chart-sub")));
             render_switch(ui, rr, t, &mut self.judge_chart_btn, config.ending_judge_chart);
-        }
-        item! {
-            render_title(ui, tl!("item-hp-scale"), None);
-            self.hp_scale_slider.render(ui, rr, t, config.hp_scale, format!("{:.1}x", config.hp_scale));
         }
         item! {
             render_title(ui, tl!("item-hp-color"), None);

@@ -153,7 +153,10 @@ item-late-leniency = Bù trễ
 item-late-leniency-sub = Trừ bấy nhiêu cho cú gõ muộn; 0 = đối xứng với gõ sớm
 item-judge-chart = Biểu đồ phán định
 item-judge-chart-sub = Vẽ biểu đồ phân bố thời điểm phán định ở màn kết quả (sớm → muộn)
-item-hp-scale = Hệ số thanh máu
+item-hp-capacity = Máu tối đa
+item-hp-failure-effect = Hiệu ứng khi hết máu
+hp-failure-red-flash = Hiệu ứng Phigros
+hp-failure-slowdown = Hiệu ứng Phira Pro
 item-hp-color = Màu thanh máu
 item-history = Lịch sử điểm
 item-history-sub = Mọi lượt chơi được lưu trong máy: danh sách / xu hướng / so sánh PB / phân bố phán định / nhập & xuất

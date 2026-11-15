@@ -732,7 +732,7 @@ async fn the_main() -> Result<()> {
                 profile_update = render.duration_since(work).as_secs_f64() * 1000.;
             }
             main.render(&mut painter)?;
-            {
+            if !main.suppresses_overlays() {
                 let mut ui = prpr::ui::Ui::new(&mut painter, None);
                 macroquad::prelude::set_camera(&ui.camera());
                 plugins::render(&mut ui, tm.real_time());

@@ -153,7 +153,10 @@ item-late-leniency = Компенсация опозданий
 item-late-leniency-sub = Столько снимается с поздних попаданий; 0 = симметрично ранним
 item-judge-chart = Распределение оценок
 item-judge-chart-sub = Рисует распределение времени оценок на экране результата (рано → поздно)
-item-hp-scale = Множитель полосы здоровья
+item-hp-capacity = Максимальное здоровье
+item-hp-failure-effect = Эффект при нуле здоровья
+hp-failure-red-flash = Эффект Phigros
+hp-failure-slowdown = Эффект Phira Pro
 item-hp-color = Цвет полосы здоровья
 item-history = История результатов
 item-history-sub = Каждая игра сохраняется локально: список / тренд / сравнение PB / распределение оценок / импорт и экспорт

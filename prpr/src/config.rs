@@ -57,13 +57,13 @@ pub fn take_offset_delta() -> Option<f32> {
     }
 }
 
-/// 血条颜色的可选值（对齐上游改版 Phirc Mod++ 的 `HealthBarColor`）。
+/// LIFE 流光配色。
 #[derive(Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub enum HealthBarColor {
-    #[default]
     White,
     Green,
     Blue,
+    #[default]
     Red,
     Golden,
     Rainbow,
@@ -78,7 +78,7 @@ impl HealthBarColor {
             Self::White => (1., 1., 1.),
             Self::Green => (0.35, 0.85, 0.45),
             Self::Blue => (0.4, 0.65, 1.),
-            Self::Red => (1., 0.42, 0.42),
+            Self::Red => (1., 0., 0.),
             Self::Golden => (1., 0.85, 0.35),
             Self::Rainbow => (0.8, 0.55, 1.),
         }
@@ -89,6 +89,14 @@ impl HealthBarColor {
         let i = Self::ALL.iter().position(|it| *it == self).unwrap_or(0);
         Self::ALL[(i + 1) % Self::ALL.len()]
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HealthFailureEffect {
+    #[default]
+    RedFlash,
+    Slowdown,
 }
 
 bitflags! {
@@ -238,14 +246,20 @@ pub struct Config {
     pub hp_mode: bool,
     /// 血条模式的扣血倍率（越大越难）。
     pub hp_amount: f32,
-    /// 血条厚度相对暂停按钮高度的倍率。
+    /// LIFE 流光厚度倍率。
+    #[serde(rename = "lifeBarHeight")]
     pub hp_height: f32,
-    /// 血条长度。
+    /// LIFE 流光满血时的宽度设置。
     pub hp_width: f32,
-    /// 血条整体倍率：回血与扣血同乘（对齐上游改版的 `health_scale`）。
+    /// 兼容旧配置和回放。归一化血量的变动系数，等于 100 / 最大血量。
     pub hp_scale: f32,
-    /// 血条颜色。
+    /// LIFE 的配色独立于旧矩形血条的填充色，升级后默认使用参考图的红色。
+    #[serde(rename = "lifeBarColor")]
     pub hp_color: HealthBarColor,
+    pub hp_failure_effect: HealthFailureEffect,
+    /// Older replays retain their recorded Bad/Miss damage formula.
+    #[serde(skip)]
+    pub legacy_hp_damage: bool,
     /// 晚按补偿（毫秒）：晚按（偏差为负）时额外放宽的量，默认 0 = 早/晚完全对称。
     /// 上游把 70ms 写死在代码里且只作用在晚按一侧（等于「晚按白送 70ms」），这里改为可配置。
     pub late_leniency_ms: f32,
@@ -447,10 +461,12 @@ impl Default for Config {
             fxaa: false,
             hp_mode: false,
             hp_amount: 1.0,
-            hp_height: 1.0,
+            hp_height: 1.5,
             hp_width: 0.6,
             hp_scale: 1.0,
             hp_color: HealthBarColor::default(),
+            hp_failure_effect: HealthFailureEffect::default(),
+            legacy_hp_damage: false,
             late_leniency_ms: 0.,
             drag_protect: true,
             flick_protect: true,
@@ -517,6 +533,43 @@ impl Default for Config {
 }
 
 impl Config {
+    pub const MIN_HP_CAPACITY: u32 = 20;
+    pub const MAX_HP_CAPACITY: u32 = 500;
+    pub(crate) const DEFAULT_HP_CAPACITY: u32 = 100;
+    pub const MIN_HP_DAMAGE: f32 = 1.;
+    pub const MAX_HP_DAMAGE: f32 = 10.;
+
+    /// Bad and Miss use the multiplier as a direct count of LIFE points.
+    pub fn hp_damage(&self) -> f32 {
+        if self.hp_amount.is_finite() {
+            ((self.hp_amount * 10.).round() / 10.).clamp(Self::MIN_HP_DAMAGE, Self::MAX_HP_DAMAGE)
+        } else {
+            Self::MIN_HP_DAMAGE
+        }
+    }
+
+    pub fn hp_capacity_for_scale(scale: f32) -> u32 {
+        let scale = Self::valid_hp_scale(scale);
+        (Self::DEFAULT_HP_CAPACITY as f32 / scale).round() as u32
+    }
+
+    pub fn hp_capacity(&self) -> u32 {
+        Self::hp_capacity_for_scale(self.hp_scale)
+    }
+
+    pub fn set_hp_capacity(&mut self, health: u32) {
+        self.hp_scale = Self::DEFAULT_HP_CAPACITY as f32 / health.clamp(Self::MIN_HP_CAPACITY, Self::MAX_HP_CAPACITY) as f32;
+    }
+
+    fn valid_hp_scale(scale: f32) -> f32 {
+        if scale.is_finite() {
+            let base = Self::DEFAULT_HP_CAPACITY as f32;
+            scale.clamp(base / Self::MAX_HP_CAPACITY as f32, base / Self::MIN_HP_CAPACITY as f32)
+        } else {
+            1.
+        }
+    }
+
     /// Global judgement switches and per-chart mods are independent sources.
     /// OR applies strictness once, including when both sources enable it.
     pub fn chart_mods(&self, chart: Mods) -> Mods {
@@ -889,10 +942,10 @@ impl Config {
             self.mods.set(Mods::AUTOPLAY, flag);
         }
         // 兼容旧配置：血条的三项数值换过量纲（厚度曾是绝对值），这里夹回滑块区间。
-        self.hp_amount = self.hp_amount.clamp(0.2, 3.0);
+        self.hp_amount = self.hp_damage();
         self.hp_width = self.hp_width.clamp(0.1, 1.0);
         self.hp_height = self.hp_height.clamp(0.5, 3.0);
-        self.hp_scale = if self.hp_scale.is_finite() { self.hp_scale.clamp(0.2, 3.0) } else { 1.0 };
+        self.hp_scale = Self::valid_hp_scale(self.hp_scale);
         // 晚按补偿：NaN / 越界都夹回合法区间。
         self.late_leniency_ms = if self.late_leniency_ms.is_finite() {
             self.late_leniency_ms.clamp(0., Self::LATE_LENIENCY_MAX)

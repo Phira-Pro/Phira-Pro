@@ -170,7 +170,10 @@ item-late-leniency = 遅押し補正
 item-late-leniency-sub = 遅押しの誤差をこれだけ差し引きます；0 = 早押しと完全に対称
 item-judge-chart = 判定分布図
 item-judge-chart-sub = リザルトに判定タイミングの分布図を描画（早 ← → 遅）
-item-hp-scale = ライフバー倍率
+item-hp-capacity = 最大ライフ
+item-hp-failure-effect = ライフ切れ演出
+hp-failure-red-flash = 本家の演出
+hp-failure-slowdown = Phira Proの演出
 item-hp-color = ライフバーの色
 item-history = スコア履歴
 item-history-sub = 各プレイを端末内に保存：一覧 / 推移 / PB 比較 / 判定分布 / インポート・エクスポート

@@ -152,7 +152,10 @@ item-late-leniency = Late-Toleranz
 item-late-leniency-sub = So viel wird bei späten Treffern abgezogen; 0 = symmetrisch zu früh
 item-judge-chart = Urteilsverteilung
 item-judge-chart-sub = Zeichnet im Ergebnis eine Timing-Verteilung (früh bis spät)
-item-hp-scale = Lebensleisten-Faktor
+item-hp-capacity = Maximale Lebenspunkte
+item-hp-failure-effect = Effekt bei leerem LIFE
+hp-failure-red-flash = Phigros-Effekt
+hp-failure-slowdown = Phira Pro-Effekt
 item-hp-color = Lebensleisten-Farbe
 item-history = Ergebnisverlauf
 item-history-sub = Jede Runde lokal gespeichert: Liste / Trend / PB-Vergleich / Urteilsverteilung / Import & Export

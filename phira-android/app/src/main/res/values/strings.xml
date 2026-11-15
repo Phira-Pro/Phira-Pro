@@ -3,4 +3,5 @@
     <string name="app_name">Phira Pro</string>
     <string name="import_chart">导入到 Phira Pro</string>
     <string name="import_respack">导入到 Phira Pro（资源包）</string>
+    <string name="import_read_failed">无法读取所选文件，请检查存储权限后重试</string>
 </resources>

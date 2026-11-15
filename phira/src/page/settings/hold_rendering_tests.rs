@@ -27,7 +27,7 @@ fn hold_switch_click_save_reload_and_search() {
                 prpr_l10n::set_prefered_locale(Some(lang.parse().unwrap()));
                 assert!(search::catalog()
                     .iter()
-                    .any(|(tab, title)| *tab == 3 && title == &tl!("item-legacy-hold").to_string()));
+                    .any(|(tab, title)| *tab == 4 && title == &tl!("item-legacy-hold").to_string()));
                 for (w, h) in [(960, 720), (1280, 720), (1280, 548)] {
                     let mut list = DebugList::new();
                     list.section_open = [true, false, false];

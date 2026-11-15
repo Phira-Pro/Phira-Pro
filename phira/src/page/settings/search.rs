@@ -89,7 +89,16 @@ impl Search {
                 .size(0.46)
                 .max_width(rect.w - 0.04)
                 .draw();
-            ui.text(["通用", "音频", "谱面", "调试", "体验"][*tab])
+            let tabs = [
+                tl!("general"),
+                tl!("audio"),
+                tl!("chart"),
+                tl!("performance"),
+                tl!("debug"),
+                tl!("experience"),
+                tl!("about"),
+            ];
+            ui.text(tabs[*tab].clone())
                 .pos(rect.x + 0.02, rect.y + 0.066)
                 .size(0.3)
                 .color(semi_white(0.6))
@@ -109,11 +118,11 @@ pub fn catalog() -> Vec<(usize, String)> {
         .iter()
         .filter(|(_, key)| {
             !(*key == "item-refresh-rate" && !cfg!(any(target_os = "android", target_os = "ios")))
-                && !(*key == "item-desktop-fps" && !cfg!(target_os = "windows"))
+                && !(*key == "item-desktop-fps" && !cfg!(any(target_os = "windows", target_os = "linux")))
         })
         .map(|(tab, key)| (*tab, tl!(*key).into_owned()))
         .collect();
-    entries.extend([(3, "画质设置".into()), (3, "问题诊断".into()), (3, "热键管理".into())]);
+    entries.extend([(4, "问题诊断".into()), (4, "热键管理".into())]);
     entries
 }
 

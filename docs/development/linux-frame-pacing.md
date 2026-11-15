@@ -2,7 +2,7 @@
 
 ## 行为
 
-「设置 → 调试 → 帧率设置 → 帧率上限」现在在 Linux 桌面端可用，档位与 Windows 一致：跟随屏幕（默认）、固定帧率、无上限。选择后立即生效并保存。
+「设置 → 性能 → 帧率与刷新率 → 帧率上限」现在在 Linux 桌面端可用，档位与 Windows 一致：跟随屏幕（默认）、固定帧率、无上限。选择后立即生效并保存。
 
 - **跟随屏幕**：保持垂直同步，交换节奏由合成器决定，与改动前完全一致。
 - **固定帧率**：主循环在 update/render 前按目标周期休眠（最后一个自旋窗口用于精度），呈现仍由垂直同步兜底。低于刷新率的档位得到稳定降帧；高于刷新率的档位自然落到刷新率。
@@ -32,7 +32,7 @@
 - `cargo test -p prpr --lib desktop_pacing` 覆盖档位映射与错过截止时间后的重新排程。
 - `cargo build --release -p phira-main`。
 - 帧调度探针：`FRAME_PROBE_SWAP=1 FRAME_PROBE_PACER=1 FRAME_PROBE_LIMIT=<0|30|65535> cargo run --release -p prpr --example frame_pacing_probe`；Linux 下同时支持 `FRAME_PROBE_WAYLAND=1` 对照后端。
-- 游戏内：设置 → 调试 → 帧率设置 → 帧率上限；用 `PHIRA_FRAME_PROFILE=<csv>` 观察 `pacing_ms`、`present_ms` 与帧间隔。
+- 游戏内：设置 → 性能 → 帧率与刷新率 → 帧率上限；用 `PHIRA_FRAME_PROFILE=<csv>` 观察 `pacing_ms`、`present_ms` 与帧间隔。
 
 ## 残余风险
 

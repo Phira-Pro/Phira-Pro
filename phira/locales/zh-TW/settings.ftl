@@ -363,3 +363,22 @@ item-early-late-bottom = 遊玩區域最下方
 
 item-font-atlas-pool = 字型圖集版本池
 item-font-atlas-pool-sub = 輪換字形圖集版本，避免 HUD 文字寫入 GPU 仍在取樣的紋理；畫面與排版不變。僅在排查文字渲染問題時關閉，歡迎回饋效果。
+
+performance = 效能
+performance-quality = 畫質
+performance-fps = 幀率與更新率
+performance-render = 渲染最佳化
+performance-interface = 介面
+performance-preset = 畫質預設
+performance-preset-sub = 快速切換畫質、粒子與抗鋸齒
+performance-preset-low = 低耗
+performance-preset-standard = 標準
+performance-preset-high = 高畫質
+item-particle = 打擊粒子
+item-noise-glow = 噪域輝光
+item-noise-refraction = 噪域折射
+item-sample-count = 抗鋸齒取樣
+item-sample-count-sub = 1× / 2× / 4×；越高越平滑，GPU 開銷越大
+item-fxaa = FXAA
+item-line-elision = 透明判定線省略
+item-line-elision-sub = 跳過完全透明、不會改變畫面的普通判定線；畫質不變，偵錯檢視與自訂材質仍走原路徑

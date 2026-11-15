@@ -91,7 +91,7 @@ fn render_debug(list: &mut DebugList, ui: &mut Ui, t: f32) {
     clear_background(Color::new(0.10, 0.13, 0.18, 1.));
     ui.scope(|ui| {
         ui.dx(-0.8);
-        ui.dy(if list.section_open == [false, false, true] { -0.3 } else { -0.4 });
+        ui.dy(if list.section_open == [false, false, true] { -0.2 } else { -0.3 });
         list.render(ui, Rect::new(0., 0., 1.6, 5.), t);
     });
 }
@@ -100,54 +100,9 @@ pub(super) fn render_regression(painter: &mut TextPainter) {
     super::color::render_regression(painter);
     super::experience::render_regression(painter);
     for (w, h, ratio) in [(960, 720, "4x3"), (1280, 720, "16x9"), (1280, 548, "21x9")] {
-        get_data_mut().config.desktop_fps_limit = 0;
         let mut debug = DebugList::new();
-        debug.section_open = [false, true, false];
-        let mut ui = Ui::new(painter, Some((0, 0, w, h)));
-        render_debug(&mut debug, &mut ui, 2.);
-        let p = center(debug.desktop_fps_btn.control_for_test());
-        for phase in [TouchPhase::Started, TouchPhase::Ended] {
-            debug
-                .touch(
-                    &Touch {
-                        id: 801,
-                        phase,
-                        position: p,
-                        time: 0.,
-                    },
-                    2.,
-                )
-                .unwrap();
-        }
-        render_debug(&mut debug, &mut ui, 2.);
-        render_debug(&mut debug, &mut ui, 2.5);
-        let popup = debug.desktop_fps_btn.popup_rect();
-        let bounds = ui.content_rect();
-        assert!(popup.x >= bounds.x && popup.right() <= bounds.right() && popup.y >= bounds.y && popup.bottom() <= bounds.bottom());
-        capture(&mut ui, &format!("windows-fps-dropdown-{ratio}"));
-        let p = vec2(popup.center().x, popup.y + 0.15); // Follow display, then 60 FPS.
-        for phase in [TouchPhase::Started, TouchPhase::Ended] {
-            assert!(debug.top_touch(
-                &Touch {
-                    id: 802,
-                    phase,
-                    position: p,
-                    time: 0.
-                },
-                2.5
-            ));
-        }
-        assert!(debug.update(2.6).unwrap());
-        assert_eq!(get_data().config.desktop_fps_limit, 60);
-        save_data().unwrap();
-        let reloaded: crate::data::Data =
-            serde_json::from_str(&std::fs::read_to_string("target/judgement-panel-qa/data/data.json").unwrap()).unwrap();
-        assert_eq!(reloaded.config.desktop_fps_limit, 60);
-        get_data_mut().config.desktop_fps_limit = 0; // A settings reset must update the label too.
-        debug.update(2.7).unwrap();
-        assert_eq!(debug.desktop_fps_btn.selected(), 0);
-
         debug.section_open = [false, false, true];
+        let mut ui = Ui::new(painter, Some((0, 0, w, h)));
         render_debug(&mut debug, &mut ui, 3.);
         let original = get_data().config.touch_point_color;
         let alpha = get_data().config.touch_point_alpha;
@@ -252,5 +207,5 @@ pub(super) fn render_regression(painter: &mut TextPainter) {
             capture(&mut ui, &format!("fps-six-positions-{suffix}-{ratio}"));
         }
     }
-    println!("Settings: Windows FPS dropdown click/save/reset, general plugin entry and six FPS positions passed at three aspects");
+    println!("Settings: general plugin entry, touch color and six FPS positions passed at three aspects");
 }

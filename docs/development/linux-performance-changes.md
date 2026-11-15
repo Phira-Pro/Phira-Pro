@@ -31,7 +31,7 @@
 | `prpr/src/ui/text.rs` | Linux 字体图集从 1024² 起始，按需增长，上限 2048²；到顶后清空复用，不再分配 4096²；新增压力代次检查与回收；非 Linux 保持原行为。 |
 | `prpr/src/scene/game.rs` | 移除 `GameScene.chart_bytes` 字段；练习密钥计算完成后 `drop(chart_bytes)`，避免 189 MB 原始谱面在整局常驻。 |
 | `prpr/examples/frame_pacing_probe.rs` | 探针支持 Linux pacer、`FRAME_PROBE_LIMIT` 和原生 Wayland 对照后端；原有 Windows 用法保留。 |
-| `docs/development/linux-frame-pacing.md` | 新增 Linux 帧率上限、GLX swap-control、实测和残余风险说明；修正设置路径为“调试 → 帧率设置”。 |
+| `docs/development/linux-frame-pacing.md` | 新增 Linux 帧率上限、GLX swap-control、实测和残余风险说明；设置路径更新为“性能 → 帧率与刷新率”。 |
 | `docs/development/linux-scheduling-vram.md` | 新增调度优先级、i915 能力探测、fdinfo 去重、图集尺寸化、压力保护、TTM 分析和实测说明。 |
 | `docs/development/linux-performance-changes.md` | 本文件。 |
 

@@ -2,10 +2,12 @@ prpr_l10n::tl_file!("settings");
 mod color;
 mod experience;
 mod judgement;
+mod performance;
 pub(crate) mod search;
 use color::{ColorAction, ColorPicker};
 use experience::ExperienceList;
 use judgement::JudgementPage;
+use performance::PerformanceList;
 
 use super::{
     export_pending, request_export, resolve_export, take_export, BlacklistPage, ExportConfig, HistoryPage, NextPage, OffsetPage, Page, SharedState,
@@ -48,8 +50,6 @@ pub(super) fn item_row_h() -> f32 {
     crate::hud::param("settings", "row_h", 0.15).clamp(0.1, 0.3)
 }
 const INTERACT_WIDTH: f32 = 0.26;
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "android", target_os = "ios"))]
-use prpr::config::UNLIMITED_FPS;
 
 /// 软件 UI 主题预设：(强调色, 表面色)，均为 0xRRGGBB。
 const UI_PRESETS: [(u32, u32); 6] = [
@@ -60,12 +60,6 @@ const UI_PRESETS: [(u32, u32); 6] = [
     (0xf06292, 0x3a2833),
     (0xb0bec5, 0x263238),
 ];
-#[cfg(target_os = "android")]
-const REFRESH_RATES: [u16; 8] = [60, 120, 144, 165, 185, 200, 240, UNLIMITED_FPS];
-#[cfg(target_os = "ios")]
-const REFRESH_RATES: [u16; 3] = [60, 120, UNLIMITED_FPS];
-#[cfg(any(target_os = "windows", target_os = "linux"))]
-const DESKTOP_FPS_LIMITS: [u16; 11] = [0, 60, 120, 144, 165, 185, 200, 240, 360, 480, UNLIMITED_FPS];
 #[cfg(all(test, target_os = "windows"))]
 mod qa;
 #[cfg(all(test, target_os = "windows"))]
@@ -191,6 +185,7 @@ enum SettingListType {
     General,
     Audio,
     Chart,
+    Performance,
     Debug,
     Experience,
     About,
@@ -200,6 +195,7 @@ pub struct SettingsPage {
     list_general: GeneralList,
     list_audio: AudioList,
     list_chart: ChartList,
+    list_performance: PerformanceList,
     list_debug: DebugList,
     list_experience: ExperienceList,
 
@@ -221,6 +217,7 @@ impl SettingsPage {
             list_general: GeneralList::new(icon_lang),
             list_audio: AudioList::new(),
             list_chart: ChartList::new(),
+            list_performance: PerformanceList::new(),
             list_debug: DebugList::new(),
             list_experience: ExperienceList::new(),
 
@@ -228,10 +225,11 @@ impl SettingsPage {
                 (SettingListType::General, || tl!("general")),
                 (SettingListType::Audio, || tl!("audio")),
                 (SettingListType::Chart, || tl!("chart")),
+                (SettingListType::Performance, || tl!("performance")),
                 (SettingListType::Debug, || tl!("debug")),
                 (SettingListType::Experience, || tl!("experience")),
                 (SettingListType::About, || tl!("about")),
-            ] as [(SettingListType, TitleFn); 6]),
+            ] as [(SettingListType, TitleFn); 7]),
 
             scroll: Scroll::new(),
             save_time: f32::INFINITY,
@@ -262,6 +260,7 @@ impl Page for SettingsPage {
         let (consumed, tab) = self.search.touch(touch, t);
         if let Some(tab) = tab {
             self.tabs.goto(s.rt, tab);
+            self.list_performance.open_all();
             self.list_debug.section_open = [true; 3];
             self.scroll.y_scroller.reset();
         }
@@ -275,6 +274,7 @@ impl Page for SettingsPage {
             SettingListType::General => self.list_general.top_touch(touch, t),
             SettingListType::Audio => self.list_audio.top_touch(touch, t),
             SettingListType::Chart => self.list_chart.top_touch(touch, t),
+            SettingListType::Performance => self.list_performance.top_touch(touch, t),
             SettingListType::Debug => self.list_debug.top_touch(touch, t),
             SettingListType::Experience => self.list_experience.top_touch(touch, t),
             SettingListType::About => false,
@@ -294,6 +294,7 @@ impl Page for SettingsPage {
             SettingListType::General => self.list_general.touch(touch, t)?,
             SettingListType::Audio => self.list_audio.touch(touch, t)?,
             SettingListType::Chart => self.list_chart.touch(touch, t)?,
+            SettingListType::Performance => self.list_performance.touch(touch, t)?,
             SettingListType::Debug => self.list_debug.touch(touch, t)?,
             SettingListType::Experience => self.list_experience.touch(touch, t)?,
             SettingListType::About => None,
@@ -320,6 +321,7 @@ impl Page for SettingsPage {
             SettingListType::General => self.list_general.update(t)?,
             SettingListType::Audio => self.list_audio.update(t)?,
             SettingListType::Chart => self.list_chart.update(t)?,
+            SettingListType::Performance => self.list_performance.update(t)?,
             SettingListType::Debug => self.list_debug.update(t)?,
             SettingListType::Experience => self.list_experience.update(t)?,
             SettingListType::About => false,
@@ -369,6 +371,7 @@ impl Page for SettingsPage {
                                 SettingListType::General => self.list_general.render(ui, r, t),
                                 SettingListType::Audio => self.list_audio.render(ui, r, t),
                                 SettingListType::Chart => self.list_chart.render(ui, r, t),
+                                SettingListType::Performance => self.list_performance.render(ui, r, t),
                                 SettingListType::Debug => self.list_debug.render(ui, r, t),
                                 SettingListType::Experience => self.list_experience.render(ui, r, t),
                                 SettingListType::About => render_about(ui, r, &self.icon),
@@ -389,6 +392,9 @@ impl Page for SettingsPage {
             })
         })?;
 
+        if *self.tabs.selected() == SettingListType::Performance {
+            self.list_performance.render_top(ui, t);
+        }
         if *self.tabs.selected() == SettingListType::Debug {
             self.list_debug.render_top(ui, t);
         }
@@ -669,9 +675,6 @@ struct GeneralList {
     web_url_btn: DRectButton,
     /// 打开「服务器状态页地址」输入（自建 / 私服用）。
     status_url_btn: DRectButton,
-    #[cfg(not(target_env = "ohos"))]
-    lowq_btn: DRectButton,
-    prefer_reduced_motion_btn: DRectButton,
     insecure_btn: DRectButton,
     enable_anys_btn: DRectButton,
     anys_gateway_btn: DRectButton,
@@ -738,9 +741,6 @@ impl GeneralList {
             api_url_btn: DRectButton::new(),
             web_url_btn: DRectButton::new(),
             status_url_btn: DRectButton::new(),
-            #[cfg(not(target_env = "ohos"))]
-            lowq_btn: DRectButton::new(),
-            prefer_reduced_motion_btn: DRectButton::new(),
             insecure_btn: DRectButton::new(),
             enable_anys_btn: DRectButton::new(),
             anys_gateway_btn: DRectButton::new(),
@@ -969,16 +969,6 @@ impl GeneralList {
         }
         if self.status_url_btn.touch(touch, t) {
             request_input("status_url", InputBox::new().default_text(&config.status_url));
-            return Ok(Some(true));
-        }
-        #[cfg(not(target_env = "ohos"))]
-        if self.lowq_btn.touch(touch, t) {
-            config.sample_count = if config.sample_count == 1 { 2 } else { 1 };
-            return Ok(Some(true));
-        }
-        if self.prefer_reduced_motion_btn.touch(touch, t) {
-            data.prefer_reduced_motion ^= true;
-            PREFER_REDUCED_MOTION.store(data.prefer_reduced_motion, Ordering::Relaxed);
             return Ok(Some(true));
         }
         if self.insecure_btn.touch(touch, t) {
@@ -1237,15 +1227,6 @@ impl GeneralList {
             self.status_url_btn.render_text(ui, rr, t, shown, 0.4, false);
         }
         item! {
-            render_title(ui, tl!("item-prefer-reduced-motion"), Some(tl!("item-prefer-reduced-motion-sub")));
-            render_switch(ui, rr, t, &mut self.prefer_reduced_motion_btn, data.prefer_reduced_motion);
-        }
-        #[cfg(not(target_env = "ohos"))]
-        item! {
-            render_title(ui, tl!("item-lowq"), Some(tl!("item-lowq-sub")));
-            render_switch(ui, rr, t, &mut self.lowq_btn, config.sample_count == 1);
-        }
-        item! {
             let cache_size = if let Some(size) = self.cache_size {
                 Cow::Owned(tl!("item-cache-size", "size" => ByteSize(size).to_string()))
             } else {
@@ -1463,11 +1444,6 @@ struct ChartList {
     show_avg_fps_btn: DRectButton,
     dc_pause_btn: DRectButton,
     dhint_btn: DRectButton,
-    opt_btn: DRectButton,
-    block_simple_btn: DRectButton,
-    line_elision_btn: DRectButton,
-    font_atlas_pool_btn: DRectButton,
-    shader_pre_render_btn: DRectButton,
     use_keyboard_btn: DRectButton,
     speed_slider: Slider,
     size_slider: Slider,
@@ -1508,11 +1484,6 @@ impl ChartList {
             show_avg_fps_btn: DRectButton::new(),
             dc_pause_btn: DRectButton::new(),
             dhint_btn: DRectButton::new(),
-            opt_btn: DRectButton::new(),
-            block_simple_btn: DRectButton::new(),
-            line_elision_btn: DRectButton::new(),
-            font_atlas_pool_btn: DRectButton::new(),
-            shader_pre_render_btn: DRectButton::new(),
             use_keyboard_btn: DRectButton::new(),
             speed_slider: Slider::new(if cfg!(flash) { 1.0..2.0 } else { 0.5..2.0 }, 0.01),
             size_slider: Slider::new(0.8..1.2, 0.005),
@@ -1572,27 +1543,6 @@ impl ChartList {
         }
         if self.dhint_btn.touch(touch, t) {
             config.double_hint ^= true;
-            return Ok(Some(true));
-        }
-        if self.opt_btn.touch(touch, t) {
-            config.aggressive ^= true;
-            return Ok(Some(true));
-        }
-        if self.block_simple_btn.touch(touch, t) {
-            config.block_area_simple ^= true;
-            return Ok(Some(true));
-        }
-        if self.line_elision_btn.touch(touch, t) {
-            config.line_elision ^= true;
-            return Ok(Some(true));
-        }
-        if self.font_atlas_pool_btn.touch(touch, t) {
-            config.font_atlas_pool ^= true;
-            prpr::ui::FONT_ATLAS_POOL.store(config.font_atlas_pool, Ordering::Relaxed);
-            return Ok(Some(true));
-        }
-        if self.shader_pre_render_btn.touch(touch, t) {
-            config.shader_pre_render ^= true;
             return Ok(Some(true));
         }
         // Phira Pro Flash（轻量版）：不提供键盘模式。
@@ -1755,26 +1705,6 @@ impl ChartList {
             render_title(ui, tl!("item-dhint"), Some(tl!("item-dhint-sub")));
             render_switch(ui, rr, t, &mut self.dhint_btn, config.double_hint);
         }
-        item! {
-            render_title(ui, tl!("item-opt"), Some(tl!("item-opt-sub")));
-            render_switch(ui, rr, t, &mut self.opt_btn, config.aggressive);
-        }
-        item! {
-            render_title(ui, tl!("item-block-simple"), Some(tl!("item-block-simple-sub")));
-            render_switch(ui, rr, t, &mut self.block_simple_btn, config.block_area_simple);
-        }
-        item! {
-            render_title(ui, tl!("item-line-elision"), Some(tl!("item-line-elision-sub")));
-            render_switch(ui, rr, t, &mut self.line_elision_btn, config.line_elision);
-        }
-        item! {
-            render_title(ui, tl!("item-font-atlas-pool"), Some(tl!("item-font-atlas-pool-sub")));
-            render_switch(ui, rr, t, &mut self.font_atlas_pool_btn, config.font_atlas_pool);
-        }
-        item! {
-            render_title(ui, tl!("item-shader-pre-render"), Some(tl!("item-shader-pre-render-sub")));
-            render_switch(ui, rr, t, &mut self.shader_pre_render_btn, config.shader_pre_render);
-        }
         // Phira Pro Flash（轻量版）：不提供键盘模式。
         if !cfg!(flash) {
             item! {
@@ -1925,14 +1855,10 @@ fn export_logs(config: ExportConfig, manager: Option<Arc<LogManager>>) -> Result
 }
 
 struct DebugList {
-    tools: [DRectButton; 5],
+    tools: [DRectButton; 4],
     next_page: Option<NextPage>,
     sections: [DRectButton; 3],
     section_open: [bool; 3],
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    desktop_fps_btn: ChooseButton,
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    desktop_fps_lang: Option<String>,
     chart_debug_btn: DRectButton,
     chart_debug_line_btn: DRectButton,
     chart_debug_note_btn: DRectButton,
@@ -1948,8 +1874,6 @@ struct DebugList {
     touch_size_slider: Slider,
     show_fps_btn: DRectButton,
     fps_position_btn: DRectButton,
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    refresh_rate_btn: DRectButton,
     export_logs_btn: DRectButton,
     export_requested: bool,
     /// Give-up time (game time) for the async platform file picker.
@@ -1971,15 +1895,6 @@ impl DebugList {
             next_page: None,
             sections: std::array::from_fn(|_| DRectButton::new()),
             section_open: [true; 3],
-            #[cfg(any(target_os = "windows", target_os = "linux"))]
-            desktop_fps_btn: ChooseButton::new().with_compact_popup().with_options(Self::fps_options()).with_selected(
-                DESKTOP_FPS_LIMITS
-                    .iter()
-                    .position(|rate| *rate == get_data().config.desktop_fps_limit)
-                    .unwrap_or(0),
-            ),
-            #[cfg(any(target_os = "windows", target_os = "linux"))]
-            desktop_fps_lang: get_data().language.clone(),
             chart_debug_btn: DRectButton::new(),
             chart_debug_line_btn: DRectButton::new(),
             chart_debug_note_btn: DRectButton::new(),
@@ -1995,8 +1910,6 @@ impl DebugList {
             touch_size_slider: Slider::new(0.01..0.15, 0.005),
             show_fps_btn: DRectButton::new(),
             fps_position_btn: DRectButton::new(),
-            #[cfg(any(target_os = "android", target_os = "ios"))]
-            refresh_rate_btn: DRectButton::new(),
             export_logs_btn: DRectButton::new(),
             export_requested: false,
             export_deadline: 0.,
@@ -2028,37 +1941,16 @@ impl DebugList {
             }
             return true;
         }
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
-        if self.desktop_fps_btn.top_touch(_touch, _t) {
-            return true;
-        }
         false
-    }
-
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    fn fps_options() -> Vec<String> {
-        DESKTOP_FPS_LIMITS
-            .iter()
-            .map(|rate| {
-                if *rate == 0 {
-                    tl!("item-desktop-fps-auto").into_owned()
-                } else if *rate == UNLIMITED_FPS {
-                    tl!("item-fps-unlimited").into_owned()
-                } else {
-                    format!("{rate} FPS")
-                }
-            })
-            .collect()
     }
 
     pub fn touch(&mut self, touch: &Touch, t: f32) -> Result<Option<bool>> {
         for (i, b) in self.tools.iter_mut().enumerate() {
             if b.touch(touch, t) {
                 self.next_page = Some(match i {
-                    0 => NextPage::Overlay(Box::new(crate::page::tools::ToolsPage::new(false))),
-                    1 => NextPage::Overlay(Box::new(crate::page::tools::ToolsPage::new(true))),
-                    2 => NextPage::Overlay(Box::new(crate::page::RenderPage::new())),
-                    3 => NextPage::Overlay(Box::new(crate::editor::EditorPage::new())),
+                    0 => NextPage::Overlay(Box::new(crate::page::tools::ToolsPage::new())),
+                    1 => NextPage::Overlay(Box::new(crate::page::RenderPage::new())),
+                    2 => NextPage::Overlay(Box::new(crate::editor::EditorPage::new())),
                     _ => NextPage::Overlay(Box::new(super::hotkeys::HotkeyPage::new())),
                 });
                 return Ok(Some(false));
@@ -2078,10 +1970,6 @@ impl DebugList {
         }
         let data = get_data_mut();
         let config = &mut data.config;
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
-        if self.section_open[1] && self.desktop_fps_btn.touch(touch, t) {
-            return Ok(Some(false));
-        }
         if self.section_open[0] && self.chart_debug_btn.touch(touch, t) {
             config.chart_debug ^= true;
             return Ok(Some(true));
@@ -2112,13 +2000,6 @@ impl DebugList {
             config.show_fps ^= true;
             // 帧率由 prpr 的全局覆盖层绘制，这里同步开关。
             prpr::ui::SHOW_FPS.store(config.show_fps, Ordering::Relaxed);
-            return Ok(Some(true));
-        }
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        if self.section_open[1] && self.refresh_rate_btn.touch(touch, t) {
-            let selected = REFRESH_RATES.iter().position(|rate| *rate == config.preferred_refresh_rate).unwrap_or(0);
-            config.preferred_refresh_rate = REFRESH_RATES[(selected + 1) % REFRESH_RATES.len()];
-            crate::set_refresh_rate(config.preferred_refresh_rate)?;
             return Ok(Some(true));
         }
         if self.section_open[2] && self.touch_debug_btn.touch(touch, t) {
@@ -2159,25 +2040,6 @@ impl DebugList {
         }
         if std::mem::take(&mut self.dirty) {
             return Ok(true);
-        }
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
-        {
-            let language = get_data().language.clone();
-            if self.desktop_fps_lang != language {
-                self.desktop_fps_lang = language;
-                self.desktop_fps_btn.set_options(Self::fps_options());
-            }
-            self.desktop_fps_btn.update(_t);
-            if self.desktop_fps_btn.changed() {
-                get_data_mut().config.desktop_fps_limit = DESKTOP_FPS_LIMITS[self.desktop_fps_btn.selected()];
-                return Ok(true);
-            }
-            self.desktop_fps_btn.set_selected(
-                DESKTOP_FPS_LIMITS
-                    .iter()
-                    .position(|rate| *rate == get_data().config.desktop_fps_limit)
-                    .unwrap_or(0),
-            );
         }
         Ok(false)
     }
@@ -2246,7 +2108,7 @@ impl DebugList {
         }
         let rr = right_rect(w);
 
-        for (i, label) in ["画质设置", "问题诊断", "谱面渲染", "制谱工作台", "热键管理"].iter().enumerate() {
+        for (i, label) in ["问题诊断", "谱面渲染", "制谱工作台", "热键管理"].iter().enumerate() {
             search::focus(ui, label);
             render_title(ui, *label, None);
             self.tools[i].render_text(ui, rr, t, "打开", 0.4, false);
@@ -2308,27 +2170,6 @@ impl DebugList {
                 let names = ["fps-top-center", "fps-bottom-center", "fps-top-left", "fps-top-right", "fps-bottom-left", "fps-bottom-right"];
                 self.fps_position_btn.render_text(ui, rr, t, tl!(names[config.fps_position.min(5) as usize]), 0.4, false);
             }
-            #[cfg(any(target_os = "windows", target_os = "linux"))]
-            item! {
-                render_title(ui, tl!("item-desktop-fps"), Some(tl!("item-desktop-fps-sub")));
-                self.desktop_fps_btn.render(ui, rr, t);
-            }
-            #[cfg(any(target_os = "android", target_os = "ios"))]
-            item! {
-                let max_rate = f32::from_bits(prpr::ui::MAX_DEVICE_REFRESH_RATE.load(Ordering::Relaxed));
-                let subtitle: Cow<'_, str> = if max_rate.is_finite() && max_rate > 0.0 {
-                    Cow::Owned(tl!("item-refresh-rate-max", "rate" => format!("{max_rate:.0}")))
-                } else {
-                    tl!("item-refresh-rate-sub")
-                };
-                render_title(ui, tl!("item-refresh-rate"), Some(subtitle));
-                let label = if config.preferred_refresh_rate == UNLIMITED_FPS {
-                    tl!("item-fps-unlimited")
-                } else {
-                    Cow::Owned(format!("{} Hz", config.preferred_refresh_rate))
-                };
-                self.refresh_rate_btn.render_text(ui, rr, t, label, 0.5, false);
-            }
         }
         self.sections[2].render_text(
             ui,
@@ -2363,8 +2204,6 @@ impl DebugList {
                     .render(ui, rr, t, config.touch_point_size, format!("{:.3}", config.touch_point_size));
             }
         }
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
-        self.desktop_fps_btn.render_top(ui, t, 1.);
         item! {
             render_title(ui, tl!("item-export-logs"), Some(tl!("item-export-logs-sub")));
             self.export_logs_btn.render_text(ui, rr, t, tl!("item-export-logs-button"), 0.5, true);

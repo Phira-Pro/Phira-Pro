@@ -457,3 +457,20 @@ item-early-late-bottom = Bottom of playfield
 
 item-font-atlas-pool = Pooled font atlas
 item-font-atlas-pool-sub = Rotate glyph-atlas versions so HUD text never overwrites the texture the GPU is still sampling. Pixels and layout are unchanged. Disable this only when diagnosing text rendering; feedback is welcome.
+
+performance = Performance
+performance-quality = Quality
+performance-fps = Frame rate & refresh rate
+performance-render = Rendering optimizations
+performance-interface = Interface
+performance-preset = Quality preset
+performance-preset-sub = Quickly switch quality, particles and anti-aliasing
+performance-preset-low = Low
+performance-preset-standard = Standard
+performance-preset-high = High
+item-particle = Hit particles
+item-noise-glow = Noise glow
+item-noise-refraction = Noise refraction
+item-sample-count = Anti-aliasing samples
+item-sample-count-sub = 1× / 2× / 4×; higher is smoother and costs more GPU time
+item-fxaa = FXAA

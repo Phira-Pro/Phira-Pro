@@ -1,0 +1,100 @@
+name: Build APK with Offset HUD
+# 手动触发：构建「游玩界面实时偏移显示」补丁版 APK。
+# 说明与安装步骤见仓库根目录的 README-offset-hud.md。
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '要构建的源码 ref（默认与现用 APK 同版本）'
+        required: false
+        default: 'v0.8.3-pro.18-fix1'
+jobs:
+  apk:
+    name: Release APK (arm64-v8a, offset HUD)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout upstream source
+        uses: actions/checkout@v4
+        with:
+          repository: Phira-Pro/Phira-Pro
+          ref: ${{ inputs.ref }}
+          path: src
+      - name: Checkout fork (patch)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.ref_name }}
+          path: patchsrc
+      - name: Apply offset HUD patch
+        working-directory: src
+        run: git apply --verbose ../patchsrc/offset-hud-pro18.patch
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify versions
+        working-directory: src
+        run: python scripts/version.py check
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android SDK components
+        run: |
+          set -e
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMGR="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMGR" --licenses > /dev/null || true
+          "$SDKMGR" --install "platforms;android-35" "build-tools;35.0.0" "platform-tools" "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$SDK/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - name: Set up Rust
+        working-directory: src
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-linux-android
+          cargo install cargo-ndk --locked
+      - name: Cache build outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/target
+            src/prpr-avc/static-lib
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: offset-hud-${{ inputs.ref }}-${{ hashFiles('src/Cargo.lock') }}
+          restore-keys: offset-hud-
+      - name: Generate temporary signing key
+        run: |
+          set -e
+          keytool -genkeypair -keystore "$RUNNER_TEMP/offset.jks" \
+            -storepass phiraoffset -keypass phiraoffset -alias offset \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Phira Pro Offset HUD, O=Local Build, C=CN"
+          echo "PHIRA_PRO_KEYSTORE_PATH=$RUNNER_TEMP/offset.jks" >> "$GITHUB_ENV"
+          echo "PHIRA_PRO_KEYSTORE_PASSWORD=phiraoffset" >> "$GITHUB_ENV"
+          echo "PHIRA_PRO_KEY_ALIAS=offset" >> "$GITHUB_ENV"
+          echo "PHIRA_PRO_KEY_PASSWORD=phiraoffset" >> "$GITHUB_ENV"
+      - name: Build release APK
+        working-directory: src/phira-android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+      - name: Verify signature and rename
+        working-directory: src
+        run: |
+          set -e
+          APK=$(ls phira-android/app/build/outputs/apk/release/*.apk | head -n 1)
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          "$SDK/build-tools/35.0.0/apksigner" verify --print-certs "$APK"
+          mkdir -p dist
+          cp "$APK" "dist/PhiraPro-v0.8.3-pro.18-fix1-offset-hud.apk"
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhiraPro-offset-hud-apk
+          path: src/dist/*.apk
+          if-no-files-found: error

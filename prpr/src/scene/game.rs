@@ -929,7 +929,7 @@ impl GameScene {
             chart
                 .extra
                 .effects
-                .push(Effect::new(0.0..f64::INFINITY, include_str!("fxaa.glsl"), Vec::new(), false).unwrap());
+                .push(Effect::new(0.0..f64::INFINITY, None, include_str!("fxaa.glsl"), Vec::new(), false).unwrap());
         }
 
         if config.has_mod(Mods::NIGHTCORE) {
@@ -940,7 +940,7 @@ impl GameScene {
             chart
                 .extra
                 .effects
-                .push(Effect::new(0.0..f64::INFINITY, include_str!("rainbow.glsl"), Vec::new(), false).unwrap());
+                .push(Effect::new(0.0..f64::INFINITY, None, include_str!("rainbow.glsl"), Vec::new(), false).unwrap());
         }
 
         let info_offset = info.offset;
@@ -2402,17 +2402,24 @@ impl Scene for GameScene {
         set_camera(&res.camera);
 
         let msaa = res.config.sample_count > 1;
+        // No active effect: skip the offscreen chart target and the final blit.
+        let idle_bypass = res.config.effect_render_optimized
+            && !msaa
+            && !res.config.practice_active
+            && res.camera.render_target.is_none()
+            && !self.chart.has_block_areas()
+            && !self.effects.iter().any(|e| e.active());
         if msaa {
             if let Some(target) = &mut res.chart_target {
                 target.prepare_chart();
             }
         }
 
-        let chart_onto = res
-            .chart_target
-            .as_ref()
-            .map(|it| if msaa { it.input() } else { it.output() })
-            .or(res.camera.render_target);
+        let chart_onto = if idle_bypass {
+            res.camera.render_target
+        } else {
+            res.chart_target.as_ref().map(|it| if msaa { it.input() } else { it.output() }).or(res.camera.render_target)
+        };
 
         unsafe {
             self.gl
@@ -2426,7 +2433,7 @@ impl Scene for GameScene {
         push_camera_state();
         set_camera(&Camera2D {
             zoom: vec2(1., -asp),
-            viewport: if res.chart_target.is_some() { None } else { Some(ui.viewport) },
+            viewport: if res.chart_target.is_some() && !idle_bypass { None } else { Some(ui.viewport) },
             render_target: chart_onto,
             ..Default::default()
         });
@@ -2438,7 +2445,7 @@ impl Scene for GameScene {
         }
         pop_camera_state();
 
-        let chart_target_vp = if res.chart_target.is_some() {
+        let chart_target_vp = if res.chart_target.is_some() && !idle_bypass {
             let vp = res.camera.viewport.unwrap();
             Some((vp.0 - ui.viewport.0, vp.1 - ui.viewport.1, vp.2, vp.3))
         } else {
@@ -2474,12 +2481,11 @@ impl Scene for GameScene {
             self.chart.render(ui, res);
         }
 
-        self.gl.quad_gl.render_pass(
-            res.chart_target
-                .as_ref()
-                .map(|it| it.output().render_pass)
-                .or_else(|| res.camera.render_pass()),
-        );
+        self.gl.quad_gl.render_pass(if idle_bypass {
+            res.camera.render_pass()
+        } else {
+            res.chart_target.as_ref().map(|it| it.output().render_pass).or_else(|| res.camera.render_pass())
+        });
 
         unsafe {
             self.gl.quad_gl.retain_render_pass_on_flush(None);
@@ -2510,7 +2516,7 @@ impl Scene for GameScene {
         let hud_camera = Camera2D {
             zoom: res.camera.zoom,
             viewport: chart_target_vp,
-            render_target: res.chart_target.as_ref().map(|target| target.output()).or(res.camera.render_target),
+            render_target: if idle_bypass { res.camera.render_target } else { res.chart_target.as_ref().map(|target| target.output()).or(res.camera.render_target) },
             ..Default::default()
         };
         if let Some(camera) = &mut practice_camera {
@@ -2565,10 +2571,12 @@ impl Scene for GameScene {
             }
             pop_camera_state();
         }
-        if msaa || !self.res.no_effect {
+        if (msaa || !self.res.no_effect) && !idle_bypass {
             // render the texture onto screen
             if let Some(target) = &self.res.chart_target {
                 self.gl.flush();
+                // Submit the last effect output before sampling it (Mali-G52).
+                unsafe { miniquad::gl::glFlush() };
 
                 unsafe {
                     self.gl.quad_gl.retain_render_pass_on_flush(None);
@@ -2592,6 +2600,8 @@ impl Scene for GameScene {
                     },
                 );
                 pop_camera_state();
+                // Submit the final composite before present (Mali-G52).
+                unsafe { miniquad::gl::glFlush() };
             }
         }
 

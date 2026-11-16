@@ -171,8 +171,10 @@ async fn parse_effect(r: &mut BpmList, rpe: ExtEffect, fs: &mut dyn FileSystem) 
         })
         .collect::<Result<_>>()?;
     let string;
+    let shader_name = rpe.shader.clone();
     Effect::new(
         range,
+        Some(shader_name.as_str()),
         if let Some(path) = rpe.shader.strip_prefix('/') {
             string = String::from_utf8(fs.load_file(path).await?).with_context(|| ptl!("shader-load-failed", "path" => path))?;
             &string

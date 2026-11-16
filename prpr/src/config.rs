@@ -209,6 +209,8 @@ pub struct Config {
     pub line_elision: bool,
     /// 字形上传使用轮换图集版本，避免写入 GPU 仍在采样的纹理。
     pub font_atlas_pool: bool,
+    /// 合并的效果渲染优化：着色器变体、共享材质与空闲帧绕过 chart_target。
+    pub effect_render_optimized: bool,
     pub menu_playlist: Option<String>,
     pub noise_glow: bool,
     pub noise_refraction: bool,
@@ -434,6 +436,7 @@ impl Default for Config {
             block_area_simple: false,
             line_elision: true,
             font_atlas_pool: true,
+            effect_render_optimized: true,
             menu_playlist: None,
             noise_glow: true,
             noise_refraction: true,
@@ -990,6 +993,11 @@ mod tests {
     #[test]
     fn font_atlas_pool_defaults_on() {
         assert!(Config::default().font_atlas_pool);
+    }
+
+    #[test]
+    fn effect_render_optimized_defaults_on() {
+        assert!(Config::default().effect_render_optimized);
     }
 
     #[test]

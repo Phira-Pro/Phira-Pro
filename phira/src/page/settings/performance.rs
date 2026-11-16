@@ -99,6 +99,7 @@ pub(super) struct PerformanceList {
     line_elision: DRectButton,
     shader_pre_render: DRectButton,
     font_atlas_pool: DRectButton,
+    effect_render_optimized: DRectButton,
     reduced_motion: DRectButton,
 }
 
@@ -133,6 +134,7 @@ impl PerformanceList {
             line_elision: DRectButton::new(),
             shader_pre_render: DRectButton::new(),
             font_atlas_pool: DRectButton::new(),
+            effect_render_optimized: DRectButton::new(),
             reduced_motion: DRectButton::new(),
         }
     }
@@ -256,6 +258,11 @@ impl PerformanceList {
             if self.font_atlas_pool.touch(touch, t) {
                 config.font_atlas_pool ^= true;
                 prpr::ui::FONT_ATLAS_POOL.store(config.font_atlas_pool, Ordering::Relaxed);
+                return Ok(Some(true));
+            }
+            if self.effect_render_optimized.touch(touch, t) {
+                config.effect_render_optimized ^= true;
+                prpr::core::EFFECT_RENDER_OPTIMIZED.store(config.effect_render_optimized, Ordering::Relaxed);
                 return Ok(Some(true));
             }
         }
@@ -428,6 +435,10 @@ impl PerformanceList {
             item! {
                 render_title(ui, tl!("item-font-atlas-pool"), Some(tl!("item-font-atlas-pool-sub")));
                 render_switch(ui, rr, t, &mut self.font_atlas_pool, config.font_atlas_pool);
+            }
+            item! {
+                render_title(ui, tl!("item-effect-render-optimized"), Some(tl!("item-effect-render-optimized-sub")));
+                render_switch(ui, rr, t, &mut self.effect_render_optimized, config.effect_render_optimized);
             }
         }
 

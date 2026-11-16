@@ -177,6 +177,10 @@ pub fn import(scan: &Scan, import_config: bool) -> Result<Imported> {
             data.config = serde_json::from_value(cur)?;
             data.config.apply_ui_colors();
             prpr::ui::FONT_ATLAS_POOL.store(data.config.font_atlas_pool, std::sync::atomic::Ordering::Relaxed);
+            prpr::core::EFFECT_RENDER_OPTIMIZED.store(
+                data.config.effect_render_optimized,
+                std::sync::atomic::Ordering::Relaxed,
+            );
             #[cfg(target_os = "android")]
             crate::set_android_refresh_rate(data.config.preferred_refresh_rate)?;
         }

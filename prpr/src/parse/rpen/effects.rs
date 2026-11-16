@@ -214,7 +214,7 @@ pub async fn load_effects(raw: &Value, bpm: &mut BpmList, fs: &mut dyn FileSyste
                 time: 0.,
             }));
         }
-        result.push(Effect::new(range, &source, vars, flag(&e["global"]))?);
+        result.push(Effect::new(range, e["shader"].as_str(), &source, vars, flag(&e["global"]))?);
     }
     Ok(result)
 }

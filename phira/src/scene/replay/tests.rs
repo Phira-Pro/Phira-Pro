@@ -895,6 +895,7 @@ async fn practice_regression(info: ChartInfo, painter: &mut TextPainter) {
     let before = pixels(&mut game, &mut tm, painter);
     let mut identity = prpr::core::Effect::new(
         -100. ..100.,
+        None,
         "#version 100\nprecision mediump float; varying lowp vec2 uv; uniform sampler2D screenTexture; void main(){gl_FragColor=texture2D(screenTexture,uv);}",
         vec![],
         false,

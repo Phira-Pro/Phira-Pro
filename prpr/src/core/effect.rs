@@ -6,7 +6,19 @@ use miniquad::UniformType;
 use once_cell::sync::Lazy;
 use phf::phf_map;
 use regex::Regex;
-use std::{collections::HashSet, ops::Range};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Range,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, Weak,
+    },
+};
+
+/// Debug switch: optimized shader variants, shared effect materials and the
+/// idle-chart bypass. Shader/material choices are made when effects are
+/// created, so those parts apply on chart reload.
+pub static EFFECT_RENDER_OPTIMIZED: AtomicBool = AtomicBool::new(true);
 
 static SHADERS: phf::Map<&'static str, &'static str> = phf_map! {
     "chromatic" => include_str!("shaders/chromatic.glsl"),
@@ -75,10 +87,47 @@ impl<T: UniformValue + Tweenable> Uniform for (String, Anim<T>) {
     }
 }
 
+struct SharedMaterial {
+    material: Material,
+}
+
+impl Drop for SharedMaterial {
+    fn drop(&mut self) {
+        self.material.delete();
+    }
+}
+
+static SHARED_MATERIALS: Lazy<Mutex<HashMap<String, Weak<SharedMaterial>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn load_effect_material(key: String, shader: &str, uniforms: Vec<(String, UniformType)>, optimized: bool) -> Result<Arc<SharedMaterial>> {
+    if optimized {
+        if let Some(existing) = SHARED_MATERIALS.lock().unwrap_or_else(|it| it.into_inner()).get(&key).and_then(Weak::upgrade) {
+            return Ok(existing);
+        }
+    }
+    let material = load_material(
+        VERTEX_SHADER,
+        shader,
+        MaterialParams {
+            uniforms,
+            textures: vec!["screenTexture".to_owned()],
+            ..Default::default()
+        },
+    )?;
+    let shared = Arc::new(SharedMaterial { material });
+    if !optimized {
+        return Ok(shared);
+    }
+    let mut registry = SHARED_MATERIALS.lock().unwrap_or_else(|it| it.into_inner());
+    registry.retain(|_, weak| weak.strong_count() > 0);
+    registry.insert(key, Arc::downgrade(&shared));
+    Ok(shared)
+}
+
 pub struct Effect {
     time_range: Range<f64>,
     t: f64,
-    material: Material,
+    material: Arc<SharedMaterial>,
     defaults: Vec<Box<dyn Uniform>>,
     uniforms: Vec<Box<dyn Uniform>>,
     pub global: bool,
@@ -89,7 +138,18 @@ impl Effect {
         SHADERS.get(name).copied()
     }
 
-    pub fn new(time_range: Range<f64>, shader: &str, uniforms: Vec<Box<dyn Uniform>>, global: bool) -> Result<Self> {
+    pub fn new(time_range: Range<f64>, preset: Option<&str>, shader: &str, uniforms: Vec<Box<dyn Uniform>>, global: bool) -> Result<Self> {
+        let optimized = EFFECT_RENDER_OPTIMIZED.load(Ordering::Relaxed);
+        // `sampleCount` is a dynamic uniform, so a driver cannot unroll the
+        // sampling loop. When the chart leaves it at the shader default (3),
+        // use the same arithmetic with a compile-time bound instead.
+        let shader = if optimized && preset == Some("chromatic") && !uniforms.iter().any(|u| u.uniform_pair().0 == "sampleCount") {
+            include_str!("shaders/chromatic_static3.glsl")
+        } else if optimized && preset == Some("glitch") {
+            include_str!("shaders/glitch_optimized.glsl")
+        } else {
+            shader
+        };
         static DEF_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"uniform\s+(\w+)\s+(\w+);\s+//\s+%([^%]+)%").unwrap());
         let defaults = DEF_REGEX
             .captures_iter(shader)
@@ -142,22 +202,26 @@ impl Effect {
         for u in &uniforms {
             add_uniform(u.uniform_pair());
         }
+        let mut key = shader.to_owned();
+        key.push('#');
+        for (name, ty) in &new_uniforms {
+            key.push_str(name);
+            key.push(':');
+            key.push_str(&format!("{ty:?}"));
+            key.push(';');
+        }
         Ok(Self {
             time_range,
             t: f64::NEG_INFINITY,
             defaults,
-            material: load_material(
-                VERTEX_SHADER,
-                shader,
-                MaterialParams {
-                    uniforms: new_uniforms,
-                    textures: vec!["screenTexture".to_owned()],
-                    ..Default::default()
-                },
-            )?,
+            material: load_effect_material(key, shader, new_uniforms, optimized)?,
             uniforms,
             global,
         })
+    }
+
+    pub fn active(&self) -> bool {
+        self.time_range.contains(&self.t)
     }
 
     pub fn update(&mut self, res: &Resource) {
@@ -176,19 +240,19 @@ impl Effect {
         let mut gl = unsafe { get_internal_gl() };
         gl.flush();
         for def in &self.defaults {
-            def.apply(&self.material);
+            def.apply(&self.material.material);
         }
         for uniform in &mut self.uniforms {
             uniform.set_time(self.time_range.start.max(0.));
-            uniform.apply(&self.material);
+            uniform.apply(&self.material.material);
         }
-        self.material.set_texture("screenTexture", texture);
-        self.material.set_uniform("time", self.time_range.start.max(0.) as f32);
-        self.material.set_uniform("screenSize", vec2(texture.width(), texture.height()));
-        self.material.set_uniform("UVScale", vec2(1., 1.));
+        self.material.material.set_texture("screenTexture", texture);
+        self.material.material.set_uniform("time", self.time_range.start.max(0.) as f32);
+        self.material.material.set_uniform("screenSize", vec2(texture.width(), texture.height()));
+        self.material.material.set_uniform("UVScale", vec2(1., 1.));
         // One tiny draw under the next loading-screen redraw, never a full
         // resolution offscreen target or a delayed gameplay effect.
-        gl_use_material(self.material);
+        gl_use_material(self.material.material);
         draw_rectangle(0., 0., 2. / screen_width().max(1.), 2. / screen_height().max(1.), WHITE);
         gl_use_default_material();
         gl.flush();
@@ -200,24 +264,28 @@ impl Effect {
         }
         let mut gl = unsafe { get_internal_gl() };
         gl.flush();
+        // macroquad's flush only submits its own batch. The previous pass must
+        // be submitted before the driver samples its texture (Mali-G52).
+        unsafe { miniquad::gl::glFlush() };
+        let material = self.material.material;
 
         for def in &self.defaults {
-            def.apply(&self.material);
+            def.apply(&material);
         }
         for uniform in &self.uniforms {
-            uniform.apply(&self.material);
+            uniform.apply(&material);
         }
-        self.material.set_uniform("time", self.t as f32);
+        material.set_uniform("time", self.t as f32);
         let target = res.chart_target.as_mut().unwrap();
         target.swap();
         let tex = target.old().texture;
-        self.material.set_texture("screenTexture", tex);
+        material.set_texture("screenTexture", tex);
         let screen_dim = vec2(tex.width(), tex.height());
-        self.material.set_uniform("screenSize", screen_dim);
+        material.set_uniform("screenSize", screen_dim);
         gl.quad_gl.render_pass(Some(target.output().render_pass));
 
         let vp = get_viewport();
-        self.material.set_uniform("UVScale", vec2(vp.2 as _, vp.3 as _) / screen_dim);
+        material.set_uniform("UVScale", vec2(vp.2 as _, vp.3 as _) / screen_dim);
 
         // The captured chart already contains the practice view transform.
         // Postprocessing must cover the viewport once, rather than zoom/pan
@@ -232,7 +300,7 @@ impl Effect {
                 ..Default::default()
             });
         }
-        gl_use_material(self.material);
+        gl_use_material(material);
         let top = 1. / if self.global { screen_aspect() } else { res.aspect_ratio };
         draw_rectangle(-1., -top, 2., top * 2., WHITE);
         gl_use_default_material();
@@ -240,12 +308,6 @@ impl Effect {
             gl.flush();
             pop_camera_state();
         }
-    }
-}
-
-impl Drop for Effect {
-    fn drop(&mut self) {
-        self.material.delete();
     }
 }
 

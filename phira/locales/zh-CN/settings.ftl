@@ -461,6 +461,8 @@ item-early-late-bottom = 游玩区域最下方
 
 item-font-atlas-pool = 字体图集版本池
 item-font-atlas-pool-sub = 轮换字形图集版本，避免 HUD 文字写入 GPU 仍在采样的纹理；画面与排版不变。仅在排查文字渲染问题时关闭，欢迎反馈效果。
+item-effect-render-optimized = 效果渲染优化
+item-effect-render-optimized-sub = 合并着色器变体、共享材质与空闲帧绕过 chart_target；默认开启。着色器与材质部分在重载谱面后生效。
 
 performance = 性能
 performance-quality = 画质

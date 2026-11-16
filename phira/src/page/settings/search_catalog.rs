@@ -76,6 +76,7 @@
     (3, "item-line-elision"),
     (3, "item-shader-pre-render"),
     (3, "item-font-atlas-pool"),
+    (3, "item-effect-render-optimized"),
     (3, "item-prefer-reduced-motion"),
     (4, "item-chart-debug"),
     (4, "item-debug-line"),

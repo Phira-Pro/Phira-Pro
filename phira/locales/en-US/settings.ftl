@@ -462,6 +462,8 @@ item-early-late-bottom = Bottom of playfield
 
 item-font-atlas-pool = Pooled font atlas
 item-font-atlas-pool-sub = Rotate glyph-atlas versions so HUD text never overwrites the texture the GPU is still sampling. Pixels and layout are unchanged. Disable this only when diagnosing text rendering; feedback is welcome.
+item-effect-render-optimized = Effect rendering optimizations
+item-effect-render-optimized-sub = Bundles shader variants, shared materials and the idle-frame chart-target bypass. Shader and material changes apply after reloading the chart. Debug switch, default on.
 
 performance = Performance
 performance-quality = Quality

@@ -46,7 +46,7 @@ pub mod rpen_skin;
 pub use chart::{Chart, ChartExtra, ChartSettings, HitSoundMap};
 
 mod effect;
-pub use effect::{Effect, Uniform};
+pub use effect::{Effect, Uniform, EFFECT_RENDER_OPTIMIZED};
 
 mod line;
 pub use line::{GifFrames, JudgeLine, JudgeLineCache, JudgeLineKind, UIElement};

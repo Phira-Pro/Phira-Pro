@@ -594,6 +594,7 @@ fn reset_all_settings() {
         PREFER_REDUCED_MOTION.store(data.prefer_reduced_motion, Ordering::Relaxed);
         prpr::ui::SHOW_FPS.store(data.config.show_fps, Ordering::Relaxed);
         prpr::ui::FONT_ATLAS_POOL.store(data.config.font_atlas_pool, Ordering::Relaxed);
+        prpr::core::EFFECT_RENDER_OPTIMIZED.store(data.config.effect_render_optimized, Ordering::Relaxed);
         UI_SFX_VOLUME.store(data.config.volume_sfx.to_bits(), Ordering::Relaxed);
         data.config.apply_ui_colors();
     }

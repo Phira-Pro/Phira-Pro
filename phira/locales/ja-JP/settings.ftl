@@ -431,6 +431,8 @@ item-early-late-indicator = 判定タイミングバーの下
 item-early-late-bottom = プレイ画面の下端
 item-font-atlas-pool = フォントアトラスのプール
 item-font-atlas-pool-sub = グリフアトラスを複数バージョンで切り替え、HUD テキストが GPU のサンプリング中のテクスチャへ書き込まないようにします。画素とレイアウトは変わりません。テキスト描画の診断時のみオフにしてください。
+item-effect-render-optimized = エフェクト描画の最適化
+item-effect-render-optimized-sub = シェーダーバリアント、共有マテリアル、空きフレームの chart_target バイパスをまとめて有効にします。シェーダーとマテリアルは譜面の再読み込み後に反映されます。デバッグ用、既定でオン。
 
 performance = パフォーマンス
 performance-quality = 画質

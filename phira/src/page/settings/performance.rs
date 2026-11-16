@@ -351,19 +351,19 @@ impl PerformanceList {
             h += 0.10;
 
             item! {
-                render_title(ui, tl!("item-particle"), None);
+                render_title(ui, tl!("item-particle"), Some(tl!("item-particle-sub")));
                 render_switch(ui, rr, t, &mut self.particle, config.particle);
             }
             item! {
-                render_title(ui, tl!("item-noise-glow"), None);
+                render_title(ui, tl!("item-noise-glow"), Some(tl!("item-noise-glow-sub")));
                 render_switch(ui, rr, t, &mut self.noise_glow, config.noise_glow);
             }
             item! {
-                render_title(ui, tl!("item-noise-refraction"), None);
+                render_title(ui, tl!("item-noise-refraction"), Some(tl!("item-noise-refraction-sub")));
                 render_switch(ui, rr, t, &mut self.noise_refraction, config.noise_refraction);
             }
             item! {
-                render_title(ui, tl!("item-aa"), None);
+                render_title(ui, tl!("item-aa"), Some(tl!("item-aa-sub")));
                 self.antialiasing.render(ui, rr, t);
             }
         }

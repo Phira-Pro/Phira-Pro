@@ -1,0 +1,162 @@
+--- a/prpr/src/judge.rs
++++ b/prpr/src/judge.rs
+@@ -2415,6 +2415,11 @@
+         self.inner.recent_hits()
+     }
+ 
++    /// 本局所有有效命中的偏移统计 `(命中数, 平均偏移, 标准差)`，单位：秒。
++    pub fn offset_stats(&self) -> Option<(usize, f64, f64)> {
++        self.inner.offset_stats()
++    }
++
+     pub fn hp(&self) -> f32 {
+         self.inner.hp()
+     }
+--- a/prpr/src/scene/game.rs
++++ b/prpr/src/scene/game.rs
+@@ -1379,7 +1379,7 @@
+                 draw_offset_indicator(ui, res, self.judge.recent_hits(), top + (-top) / 3.);
+             }
+             if res.config.show_early_late {
+-                timing_feedback::draw(ui, res, self.judge.recent_hits(), top);
++                timing_feedback::draw(ui, res, self.judge.recent_hits(), self.judge.offset_stats(), top);
+             }
+             // 血条模式：与暂停按钮同高、紧贴其右侧；长度由配置控制，高度是相对暂停按钮的倍率。
+             if res.config.hp_mode {
+--- a/prpr/src/scene/game/timing_feedback.rs
++++ b/prpr/src/scene/game/timing_feedback.rs
+@@ -1,26 +1,57 @@
+ //! Timing feedback uses actual hits, never synthetic Miss/Drag/Flick offsets.
+-use crate::{core::{Resource, PGR_FONT}, judge::{Judgement, RecentHit}, ui::Ui};
++use crate::{
++    core::{Resource, PGR_FONT},
++    judge::{Judgement, RecentHit},
++    ui::Ui,
++};
+ use macroquad::prelude::Color;
+ 
+-fn latest(recent: &[RecentHit], now: f64) -> Option<(&'static str, f32)> {
++/// 最近一次真实命中的偏移（秒）与已过去的时间（秒）。
++///
++/// Perfect / Perfect+ 也有真实偏移，同样参与数值显示；Miss 与合成误差（offset 为 0）不参与。
++fn latest(recent: &[RecentHit], now: f64) -> Option<(f64, f32)> {
+     let hit = recent.iter().rev().find(|hit| {
+-        !matches!(hit.judgement, Judgement::PerfectPlus | Judgement::Perfect | Judgement::Miss)
+-            && hit.offset.is_finite() && hit.offset != 0.
++        !matches!(hit.judgement, Judgement::Miss) && hit.offset.is_finite() && hit.offset != 0.
+     })?;
+     let age = now - hit.time;
+     if !(0. ..0.65).contains(&age) { return None; }
+-    Some((if hit.offset < 0. { "EARLY" } else { "LATE" }, age as f32))
++    Some((hit.offset, age as f32))
+ }
+ 
+-pub(super) fn draw(ui: &mut Ui, res: &Resource, recent: &[RecentHit], top: f32) {
+-    let Some((text, age)) = latest(recent, res.time) else { return };
++/// 把秒偏移格式化为带符号的毫秒数，例如 `-12.3 ms`、`+8.1 ms`。
++fn fmt_offset(offset: f64) -> String {
++    let ms = offset * 1000.;
++    let ms = if ms.abs() < 0.05 { 0. } else { ms };
++    format!("{ms:+.1} ms")
++}
++
++pub(super) fn draw(
++    ui: &mut Ui,
++    res: &Resource,
++    recent: &[RecentHit],
++    stats: Option<(usize, f64, f64)>,
++    top: f32,
++) {
+     let y = if res.config.early_late_position == 1 { -top - 0.055 } else { top + (-top) / 3. + 0.045 };
+-    let pop = (1. - age / 0.12).max(0.);
+-    let color = Color::from_hex_rgb(if text == "EARLY" { 0x85caff } else { 0xffad80 });
+-    ui.text(text).pos(0., y - pop * 0.012).anchor(0.5, 0.5)
+-        .size(0.42 + pop * 0.06)
+-        .color(Color { a: res.alpha * ((0.65 - age) / 0.25).clamp(0., 1.), ..color })
+-        .draw_using(&PGR_FONT);
++    if let Some((offset, age)) = latest(recent, res.time) {
++        let pop = (1. - age / 0.12).max(0.);
++        let color = Color::from_hex_rgb(if offset < 0. { 0x85caff } else { 0xffad80 });
++        ui.text(fmt_offset(offset))
++            .pos(0., y - pop * 0.012)
++            .anchor(0.5, 0.5)
++            .size(0.42 + pop * 0.06)
++            .color(Color { a: res.alpha * ((0.65 - age) / 0.25).clamp(0., 1.), ..color })
++            .draw_using(&PGR_FONT);
++    }
++    // 本局所有有效命中的平均偏移，不受单次提示淡出的影响。
++    if let Some((count, mean, _)) = stats {
++        ui.text(format!("AVG {} · {}", fmt_offset(mean), count))
++            .pos(0., y + 0.085)
++            .anchor(0.5, 0.5)
++            .size(0.3)
++            .color(Color { r: 1., g: 1., b: 1., a: res.alpha * 0.72 })
++            .draw_using(&PGR_FONT);
++    }
+ }
+ 
+ #[cfg(test)]
+@@ -28,26 +59,22 @@
+     use super::*;
+     fn hit(judgement: Judgement, offset: f64, time: f64) -> RecentHit { RecentHit { judgement, offset, time } }
+     #[test]
+-    fn nonperfect_hits_restart_feedback_and_perfects_do_not_erase_it() {
+-        let mut hits = vec![hit(Judgement::Good, -0.1, 1.)];
+-        assert_eq!(latest(&hits, 1.1).unwrap().0, "EARLY");
+-        hits.push(hit(Judgement::PerfectPlus, 0.01, 1.1));
+-        hits.push(hit(Judgement::Perfect, -0.02, 1.2));
+-        assert_eq!(latest(&hits, 1.2).unwrap().0, "EARLY");
+-        hits.push(hit(Judgement::Bad, 0.2, 1.3));
+-        assert_eq!(latest(&hits, 1.3), Some(("LATE", 0.)));
+-        assert!(latest(&hits, 2.).is_none());
+-        assert!(latest(&hits, 0.).is_none());
++    fn every_real_hit_updates_the_value_and_perfects_are_included() {
++        assert_eq!(latest(&[hit(Judgement::Good, -0.1, 1.)], 1.1).unwrap().0, -0.1);
++        assert_eq!(latest(&[hit(Judgement::Perfect, 0.02, 1.)], 1.1).unwrap().0, 0.02);
++        assert_eq!(latest(&[hit(Judgement::PerfectPlus, -0.005, 1.)], 1.1).unwrap().0, -0.005);
+     }
+     #[test]
+-    fn every_extended_grade_uses_the_real_offset() {
+-        for grade in [Judgement::Great, Judgement::Good, Judgement::Ok, Judgement::Meh, Judgement::Bad] {
+-            for offset in [-0.1, 0.1] {
+-                assert_eq!(latest(&[hit(grade, offset, 1.)], 1.).unwrap().0, if offset < 0. { "EARLY" } else { "LATE" });
+-            }
+-        }
+-        for grade in [Judgement::Perfect, Judgement::PerfectPlus, Judgement::Miss] {
+-            assert!(latest(&[hit(grade, 0.25, 1.)], 1.).is_none());
+-        }
++    fn miss_and_synthetic_offsets_are_ignored() {
++        assert!(latest(&[hit(Judgement::Miss, 0.2, 1.)], 1.1).is_none());
++        assert!(latest(&[hit(Judgement::Good, 0., 1.)], 1.1).is_none());
++        assert!(latest(&[hit(Judgement::Good, 0.1, 1.)], 2.).is_none());
++    }
++    #[test]
++    fn offset_text_keeps_sign_and_one_decimal() {
++        assert_eq!(fmt_offset(-0.01234), "-12.3 ms");
++        assert_eq!(fmt_offset(0.01234), "+12.3 ms");
++        assert_eq!(fmt_offset(0.), "+0.0 ms");
++        assert_eq!(fmt_offset(-0.00001), "+0.0 ms");
+     }
+ }
+--- a/phira/locales/zh-CN/settings.ftl
++++ b/phira/locales/zh-CN/settings.ftl
+@@ -445,7 +445,7 @@
+ item-fps-unlimited = 无上限
+ 
+ item-early-late = Early/Late 提示
+-item-early-late-sub = 非 Perfect+ / Perfect 的有效击打显示提前或延后跳字
++item-early-late-sub = 显示本次击打的偏移毫秒数，以及本局所有有效击打的平均偏移
+ item-early-late-position = 提示位置
+ item-early-late-indicator = 判定偏移指示器下方
+ item-early-late-bottom = 游玩区域最下方
+--- a/phira/locales/en-US/settings.ftl
++++ b/phira/locales/en-US/settings.ftl
+@@ -446,7 +446,7 @@
+ item-fps-unlimited = Unlimited
+ 
+ item-early-late = Early/Late feedback
+-item-early-late-sub = Brief timing feedback for non-Perfect hits with a measured offset
++item-early-late-sub = Show this hit's offset in milliseconds plus the running average of the whole play
+ item-early-late-position = Feedback position
+ item-early-late-indicator = Below offset indicator
+ item-early-late-bottom = Bottom of playfield

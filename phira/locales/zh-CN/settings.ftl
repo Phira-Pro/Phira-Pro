@@ -256,6 +256,8 @@ item-aspect-ratio-sub = 支持 16:9 或 1.7778 这样的小数
 aspect-invalid = 宽高比格式不正确，例如 16:9 或 1.7778
 item-offset-indicator = 判定偏移条
 item-offset-indicator-sub = 局内顶部显示早/晚判定的偏移指示条
+item-timing-offset = 实时判定偏移数字
+item-timing-offset-sub = 以毫秒显示最近一次有效击打的偏移和本局平均偏移
 
 item-app-icon = 自定义APP图标
 item-app-icon-sub = 更换程序图标。*重启后生效*

@@ -340,6 +340,8 @@ pub struct Config {
     pub fade_strength: f32,
     /// Phira Pro：局内判定偏移条（屏幕上方那条早/晚指示）。默认开启。
     pub offset_indicator: bool,
+    /// Display the latest measured timing offset and the running mean in the gameplay HUD.
+    pub show_timing_offset: bool,
     /// Cosmetic timing feedback, independent of the selected judgement preset.
     pub show_early_late: bool,
     /// 0: below the offset indicator; 1: bottom of the playfield.
@@ -468,6 +470,7 @@ impl Default for Config {
             flow_speed: 1.,
             fade_strength: 0.,
             offset_indicator: true,
+            show_timing_offset: false,
             show_early_late: false,
             early_late_position: 0,
             combo_text: "COMBO".to_owned(),
@@ -1078,12 +1081,18 @@ mod tests {
     fn timing_feedback_is_cosmetic_and_survives_reload() {
         let mut config: Config = serde_json::from_str("{}").unwrap();
         assert!(!config.show_early_late);
+        assert!(!config.show_timing_offset);
+        assert!(config.offset_indicator);
         assert_eq!(config.early_late_position, 0);
         let before = config.non_official_items(Mods::empty());
         config.show_early_late = true;
+        config.show_timing_offset = true;
+        config.offset_indicator = false;
         config.early_late_position = 1;
         let restored: Config = serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
         assert!(restored.show_early_late);
+        assert!(restored.show_timing_offset);
+        assert!(!restored.offset_indicator);
         assert_eq!(restored.early_late_position, 1);
         assert_eq!(before, restored.non_official_items(Mods::empty()));
     }

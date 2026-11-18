@@ -454,6 +454,8 @@ item-gameplay-background-blur = Gameplay background blur
 
 item-fps-unlimited = Unlimited
 
+item-timing-offset = Live timing offset
+item-timing-offset-sub = Show the latest measured hit offset and the running average in milliseconds
 item-early-late = Early/Late feedback
 item-early-late-sub = Brief timing feedback for non-Perfect hits with a measured offset
 item-early-late-position = Feedback position

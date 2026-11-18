@@ -360,6 +360,8 @@ item-gameplay-background-blur = 遊玩背景模糊
 
 item-fps-unlimited = 無上限
 
+item-timing-offset = 即時判定偏移數字
+item-timing-offset-sub = 以毫秒顯示最近一次有效擊打的偏移與本局平均偏移
 item-early-late = Early/Late 提示
 item-early-late-sub = 非 Perfect+ / Perfect 的有效擊打顯示提前或延後跳字
 item-early-late-position = 提示位置

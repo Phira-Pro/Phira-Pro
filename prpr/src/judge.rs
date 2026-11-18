@@ -418,6 +418,7 @@ pub(crate) struct JudgeInner {
     recent: Vec<RecentHit>,
     /// 本局所有有效命中的偏移（秒），供结算时的偏差统计使用。
     offsets: Vec<f64>,
+    offset_sum: f64,
     /// 判定时间误差分布（-HIST_MAX_MS .. +HIST_MAX_MS，共 HIST_BUCKETS 个桶）。
     hist: [u32; HIST_BUCKETS],
     health: health::Health,
@@ -439,6 +440,7 @@ impl JudgeInner {
             late_kind: [0; 8],
             recent: Vec::new(),
             offsets: Vec::new(),
+            offset_sum: 0.,
             hist: [0; HIST_BUCKETS],
             health: health::Health::default(),
         }
@@ -461,6 +463,7 @@ impl JudgeInner {
         // 累计本局所有有效命中的偏移；Miss 不代表击打精度，不入统计。
         if !matches!(judgement, Judgement::Miss) {
             self.offsets.push(offset);
+            self.offset_sum += offset;
             // 同一批「真实计时」的命中同时进结算分布图。
             self.push_hist(offset);
         }
@@ -484,16 +487,8 @@ impl JudgeInner {
         &self.recent
     }
 
-    /// 本局所有有效命中的偏移统计，返回 `(命中数, 平均偏移, 标准差)`，单位：秒。
-    /// 没有任何有效命中时返回 `None`。
-    pub fn offset_stats(&self) -> Option<(usize, f64, f64)> {
-        let n = self.offsets.len();
-        if n == 0 {
-            return None;
-        }
-        let mean = self.offsets.iter().sum::<f64>() / n as f64;
-        let var = self.offsets.iter().map(|it| (it - mean).powi(2)).sum::<f64>() / n as f64;
-        Some((n, mean, var.sqrt()))
+    fn mean_offset(&self) -> Option<f64> {
+        (!self.offsets.is_empty()).then(|| self.offset_sum / self.offsets.len() as f64)
     }
 
     pub fn commit(&mut self, what: Judgement, diff: f64) {
@@ -546,6 +541,7 @@ impl JudgeInner {
         self.late_kind = [0; 8];
         self.recent.clear();
         self.offsets.clear();
+        self.offset_sum = 0.;
         self.hist = [0; HIST_BUCKETS];
         self.health.reset();
     }
@@ -599,7 +595,7 @@ impl JudgeInner {
         // 250ms for misses and zero for automatic judgements. A centered
         // standard deviation would misleadingly report zero for uniformly
         // late hits, and previously disagreed with the uploaded record.
-        let mean = self.offset_stats().map_or(0., |(_, mean, _)| mean as f32);
+        let mean = self.mean_offset().unwrap_or_default() as f32;
         let std = timing_mean_square(&self.offsets, self.counts[3], self.num_of_notes).sqrt() as f32;
         PlayResult {
             grading: self.grading,
@@ -1135,18 +1131,20 @@ mod tests {
     }
 
     #[test]
-    fn offset_stats_ignores_miss() {
+    fn mean_offset_includes_on_time_hits_and_resets() {
         let mut j = JudgeInner::new(64);
-        assert!(j.offset_stats().is_none());
+        assert!(j.mean_offset().is_none());
         j.push_recent(0.01, Judgement::Perfect, 1.);
         j.push_recent(0.03, Judgement::Perfect, 2.);
-        j.push_recent(0.5, Judgement::Miss, 3.);
-        let (n, mean, sd) = j.offset_stats().unwrap();
-        assert_eq!(n, 2);
-        assert!((mean - 0.02).abs() < 1e-9);
-        assert!((sd - 0.01).abs() < 1e-9);
+        j.push_recent(0., Judgement::Perfect, 3.);
+        j.push_recent(0.5, Judgement::Miss, 4.);
+        assert_eq!(j.offsets.len(), 3);
+        assert_eq!(j.recent_hits().last().unwrap().offset, 0.);
+        assert!((j.mean_offset().unwrap() - 0.04 / 3.).abs() < 1e-9);
         j.reset();
-        assert!(j.offset_stats().is_none());
+        assert!(j.mean_offset().is_none());
+        j.push_recent(-0.02, Judgement::Perfect, 1.);
+        assert_eq!(j.mean_offset(), Some(-0.02));
     }
 
     #[test]
@@ -1158,14 +1156,13 @@ mod tests {
         }
         j.commit(Judgement::Perfect, 0.); // Automatic drag/flick: no timing sample.
         j.commit(Judgement::Miss, 0.);
-        assert_eq!(j.offset_stats().unwrap().2, 0.);
         let expected = ((2. * 0.02f64.powi(2) + 0.25f64.powi(2)) / 4.).sqrt();
         assert!((j.result(false).std as f64 - expected).abs() < 1e-8);
         assert!((j.result(false).mean - 0.02).abs() < 1e-8);
         assert_eq!(super::timing_mean_square(&[], 4, 4).sqrt(), 0.25);
         assert_eq!(super::timing_mean_square(&[], 0, 0), 0.);
         j.push_recent(f64::NAN, Judgement::Perfect, 2.);
-        assert_eq!(j.offset_stats().unwrap().0, 2);
+        assert_eq!(j.offsets.len(), 2);
     }
 
     /// 判定条只记录真实偏移：Miss 不入队，队列长度封顶。
@@ -2391,6 +2388,10 @@ impl Judge {
 
     pub fn recent_hits(&self) -> &[RecentHit] {
         self.inner.recent_hits()
+    }
+
+    pub fn mean_offset(&self) -> Option<f64> {
+        self.inner.mean_offset()
     }
 
     pub fn hp(&self) -> f32 {

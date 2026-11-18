@@ -1387,6 +1387,9 @@ impl GameScene {
             if res.config.show_early_late {
                 timing_feedback::draw(ui, res, self.judge.recent_hits(), top);
             }
+            if res.config.show_timing_offset {
+                timing_feedback::draw_offsets(ui, res, self.judge.recent_hits(), self.judge.mean_offset(), top);
+            }
             // 谱面调试叠加层（判定线 / 音符的编号、线高、时间、横向判定范围）。
             if res.config.chart_debug_line || res.config.chart_debug_note {
                 debug_overlay(res, &self.chart, ui);

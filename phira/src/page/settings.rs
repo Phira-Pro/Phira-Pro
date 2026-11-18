@@ -1460,6 +1460,7 @@ struct ChartList {
     aspect_btn: DRectButton,
     /// 局内判定偏移条开关。
     offset_indicator_btn: DRectButton,
+    timing_offset_btn: DRectButton,
     early_late_btn: DRectButton,
     early_late_position_btn: DRectButton,
     hp_mode_btn: DRectButton,
@@ -1497,6 +1498,7 @@ impl ChartList {
             custom_aspect_btn: DRectButton::new(),
             aspect_btn: DRectButton::new(),
             offset_indicator_btn: DRectButton::new(),
+            timing_offset_btn: DRectButton::new(),
             early_late_btn: DRectButton::new(),
             early_late_position_btn: DRectButton::new(),
             hp_mode_btn: DRectButton::new(),
@@ -1581,6 +1583,10 @@ impl ChartList {
         }
         if self.offset_indicator_btn.touch(touch, t) {
             config.offset_indicator ^= true;
+            return Ok(Some(true));
+        }
+        if self.timing_offset_btn.touch(touch, t) {
+            config.show_timing_offset ^= true;
             return Ok(Some(true));
         }
         if self.early_late_btn.touch(touch, t) {
@@ -1771,6 +1777,10 @@ impl ChartList {
         item! {
             render_title(ui, tl!("item-offset-indicator"), Some(tl!("item-offset-indicator-sub")));
             render_switch(ui, rr, t, &mut self.offset_indicator_btn, config.offset_indicator);
+        }
+        item! {
+            render_title(ui, tl!("item-timing-offset"), Some(tl!("item-timing-offset-sub")));
+            render_switch(ui, rr, t, &mut self.timing_offset_btn, config.show_timing_offset);
         }
         item! {
             render_title(ui, tl!("item-early-late"), Some(tl!("item-early-late-sub")));

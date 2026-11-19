@@ -259,10 +259,18 @@ item-offset-indicator = Offset Indicator
 item-offset-indicator-sub = Shows the early/late judgement offset bar in game
 
 item-app-icon = App Icon
+item-app-icon-window-sub = Import an image for the window and apply it by restarting.
+item-app-icon-launcher-sub = Choose between the app's bundled home screen icons.
+item-app-icon-switch = Switch
+item-app-icon-applied = App icon updated.
+item-app-icon-shortcut = Custom home screen shortcut
+item-app-icon-shortcut-done = Shortcut requested. Approve it on your home screen if prompted.
 item-app-icon-sub = Change the app icon. *Takes effect after restart*
 item-app-icon-reset = Reset icon
-item-app-bg = Background
-item-app-bg-sub = Change the main screen background
+item-app-bg = Custom background image/video
+item-app-bg-sub = Change the main menu background. Videos loop without sound.
+item-app-bg-crossfade = Background video crossfade
+item-app-bg-crossfade-sub = Blend the ending into the start of the next loop
 item-app-bg-reset = Reset background
 item-appearance-import-sub = The character at the bottom-left of the main screen (transparent PNG recommended)
 item-appearance-reset = Reset character
@@ -431,6 +439,7 @@ preset-color-default = Resource pack
 
 item-desktop-fps = Frame rate limit
 item-desktop-fps-sub = Applies immediately; follows display refresh rate by default
+item-desktop-fps-linux-sub = Default: follow the display. Unlimited depends on graphics driver support.
 item-desktop-fps-auto = Follow display
 
 color-original = Original

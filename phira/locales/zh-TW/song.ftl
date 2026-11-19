@@ -117,6 +117,7 @@ mods-no-fail = 無傷模式
 mods-no-fail-sub = 失敗只記錄，不中斷本局
 rate-failed = 評分失敗
 rate-done = 評分成功
+rate-pro-score-required = 請先完成遊玩並將這張譜面的成績提交到 Pro 伺服器
 need-update = 譜面更新
 need-update-info-only-content = 譜面資訊已更新，是否同步這些資訊？
 need-update-content = 譜面已更新，若本地不更新您將無法上傳成績。是否現在更新？

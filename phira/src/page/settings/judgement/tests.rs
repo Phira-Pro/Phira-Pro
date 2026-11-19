@@ -1,6 +1,7 @@
 //! Software-level regression using production controls in a hidden GL window.
 //! No real user configuration or OS input is accessed.
 use super::*;
+use prpr::ext::semi_white;
 use crate::{data::Data, DATA_PATH};
 use prpr::{
     core::{BOLD_FONT, PGR_FONT},

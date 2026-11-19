@@ -1056,7 +1056,7 @@ impl GameScene {
         let exercise_range = (chart.offset + info_offset + res.config.offset) as f64..res.track_length;
 
         let mut judge = Judge::new(&chart, res.config.hold_tail_judge);
-        judge.configure_health(&res.config);
+        judge.configure_health(&res.config, mode == GameMode::Course);
         judge.set_grading(res.config.judge_grading);
 
         let music = Self::new_music(&mut res, &practice_schedule)?;
@@ -1981,6 +1981,7 @@ impl Scene for GameScene {
         }
         let offset = self.offset();
         let time = tm.now();
+        let mut course_finished = false;
         // Capture the last Playing frame even when it transitions to Ending,
         // but never record ending/UI touches or the clamped fade-out clock.
         let capture_replay = !tm.paused() && self.pause_rewind.is_none() && matches!(self.state, State::BeforeMusic | State::Playing);
@@ -2058,7 +2059,8 @@ impl Scene for GameScene {
             }
             State::Ending => {
                 let t = time - self.ending_start_time();
-                if t >= AFTER_TIME + 0.3 {
+                course_finished = self.mode == GameMode::Course && t >= AFTER_TIME + 0.3;
+                if t >= AFTER_TIME + 0.3 && self.mode != GameMode::Course {
                     let result = self.judge.result(self.res.config.has_mod(Mods::NO_COMBO_SCORE));
                     // 续练可能跳过一部分音符，血条模式需要完整判完谱面才计成绩。
                     let complete_life_run = !self.res.config.hp_mode || result.counts.iter().sum::<u32>() == result.num_of_notes;
@@ -2146,7 +2148,7 @@ impl Scene for GameScene {
                                 if self.res.config.show_avg_fps { self.get_avg_fps() } else { None },
                             )?)))
                         }
-                        GameMode::Course => Some(NextScene::PopWithResult(Box::new(self.judge.result(true)))),
+                        GameMode::Course => unreachable!(),
                         GameMode::TweakOffset => Some(NextScene::PopWithResult(Box::new(None::<f32>))),
                         GameMode::Exercise => None,
                     };
@@ -2192,6 +2194,14 @@ impl Scene for GameScene {
             WHITE
         };
         let empty_life = self.res.config.hp_mode && self.judge.hp() <= 0.;
+        // The final update can still judge a note. Carry the resulting LIFE
+        // forward only if the chart actually survived that update.
+        if course_finished && !empty_life {
+            self.next_scene = Some(NextScene::PopWithResult(Box::new(crate::course::StageResult {
+                play: self.judge.result(true),
+                life: self.judge.course_life(),
+            })));
+        }
         let failed = match self.state {
             State::Playing => {
                 empty_life

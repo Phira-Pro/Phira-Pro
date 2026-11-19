@@ -496,57 +496,67 @@ fn render_about(ui: &mut Ui, mut r: Rect, icon: &SafeTexture) -> (f32, f32) {
     (ow, r.bottom() + 0.09)
 }
 
-fn render_title<'a>(ui: &mut Ui, title: impl Into<Cow<'a, str>>, subtitle: Option<Cow<'a, str>>) -> f32 {
-    let title: Cow<'a, str> = title.into();
+// Controls stay in the first part of the row. Wrapped descriptions extend
+// the row's scroll and touch layout before the following control is drawn.
+macro_rules! render_setting_row {
+    ($ui:ident, $height:ident, $width:expr; render_title($label_ui:ident, $title:expr, $subtitle:expr); $($body:tt)*) => {{
+        let (_, row_height) = render_title($label_ui, $title, $subtitle, $width);
+        $($body)*
+        $ui.dy(row_height);
+        $height += row_height;
+    }};
+    ($ui:ident, $height:ident, $width:expr; $($body:tt)*) => {{
+        $($body)*
+        let row_height = item_row_h();
+        $ui.dy(row_height);
+        $height += row_height;
+    }};
+}
+use render_setting_row;
+
+fn render_title<'a>(ui: &mut Ui, title: impl Into<Cow<'a, str>>, subtitle: Option<Cow<'a, str>>, width: f32) -> (f32, f32) {
+    let title = title.into();
     search::focus(ui, &title);
+
     const TITLE_SIZE: f32 = 0.6;
     const SUBTITLE_SIZE: f32 = 0.35;
     const LEFT: f32 = 0.06;
-    const PAD: f32 = 0.01;
-    const SUB_MAX_WIDTH: f32 = 1.2;
-    if let Some(subtitle) = subtitle {
-        let title = title.into();
-        let r1 = ui
-            .text(Cow::clone(&title))
-            .no_baseline()
-            .size(TITLE_SIZE)
-            .max_width(SUB_MAX_WIDTH)
-            .measure();
-        let r2 = ui
-            .text(Cow::clone(&subtitle))
-            .size(SUBTITLE_SIZE)
-            .max_width(SUB_MAX_WIDTH)
-            .no_baseline()
-            .measure();
-        let h = r1.h + PAD + r2.h;
-        let r1 = ui
-            .text(subtitle)
-            .pos(LEFT, (item_row_h() + h) / 2.)
-            .anchor(0., 1.)
-            .no_baseline()
-            .size(SUBTITLE_SIZE)
-            .max_width(SUB_MAX_WIDTH)
-            .color(semi_white(0.6))
-            .draw()
-            .right();
-        let r2 = ui
-            .text(title)
-            .pos(LEFT, (item_row_h() - h) / 2.)
-            .no_baseline()
-            .size(TITLE_SIZE)
-            .max_width(SUB_MAX_WIDTH)
-            .draw()
-            .right();
-        r1.max(r2)
-    } else {
-        ui.text(title)
-            .pos(LEFT, item_row_h() / 2.)
+    const GAP: f32 = 0.01;
+    const VERTICAL_PAD: f32 = 0.012;
+    let width = width.max(0.2);
+    let row = item_row_h();
+    let Some(subtitle) = subtitle else {
+        let right = ui.text(title)
+            .pos(LEFT, row / 2.)
             .anchor(0., 0.5)
             .no_baseline()
             .size(TITLE_SIZE)
+            .max_width(width)
             .draw()
-            .right()
-    }
+            .right();
+        return (right, row);
+    };
+
+    let title_height = ui.text(title.as_ref()).no_baseline().size(TITLE_SIZE).max_width(width).measure().h;
+    let subtitle_height = ui.text(subtitle.as_ref()).size(SUBTITLE_SIZE).max_width(width).multiline().measure().h;
+    let content_height = title_height + GAP + subtitle_height;
+    let row_height = row.max(content_height + 2. * VERTICAL_PAD);
+    let y = (row_height - content_height) / 2.;
+    let right = ui.text(title)
+        .pos(LEFT, y)
+        .no_baseline()
+        .size(TITLE_SIZE)
+        .max_width(width)
+        .draw()
+        .right();
+    ui.text(subtitle)
+        .pos(LEFT, y + title_height + GAP)
+        .size(SUBTITLE_SIZE)
+        .max_width(width)
+        .multiline()
+        .color(semi_white(0.6))
+        .draw();
+    (right, row_height)
 }
 
 #[inline]
@@ -627,6 +637,26 @@ fn pick_image(title: &str) -> Option<std::path::PathBuf> {
         .pick_file()
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
+fn pick_background() -> Option<PathBuf> {
+    let dialog = rfd::FileDialog::new().set_title(tl!("item-app-bg").into_owned());
+    #[cfg(feature = "video")]
+    let dialog = dialog.add_filter("image / video", &["png", "jpg", "jpeg", "webp", "bmp", "mp4", "mov", "m4v"]);
+    #[cfg(not(feature = "video"))]
+    let dialog = dialog.add_filter("image", &["png", "jpg", "jpeg", "webp", "bmp"]);
+    dialog.pick_file()
+}
+
+fn import_background(path: &std::path::Path) {
+    match crate::scene::appearance_background::import(path) {
+        Ok(()) => {
+            crate::scene::BACKGROUND_UPDATED.store(true, Ordering::Relaxed);
+            show_message(tl!("item-app-bg-imported")).ok();
+        }
+        Err(err) => show_error(err),
+    }
+}
+
 /// 桌面端选音频（背景音乐）。
 #[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
 fn pick_audio(title: &str) -> Option<std::path::PathBuf> {
@@ -644,12 +674,18 @@ struct GeneralList {
     #[cfg(all(any(target_os = "windows", target_os = "linux"), not(target_env = "ohos")))]
     fullscreen_btn: DRectButton,
 
-    /// 自定义 APP 图标（导入 / 恢复默认）。桌面端改窗口图标，重启后生效。
+    /// 桌面窗口图标与移动端启动图标。
     app_icon_btn: DRectButton,
     app_icon_reset_btn: DRectButton,
+    #[cfg(target_os = "android")]
+    app_icon_shortcut_btn: DRectButton,
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    app_icon_task: Option<Task<Result<()>>>,
     /// 自定义主界面背景（导入 / 恢复默认）。
     app_bg_btn: DRectButton,
     app_bg_reset_btn: DRectButton,
+    #[cfg(feature = "video")]
+    background_crossfade_btn: DRectButton,
     /// 自定义主界面背景音乐（导入 / 恢复默认）。
     app_bgm_btn: DRectButton,
     app_bgm_reset_btn: DRectButton,
@@ -718,8 +754,14 @@ impl GeneralList {
 
             app_icon_btn: DRectButton::new(),
             app_icon_reset_btn: DRectButton::new(),
+            #[cfg(target_os = "android")]
+            app_icon_shortcut_btn: DRectButton::new(),
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            app_icon_task: None,
             app_bg_btn: DRectButton::new(),
             app_bg_reset_btn: DRectButton::new(),
+            #[cfg(feature = "video")]
+            background_crossfade_btn: DRectButton::new(),
             app_bgm_btn: DRectButton::new(),
             app_bgm_reset_btn: DRectButton::new(),
             appearance_import_btn: DRectButton::new(),
@@ -805,7 +847,7 @@ impl GeneralList {
             return Ok(Some(false));
         }
 
-        // Phira Pro：自定义 APP 图标（桌面改窗口图标，重启后生效；移动端存入 data/appearance/icon.*）。
+        #[cfg(not(target_env = "ohos"))]
         if self.app_icon_btn.touch(touch, t) {
             #[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
             if let Some(path) = pick_image(&tl!("item-app-icon")) {
@@ -816,41 +858,60 @@ impl GeneralList {
                     Err(err) => show_error(err),
                 }
             }
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            if self.app_icon_task.is_none() {
+                match crate::app_icon::select(false) {
+                    Ok(task) => self.app_icon_task = Some(task),
+                    Err(err) => show_error(err),
+                }
+            }
+            return Ok(Some(true));
+        }
+        #[cfg(target_os = "android")]
+        if self.app_icon_shortcut_btn.touch(touch, t) {
             request_mobile_file("icon_import");
             return Ok(Some(true));
         }
+        #[cfg(not(target_env = "ohos"))]
         if self.app_icon_reset_btn.touch(touch, t) {
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
             match dir::clear_appearance("icon") {
                 Ok(_) => {
                     show_message(tl!("item-app-icon-reset-done")).ok();
                 }
                 Err(err) => show_error(err),
             }
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            if self.app_icon_task.is_none() {
+                match crate::app_icon::select(true) {
+                    Ok(task) => self.app_icon_task = Some(task),
+                    Err(err) => show_error(err),
+                }
+            }
             return Ok(Some(true));
         }
         // Phira Pro：自定义背景。
         if self.app_bg_btn.touch(touch, t) {
             #[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
-            if let Some(path) = pick_image(&tl!("item-app-bg")) {
-                match dir::import_appearance("background", &path) {
-                    Ok(()) => {
-                        crate::scene::BACKGROUND_UPDATED.store(true, Ordering::Relaxed);
-                        show_message(tl!("item-app-bg-imported")).ok();
-                    }
-                    Err(err) => show_error(err),
-                }
+            if let Some(path) = pick_background() {
+                import_background(&path);
             }
             request_mobile_file("background_import");
             return Ok(Some(true));
         }
         if self.app_bg_reset_btn.touch(touch, t) {
-            match dir::clear_appearance("background") {
+            match crate::scene::appearance_background::clear() {
                 Ok(_) => {
                     crate::scene::BACKGROUND_UPDATED.store(true, Ordering::Relaxed);
                     show_message(tl!("item-app-bg-reset-done")).ok();
                 }
                 Err(err) => show_error(err),
             }
+            return Ok(Some(true));
+        }
+        #[cfg(feature = "video")]
+        if self.background_crossfade_btn.touch(touch, t) {
+            config.background_video_crossfade ^= true;
             return Ok(Some(true));
         }
         // Phira Pro：自定义背景音乐。
@@ -1033,23 +1094,26 @@ impl GeneralList {
             config.apply_ui_colors();
             return Ok(true);
         }
-        // 移动端系统文件选择器的返回结果（自定义图标 / 背景 / 立绘 / 字体导入）。
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        if let Some(result) = self.app_icon_task.as_mut().and_then(Task::take) {
+            self.app_icon_task = None;
+            match result {
+                Ok(()) => { show_message(tl!("item-app-icon-applied")).ok(); }
+                Err(err) => show_error(err),
+            }
+        }
+        // 移动端系统文件选择器的返回结果。
         #[cfg(any(target_os = "android", target_os = "ios", target_env = "ohos"))]
         if let Some((id, file)) = prpr::scene::take_file() {
             match id.as_str() {
-                "icon_import" => match dir::import_appearance("icon", std::path::Path::new(&file)) {
+                #[cfg(target_os = "android")]
+                "icon_import" => match crate::app_icon::pin_custom_image(&file) {
                     Ok(()) => {
-                        show_message(tl!("item-app-icon-imported")).ok();
+                        show_message(tl!("item-app-icon-shortcut-done")).ok();
                     }
                     Err(err) => show_error(err),
                 },
-                "background_import" => match dir::import_appearance("background", std::path::Path::new(&file)) {
-                    Ok(()) => {
-                        crate::scene::BACKGROUND_UPDATED.store(true, Ordering::Relaxed);
-                        show_message(tl!("item-app-bg-imported")).ok();
-                    }
-                    Err(err) => show_error(err),
-                },
+                "background_import" => import_background(std::path::Path::new(&file)),
                 "bgm_import" => match dir::import_appearance_audio("bgm", std::path::Path::new(&file)) {
                     Ok(()) => {
                         crate::scene::BGM_UPDATED.store(true, Ordering::Relaxed);
@@ -1122,28 +1186,36 @@ impl GeneralList {
         let w = r.w;
         let mut h = 0.;
         macro_rules! item {
-            ($($b:tt)*) => {{
-                $($b)*
-                ui.dy(item_row_h());
-                h += item_row_h();
-            }}
+            ($($b:tt)*) => { render_setting_row!(ui, h, (w - 0.48).min(1.2); $($b)*) };
         }
         let rr = right_rect(w);
 
         let data = get_data();
         let config = &data.config;
         item! {
-            let rt = render_title(ui, tl!("item-lang"), None);
+            let (rt, _) = render_title(ui, tl!("item-lang"), None, (w - 0.55).min(1.2));
             let w = 0.06;
             let r = Rect::new(rt + 0.01, (item_row_h() - w) / 2., w, w);
             ui.fill_rect(r, (*self.icon_lang, r));
             self.lang_btn.render(ui, rr, t);
         }
 
+        #[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
         item! {
-            render_title(ui, tl!("item-app-icon"), Some(tl!("item-app-icon-sub")));
+            render_title(ui, tl!("item-app-icon"), Some(tl!("item-app-icon-window-sub")));
             self.app_icon_btn.render_text(ui, rr, t, tl!("item-appearance-import-btn"), 0.5, true);
         }
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        item! {
+            render_title(ui, tl!("item-app-icon"), Some(tl!("item-app-icon-launcher-sub")));
+            self.app_icon_btn.render_text(ui, rr, t, tl!("item-app-icon-switch"), 0.5, true);
+        }
+        #[cfg(target_os = "android")]
+        item! {
+            render_title(ui, tl!("item-app-icon-shortcut"), None);
+            self.app_icon_shortcut_btn.render_text(ui, rr, t, tl!("item-appearance-import-btn"), 0.5, true);
+        }
+        #[cfg(not(target_env = "ohos"))]
         item! {
             render_title(ui, tl!("item-app-icon-reset"), None);
             self.app_icon_reset_btn.render_text(ui, rr, t, tl!("font-reset-btn"), 0.5, false);
@@ -1151,6 +1223,11 @@ impl GeneralList {
         item! {
             render_title(ui, tl!("item-app-bg"), Some(tl!("item-app-bg-sub")));
             self.app_bg_btn.render_text(ui, rr, t, tl!("item-appearance-import-btn"), 0.5, true);
+        }
+        #[cfg(feature = "video")]
+        item! {
+            render_title(ui, tl!("item-app-bg-crossfade"), Some(tl!("item-app-bg-crossfade-sub")));
+            render_switch(ui, rr, t, &mut self.background_crossfade_btn, config.background_video_crossfade);
         }
         item! {
             render_title(ui, tl!("item-app-bg-reset"), None);
@@ -1229,12 +1306,11 @@ impl GeneralList {
             self.status_url_btn.render_text(ui, rr, t, shown, 0.4, false);
         }
         item! {
-            let cache_size = if let Some(size) = self.cache_size {
+            render_title(ui, tl!("item-clear-cache"), Some(if let Some(size) = self.cache_size {
                 Cow::Owned(tl!("item-cache-size", "size" => ByteSize(size).to_string()))
             } else {
                 tl!("item-cache-size-loading")
-            };
-            render_title(ui, tl!("item-clear-cache"), Some(cache_size));
+            }));
             self.cache_btn.render_text(ui, rr, t, tl!("item-clear-cache-btn"), 0.5, true);
         }
         #[cfg(target_os = "android")]
@@ -1356,10 +1432,9 @@ impl AudioList {
         }
         #[cfg(not(target_os = "android"))]
         if self.audio_buffer_size_btn.touch(touch, t) {
-            let options = [128u32, 256u32, 512u32, 1024u32];
-            let current = config.audio_buffer_size.unwrap_or(256);
-            let selected = options.iter().position(|&r| r == current).unwrap_or(1);
-            config.audio_buffer_size = Some(options[(selected + 1) % options.len()]);
+            let options = [None, Some(128), Some(256), Some(512), Some(1024)];
+            let selected = options.iter().position(|&size| size == config.audio_buffer_size).unwrap_or(0);
+            config.audio_buffer_size = options[(selected + 1) % options.len()];
             return Ok(Some(true));
         }
         Ok(None)
@@ -1384,11 +1459,7 @@ impl AudioList {
         let w = r.w;
         let mut h = 0.;
         macro_rules! item {
-            ($($b:tt)*) => {{
-                $($b)*
-                ui.dy(item_row_h());
-                h += item_row_h();
-            }}
+            ($($b:tt)*) => { render_setting_row!(ui, h, (w - 0.48).min(1.2); $($b)*) };
         }
         let rr = right_rect(w);
 
@@ -1427,8 +1498,11 @@ impl AudioList {
         #[cfg(not(target_os = "android"))]
         item! {
             render_title(ui, tl!("item-audio-buffer-size"), None);
-            let buf_size = config.audio_buffer_size.unwrap_or(256);
-            self.audio_buffer_size_btn.render_text(ui, rr, t, format!("{}", buf_size), 0.5, false);
+            let text = match config.audio_buffer_size {
+                Some(size) => size.to_string(),
+                None => tl!("preferred-sample-rate-default").to_string(),
+            };
+            self.audio_buffer_size_btn.render_text(ui, rr, t, text, 0.5, false);
         }
         (w, h)
     }
@@ -1693,11 +1767,7 @@ impl ChartList {
         let w = r.w;
         let mut h = 0.;
         macro_rules! item {
-            ($($b:tt)*) => {{
-                $($b)*
-                ui.dy(item_row_h());
-                h += item_row_h();
-            }}
+            ($($b:tt)*) => { render_setting_row!(ui, h, (w - 0.48).min(1.2); $($b)*) };
         }
         let rr = right_rect(w);
 
@@ -1821,8 +1891,8 @@ impl ChartList {
             self.hp_failure_btn.render_text(ui, rr, t, label, 0.46, false);
         }
         item! {
-            let capacity = config.hp_capacity();
             render_title(ui, tl!("item-hp-capacity"), None);
+            let capacity = config.hp_capacity();
             self.hp_capacity_slider.render(ui, rr, t, capacity as f32, capacity.to_string());
         }
         item! {
@@ -2144,17 +2214,13 @@ impl DebugList {
         let w = r.w;
         let mut h = 0.;
         macro_rules! item {
-            ($($b:tt)*) => {{
-                $($b)*
-                ui.dy(item_row_h());
-                h += item_row_h();
-            }}
+            ($($b:tt)*) => { render_setting_row!(ui, h, (w - 0.48).min(1.2); $($b)*) };
         }
         let rr = right_rect(w);
 
         for (i, label) in ["问题诊断", "谱面渲染", "制谱工作台", "热键管理"].iter().enumerate() {
             search::focus(ui, label);
-            render_title(ui, *label, None);
+            render_title(ui, *label, None, (w - 0.48).min(1.2));
             self.tools[i].render_text(ui, rr, t, "打开", 0.4, false);
             ui.dy(item_row_h());
             h += item_row_h();

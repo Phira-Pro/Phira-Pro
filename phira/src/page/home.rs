@@ -235,6 +235,9 @@ impl HomePage {
             #[cfg(feature = "hykb")]
             anti_addiction_task: None,
         };
+        if let Some(name) = &get_data().character_name_override {
+            res.character.name.clone_from(name);
+        }
         res.load_char_illu();
 
         // A local character's first mipmap upload can compile a driver kernel.
@@ -588,7 +591,6 @@ impl Page for HomePage {
         if let Some((id, value)) = take_input() {
             if id.starts_with("character-") {
                 let field = match id.as_str() {
-                    "character-name" => Some(&mut self.character.name),
                     "character-artist" => Some(&mut self.character.artist),
                     "character-designer" => Some(&mut self.character.designer),
                     "character-intro" => Some(&mut self.character.intro),
@@ -596,6 +598,9 @@ impl Page for HomePage {
                 };
                 if let Some(field) = field {
                     *field = value;
+                } else if id == "character-name" {
+                    self.character.name = value.clone();
+                    get_data_mut().character_name_override = Some(value);
                 } else if id == "character-name-en" {
                     self.character.name_en_override = (!value.trim().is_empty()).then_some(value);
                 }
@@ -846,7 +851,16 @@ impl Page for HomePage {
                             char.artist.clone_from(&local.artist);
                             char.designer.clone_from(&local.designer);
                             char.intro.clone_from(&local.intro);
+                        }
+                        let data = get_data();
+                        if let Some(local) = &data.character {
                             char.name_en_override.clone_from(&local.name_en_override);
+                        }
+                        if let Some(name) = data.character_name_override.as_ref().or_else(|| {
+                            crate::dir::find_appearance("character")?;
+                            data.character.as_ref().map(|local| &local.name)
+                        }) {
+                            char.name.clone_from(name);
                         }
                         self.character = char;
                         get_data_mut().character = Some(self.character.clone());

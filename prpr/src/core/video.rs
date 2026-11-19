@@ -1,11 +1,11 @@
 use super::Anim;
 use crate::ext::{source_of_image, ScaleType};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use macroquad::prelude::*;
-use miniquad::{Texture, TextureFormat, TextureParams, TextureWrap};
+use miniquad::{BlendFactor, BlendState, BlendValue, Equation, Texture, TextureFormat, TextureParams, TextureWrap};
 use prpr_avc::AVPixelFormat;
 use serde::Deserialize;
-use std::{cell::RefCell, io::Write};
+use std::{cell::RefCell, io::Write, path::Path, sync::Arc};
 use tempfile::NamedTempFile;
 
 thread_local! {
@@ -19,7 +19,7 @@ pub struct VideoAttach {
 
 pub struct Video {
     video: prpr_avc::Video,
-    pub video_file: NamedTempFile,
+    video_file: Arc<NamedTempFile>,
 
     material: Material,
     tex_y: Texture2D,
@@ -55,7 +55,42 @@ impl Video {
         let mut video_file = NamedTempFile::new()?;
         video_file.write_all(&data)?;
         drop(data);
-        let video = prpr_avc::Video::open(video_file.path().as_os_str().to_str().unwrap(), AVPixelFormat::YUV420P)?;
+        Self::from_file(video_file, start_time, scale_type, alpha, dim)
+    }
+
+    pub fn validate_file(path: &Path) -> Result<()> {
+        let video = Self::open_decoder(path)?;
+        anyhow::ensure!(video.duration().is_finite() && video.duration() > 0., "video has no playable duration");
+        Ok(())
+    }
+
+    fn open_decoder(path: &Path) -> Result<prpr_avc::Video> {
+        Ok(prpr_avc::Video::open(path.to_str().context("invalid video file path")?, AVPixelFormat::YUV420P)?)
+    }
+
+    pub fn from_file(video_file: NamedTempFile, start_time: f64, scale_type: ScaleType, alpha: Anim<f32>, dim: Anim<f32>) -> Result<Self> {
+        Self::open(Arc::new(video_file), start_time, scale_type, alpha, dim, PipelineParams::default())
+    }
+
+    pub fn open_background_layer(video_file: Arc<NamedTempFile>) -> Result<Self> {
+        let pipeline = PipelineParams {
+            color_blend: Some(BlendState::new(
+                Equation::Add,
+                BlendFactor::Value(BlendValue::SourceAlpha),
+                BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
+            )),
+            alpha_blend: Some(BlendState::new(
+                Equation::Add,
+                BlendFactor::One,
+                BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
+            )),
+            ..Default::default()
+        };
+        Self::open(video_file, 0., ScaleType::CropCenter, Anim::fixed(1.), Anim::fixed(0.), pipeline)
+    }
+
+    fn open(video_file: Arc<NamedTempFile>, start_time: f64, scale_type: ScaleType, alpha: Anim<f32>, dim: Anim<f32>, pipeline: PipelineParams) -> Result<Self> {
+        let video = Self::open_decoder(video_file.path())?;
         let duration = video.duration();
         let format = video.stream_format();
         let w = format.width as u32;
@@ -65,14 +100,14 @@ impl Video {
             shader::VERTEX,
             shader::FRAGMENT,
             MaterialParams {
-                pipeline_params: PipelineParams::default(),
+                pipeline_params: pipeline,
                 uniforms: Vec::new(),
                 textures: vec!["tex_y".to_owned(), "tex_u".to_owned(), "tex_v".to_owned()],
             },
         )?;
         let tex_y = new_tex(w, h);
-        let tex_u = new_tex(w / 2, h / 2);
-        let tex_v = new_tex(w / 2, h / 2);
+        let tex_u = new_tex(w.div_ceil(2), h.div_ceil(2));
+        let tex_v = new_tex(w.div_ceil(2), h.div_ceil(2));
         material.set_texture("tex_y", tex_y);
         material.set_texture("tex_u", tex_u);
         material.set_texture("tex_v", tex_v);
@@ -119,13 +154,10 @@ impl Video {
         }
 
         self.video.with_frame(|frame, pts| {
-            if self.last_pts == pts {
+            if pts == -1 || self.last_pts == pts {
                 return;
             }
             self.last_pts = pts;
-            if pts == -1 {
-                return;
-            }
 
             VIDEO_BUFFERS.with_borrow_mut(|buf| {
                 frame.get_data(0, &mut buf[0]);
@@ -169,9 +201,26 @@ impl Video {
 
     pub fn reset(&mut self) -> Result<()> {
         self.last_pts = -1;
-        self.last_frame_idx = -1;
-        self.video.seek(0);
+        self.rewind();
         Ok(())
+    }
+
+    pub fn rewind(&mut self) {
+        self.last_frame_idx = -1;
+        self.video.rewind();
+    }
+
+    pub fn has_frame(&self) -> bool {
+        self.last_pts != -1
+    }
+}
+
+impl Drop for Video {
+    fn drop(&mut self) {
+        self.material.delete();
+        self.tex_y.delete();
+        self.tex_u.delete();
+        self.tex_v.delete();
     }
 }
 

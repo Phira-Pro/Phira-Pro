@@ -5,6 +5,8 @@ prpr_l10n::tl_file!("common" ttl crate::);
 mod inner;
 
 mod anim;
+#[cfg(any(target_os = "android", target_os = "ios"))]
+mod app_icon;
 mod blacklist;
 mod censor;
 mod chart_install;
@@ -596,8 +598,8 @@ async fn the_main() -> Result<()> {
     let mut frame_pacer = prpr::desktop_pacing::Pacer::new();
     #[cfg(target_os = "linux")]
     {
-        prpr::desktop_priority::install();
         prpr::desktop_memory::install();
+        prpr::desktop_priority::install();
     }
     let mut frame_profile = frame_profile::FrameProfile::from_env();
     let mut profile_previous = std::time::Instant::now();

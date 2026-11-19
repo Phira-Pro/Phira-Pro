@@ -1,5 +1,5 @@
 //! User-facing display/audio preferences and the hidden-cover editor.
-use super::{item_row_h, render_switch, render_title, request_mobile_file, right_rect, ChooseButton, ColorAction, ColorPicker, L10N_LOCAL};
+use super::{render_setting_row, render_switch, render_title, request_mobile_file, right_rect, ChooseButton, ColorAction, ColorPicker, L10N_LOCAL};
 use crate::{dir, get_data, get_data_mut, scene::BGM_VOLUME_UPDATED};
 use anyhow::{Context, Result};
 use inputbox::InputBox;
@@ -213,7 +213,7 @@ impl ExperienceList {
     pub fn render(&mut self, ui: &mut Ui, r: Rect, t: f32) -> (f32, f32) {
         let rr = right_rect(r.w);
         let mut h = 0.;
-        macro_rules! item { ($($body:tt)*) => {{ $($body)* ui.dy(item_row_h()); h += item_row_h(); }}; }
+        macro_rules! item { ($($body:tt)*) => { render_setting_row!(ui, h, (r.w - 0.48).min(1.2); $($body)*) }; }
         let config = &get_data().config;
         item! { render_title(ui, tl!("font-display-size"), None); self.font.render(ui, rr, t); }
         item! { render_title(ui, tl!("theoretical-score"), Some(if config.judge_grading.perfect_plus { tl!("theoretical-score-sub") } else { tl!("theoretical-score-disabled") })); render_switch(ui, rr, t, &mut self.theoretical, config.theoretical_score); }
@@ -432,6 +432,7 @@ fn frame(ui: &mut Ui, r: Rect, dashed: bool) {
 #[cfg(all(test, target_os = "windows"))]
 pub(super) fn render_regression(painter: &mut prpr::ui::TextPainter) {
     use super::qa::{capture, center};
+    use super::item_row_h;
     let touch = |phase, position| Touch {
         id: 930,
         phase,

@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use macroquad::prelude::*;
 use presentation::{all_fc, badge_index, difficulty, fade, grade, score, Assets};
 use prpr::{
+    course::{CourseLife, StageResult},
     ext::{poll_future, semi_black, semi_white, LocalTask, RectExt, SafeTexture, ScaleType},
     info::ChartInfo,
     judge::PlayResult,
@@ -21,6 +22,7 @@ struct Stage {
     info: ChartInfo,
     illustration: SafeTexture,
     result: PlayResult,
+    life: Option<CourseLife>,
 }
 #[derive(Clone, Copy)]
 enum Destination {
@@ -75,6 +77,7 @@ impl CourseScene {
         config.res_pack_path = get_data().selected_respack_path()?;
         let paths = self.paths.clone();
         let validate = self.stages.is_empty();
+        let life = self.stages.last().and_then(|stage| stage.life);
         let need_assets = self.assets.is_none();
         self.task = Some(Box::pin(async move {
             if validate {
@@ -89,7 +92,10 @@ impl CourseScene {
             let mut fs = fs_from_path(&path)?;
             let info = prpr::fs::load_info(fs.as_mut()).await?;
             let (ill, bg, _) = LoadingScene::load(fs.as_mut(), &info.illustration).await?;
-            let game = GameScene::new(GameMode::Course, info.clone(), config, fs, None, bg, ill.clone(), None, None, None).await?;
+            let mut game = GameScene::new(GameMode::Course, info.clone(), config, fs, None, bg, ill.clone(), None, None, None).await?;
+            if let Some(life) = life {
+                game.judge.carry_course_life(life);
+            }
             let assets = if need_assets { Some(Assets::load().await?) } else { None };
             Ok((game, info, ill, assets))
         }));
@@ -139,13 +145,14 @@ impl Scene for CourseScene {
     }
     fn on_result(&mut self, _: &mut TimeManager, result: Box<dyn Any>) -> Result<()> {
         self.waiting = false;
-        match result.downcast::<PlayResult>() {
+        match result.downcast::<StageResult>() {
             Ok(result) => {
                 let (info, illustration) = self.pending.take().context("课题结果缺少谱面")?;
                 self.stages.push(Stage {
                     info,
                     illustration,
-                    result: *result,
+                    result: result.play,
+                    life: result.life,
                 });
                 if self.stages.len() == 3 {
                     self.finished_at = chrono::Utc::now().timestamp_millis();

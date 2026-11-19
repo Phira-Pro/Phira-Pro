@@ -32,12 +32,30 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="sensorLandscape"
-            android:theme="@style/Theme.PhiraPro.Player">
+            android:theme="@style/Theme.PhiraPro.Player" />
+
+        <activity-alias
+            android:name=".LauncherDefault"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherAlternate"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_alternate"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- 「打开方式 → 导入到 Phira Pro」 -->
         <activity

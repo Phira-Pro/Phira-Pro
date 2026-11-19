@@ -1,7 +1,7 @@
 use crate::ffi;
 use std::fmt::Display;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct AVRational {
     pub num: i32,
     pub den: i32,

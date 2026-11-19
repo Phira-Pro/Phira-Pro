@@ -134,6 +134,7 @@ pub struct Data {
     pub ignored_version: Option<semver::Version>,
     pub ignored_pro_release: Option<String>,
     pub character: Option<Character>,
+    pub character_name_override: Option<String>,
 
     pub enable_anys: bool,
     #[serde(default = "default_anys_gateway")]

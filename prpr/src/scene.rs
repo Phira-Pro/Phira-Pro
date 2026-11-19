@@ -214,9 +214,9 @@ pub fn request_file(id: impl Into<String>) {
     let id: String = id.into();
     #[cfg(target_env = "ohos")]
     let is_photo = id == "avatar";
-    // Phira Pro：图片类导入（图标 / 背景 / 立绘）在 Android / iOS 上走相册选择器。
+    // 背景可以是图片或视频，使用通用文件选择器。
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    let is_photo = matches!(id.as_str(), "icon_import" | "background_import" | "appearance_import" | "hide_upper_import" | "hide_lower_import");
+    let is_photo = matches!(id.as_str(), "icon_import" | "appearance_import" | "hide_upper_import" | "hide_lower_import");
     *CHOSEN_FILE.lock().unwrap() = (Some(id), None);
     cfg_if! {
         if #[cfg(target_os = "android")] {
@@ -407,6 +407,7 @@ pub fn request_file(id: impl Into<String>) {
                         ext("pez"),
                         ext("jpg"),
                         ext("png"),
+                        UTType::typeWithIdentifier(&NSString::from_str("public.movie")).unwrap(),
                         ext("jpeg"),
                         ext("json"),
                         ext("mp3"),

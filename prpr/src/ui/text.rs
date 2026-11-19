@@ -508,6 +508,7 @@ impl TextPainter {
         }
         self.cache_texture = Self::new_cache_texture((dim, dim));
         self.cache_context = context_id();
+        self.data_buffer = Vec::new();
         self.brush.resize_texture(dim, dim);
         self.atlas_blocked = false;
         self.ensure_atlas();
@@ -528,11 +529,11 @@ impl TextPainter {
             }
         }
         self.ensure_atlas();
-        let (width, _) = self.brush.texture_dimensions();
         let mut flushed = false;
         #[cfg(target_os = "linux")]
         let mut recycled = false;
         loop {
+            let (width, _) = self.brush.texture_dimensions();
             let outcome = {
                 let atlas = &mut self.atlas;
                 let data_buffer = &mut self.data_buffer;
@@ -589,31 +590,21 @@ impl TextPainter {
                         flushed = true;
                     }
                     #[cfg(target_os = "linux")]
-                    if suggested.0 > *TEXTURE_DIM || suggested.1 > *TEXTURE_DIM {
-                        // The atlas already has the maximum edge. Doubling it
-                        // again would allocate 4096² (64 MiB) and keep growing;
-                        // recycle the glyph cache instead. The cache is a pure
-                        // rasterization cache, so dropping it changes neither
-                        // glyph pixels nor layout.
-                        if recycled {
-                            tracing::warn!("font atlas is full at {}x{}; skipping text this frame", *TEXTURE_DIM, *TEXTURE_DIM);
-                            break;
-                        }
-                        recycled = true;
+                    let suggested = {
                         let max = *TEXTURE_DIM;
-                        let pooled = self.atlas.as_ref().is_some_and(|atlas| atlas.pool.owns(self.cache_texture));
-                        self.atlas = None;
-                        if !pooled {
-                            self.cache_texture.delete();
+                        let clamped = (suggested.0.min(max), suggested.1.min(max));
+                        if self.brush.texture_dimensions() == clamped {
+                            if recycled {
+                                // A failed process_queued leaves the batch queued.
+                                self.brush = self.brush.to_builder().initial_cache_size(clamped).build();
+                                self.vertices_buffer.clear();
+                                tracing::debug!("text batch exceeds the {max}x{max} font atlas");
+                                break;
+                            }
+                            recycled = true;
                         }
-                        self.cache_texture = Self::new_cache_texture((max, max));
-                        self.cache_context = context_id();
-                        self.brush.resize_texture(max, max);
-                        self.atlas_blocked = false;
-                        self.ensure_atlas();
-                        debug!("font atlas reached {max}x{max}; recycled glyph cache");
-                        continue;
-                    }
+                        clamped
+                    };
                     // Pool versions die with the old shape. Queue their
                     // deletion by dropping the state before replacing the
                     // texture the painter currently points at.

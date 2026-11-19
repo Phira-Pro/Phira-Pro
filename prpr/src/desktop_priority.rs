@@ -162,7 +162,7 @@ fn apply_gpu_priority() {
     let Ok(entries) = fs::read_dir("/proc/self/fd") else {
         return;
     };
-    let mut seen: Vec<(String, u64)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for entry in entries.flatten() {
         let Some(fd) = entry.file_name().to_str().and_then(|name| name.parse::<i32>().ok()) else {
             continue;
@@ -190,15 +190,10 @@ fn apply_gpu_priority() {
             }
         }
         let driver = driver.unwrap_or_else(|| "unknown".to_owned());
-        let client = client_id.unwrap_or(fd as u64);
-        // Mesa dups the render node; only touch each DRM client once.
-        if seen
-            .iter()
-            .any(|(seen_driver, seen_client)| *seen_driver == driver && *seen_client == client)
-        {
+        // Mesa can duplicate the same DRM client; IDs can be reused on other nodes.
+        if client_id.is_some_and(|client: u64| !seen.insert((target.into_owned(), client))) {
             continue;
         }
-        seen.push((driver.clone(), client));
 
         if driver == "i915" {
             apply_i915_priority(fd, requested);

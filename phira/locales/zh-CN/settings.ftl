@@ -259,11 +259,19 @@ item-offset-indicator-sub = 局内顶部显示早/晚判定的偏移指示条
 item-timing-offset = 实时判定偏移数字
 item-timing-offset-sub = 以毫秒显示最近一次有效击打的偏移和本局平均偏移
 
-item-app-icon = 自定义APP图标
+item-app-icon = 应用图标
+item-app-icon-window-sub = 导入图片作为窗口图标，重启后生效
+item-app-icon-launcher-sub = 切换应用内置的桌面图标
+item-app-icon-switch = 切换
+item-app-icon-applied = 应用图标已更新
+item-app-icon-shortcut = 自定义桌面快捷方式
+item-app-icon-shortcut-done = 已请求添加快捷方式，如有提示请在桌面确认
 item-app-icon-sub = 更换程序图标。*重启后生效*
 item-app-icon-reset = 恢复默认图标
-item-app-bg = 自定义背景
-item-app-bg-sub = 更换主界面背景图
+item-app-bg = 自定义背景图片/视频
+item-app-bg-sub = 更换主界面背景，视频会静音循环播放
+item-app-bg-crossfade = 背景视频平滑过渡
+item-app-bg-crossfade-sub = 循环时交叉淡化视频的结尾和开头
 item-app-bg-reset = 恢复默认背景
 item-appearance-import-sub = 主界面左下角的立绘（建议透明底 PNG）
 item-appearance-reset = 恢复默认立绘
@@ -432,6 +440,7 @@ preset-color-default = 资源包默认
 
 item-desktop-fps = 帧率上限
 item-desktop-fps-sub = 选择后立即生效；默认跟随屏幕刷新率
+item-desktop-fps-linux-sub = 默认跟随屏幕刷新率；无上限需图形驱动支持
 item-desktop-fps-auto = 跟随屏幕
 
 color-original = 原始颜色

@@ -1,5 +1,5 @@
 //! Runtime quality, frame-rate and rendering-optimization settings.
-use super::{item_row_h, render_switch, render_title, right_rect, L10N_LOCAL};
+use super::{render_setting_row, render_switch, render_title, right_rect, L10N_LOCAL};
 use crate::popup::ChooseButton;
 use crate::{get_data, get_data_mut};
 use anyhow::Result;
@@ -315,11 +315,7 @@ impl PerformanceList {
         let w = r.w;
         let mut h = 0.;
         macro_rules! item {
-            ($($b:tt)*) => {{
-                $($b)*
-                ui.dy(item_row_h());
-                h += item_row_h();
-            }}
+            ($($b:tt)*) => { render_setting_row!(ui, h, (w - 0.48).min(1.2); $($b)*) };
         }
         let rr = right_rect(w);
 
@@ -383,18 +379,23 @@ impl PerformanceList {
             if self.section_open[1] {
                 #[cfg(any(target_os = "windows", target_os = "linux"))]
                 item! {
-                    render_title(ui, tl!("item-desktop-fps"), Some(tl!("item-desktop-fps-sub")));
+                    render_title(ui, tl!("item-desktop-fps"), Some(if cfg!(target_os = "linux") {
+                        tl!("item-desktop-fps-linux-sub")
+                    } else {
+                        tl!("item-desktop-fps-sub")
+                    }));
                     self.desktop_fps.render(ui, rr, t);
                 }
                 #[cfg(any(target_os = "android", target_os = "ios"))]
                 item! {
-                    let max_rate = f32::from_bits(prpr::ui::MAX_DEVICE_REFRESH_RATE.load(Ordering::Relaxed));
-                    let subtitle: Cow<'_, str> = if max_rate.is_finite() && max_rate > 0.0 {
-                        Cow::Owned(tl!("item-refresh-rate-max", "rate" => format!("{max_rate:.0}")))
-                    } else {
-                        tl!("item-refresh-rate-sub")
-                    };
-                    render_title(ui, tl!("item-refresh-rate"), Some(subtitle));
+                    render_title(ui, tl!("item-refresh-rate"), Some({
+                        let max_rate = f32::from_bits(prpr::ui::MAX_DEVICE_REFRESH_RATE.load(Ordering::Relaxed));
+                        if max_rate.is_finite() && max_rate > 0.0 {
+                            Cow::Owned(tl!("item-refresh-rate-max", "rate" => format!("{max_rate:.0}")))
+                        } else {
+                            tl!("item-refresh-rate-sub")
+                        }
+                    }));
                     let label = if config.preferred_refresh_rate == UNLIMITED_FPS {
                         tl!("item-fps-unlimited")
                     } else {

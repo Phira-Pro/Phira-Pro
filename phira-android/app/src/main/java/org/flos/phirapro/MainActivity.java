@@ -58,6 +58,16 @@ public class MainActivity extends AppCompatActivity {
         copyTextToClipboard(text);
     }
 
+    @androidx.annotation.Keep
+    public boolean selectLauncherIcon(boolean reset) {
+        return AppAppearance.selectLauncherIcon(this, reset);
+    }
+
+    @androidx.annotation.Keep
+    public boolean pinCustomLauncherIcon(String path) {
+        return AppAppearance.pinCustomIcon(this, path);
+    }
+
     private volatile RpenEditor rpenEditor;
     public boolean takeRpenEditorBootExit(){RpenEditor editor=rpenEditor;return editor!=null&&editor.takeBootExit();}
     public void showRpenEditor(String url, boolean softwareRendering) { runOnUiThread(() -> { if (rpenEditor == null) rpenEditor = new RpenEditor(this, url, softwareRendering); else rpenEditor.visible(true); }); }

@@ -169,6 +169,8 @@ pub struct MainScene {
     state: SharedState,
 
     background: SafeTexture,
+    #[cfg(feature = "video")]
+    background_video: Option<super::appearance_background::BackgroundVideo>,
     /// Phira Pro：内置背景图（含磨砂版），供「恢复默认背景」使用。
     bg_default: SafeTexture,
     bg_default_blur: SafeTexture,
@@ -266,6 +268,12 @@ impl MainScene {
             state,
 
             background: TEX_BACKGROUND.with(|it| it.borrow().clone().unwrap()),
+            #[cfg(feature = "video")]
+            background_video: super::appearance_background::BackgroundVideo::load(get_time())
+                .unwrap_or_else(|error| {
+                    tracing::warn!(?error, "failed to load background video");
+                    None
+                }),
             bg_default: TEX_BACKGROUND_DEFAULT.with(|it| it.borrow().clone().unwrap()),
             bg_default_blur: TEX_BACKGROUND_BLUR_DEFAULT.with(|it| it.borrow().clone().unwrap()),
             btn_back: RectButton::new(),
@@ -486,6 +494,18 @@ impl Scene for MainScene {
             self.background = bg;
             TEX_BACKGROUND.with(|it| *it.borrow_mut() = Some(self.background.clone()));
             TEX_BACKGROUND_BLUR.with(|it| *it.borrow_mut() = Some(blur));
+            #[cfg(feature = "video")]
+            {
+                self.background_video = super::appearance_background::BackgroundVideo::load(tm.real_time())
+                    .unwrap_or_else(|error| {
+                        show_error(error);
+                        None
+                    });
+            }
+        }
+        #[cfg(feature = "video")]
+        if let Some(video) = &mut self.background_video {
+            video.update(tm.real_time(), get_data().config.background_video_crossfade)?;
         }
         if BGM_UPDATED.swap(false, Ordering::Relaxed) {
             self.state.menu_music.refresh();
@@ -890,10 +910,16 @@ impl Scene for MainScene {
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
         set_camera(&ui.camera());
 
-        STRIPE_MATERIAL.set_uniform("time", ((tm.real_time() * 0.025) % (std::f64::consts::PI * 2.)) as f32);
-        gl_use_material(*STRIPE_MATERIAL);
-        ui.fill_rect(ui.screen_rect(), (*self.background, ui.screen_rect()));
-        gl_use_default_material();
+        #[cfg(feature = "video")]
+        let video_drawn = self.background_video.as_ref().is_some_and(|video| video.render(-ui.camera().zoom.y));
+        #[cfg(not(feature = "video"))]
+        let video_drawn = false;
+        if !video_drawn {
+            STRIPE_MATERIAL.set_uniform("time", ((tm.real_time() * 0.025) % (std::f64::consts::PI * 2.)) as f32);
+            gl_use_material(*STRIPE_MATERIAL);
+            ui.fill_rect(ui.screen_rect(), (*self.background, ui.screen_rect()));
+            gl_use_default_material();
+        }
 
         let s = &mut self.state;
         s.update(tm);

@@ -81,6 +81,51 @@ use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 // Things that need to be reloaded for chart info updates
 type LocalTuple = (String, ChartInfo, AudioClip, Illustration);
 
+fn chart_updates(local: &BriefChartInfo, remote: &Chart) -> (bool, bool) {
+    (
+        remote.updated > local.updated.or(local.created).unwrap_or(remote.created),
+        remote.chart_updated > local.chart_updated.or(local.created).unwrap_or(remote.created),
+    )
+}
+
+fn apply_remote_metadata(info: &mut ChartInfo, chart: &Chart) {
+    info.id = Some(chart.id);
+    info.created = Some(chart.created);
+    info.updated = Some(chart.updated);
+    info.uploader = Some(chart.uploader.id);
+    info.name.clone_from(&chart.name);
+    info.level.clone_from(&chart.level);
+    info.difficulty = chart.difficulty;
+    info.intro = chart.description.clone().unwrap_or_default();
+    info.charter.clone_from(&chart.charter);
+    info.composer.clone_from(&chart.composer);
+    info.illustrator.clone_from(&chart.illustrator);
+    info.tags.clone_from(&chart.tags);
+}
+
+#[cfg(test)]
+#[test]
+fn metadata_sync_clears_the_prompt_without_changing_local_files() {
+    let created = DateTime::from_timestamp(10, 0).unwrap();
+    let updated = DateTime::from_timestamp(20, 0).unwrap();
+    let remote: Chart = serde_json::from_value(json!({
+        "id": 1, "name": "Updated title", "level": "IN Lv.12", "difficulty": 12,
+        "charter": "", "composer": "", "illustrator": "",
+        "ranked": false, "reviewed": false, "stable": false, "stableRequest": false,
+        "illustration": "", "preview": "", "file": "",
+        "uploader": 1, "created": created, "updated": updated, "chartUpdated": created,
+    })).unwrap();
+    let mut local = ChartInfo { created: Some(created), chart_updated: Some(created), ..Default::default() };
+    assert_eq!(chart_updates(&local.clone().into(), &remote), (true, false));
+    let music = local.music.clone();
+    apply_remote_metadata(&mut local, &remote);
+    assert_eq!(local.name, remote.name);
+    assert_eq!(local.music, music);
+    assert_eq!(local.chart_updated, Some(created));
+    let persisted: ChartInfo = serde_yaml::from_str(&serde_yaml::to_string(&local).unwrap()).unwrap();
+    assert_eq!(chart_updates(&persisted.into(), &remote), (false, false));
+}
+
 static CONFIRM_CKSUM: AtomicBool = AtomicBool::new(false);
 static UPLOAD_NOT_SAVED: AtomicBool = AtomicBool::new(false);
 static CONFIRM_OVERWRITE: AtomicBool = AtomicBool::new(false);
@@ -240,11 +285,6 @@ impl Downloading {
         if let Some(res) = self.task.take() {
             match res {
                 Err(err) => {
-                    let path = format!("{}/{}", dir::downloaded_charts()?, self.info.id.unwrap());
-                    let path = Path::new(&path);
-                    if path.exists() {
-                        std::fs::remove_dir_all(path)?;
-                    }
                     show_error(err.context(tl!("dl-failed")));
                     Ok(Some(None))
                 }
@@ -408,11 +448,12 @@ pub struct SongScene {
     tags: TagsDialog,
 
     rate_dialog: RateDialog,
-    rate_task: Option<Task<Result<()>>>,
+    rate_task: Option<Task<Result<crate::client::ChartRating>>>,
 
     should_update: Arc<AtomicBool>,
 
-    my_rating_task: Option<Task<Result<i16>>>,
+    my_rating_task: Option<Task<Result<crate::client::ChartRating>>>,
+    pro_rating_average: Option<(f64, u64)>,
     my_rate_score: Option<i16>,
 
     stabilize_task: Option<Task<Result<()>>>,
@@ -455,6 +496,9 @@ pub struct SongScene {
 impl SongScene {
     pub fn new(mut chart: ChartItem, local_path: Option<String>, icons: Arc<Icons>, rank_icons: [SafeTexture; 8], mods: Mods) -> Self {
         if let Some(path) = &local_path {
+            if let Some(local) = get_data().charts.iter().find(|local| &local.local_path == path) {
+                chart.info = local.info.clone();
+            }
             if let Some(id) = path.strip_prefix("download/") {
                 chart.info.id = Some(id.parse().unwrap());
             }
@@ -621,16 +665,11 @@ impl SongScene {
                 None
             } else {
                 id.map(|id| {
-                    Task::new(async move {
-                        #[derive(Deserialize)]
-                        struct Resp {
-                            score: i16,
-                        }
-                        let resp: Resp = recv_raw(Client::get(format!("/chart/{id}/rate"))).await?.json().await?;
-                        Ok(resp.score)
-                    })
+                    let signed_in = get_data().me.is_some();
+                    Task::new(crate::client::pro_chart_rating(id, signed_in))
                 })
             },
+            pro_rating_average: None,
             my_rate_score: None,
 
             stabilize_task: None,
@@ -775,11 +814,8 @@ impl SongScene {
                         *prog.lock().unwrap() = None;
                     }
                     let mut info: ChartInfo = serde_yaml::from_reader(dir.open("info.yml")?)?;
-                    info.id = Some(entity.id);
-                    info.created = Some(entity.created);
-                    info.updated = Some(entity.updated);
+                    apply_remote_metadata(&mut info, &entity);
                     info.chart_updated = Some(entity.chart_updated);
-                    info.uploader = Some(entity.uploader.id);
                     serde_yaml::to_writer(dir.create("info.yml")?, &info)?;
 
                     if prog_wk.strong_count() == 0 {
@@ -807,7 +843,7 @@ impl SongScene {
 
                     Ok((
                         LocalChart {
-                            info: entity.to_info(),
+                            info: tuple.1.clone().into(),
                             local_path,
                             record: None,
                             mods: Mods::default(),
@@ -1644,8 +1680,13 @@ impl SongScene {
             item(tl!("info-charter"), self.info.charter.as_str().into());
             item(tl!("info-difficulty"), format!("{} ({:.1})", self.info.level, self.info.difficulty).into());
             item(tl!("info-desc"), self.info.intro.as_str().into());
+            if let Some((average, count)) = self.pro_rating_average {
+                item(format!("{} (Pro)", tl!("info-rating")).into(), format!("{:.2} / 5.00 ({count})", average / 2.).into());
+            }
             if let Some(entity) = &self.entity {
-                item(tl!("info-rating"), entity.rating.map_or(Cow::Borrowed("NaN"), |r| format!("{:.2} / 5.00", r * 5.).into()));
+                if let Some(rating) = entity.rating {
+                    item(format!("{} (Phira)", tl!("info-rating")).into(), format!("{:.2} / 5.00", rating * 5.).into());
+                }
                 item(
                     tl!("info-type"),
                     format!(
@@ -2007,7 +2048,7 @@ impl Scene for SongScene {
             Err(res) => res,
             Ok(rec) => {
                 self.fade_start = tm.now() as f32 + fade_in_time().unwrap_or_default();
-                if self.my_rate_score == Some(0) && thread_rng().gen_ratio(2, 5) {
+                if get_data().me.is_some() && self.my_rate_score == Some(0) && thread_rng().gen_ratio(2, 5) {
                     self.rate_dialog.enter(tm.real_time() as _);
                 }
                 if let Some(record) = &mut self.record {
@@ -2469,19 +2510,10 @@ impl Scene for SongScene {
                 }));
             }
         }
-        if self.rate_dialog.confirmed.take() == Some(true) {
+        if self.rate_dialog.confirmed.take() == Some(true) && self.rate_task.is_none() {
             if let Some(id) = self.info.id {
                 let score = self.rate_dialog.rate.score;
-                self.rate_task = Some(Task::new(async move {
-                    recv_raw(Client::post(
-                        format!("/chart/{id}/rate"),
-                        &json!({
-                            "score": score,
-                        }),
-                    ))
-                    .await?;
-                    Ok(())
-                }));
+                self.rate_task = Some(Task::new(crate::client::pro_rate_chart(id, score)));
             }
         }
         if self.side_enter_time < 0. && -tm.real_time() as f32 + edit_transit().unwrap_or_default() < self.side_enter_time {
@@ -2520,16 +2552,8 @@ impl Scene for SongScene {
                     Ok(chart) => {
                         if let Some(chart) = chart {
                             self.entity = Some(chart.as_ref().clone());
-                            if self
-                                .info
-                                .updated
-                                .map_or(chart.updated != chart.created, |local_updated| local_updated != chart.updated)
-                                && self.local_path.is_some()
-                            {
-                                let chart_updated = self
-                                    .info
-                                    .chart_updated
-                                    .map_or(chart.chart_updated != chart.created, |local_updated| local_updated != chart.chart_updated);
+                            let (metadata_updated, chart_updated) = chart_updates(&self.info, &chart);
+                            if (metadata_updated || chart_updated) && self.local_path.is_some() {
                                 confirm_dialog(
                                     tl!("need-update"),
                                     if chart_updated {
@@ -2626,6 +2650,7 @@ impl Scene for SongScene {
                     confirm_delete(self.should_delete.clone());
                 }
                 "rate" => {
+                    self.rate_dialog.rate.score = self.my_rate_score.unwrap_or(0);
                     self.rate_dialog.enter(tm.real_time() as _);
                 }
                 "exercise" => {
@@ -3185,9 +3210,17 @@ impl Scene for SongScene {
             if let Some(res) = task.take() {
                 match res {
                     Err(err) => {
-                        show_error(err.context(tl!("rate-failed")));
+                        if err.downcast_ref::<crate::client::ErrorCode>() == Some(&crate::client::ErrorCode::PRO_SCORE_REQUIRED) {
+                            show_message(tl!("rate-pro-score-required")).warn();
+                        } else {
+                            show_error(err.context(tl!("rate-failed")));
+                        }
                     }
-                    Ok(_) => {
+                    Ok(rating) => {
+                        self.my_rating_task = None;
+                        self.my_rate_score = Some(rating.score);
+                        self.rate_dialog.rate.score = rating.score;
+                        self.pro_rating_average = rating.average.map(|average| (average, rating.count));
                         show_message(tl!("rate-done")).ok();
                     }
                 }
@@ -3196,7 +3229,19 @@ impl Scene for SongScene {
             }
         }
         if self.should_update.fetch_and(false, Ordering::Relaxed) {
-            self.start_download()?;
+            if let (Some(local), Some(chart)) = (&self.local_path, &self.entity) {
+                let (metadata_updated, chart_updated) = chart_updates(&self.info, chart);
+                if chart_updated {
+                    self.start_download()?;
+                } else if metadata_updated {
+                    let path = Path::new(&dir::charts()?).join(local).join("info.yml");
+                    let mut info: ChartInfo = serde_yaml::from_reader(File::open(&path)?)?;
+                    apply_remote_metadata(&mut info, chart);
+                    crate::transfer::write_atomic(&path, serde_yaml::to_string(&info)?.as_bytes())?;
+                    self.info = info.into();
+                    self.update_chart_info()?;
+                }
+            }
         }
         if let Some(task) = &mut self.my_rating_task {
             if let Some(res) = task.take() {
@@ -3204,9 +3249,13 @@ impl Scene for SongScene {
                     Err(err) => {
                         warn!(?err, "failed to fetch my rating status");
                     }
-                    Ok(score) => {
-                        self.rate_dialog.rate.score = score;
-                        self.my_rate_score = Some(score);
+                    Ok(rating) => {
+                        // A slow GET must not replace a vote being edited.
+                        if !self.rate_dialog.showing() {
+                            self.rate_dialog.rate.score = rating.score;
+                        }
+                        self.my_rate_score = Some(rating.score);
+                        self.pro_rating_average = rating.average.map(|average| (average, rating.count));
                     }
                 }
                 self.my_rating_task = None;

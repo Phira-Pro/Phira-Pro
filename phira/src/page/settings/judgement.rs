@@ -1,5 +1,5 @@
 //! One settings panel for selecting, copying, editing and saving judgement presets.
-use super::{item_row_h, render_switch, right_rect, ChooseButton, ColorAction, ColorPicker, L10N_LOCAL};
+use super::{item_row_h, render_setting_row, render_switch, render_title, right_rect, ChooseButton, ColorAction, ColorPicker, L10N_LOCAL};
 use crate::{
     get_data, get_data_mut,
     judgement_presets::{self, JudgePreset, JudgeSettings},
@@ -10,7 +10,7 @@ use inputbox::InputBox;
 use macroquad::prelude::*;
 use prpr::{
     config::JudgeAlgorithm,
-    ext::{poll_future, semi_white, LocalTask, RectExt},
+    ext::{poll_future, LocalTask, RectExt},
     scene::{request_input, return_input, show_error, take_input},
     ui::{DRectButton, Scroll, Ui},
 };
@@ -136,23 +136,6 @@ fn switch_label(i: usize) -> String {
     tl!(format!("preset-switch-{i}")).into_owned()
 }
 
-fn render_title<'a>(ui: &mut Ui, title: impl Into<std::borrow::Cow<'a, str>>, subtitle: Option<std::borrow::Cow<'a, str>>) {
-    ui.text(title.into())
-        .pos(0.035, item_row_h() * if subtitle.is_some() { 0.32 } else { 0.5 })
-        .anchor(0., 0.5)
-        .size(0.48)
-        .max_width(1.08)
-        .draw();
-    if let Some(subtitle) = subtitle {
-        ui.text(subtitle)
-            .pos(0.035, item_row_h() * 0.76)
-            .anchor(0., 0.5)
-            .size(0.28)
-            .max_width(1.55)
-            .color(semi_white(0.6))
-            .draw();
-    }
-}
 fn sided(i: usize) -> bool {
     i >= 26 || i < 4 || matches!(i, 5 | 6 | 16 | 17 | 18)
 }
@@ -640,7 +623,7 @@ impl JudgementList {
     pub fn render(&mut self, ui: &mut Ui, r: Rect, t: f32) -> (f32, f32) {
         let rr = right_rect(r.w);
         let mut h = 0.;
-        macro_rules! row { ($($body:tt)*) => {{ $($body)* ui.dy(item_row_h()); h += item_row_h(); }}; }
+        macro_rules! row { ($($body:tt)*) => { render_setting_row!(ui, h, (r.w - 0.69).min(1.08); $($body)*) }; }
         if let Some(mut draft) = self.draft.take() {
             row! { render_title(ui, tl!("preset-name"), None); self.name.render_text(ui, rr, t, if draft.name.is_empty() { tl!("preset-name-empty").into_owned() } else { draft.name.clone() }, 0.42, false); }
             h += self.render_controls(ui, r, t, &mut draft.settings);
@@ -671,7 +654,7 @@ impl JudgementList {
     fn render_controls(&mut self, ui: &mut Ui, r: Rect, t: f32, settings: &mut JudgeSettings) -> f32 {
         let rr = right_rect(r.w);
         let mut h = 0.;
-        macro_rules! row { ($($body:tt)*) => {{ $($body)* ui.dy(item_row_h()); h += item_row_h(); }}; }
+        macro_rules! row { ($($body:tt)*) => { render_setting_row!(ui, h, (r.w - 0.69).min(1.08); $($body)*) }; }
         let mut options = vec![tl!("preset-od-custom").into_owned()];
         options.extend((-15..=15).map(|od| format!("OD {od:+}")));
         if self.od_names != options {
@@ -696,7 +679,7 @@ impl JudgementList {
             if sided(i) {
                 row! {
                     ui.fill_rect(Rect::new(0.015, 0.005, r.w - 0.03, item_row_h() - 0.01), Color::new(0.12, 0.17, 0.22, 0.65));
-                    render_title(ui, number_label(i), None);
+                    render_title(ui, number_label(i), None, (r.w - 0.69).min(1.08));
                     for late in [false, true] {
                         let value = side_value(settings, i, late);
                         let label = if i == 6 { fmt(value) } else { format!("{}{} ms", if late { "+" } else { "-" }, fmt(value)) };

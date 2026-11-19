@@ -192,7 +192,7 @@ impl Chart {
         for (video, _) in &mut self.extra.videos {
             if let Err(err) = video.reset() {
                 use crate::parse::{ptl, L10N_LOCAL};
-                crate::scene::show_error(err.context(ptl!("video-load-failed", "path" => video.video_file.path().to_string_lossy())));
+                crate::scene::show_error(err.context(ptl!("video-load-failed", "path" => video.video_file().path().to_string_lossy())));
             }
         }
     }

@@ -4087,6 +4087,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bitflags 2.13.2",
+ "block2",
  "bytes",
  "bytesize",
  "cacache",

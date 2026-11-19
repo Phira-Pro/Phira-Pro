@@ -118,6 +118,7 @@ mods-no-fail = No Fail
 mods-no-fail-sub = Failures are recorded but do not end the run
 rate-failed = Rate failed.
 rate-done = Rated successfully.
+rate-pro-score-required = Submit a Phira Pro score for this chart before rating it.
 need-update = Update Needed
 need-update-info-only-content = The chart's info has been updated.  Would you like to sync the update?
 need-update-content = The chart has been updated, and the leaderboard has been wiped.  Please update the chart to upload scores.

@@ -136,18 +136,20 @@ impl Scene for RecordDetailScene {
     }
 
     fn touch(&mut self, tm: &mut TimeManager, touch: &Touch) -> Result<bool> {
+        if self.replay_task.is_some() {
+            return Ok(true);
+        }
         let t = tm.real_time() as f32;
         if self.btn_back.touch(touch, t) {
             self.exit = true;
             return Ok(true);
         }
-        if self.btn_replay.touch(touch, t) {
-            if let Some(path) = self.replay_path.clone() {
-                if self.replay_task.is_none() {
-                    self.replay_task = Some(Box::pin(async move { ReplayScene::new(path).await }));
-                }
+        if let Some(path) = &self.replay_path {
+            if self.btn_replay.touch(touch, t) {
+                let path = path.clone();
+                self.replay_task = Some(Box::pin(async move { ReplayScene::new(path).await }));
+                return Ok(true);
             }
-            return Ok(true);
         }
         if self.btn_export.touch(touch, t) {
             if let Some(path) = &self.replay_path {
@@ -494,10 +496,11 @@ impl Scene for RecordDetailScene {
             r.x -= r.w;
             r.y -= r.h;
             let replay_exists = self.replay_path.is_some();
+            let replay_enabled = replay_exists && self.replay_task.is_none();
             self.btn_replay.render_shadow(ui, r, t, |ui, path| {
                 ui.fill_path(
                     &path,
-                    if replay_exists {
+                    if replay_enabled {
                         Color::from_hex_rgb(0x43a047)
                     } else {
                         Color::from_hex_rgb(0x37474f)

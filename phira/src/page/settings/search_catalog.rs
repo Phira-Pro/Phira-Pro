@@ -1,8 +1,12 @@
 &[
     (0, "item-lang"),
     (0, "item-app-icon"),
+    #[cfg(target_os = "android")]
+    (0, "item-app-icon-shortcut"),
     (0, "item-app-icon-reset"),
     (0, "item-app-bg"),
+    #[cfg(feature = "video")]
+    (0, "item-app-bg-crossfade"),
     (0, "item-app-bg-reset"),
     (0, "item-app-bgm"),
     (0, "item-app-bgm-reset"),

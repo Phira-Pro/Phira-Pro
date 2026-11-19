@@ -2398,10 +2398,27 @@ impl Judge {
         self.inner.hp()
     }
 
-    pub fn configure_health(&mut self, config: &Config) {
+    pub(crate) fn course_life(&self) -> Option<crate::course::CourseLife> {
         #[cfg(not(closed))]
         {
-            self.inner.health = health::Health::from_config(config);
+            self.inner.health.course_life()
+        }
+        #[cfg(closed)]
+        {
+            None
+        }
+    }
+
+    /// Seed the next course chart before its gameplay scene is entered.
+    pub fn carry_course_life(&mut self, life: crate::course::CourseLife) {
+        #[cfg(not(closed))]
+        self.inner.health.carry_course_life(life);
+    }
+
+    pub fn configure_health(&mut self, config: &Config, course: bool) {
+        #[cfg(not(closed))]
+        {
+            self.inner.health = health::Health::from_config(config, course);
         }
         #[cfg(closed)]
         {

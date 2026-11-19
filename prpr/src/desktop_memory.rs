@@ -13,7 +13,7 @@
 //! next frame that needs them.
 
 use once_cell::sync::Lazy;
-use std::fs;
+use std::{collections::HashSet, fs};
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -51,7 +51,7 @@ pub struct GpuMemory {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemMemory {
     pub mem_total_kib: u64,
-    pub mem_available_kib: u64,
+    pub mem_available_kib: Option<u64>,
     pub swap_total_kib: u64,
     pub swap_free_kib: u64,
     pub rss_kib: u64,
@@ -61,15 +61,13 @@ pub struct SystemMemory {
 impl SystemMemory {
     /// `None` when the kernel does not expose `MemAvailable`.
     fn pressure(&self) -> Option<Pressure> {
-        if self.mem_available_kib == 0 {
-            return None;
-        }
+        let available = self.mem_available_kib?;
         // Swap being full on its own is not pressure: the kernel can reclaim
         // clean file pages. It only matters when available RAM is also low.
         let swap_starved = self.swap_total_kib > 0 && self.swap_free_kib < CRITICAL_SWAP_FREE_KIB;
-        if self.mem_available_kib < CRITICAL_AVAILABLE_KIB || (swap_starved && self.mem_available_kib < LOW_AVAILABLE_KIB * 2) {
+        if available < CRITICAL_AVAILABLE_KIB || (swap_starved && available < LOW_AVAILABLE_KIB * 2) {
             Some(Pressure::Critical)
-        } else if self.mem_available_kib < LOW_AVAILABLE_KIB {
+        } else if available < LOW_AVAILABLE_KIB {
             Some(Pressure::Low)
         } else {
             Some(Pressure::Normal)
@@ -117,8 +115,15 @@ fn parse_fdinfo(text: &str) -> Option<(String, Option<u64>, GpuMemory)> {
             client_id = value.parse().ok();
             continue;
         }
-        let Some(amount) = value.split_whitespace().next().and_then(|v| v.parse::<u64>().ok()) else {
+        let mut fields = value.split_whitespace();
+        let Some(amount) = fields.next().and_then(|v| v.parse::<u64>().ok()) else {
             continue;
+        };
+        let amount = match fields.next() {
+            Some("KiB") => amount,
+            Some("MiB") => amount.saturating_mul(1024),
+            None => amount / 1024, // DRM's unit when none is printed is bytes.
+            _ => continue,
         };
         if key.starts_with("drm-total-") {
             gpu.total_kib += amount;
@@ -145,7 +150,7 @@ fn parse_fdinfo(text: &str) -> Option<(String, Option<u64>, GpuMemory)> {
 
 fn read_gpu_memory() -> GpuMemory {
     let mut out = GpuMemory::default();
-    let mut seen: Vec<(String, u64)> = Vec::new();
+    let mut seen = HashSet::new();
 
     let Ok(entries) = fs::read_dir("/proc/self/fd") else {
         return out;
@@ -163,19 +168,14 @@ fn read_gpu_memory() -> GpuMemory {
         let Ok(info) = fs::read_to_string(format!("/proc/self/fdinfo/{fd}")) else {
             continue;
         };
-        let Some((driver, client_id, gpu)) = parse_fdinfo(&info) else {
+        let Some((_driver, client_id, gpu)) = parse_fdinfo(&info) else {
             continue;
         };
         // Mesa dups its render node for GLX/EGL; counting each fd would
         // multiply the same client's memory by the number of dups.
-        let client = client_id.unwrap_or(fd as u64);
-        if seen
-            .iter()
-            .any(|(seen_driver, seen_client)| *seen_driver == driver && *seen_client == client)
-        {
+        if client_id.is_some_and(|client| !seen.insert((target, client))) {
             continue;
         }
-        seen.push((driver, client));
 
         out.total_kib += gpu.total_kib;
         out.shared_kib += gpu.shared_kib;
@@ -199,7 +199,7 @@ fn read_system_memory() -> SystemMemory {
             };
             match key.trim() {
                 "MemTotal" => memory.mem_total_kib = amount,
-                "MemAvailable" => memory.mem_available_kib = amount,
+                "MemAvailable" => memory.mem_available_kib = Some(amount),
                 "SwapTotal" => memory.swap_total_kib = amount,
                 "SwapFree" => memory.swap_free_kib = amount,
                 _ => {}
@@ -236,7 +236,7 @@ pub fn install() {
         gpu_shared_mib = mib(gpu.shared_kib),
         gpu_purgeable_mib = mib(gpu.purgeable_kib),
         gpu_clients = gpu.clients,
-        mem_available_mib = mib(system.mem_available_kib),
+        mem_available_mib = mib(system.mem_available_kib.unwrap_or_default()),
         swap_free_mib = mib(system.swap_free_kib),
         rss_mib = mib(system.rss_kib),
         vm_swap_mib = mib(system.vm_swap_kib),
@@ -287,19 +287,19 @@ fn sample() {
         match pressure {
             Pressure::Critical => warn!(
                 gpu_mib = mib(gpu.total_kib),
-                mem_available_mib = mib(system.mem_available_kib),
+                mem_available_mib = mib(system.mem_available_kib.unwrap_or_default()),
                 swap_free_mib = mib(system.swap_free_kib),
                 "system memory critically low; releasing re-creatable GPU caches"
             ),
             Pressure::Low => info!(
                 gpu_mib = mib(gpu.total_kib),
-                mem_available_mib = mib(system.mem_available_kib),
+                mem_available_mib = mib(system.mem_available_kib.unwrap_or_default()),
                 swap_free_mib = mib(system.swap_free_kib),
                 "system memory low"
             ),
             Pressure::Normal => info!(
                 gpu_mib = mib(gpu.total_kib),
-                mem_available_mib = mib(system.mem_available_kib),
+                mem_available_mib = mib(system.mem_available_kib.unwrap_or_default()),
                 swap_free_mib = mib(system.swap_free_kib),
                 "system memory pressure cleared"
             ),
@@ -327,7 +327,7 @@ fn sample() {
             gpu_shared_mib = mib(gpu.shared_kib),
             gpu_purgeable_mib = mib(gpu.purgeable_kib),
             gpu_clients = gpu.clients,
-            mem_available_mib = mib(system.mem_available_kib),
+            mem_available_mib = mib(system.mem_available_kib.unwrap_or_default()),
             swap_free_mib = mib(system.swap_free_kib),
             rss_mib = mib(system.rss_kib),
             vm_swap_mib = mib(system.vm_swap_kib),
@@ -353,21 +353,20 @@ mod tests {
         let text = "\
 pos:\t0
 drm-driver:\ti915
-drm-client-id:\t619
-drm-pdev:\t0000:00:02.0
-drm-total-system0:\t152608 KiB
-drm-shared-system0:\t7680 KiB
+drm-client-id:\t42
+drm-total-system0:\t150 MiB
+drm-shared-system0:\t7864320
 drm-active-system0:\t0 KiB
-drm-resident-system0:\t152608 KiB
+drm-resident-system0:\t153600 KiB
 drm-purgeable-system0:\t1424 KiB
 drm-total-stolen-system0:\t0 KiB
 ";
         let (driver, client, gpu) = parse_fdinfo(text).unwrap();
         assert_eq!(driver, "i915");
-        assert_eq!(client, Some(619));
-        assert_eq!(gpu.total_kib, 152608);
+        assert_eq!(client, Some(42));
+        assert_eq!(gpu.total_kib, 153600);
         assert_eq!(gpu.shared_kib, 7680);
-        assert_eq!(gpu.resident_kib, 152608);
+        assert_eq!(gpu.resident_kib, 153600);
         assert_eq!(gpu.purgeable_kib, 1424);
     }
 
@@ -389,29 +388,33 @@ drm-memory-cpu:\t512 KiB
     #[test]
     fn classifies_pressure_from_available_memory() {
         let mut memory = SystemMemory {
-            mem_available_kib: 2 * 1024 * 1024,
+            mem_available_kib: Some(2 * 1024 * 1024),
             swap_total_kib: 4 * 1024 * 1024,
             swap_free_kib: 2 * 1024 * 1024,
             ..SystemMemory::default()
         };
         assert_eq!(memory.pressure(), Some(Pressure::Normal));
-        memory.mem_available_kib = 400 * 1024;
+        memory.mem_available_kib = Some(400 * 1024);
         assert_eq!(memory.pressure(), Some(Pressure::Low));
-        memory.mem_available_kib = 128 * 1024;
+        memory.mem_available_kib = Some(128 * 1024);
         assert_eq!(memory.pressure(), Some(Pressure::Critical));
+        memory.mem_available_kib = Some(0);
+        assert_eq!(memory.pressure(), Some(Pressure::Critical));
+        memory.mem_available_kib = None;
+        assert_eq!(memory.pressure(), None);
     }
 
     #[test]
     fn swap_exhaustion_only_matters_with_low_available_memory() {
         let mut memory = SystemMemory {
-            mem_available_kib: 2 * 1024 * 1024,
+            mem_available_kib: Some(2 * 1024 * 1024),
             swap_total_kib: 1024 * 1024,
             swap_free_kib: 32 * 1024,
             ..SystemMemory::default()
         };
         // Plenty of RAM: a full swap is not pressure by itself.
         assert_eq!(memory.pressure(), Some(Pressure::Normal));
-        memory.mem_available_kib = 768 * 1024;
+        memory.mem_available_kib = Some(768 * 1024);
         assert_eq!(memory.pressure(), Some(Pressure::Critical));
     }
 }

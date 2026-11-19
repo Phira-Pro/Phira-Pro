@@ -133,6 +133,7 @@ mods-no-fail-sub = 失败只记录，不中断本局
 
 rate-failed = 评分失败
 rate-done = 评分成功
+rate-pro-score-required = 请先完成游玩并将这张谱面的成绩提交到 Pro 服务器
 
 need-update = 谱面更新
 need-update-info-only-content = 谱面信息已更新，需要现在同步这些信息吗？

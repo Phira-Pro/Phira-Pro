@@ -249,9 +249,17 @@ item-offset-indicator-sub = 局內頂部顯示早/晚判定的偏移指示條
 
 item-app-icon = 自訂APP圖示
 item-app-icon-sub = 更換程式圖示。*重新啟動後生效*
+item-app-icon-window-sub = 匯入圖片作為視窗圖示，重新啟動後生效
+item-app-icon-launcher-sub = 切換應用程式內建的主畫面圖示
+item-app-icon-switch = 切換
+item-app-icon-applied = 應用程式圖示已更新
+item-app-icon-shortcut = 自訂主畫面捷徑
+item-app-icon-shortcut-done = 已要求加入捷徑，若出現提示請在主畫面確認
 item-app-icon-reset = 恢復預設圖示
-item-app-bg = 自訂背景
-item-app-bg-sub = 更換主介面背景圖
+item-app-bg = 自訂背景圖片/影片
+item-app-bg-sub = 更換主介面背景，影片會靜音循環播放
+item-app-bg-crossfade = 背景影片平滑轉場
+item-app-bg-crossfade-sub = 循環時交叉淡化影片的結尾與開頭
 item-app-bg-reset = 恢復預設背景
 item-appearance-import-sub = 主介面左下角的立繪（建議透明底 PNG）
 item-appearance-reset = 恢復預設立繪
@@ -337,6 +345,7 @@ preset-color-default = 资源包默认
 
 item-desktop-fps = 幀率上限
 item-desktop-fps-sub = 選擇後立即生效；預設跟隨螢幕更新率
+item-desktop-fps-linux-sub = 預設跟隨螢幕更新率；無上限需顯示驅動程式支援
 item-desktop-fps-auto = 跟隨螢幕
 
 color-original = 原始顏色

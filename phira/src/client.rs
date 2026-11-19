@@ -189,6 +189,29 @@ pub async fn pro_upload_score<T: Serialize>(body: &T) -> Result<ScoreUploadResp>
 }
 
 #[derive(Deserialize)]
+pub struct ChartRating {
+    pub score: i16,
+    pub average: Option<f64>,
+    pub count: u64,
+}
+
+pub async fn pro_chart_rating(chart: i32, signed_in: bool) -> Result<ChartRating> {
+    let path = format!("/api/v1/charts/{chart}/rating");
+    let response = if signed_in {
+        pro_get(format!("{path}/me")).await?
+    } else {
+        check_response(PRO_CLIENT.load().get(format!("{PRO_API_URL}{path}")).send().await?).await?
+    };
+    Ok(response.json().await?)
+}
+
+pub async fn pro_rate_chart(chart: i32, score: i16) -> Result<ChartRating> {
+    let client = Arc::clone(&SCORE_CLIENT.load());
+    let response = pro_send(client, Method::PUT, &format!("/api/v1/charts/{chart}/rating"), Some(json!({ "score": score }))).await?;
+    Ok(response.json().await?)
+}
+
+#[derive(Deserialize)]
 struct PlayerRank {
     rank: i64,
 }
@@ -325,6 +348,8 @@ macro_rules! error_code {
 
 #[allow(dead_code)]
 impl ErrorCode {
+    pub const PRO_SCORE_REQUIRED: ErrorCode = ErrorCode(Cow::Borrowed("pro_score_required"));
+
     error_code! {
         INVALID_INPUT => StatusCode::BAD_REQUEST,
         UNAUTHENTICATED => StatusCode::UNAUTHORIZED,

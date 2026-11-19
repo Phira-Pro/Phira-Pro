@@ -1,7 +1,47 @@
 //! Production settings hit regions and FPS edge placement in the existing GL test.
 use super::*;
 use prpr::ext::BLACK_TEXTURE;
-use prpr::ui::TextPainter;
+use prpr::ui::{FontArc, TextPainter};
+
+#[test]
+#[ignore = "requires desktop OpenGL"]
+fn long_settings_subtitles_make_room_for_following_controls() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    macroquad::Window::from_config(
+        Conf { headless: true, ..Default::default() },
+        async move {
+            next_frame().await;
+            let font = FontArc::try_from_vec(fs::read(root.join("assets/harmonyos.ttf")).unwrap()).unwrap();
+            let mut painter = TextPainter::new(font, None);
+            for viewport in [(960, 720), (1280, 720), (1280, 548)] {
+                let mut ui = Ui::new(&mut painter, Some((0, 0, viewport.0, viewport.1)));
+                let ui = &mut ui;
+                set_camera(&ui.camera());
+                ui.dx(-0.8);
+                ui.dy(-0.5);
+                let mut height = 0.;
+                let mut first = DRectButton::new();
+                let mut second = DRectButton::new();
+                let note = "Une longue description doit afficher toutes les informations réglables. ".repeat(6);
+                let control = right_rect(1.6);
+                let first_center = ui.rect_to_global(control).center();
+                render_setting_row!(ui, height, 1.0; render_title(ui, "Arrière-plan", Some(Cow::Borrowed(&note)));
+                    first.render_text(ui, control, 1., "Importer", 0.4, false);
+                );
+                let wrapped_height = height;
+                let second_center = first_center + vec2(0., wrapped_height);
+                render_setting_row!(ui, height, 1.0; render_title(ui, "Volume", None);
+                    second.render_text(ui, control, 1., "Régler", 0.4, false);
+                );
+                assert!(wrapped_height > item_row_h() + 0.02, "the description must grow the row");
+                assert!((height - wrapped_height - item_row_h()).abs() < 0.001);
+                assert!(first.inner.contains(first_center));
+                assert!(second.inner.contains(second_center));
+                assert!(!first.inner.contains(second_center));
+            }
+        },
+    );
+}
 
 pub(crate) fn background_blur_regression(painter: &mut TextPainter) {
     let mut list = ChartList::new();
@@ -13,7 +53,7 @@ pub(crate) fn background_blur_regression(painter: &mut TextPainter) {
         ui.scope(|ui| {
             ui.dx(-0.8);
             ui.dy(-0.05);
-            render_title(ui, tl!("item-gameplay-background-blur"), None);
+            render_title(ui, tl!("item-gameplay-background-blur"), None, 1.2);
             let value = get_data().config.gameplay_background_blur;
             list.background_blur_slider.render(ui, right_rect(1.6), 2., value, format!("{value:.2}"));
         });

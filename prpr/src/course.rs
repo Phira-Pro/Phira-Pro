@@ -1,5 +1,15 @@
 //! Course rules are applied to a session copy and never overwrite saved presets.
 use crate::config::{Config, JudgeAlgorithm, Mods};
+
+/// Remaining LIFE in tenths of a point, carried between charts of one course.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CourseLife(pub(crate) u32);
+
+pub struct StageResult {
+    pub play: crate::judge::PlayResult,
+    pub life: Option<CourseLife>,
+}
+
 pub fn config(source: &Config) -> Config {
     let mut c = source.clone();
     c.judge_algorithm = JudgeAlgorithm::Phigros;
@@ -19,7 +29,6 @@ pub fn config(source: &Config) -> Config {
     c.practice_multiplier = 1.;
     c.practice_ramp = false;
     c.practice = Default::default();
-    c.hp_mode = false;
     c.auto_retry = 0.;
     c.retry_lead = 0.;
     c.interactive = true;

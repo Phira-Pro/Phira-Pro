@@ -21,6 +21,7 @@ pub const AVSEEK_FLAG_BACKWARD: i32 = 1;
 extern "C" {
     pub fn avformat_alloc_context() -> *mut AVFormatContext;
     pub fn avformat_free_context(s: *mut AVFormatContext);
+    pub fn avformat_close_input(s: *mut *mut AVFormatContext);
     pub fn avformat_open_input(
         ps: *mut *mut AVFormatContext,
         url: *const ::std::os::raw::c_char,

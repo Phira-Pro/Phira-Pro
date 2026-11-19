@@ -27,6 +27,11 @@ impl AVStreamRef {
         unsafe { (*self.0).duration }
     }
 
+    pub fn start_time(&self) -> i64 {
+        let start = unsafe { (*self.0).start_time };
+        if start == i64::MIN { 0 } else { start }
+    }
+
     pub fn is_video(&self) -> bool {
         self.codec_type() == 0
     }

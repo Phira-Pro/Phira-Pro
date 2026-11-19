@@ -27,10 +27,13 @@ async fn main() {
     let mut intervals = Vec::new();
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     let mut pacer = prpr::desktop_pacing::Pacer::new();
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    let limit = std::env::var_os("FRAME_PROBE_PACER")
+        .map(|_| std::env::var("FRAME_PROBE_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(0));
     while begin.elapsed().as_secs_f64() < 6. {
         #[cfg(any(target_os = "windows", target_os = "linux"))]
-        if std::env::var_os("FRAME_PROBE_PACER").is_some() {
-            pacer.wait(std::env::var("FRAME_PROBE_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(0));
+        if let Some(limit) = limit {
+            pacer.wait(limit);
         }
         let now = Instant::now();
         if begin.elapsed().as_secs_f64() > 1. {

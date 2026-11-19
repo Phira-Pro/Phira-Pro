@@ -75,8 +75,10 @@ pub struct EndingScene {
     icon_proceed: SafeTexture,
     mod_icons: ModIcons,
     target: Option<RenderTarget>,
-    audio: AudioManager,
-    bgm: Music,
+    audio_config: Config,
+    bgm: AudioClip,
+    bgm_pending: bool,
+    playback: Option<(AudioManager, Music)>,
 
     info: ChartInfo,
     result: PlayResult,
@@ -136,16 +138,6 @@ impl EndingScene {
         best_record: Option<SimpleRecord>,
         avg_fps: Option<f32>,
     ) -> Result<Self> {
-        let mut audio = create_audio_manger(config)?;
-        let amplifier = config.music_amplifier(&bgm, config.volume_music);
-        let bgm = audio.create_music(
-            bgm,
-            MusicParams {
-                amplifier,
-                loop_mix_time: 0.,
-                ..Default::default()
-            },
-        )?;
         let upload_task = upload_fn
             .as_ref()
             .and_then(|f| record_data.clone().map(|data| (f(data), show_message(tl!("uploading")).handle())));
@@ -158,8 +150,10 @@ impl EndingScene {
             icon_proceed,
             mod_icons,
             target: None,
-            audio,
+            audio_config: config.clone(),
             bgm,
+            bgm_pending: true,
+            playback: None,
             update_state: if upload_task.is_some() || result.grading.detailed {
                 None
             } else {
@@ -219,14 +213,15 @@ impl Scene for EndingScene {
     }
 
     fn pause(&mut self, tm: &mut TimeManager) -> Result<()> {
-        self.bgm.pause()?;
+        // The callback may already be suspended. Dropping the stream avoids
+        // sending a command to its bounded queue while the app is backgrounded.
+        self.playback = None;
         tm.pause();
         Ok(())
     }
 
     fn resume(&mut self, tm: &mut TimeManager) -> Result<()> {
-        self.audio.recover_if_needed()?;
-        self.bgm.play()?;
+        self.bgm_pending = true;
         tm.resume();
         Ok(())
     }
@@ -273,9 +268,21 @@ impl Scene for EndingScene {
     }
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
-        self.audio.recover_if_needed()?;
-        if tm.now() >= 0. && self.target.is_none() && self.bgm.paused() {
-            self.bgm.play()?;
+        if self.bgm_pending && tm.now() >= 0. && self.target.is_none() {
+            self.bgm_pending = false;
+            let mut audio = create_audio_manger(&self.audio_config)?;
+            let mut music = audio.create_music(
+                self.bgm.clone(),
+                MusicParams {
+                    amplifier: self.audio_config.music_amplifier(&self.bgm, self.audio_config.volume_music),
+                    loop_mix_time: 0.,
+                    ..Default::default()
+                },
+            )?;
+            music.play()?;
+            self.playback = Some((audio, music));
+        } else if let Some((audio, _)) = &mut self.playback {
+            audio.recover_if_needed()?;
         }
         if RE_UPLOAD.with(|it| std::mem::replace(it.borrow_mut().deref_mut(), false)) && self.upload_task.is_none() {
             self.upload_task = self
@@ -732,9 +739,6 @@ impl Scene for EndingScene {
     fn next_scene(&mut self, _tm: &mut TimeManager) -> NextScene {
         if !self.tr_start.is_nan() {
             return NextScene::None;
-        }
-        if self.next != 0 {
-            let _ = self.bgm.pause();
         }
         match self.next {
             0 => NextScene::None,

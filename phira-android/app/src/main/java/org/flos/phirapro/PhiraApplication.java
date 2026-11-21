@@ -8,7 +8,7 @@ import android.util.Log;
 public final class PhiraApplication extends Application {
     @Override protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
-        if (!BuildConfig.DEBUG && !ApkSignatureVerifier.isOfficial(base)) {
+        if (!ApkSignatureVerifier.isOfficial(base)) {
             try {
                 Process.killProcess(Process.myPid());
             } finally {

@@ -11,7 +11,7 @@ Phira Pro 是基于 [Phira](https://github.com/TeamFlos/phira) v0.8.3 的**非�
 
 在 [Releases](https://github.com/Phira-Pro/Phira-Pro/releases) 页面下载 Windows、macOS、Linux 压缩包、Android arm64 APK 或 iOS 未签名 IPA。Windows 解压后运行 `phira-main.exe`，macOS / Linux 运行 `phira-main`；Android 更新时保留应用数据，iOS IPA 需自行签名安装。
 
-从当前源码构建的 Android release 包启动时会校验 APK 签名证书。校验失败时应用立即退出，且不显示提示。debug 构建跳过校验。
+从当前源码构建的 Android APK（包括 debug 构建）启动时会校验签名证书。签名证书必须与 Phira Pro 官方证书匹配。校验失败时应用立即退出，且不显示提示。
 
 当前源码版本为 **pro.19 开发版**（应用内 `0.8.3-pro.19`，build 96），内置 RPEN 升级至 **0.14.0**，保留谱面视频导出、Plugin API v3 和 PRCA 回放分析。同步上游空间轨迹、二维移动、事件数值缩放、着色器编辑及 RPE Classic 皮肤；Pro 试玩和谱面库副本统一准备着色器源码，避免依赖缺失。升级范围和容器限制见 [pro.19 更新说明](docs/development/pro-19.md)。沿用 pro.18-fix1 的 iOS 模组加载修复、PEC 内容识别和触摸事件分配优化。此前新增 Early/Late 跳字提示，修正快速触控的位置与时间处理，统一不同画质下的判定坐标，并调整 Android 刷新率申请及 iOS 渲染驱动。移动设备的三指手势和实际高刷效果仍需真机验证，见 [触控与刷新率说明](docs/development/input-display-feedback.md)。源码版本与已发布附件分别维护，实际可下载版本以 Releases 页面为准。
 

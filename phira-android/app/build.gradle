@@ -142,10 +142,6 @@ android {
     compileSdk 35
     buildToolsVersion '35.0.0'
 
-    buildFeatures {
-        buildConfig true
-    }
-
     defaultConfig {
         applicationId 'org.flos.phirapro'
         minSdk 22

@@ -16,10 +16,11 @@ pub enum ModIcon {
     FullscreenJudge,
     NoFail,
     NoComboScore,
+    Milthm,
 }
 
 impl ModIcon {
-    pub const PATHS: [&'static str; 12] = [
+    pub const PATHS: [&'static str; 13] = [
         "mod/flip_x.png",
         "mod/fade_out.png",
         "mod/fade_in.png",
@@ -32,6 +33,7 @@ impl ModIcon {
         "mod/fullscreen-judge.png",
         "mod/no-fail.png",
         "mod/no-combo-score.png",
+        "mod/milthm.png",
     ];
 }
 

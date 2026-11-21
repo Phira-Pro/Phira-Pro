@@ -7,6 +7,7 @@ use super::{
 use crate::{
     anim::Anim,
     client::{client_flavor, recv_raw, send_raw, Character, Client, ErrorCode, SessionExpired, User, UserManager},
+    data::{CharacterTextOverrides, Data},
     dir, get_data, get_data_mut,
     icons::Icons,
     images::Images,
@@ -93,9 +94,12 @@ pub struct HomePage {
     char_fetch_task: Option<Task<Result<Character>>>,
     char_illu: Option<SafeTexture>,
     char_illu_task: Option<Task<Result<DynamicImage>>>,
+    char_illu_is_local: bool,
     // progress of character screen
     char_screen_p: Anim<f32>,
+    char_detail_input: Mat3,
     char_btn: RectButton,
+    char_close_btn: DRectButton,
     char_text_start: f32,
     char_cached_size: f32,
     char_scroll: Scroll,
@@ -104,6 +108,7 @@ pub struct HomePage {
     char_artist_btn: RectButton,
     char_designer_btn: RectButton,
     char_intro_btn: RectButton,
+    char_intro_area: RectButton,
     char_name_en_btn: RectButton,
 
     #[cfg(feature = "hykb")]
@@ -211,15 +216,18 @@ impl HomePage {
                 it.sync();
             }),
 
-            character: get_data().character.clone().unwrap_or_default(),
+            character: displayed_character(get_data(), None, local_character_art().is_some()),
             char_appear_p: Anim::new(0.),
             char_last_illu: None,
             char_last_user_id: None,
             char_fetch_task: None,
             char_illu: None,
             char_illu_task: None,
+            char_illu_is_local: false,
             char_screen_p: Anim::new(0.),
+            char_detail_input: Mat3::IDENTITY,
             char_btn: RectButton::new(),
+            char_close_btn: DRectButton::new(),
             char_text_start: 0.,
             char_cached_size: 0.,
             char_scroll: Scroll::new().use_clip(ClipType::Clip),
@@ -228,6 +236,7 @@ impl HomePage {
             char_artist_btn: RectButton::new(),
             char_designer_btn: RectButton::new(),
             char_intro_btn: RectButton::new(),
+            char_intro_area: RectButton::new(),
             char_name_en_btn: RectButton::new(),
 
             #[cfg(feature = "hykb")]
@@ -235,8 +244,11 @@ impl HomePage {
             #[cfg(feature = "hykb")]
             anti_addiction_task: None,
         };
-        if let Some(name) = &get_data().character_name_override {
-            res.character.name.clone_from(name);
+        if local_character_art().is_some() {
+            let data = get_data_mut();
+            if data.character_text_overrides.is_none() {
+                data.character_text_overrides = data.character.as_ref().map(CharacterTextOverrides::from_character);
+            }
         }
         res.load_char_illu();
 
@@ -266,9 +278,73 @@ impl HomePage {
     }
 }
 
+fn local_character_art() -> Option<std::path::PathBuf> {
+    #[cfg(not(closed))]
+    return dir::find_appearance("character");
+    #[cfg(closed)]
+    None
+}
+
+fn displayed_character(data: &Data, remote: Option<Character>, has_local_art: bool) -> Character {
+    let saved = data.character.as_ref();
+    let mut character = remote.or_else(|| saved.cloned()).unwrap_or_default();
+    if let Some(saved) = saved {
+        if saved.id == character.id {
+            // Older settings stored edits directly in this cached profile.
+            character.name.clone_from(&saved.name);
+            CharacterTextOverrides::from_character(saved).apply(&mut character);
+        }
+        character.name_en_override.clone_from(&saved.name_en_override);
+    }
+    if let Some(text) = &data.character_text_overrides {
+        text.apply(&mut character);
+    }
+    if let Some(name) = &data.character_name_override {
+        character.name.clone_from(name);
+    } else if has_local_art {
+        if let Some(saved) = saved {
+            character.name.clone_from(&saved.name);
+        }
+    }
+    character
+}
+
+fn edit_character(character: &mut Character, data: &mut Data, field: &str, value: String) -> bool {
+    match field {
+        "character-name" => {
+            character.name.clone_from(&value);
+            data.character_name_override = Some(value);
+        }
+        "character-name-en" => character.name_en_override = (!value.trim().is_empty()).then_some(value),
+        "character-artist" | "character-designer" | "character-intro" => {
+            let text = data.character_text_overrides.get_or_insert_with(CharacterTextOverrides::default);
+            let (visible, saved) = match field {
+                "character-artist" => (&mut character.artist, &mut text.artist),
+                "character-designer" => (&mut character.designer, &mut text.designer),
+                _ => (&mut character.intro, &mut text.intro),
+            };
+            visible.clone_from(&value);
+            *saved = Some(value);
+        }
+        _ => return false,
+    }
+    data.character = Some(character.clone());
+    true
+}
+
+fn detail_input_transform(model: Mat4) -> Mat3 {
+    // The panel is drawn on z=0 after the UI transform. Invert its x/y/w projection
+    // so its text buttons and scroller receive the same coordinates they registered.
+    let plane = |column: Vec4| vec3(column.x, column.y, column.w);
+    Mat3::from_cols(plane(model.x_axis), plane(model.y_axis), plane(model.w_axis)).inverse()
+}
+
 impl HomePage {
     fn load_char_illu(&mut self) {
-        let key = if self.character.illust == "@" {
+        let local = local_character_art();
+        let key = if let Some(path) = &local {
+            format!("local:{}", path.display())
+        } else if self.character.illust == "@" {
             format!("@{}", self.character.id)
         } else {
             self.character.illust.clone()
@@ -277,8 +353,15 @@ impl HomePage {
             return;
         }
         self.char_last_illu = Some(key);
-
+        self.char_illu_is_local = local.is_some();
+        self.char_illu = None;
+        self.char_illu_task = None;
         self.char_appear_p.set(0.);
+
+        if let Some(path) = local {
+            self.char_illu_task = Some(Task::new(async move { Ok(Images::gpu_ready(image::load_from_memory(&std::fs::read(path)?)?)) }));
+            return;
+        }
 
         #[cfg(closed)]
         if self.character.illust == "@" {
@@ -297,12 +380,18 @@ impl HomePage {
                 ));
         }
 
-        // 开源构建无法解码官方的 `res/*.char` 立绘，因此这里允许用
-        // `data/appearance/character.*` 提供一个自定义主页立绘。
-        #[cfg(not(closed))]
-        if let Some(path) = crate::dir::find_appearance("character") {
-            self.char_illu_task = Some(Task::new(async move { Ok(Images::gpu_ready(image::load_from_memory(&std::fs::read(path)?)?)) }));
-        }
+    }
+
+    fn toggle_character_details(&mut self, rt: f32) {
+        self.char_btn.cancel();
+        let target = if self.char_screen_p.to < 0.5 {
+            self.char_text_start = rt;
+            self.char_scroll.y_scroller.reset();
+            1.
+        } else {
+            0.
+        };
+        self.char_screen_p.goto(target, rt, 0.5);
     }
 
     fn fetch_has_new(&mut self) {
@@ -462,6 +551,12 @@ impl Page for HomePage {
         if self.login.touch(touch, s.t) {
             return Ok(true);
         }
+        if self.char_screen_p.transiting(rt) {
+            if self.char_screen_p.to > 0.5 && (self.char_close_btn.touch(touch, t) || self.char_btn.touch(touch)) {
+                self.toggle_character_details(rt);
+            }
+            return Ok(true);
+        }
         if self.char_screen_p.now(rt) < 1e-2 {
             if self.music_panel.touch(touch, t, &mut s.menu_music)? {
                 if let Some(path) = self.music_panel.open_chart.take() {
@@ -517,19 +612,33 @@ impl Page for HomePage {
                 return Ok(true);
             }
         } else {
-            if self.char_name_btn.touch(touch) {
+            if self.char_close_btn.touch(touch, t) {
+                self.toggle_character_details(rt);
+                return Ok(true);
+            }
+            let pos = self.char_detail_input * touch.position.extend(1.);
+            let detail_touch = Touch { position: pos.truncate() / pos.z, ..*touch };
+            if self.char_name_btn.touch(&detail_touch) {
                 request_input("character-name", InputBox::new().title("Character name").default_text(&self.character.name));
                 return Ok(true);
             }
-            if self.char_artist_btn.touch(touch) {
+            if self.char_artist_btn.touch(&detail_touch) {
                 request_input("character-artist", InputBox::new().title("Character artist").default_text(&self.character.artist));
                 return Ok(true);
             }
-            if self.char_designer_btn.touch(touch) {
+            if self.char_designer_btn.touch(&detail_touch) {
                 request_input("character-designer", InputBox::new().title("Character designer").default_text(&self.character.designer));
                 return Ok(true);
             }
-            if self.char_intro_btn.touch(touch) {
+            let in_intro = self.char_intro_area.contains(detail_touch.position);
+            if (in_intro || touch.phase != TouchPhase::Started) && self.char_scroll.touch(&detail_touch, t) {
+                self.char_intro_btn.cancel();
+                self.char_btn.cancel();
+                return Ok(true);
+            }
+            if !in_intro {
+                self.char_intro_btn.cancel();
+            } else if self.char_intro_btn.touch(&detail_touch) {
                 request_input(
                     "character-intro",
                     InputBox::new()
@@ -539,7 +648,7 @@ impl Page for HomePage {
                 );
                 return Ok(true);
             }
-            if self.char_name_en_btn.touch(touch) {
+            if self.char_name_en_btn.touch(&detail_touch) {
                 request_input(
                     "character-name-en",
                     InputBox::new()
@@ -550,11 +659,9 @@ impl Page for HomePage {
                 );
                 return Ok(true);
             }
-            if self.char_scroll.touch(touch, t) {
-                return Ok(true);
-            }
-            if self.char_edit_btn.touch(touch) {
+            if self.char_edit_btn.touch(&detail_touch) {
                 let _ = open_url(&format!("{}/settings/account", crate::client::web_url()));
+                return Ok(true);
             }
         }
         if self.btn_user.touch(touch, t) {
@@ -572,15 +679,7 @@ impl Page for HomePage {
             return Ok(true);
         }
         if self.char_btn.touch(touch) {
-            if !self.char_screen_p.transiting(rt) {
-                let to = if self.char_screen_p.now(rt) < 0.5 {
-                    self.char_text_start = rt;
-                    1.
-                } else {
-                    0.
-                };
-                self.char_screen_p.goto(to, rt, 0.5);
-            }
+            self.toggle_character_details(rt);
             return Ok(true);
         }
         Ok(false)
@@ -589,23 +688,8 @@ impl Page for HomePage {
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
         let t = s.t;
         if let Some((id, value)) = take_input() {
-            if id.starts_with("character-") {
-                let field = match id.as_str() {
-                    "character-artist" => Some(&mut self.character.artist),
-                    "character-designer" => Some(&mut self.character.designer),
-                    "character-intro" => Some(&mut self.character.intro),
-                    _ => None,
-                };
-                if let Some(field) = field {
-                    *field = value;
-                } else if id == "character-name" {
-                    self.character.name = value.clone();
-                    get_data_mut().character_name_override = Some(value);
-                } else if id == "character-name-en" {
-                    self.character.name_en_override = (!value.trim().is_empty()).then_some(value);
-                }
+            if id.starts_with("character-") && edit_character(&mut self.character, get_data_mut(), &id, value.clone()) {
                 self.char_cached_size = 0.;
-                get_data_mut().character = Some(self.character.clone());
                 save_data()?;
             } else {
                 return_input(id, value);
@@ -620,7 +704,9 @@ impl Page for HomePage {
         }
         self.login.update(t)?;
         let current_user = Some(get_data().me.as_ref().map_or(-1, |it| it.id));
-        self.char_scroll.update(t);
+        if self.char_screen_p.now(s.rt) > 1e-2 {
+            self.char_scroll.update(t);
+        }
         if self.char_last_user_id != current_user {
             let locale = get_data().language.clone().unwrap_or(LANG_IDENTS[0].to_string());
             self.char_last_user_id = current_user;
@@ -842,27 +928,8 @@ impl Page for HomePage {
                     Err(err) => {
                         warn!(?err, "fail to load char");
                     }
-                    Ok(char) => {
-                        info!(?char, "char loaded");
-                        let mut char = char;
-                        if let Some(local) = get_data().character.as_ref().filter(|local| local.id == char.id) {
-                            // Keep user edits when the server refreshes the same character's artwork/details.
-                            char.name.clone_from(&local.name);
-                            char.artist.clone_from(&local.artist);
-                            char.designer.clone_from(&local.designer);
-                            char.intro.clone_from(&local.intro);
-                        }
-                        let data = get_data();
-                        if let Some(local) = &data.character {
-                            char.name_en_override.clone_from(&local.name_en_override);
-                        }
-                        if let Some(name) = data.character_name_override.as_ref().or_else(|| {
-                            crate::dir::find_appearance("character")?;
-                            data.character.as_ref().map(|local| &local.name)
-                        }) {
-                            char.name.clone_from(name);
-                        }
-                        self.character = char;
+                    Ok(character) => {
+                        self.character = displayed_character(get_data(), Some(character), local_character_art().is_some());
                         get_data_mut().character = Some(self.character.clone());
                         let _ = save_data();
                         self.char_cached_size = 0.;
@@ -897,8 +964,8 @@ impl Page for HomePage {
             r.x += 0.14 * cp;
             if let Some(illu) = &self.char_illu {
                 let p = self.char_appear_p.now(t);
-                let (ox, oy, ow, oh) = self.character.illu_adjust;
-                let r = Rect::new(r.x + ox, r.y + (1. - p) * 0.05 + oy, r.w + ow, r.h + oh);
+                let (ox, oy, ow, oh) = if self.char_illu_is_local { (0., 0., 0., 0.) } else { self.character.illu_adjust };
+                r = Rect::new(r.x + ox, r.y + (1. - p) * 0.05 + oy, r.w + ow, r.h + oh);
                 // 只画在立绘槽位 r 内：原先画在整个屏幕、用 r 当裁剪区，槽位之外的
                 // 顶点会采到纹理边缘像素（非透明图就是背景色），于是整屏被立绘背景糊满。
                 ui.fill_rect(r, (**illu, r, ScaleType::CropCenter, semi_white(p)));
@@ -909,6 +976,7 @@ impl Page for HomePage {
                 let height = 0.8 - ((screen_aspect() - 16. / 9.) * 0.2).min(0.2);
                 let r = Rect::new(0.16, (-height - height * cp) / 4., 0.6, height);
                 let mat = ThreeD::build(vec2(0., 0.), r, 0.12);
+                self.char_detail_input = detail_input_transform(mat);
                 let gl = unsafe { get_internal_gl() }.quad_gl;
                 gl.push_model_matrix(mat);
 
@@ -948,6 +1016,7 @@ impl Page for HomePage {
                     r.x += 0.01;
                     r.w -= 0.01;
 
+                    self.char_intro_area.set(ui, r);
                     self.char_scroll.size((r.w, r.h));
                     ui.scope(|ui| {
                         ui.dx(r.x);
@@ -968,14 +1037,13 @@ impl Page for HomePage {
                 let r = Rect::new(r.x, r.y, 0.4, 0.12);
 
                 ui.alpha(cp, |ui| {
-                    let mut name_text = ui
+                    let r = ui
                         .text(&self.character.name)
                         .pos(r.x + (1. - cp) * 0.12 + 0.01, r.center().y)
                         .anchor(0., 0.5)
-                        .size(self.character.name_size.unwrap_or(1.4));
-                    let bounds = name_text.measure().feather(0.01);
-                    self.char_name_btn.set(name_text.ui, bounds);
-                    let r = name_text.draw_using(&BOLD_FONT);
+                        .size(self.character.name_size.unwrap_or(1.4))
+                        .draw_using(&BOLD_FONT);
+                    self.char_name_btn.set(ui, r.feather(0.01));
 
                     let off = if self.character.baseline { 0. } else { 0.01 };
                     let mut artist_text = ui
@@ -999,6 +1067,14 @@ impl Page for HomePage {
                 });
 
                 gl.pop_model_matrix();
+                ui.alpha(cp, |ui| {
+                    let close = Rect::new(r.x + 0.66, r.y + 0.025, 0.075, 0.075);
+                    self.char_close_btn.render_shadow(ui, close, t, |ui, path| {
+                        ui.fill_path(&path, semi_black(0.45));
+                        let icon = close.feather(-0.017);
+                        ui.fill_rect(icon, (*self.icons.close, icon, ScaleType::Fit));
+                    });
+                });
             }
         });
 
@@ -1085,5 +1161,44 @@ impl Page for HomePage {
 
     fn next_scene(&mut self, s: &mut SharedState) -> NextScene {
         self.sf.next_scene(s.t).unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod character_tests {
+    use super::*;
+
+    #[test]
+    fn tilted_details_map_visible_taps_back_to_the_text_bounds() {
+        let panel = Rect::new(0.16, -0.4, 0.6, 0.8);
+        let model = ThreeD::build(Vec2::ZERO, panel, 0.12);
+        let text_point = vec2(0.23, -0.31);
+        let projected = model * vec4(text_point.x, text_point.y, 0., 1.);
+        let visible = vec2(projected.x, projected.y) / projected.w;
+        let recovered = detail_input_transform(model) * visible.extend(1.);
+        assert!((recovered.truncate() / recovered.z - text_point).length() < 1e-5);
+    }
+
+    #[test]
+    fn local_edits_survive_saved_data_reload_and_a_different_remote_character() {
+        let mut data = Data::default();
+        let mut character = Character::default();
+        edit_character(&mut character, &mut data, "character-name", "自定义名称".into());
+        edit_character(&mut character, &mut data, "character-name-en", "Local name".into());
+        edit_character(&mut character, &mut data, "character-artist", "Artist".into());
+        edit_character(&mut character, &mut data, "character-designer", "Designer".into());
+        edit_character(&mut character, &mut data, "character-intro", "第一行\n第二行".into());
+
+        let restored: Data = serde_json::from_str(&serde_json::to_string(&data).unwrap()).unwrap();
+        let mut remote = Character::default();
+        remote.id = "new_character".into();
+        remote.intro = "Remote introduction".into();
+        let displayed = displayed_character(&restored, Some(remote), true);
+        assert_eq!(displayed.id, "new_character");
+        assert_eq!(displayed.name, "自定义名称");
+        assert_eq!(displayed.name_en_override.as_deref(), Some("Local name"));
+        assert_eq!(displayed.artist, "Artist");
+        assert_eq!(displayed.designer, "Designer");
+        assert_eq!(displayed.intro, "第一行\n第二行");
     }
 }

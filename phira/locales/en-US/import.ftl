@@ -32,3 +32,14 @@ deeplink-opening = Opening chart...
 deeplink-open-failed = Failed to open the chart
 
 warning-rpen-features = This chart uses new RPEN features. Support is in early testing and may display incorrectly. You can disable "RPEN Features" in chart information.
+lane-import-title = Import lane chart
+lane-import-positions = Lane X positions
+lane-import-spacing = Lane spacing
+lane-import-height = Judgement line Y
+lane-import-speed = Scroll speed
+lane-import-custom-layout = Custom
+lane-import-confirm = Convert and import
+lane-import-positions-help = Enter { $count } X positions from left to right, separated by commas. Each value must be between -675 and 675.
+lane-import-spacing-help = Enter a positive spacing that fits all lanes on screen. This centers the lanes.
+lane-import-height-help = Enter a value from -450 (bottom) to 450 (top).
+lane-import-speed-help = Enter a speed greater than 0 and at most 1000. The default is 12.

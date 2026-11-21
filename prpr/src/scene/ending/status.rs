@@ -103,6 +103,7 @@ impl PlayStatus {
             (Mods::INSTANT_DEATH_AP, "AP CHALLENGE"),
             (Mods::INSTANT_DEATH_FC, "FC CHALLENGE"),
             (Mods::FULLSCREEN_JUDGE, "FULLSCREEN JUDGE"),
+            (Mods::MILTHM, "MILTHM"),
             (Mods::NO_FAIL, "NO FAIL"),
             (Mods::NO_COMBO_SCORE, "NO COMBO SCORE"),
             (Mods::PERFECT_SOUND, "PERFECT SOUND"),

@@ -93,12 +93,17 @@ impl HoldControl {
                 state.is_judged = false;
             }
         }
+        let milthm = ctx.cfg.mods.contains(crate::config::Mods::MILTHM);
+        let tail_judge = ctx.cfg.hold_tail_judge && !milthm;
         if let Some(head) = self.head {
-            let on_note = fingers
-                .iter()
-                .enumerate()
-                .any(|(finger, _)| geometry(note.target, finger).is_some_and(|(dx, _)| dx < ctx.rules.tap_width));
-            if ctx.cfg.hold_tail_judge {
+            if milthm {
+                if ctx.now >= note.end {
+                    score = Some(head);
+                } else if fingers.is_empty() {
+                    score = Some((Judgement::Miss, 0.));
+                }
+            } else if tail_judge {
+                let on_note = hold_contact(fingers, note.target, ctx.rules.tap_width, geometry);
                 // Explicit custom extension; disabled in the built-in Phigros preset.
                 if on_note {
                     self.released = None;
@@ -113,7 +118,7 @@ impl HoldControl {
                     score = Some((judgement_of_offset(off, ctx.limits), off));
                 }
             } else {
-                if on_note {
+                if hold_contact(fingers, note.target, ctx.rules.tap_width, geometry) {
                     self.safe = ctx.rules.hold_safe_seconds();
                 } else {
                     // Cap one frame's contribution so a GC/layout stall cannot
@@ -132,7 +137,7 @@ impl HoldControl {
             score = Some((Judgement::Miss, 0.));
         }
         if let Some((judgement, offset)) = score {
-            if ctx.cfg.hold_tail_judge && self.head.is_none() {
+            if tail_judge && self.head.is_none() {
                 events.push(Event { target: note.target, action: Action::Score { judgement, offset } });
             }
             state.score(note, judgement, offset, events);
@@ -142,6 +147,15 @@ impl HoldControl {
             }
         }
     }
+}
+
+fn hold_contact(
+    fingers: &[Finger],
+    target: (usize, u32),
+    tap_width: f64,
+    geometry: &mut impl FnMut((usize, u32), usize) -> Option<(f64, f64)>,
+) -> bool {
+    fingers.iter().enumerate().any(|(finger, _)| geometry(target, finger).is_some_and(|(dx, _)| dx < tap_width))
 }
 
 #[derive(Clone, Default)]

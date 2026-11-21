@@ -1854,6 +1854,7 @@ impl SongScene {
                         Mods::STRICT_JUDGE,
                     );
                     item(tl!("mods-fullscreen-judge"), Some(tl!("mods-fullscreen-judge-sub")), Mods::FULLSCREEN_JUDGE);
+                    item(tl!("mods-milthm"), Some(tl!("mods-milthm-sub")), Mods::MILTHM);
                     item(tl!("mods-no-fail"), Some(tl!("mods-no-fail-sub")), Mods::NO_FAIL);
                     item(tl!("mods-no-combo-score"), Some(tl!("mods-no-combo-score-sub")), Mods::NO_COMBO_SCORE);
                 }

@@ -93,6 +93,7 @@
     (4, "item-touch-color"),
     (4, "item-touch-alpha"),
     (4, "item-touch-size"),
+    (4, "item-log-storage"),
     (5, "font-display-size"),
     (5, "theoretical-score"),
     (5, "uniform-loudness"),

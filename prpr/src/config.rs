@@ -121,6 +121,7 @@ bitflags! {
         const NOTE_TAP = 0x4000;
         const NOTE_DRAG = 0x8000;
         const NOTE_FLICK = 0x10000;
+        const MILTHM = 0x20000;
         const NOTE_BEHAVIOR = Self::NOTE_TAP.bits() | Self::NOTE_DRAG.bits() | Self::NOTE_FLICK.bits();
 
         const UNRATED = Self::AUTOPLAY.bits()
@@ -129,6 +130,7 @@ bitflags! {
             | Self::NO_FAIL.bits()
             | Self::NO_COMBO_SCORE.bits()
             | Self::PERFECT_SOUND.bits()
+            | Self::MILTHM.bits()
             | Self::NOTE_BEHAVIOR.bits();
     }
 }
@@ -179,6 +181,9 @@ impl Mods {
     }
 }
 
+pub const DEFAULT_LOG_STORAGE_MIB: u16 = 64;
+pub const LOG_STORAGE_LIMITS_MIB: [u16; 6] = [16, 32, 64, 128, 256, 512];
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default)]
 #[serde(rename_all = "camelCase")]
@@ -220,6 +225,7 @@ pub struct Config {
     pub ap_fc_indicator: bool,
     pub aspect_ratio: Option<f32>,
     pub audio_buffer_size: Option<u32>,
+    pub log_storage_mib: u16,
     pub chart_debug: bool,
     /// 判定线调试：把本该隐藏/淡出的判定线以淡影保留，并在线旁显示编号 / 线高 / z / 类型。
     pub chart_debug_line: bool,
@@ -448,6 +454,7 @@ impl Default for Config {
             ap_fc_indicator: true,
             aspect_ratio: None,
             audio_buffer_size: None,
+            log_storage_mib: DEFAULT_LOG_STORAGE_MIB,
             chart_debug: false,
             chart_debug_line: false,
             chart_debug_note: false,
@@ -533,6 +540,14 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn log_storage_mib(&self) -> u16 {
+        if LOG_STORAGE_LIMITS_MIB.contains(&self.log_storage_mib) {
+            self.log_storage_mib
+        } else {
+            DEFAULT_LOG_STORAGE_MIB
+        }
+    }
+
     pub const MIN_HP_CAPACITY: u32 = 20;
     pub const MAX_HP_CAPACITY: u32 = 500;
     pub(crate) const DEFAULT_HP_CAPACITY: u32 = 100;
@@ -878,7 +893,7 @@ impl Config {
         self.hold_tail_judge = false;
         self.practice_ramp = false;
         self.mods
-            .remove(Mods::FULLSCREEN_JUDGE | Mods::NO_FAIL | Mods::NO_COMBO_SCORE | Mods::STRICT_JUDGE);
+            .remove(Mods::FULLSCREEN_JUDGE | Mods::NO_FAIL | Mods::NO_COMBO_SCORE | Mods::STRICT_JUDGE | Mods::MILTHM);
     }
 
     /// Phira Pro Flash：开启「自动游玩」时调用。

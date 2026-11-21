@@ -32,3 +32,14 @@ deeplink-opening = 正在打开谱面…
 deeplink-open-failed = 打开谱面失败
 
 warning-rpen-features = 该谱面使用了RPEN引入的新特性。目前处于早期测试阶段，可能会导致显示错误，如有需要请在谱面信息中取消勾选“RPEN特性”
+lane-import-title = 导入定轨谱面
+lane-import-positions = 逐轨横坐标
+lane-import-spacing = 等距间隔
+lane-import-height = 判定线高度
+lane-import-speed = 流速
+lane-import-custom-layout = 自定义间距
+lane-import-confirm = 转换并导入
+lane-import-positions-help = 从左到右输入 { $count } 个横坐标，用逗号分隔。每个坐标须在 -675 到 675 之间。
+lane-import-spacing-help = 输入能让所有轨道放在屏幕内的正间距。应用后所有轨道会居中等距排列。
+lane-import-height-help = 输入 -450（底部）到 450（顶部）之间的高度。
+lane-import-speed-help = 输入大于 0 且不超过 1000 的流速，默认 12。

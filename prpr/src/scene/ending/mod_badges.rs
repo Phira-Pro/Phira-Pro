@@ -27,6 +27,7 @@ pub(super) fn active(mut mods: Mods) -> Vec<ModBadge> {
         (Mods::INSTANT_DEATH_AP, "AP CHALLENGE", Some(ModIcon::SuddenDeath)),
         (Mods::INSTANT_DEATH_FC, "FC CHALLENGE", Some(ModIcon::SuddenDeath)),
         (Mods::FULLSCREEN_JUDGE, "FULLSCREEN JUDGE", Some(ModIcon::FullscreenJudge)),
+        (Mods::MILTHM, "MILTHM", Some(ModIcon::Milthm)),
         (Mods::NO_FAIL, "NO FAIL", Some(ModIcon::NoFail)),
         (Mods::NO_COMBO_SCORE, "NO COMBO SCORE", Some(ModIcon::NoComboScore)),
         (Mods::PERFECT_SOUND, "PERFECT SOUND", Some(ModIcon::PerfectSound)),

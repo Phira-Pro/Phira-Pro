@@ -128,6 +128,8 @@ mods-strict-judge-sub = 只对本曲启用；与全局严判同时开启不叠�
 mods-strict-global-on = 全局严判已生效；本曲开关不会关闭全局严判，也不会再次缩小区间
 mods-fullscreen-judge = 全屏判定
 mods-fullscreen-judge-sub = 点击屏幕任意位置都能判定到最近的音符
+mods-milthm = Milthm 判定模式
+mods-milthm-sub = 每根 Hold 需要点击条头，点中后可以共用一个触点续按。成绩仅保存在本地
 mods-no-fail = 无伤模式
 mods-no-fail-sub = 失败只记录，不中断本局
 

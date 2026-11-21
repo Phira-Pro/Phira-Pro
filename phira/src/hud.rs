@@ -224,8 +224,7 @@ fn with_layout<T>(f: impl FnOnce(&mut Layout) -> T) -> T {
 pub fn save() -> Result<()> {
     let text = with_layout(|it| serde_json::to_string_pretty(it))?;
     let path = path()?;
-    std::fs::write(&path, text).with_context(|| format!("failed to write {path}"))?;
-    Ok(())
+    crate::transfer::write_atomic(std::path::Path::new(&path), text.as_bytes()).with_context(|| format!("failed to write {path}"))
 }
 
 /// 取某个页面已保存的槽位。
@@ -668,7 +667,6 @@ struct Drag {
     cap: Cap,
     orig: Rect,
     grab: Vec2,
-    ready: bool,
 }
 
 /// 编辑层：渲染时登记选框 / 手柄 / 工具条的命中矩形，触摸时据此拖拽。
@@ -717,7 +715,6 @@ impl Editor {
                                 cap: s.cap,
                                 orig: s.rect,
                                 grab: touch.position,
-                                ready: false,
                             });
                         }
                     }
@@ -733,7 +730,6 @@ impl Editor {
                                     cap: s.cap,
                                     orig: s.rect,
                                     grab: touch.position,
-                                    ready: false,
                                 });
                             }
                         }
@@ -749,9 +745,11 @@ impl Editor {
             }
             TouchPhase::Ended | TouchPhase::Cancelled => {
                 self.pressed = false;
-                self.pointer = None;
-                if self.drag.take().is_some_and(|it| it.ready) {
-                    self.dirty = true;
+                if touch.phase == TouchPhase::Ended && self.drag.is_some() {
+                    self.pointer = Some(touch.position);
+                } else {
+                    self.drag = None;
+                    self.pointer = None;
                 }
                 true
             }
@@ -779,8 +777,8 @@ impl Editor {
                 self.dirty = true;
             }
             BTN_DONE => {
+                self.flush_changes();
                 set_edit(false);
-                self.dirty = true;
             }
             BTN_COLS_DEC => {
                 let v = param("library", "cols", 4.).round();
@@ -831,8 +829,7 @@ impl Editor {
             }
         }
         // 1) 先把拖拽落到布局上（需要用 ui 做屏幕坐标 → UI 坐标换算）。
-        let (pressed, pointer) = (self.pressed, self.pointer);
-        if let (Some(d), Some(p)) = (&mut self.drag, pointer.filter(|_| pressed)) {
+        if let (Some(d), Some(p)) = (&self.drag, self.pointer) {
             // 按下时的屏幕位置换算成 UI 坐标，和当前位置求差 —— 没真正移动就绝不改布局，
             // 否则「点一下选中」也会被网格吸附、元素自己跳一下。
             let l0 = ui.to_local((d.grab.x, d.grab.y));
@@ -850,8 +847,11 @@ impl Editor {
                 };
                 set(&d.page, d.key, slot_from_rect(ui, d.anchor, r));
                 self.dirty = true;
-                d.ready = true;
             }
+        }
+        if !self.pressed {
+            self.drag = None;
+            self.pointer = None;
         }
 
         // 2) 选框 / 手柄。
@@ -1047,9 +1047,16 @@ impl Editor {
         }
 
         // 4) 落盘（松手后才写文件，避免每帧 IO）。
-        if self.dirty && !self.pressed {
-            let _ = save();
-            self.dirty = false;
+        if !self.pressed {
+            self.flush_changes();
+        }
+    }
+
+    fn flush_changes(&mut self) {
+        if std::mem::take(&mut self.dirty) {
+            if let Err(error) = save() {
+                tracing::warn!(%error, "failed to save HUD layout");
+            }
         }
     }
 }

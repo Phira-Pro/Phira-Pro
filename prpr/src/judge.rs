@@ -1708,6 +1708,8 @@ impl Judge {
             }
         };
         let limits = res.windows;
+        let milthm = res.config.mods.contains(crate::config::Mods::MILTHM);
+        let has_hold_contact = !touches.is_empty() || self.key_down_count != 0;
         let mut judgements = Vec::new();
         // 尾判模式：hold 的尾判需要额外结算一次（`(line_id, note_id, 尾判偏移)`）。
         // 和 `judgements` 分开收集，避免在后面那个循环里再借 `self.notes`。
@@ -2017,6 +2019,17 @@ impl Judge {
                 for id in &idx[*st..] {
                     let note = &mut line.notes[*id as usize];
                     if let NoteKind::Hold { end_time, .. } = &note.kind {
+                        if milthm {
+                            if let JudgeStatus::Hold(_, _, _, ref mut pre_judge, _, _) = note.judge {
+                                if t >= *end_time {
+                                    *pre_judge = true;
+                                } else if !has_hold_contact {
+                                    note.judge = JudgeStatus::Judged;
+                                    judgements.push((Judgement::Miss, line_id, *id, None));
+                                }
+                                continue;
+                            }
+                        }
                         if res.config.hold_tail_judge {
                             // 尾判（mania 风格）：头判在按下时已结算，这里只跟踪「松手时刻」，
                             // 到结尾时刻再按松手早晚结算尾判（见下面的 `tail_judgements`）。

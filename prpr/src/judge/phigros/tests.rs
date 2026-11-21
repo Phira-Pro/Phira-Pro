@@ -495,6 +495,54 @@ fn input_order_skips_marks_and_practice_reset() {
 }
 
 #[test]
+fn milthm_holds_require_individual_heads_but_share_one_contact() {
+    use crate::config::Mods;
+
+    let mut cfg = config();
+    cfg.mods.insert(Mods::MILTHM);
+    let mut engine = Engine::new(vec![spec(0, 0., Kind::Hold), spec(1, 0.4, Kind::Hold)]);
+    let update = |engine: &mut Engine, now, fingers: &[Finger]| {
+        engine.step(&cfg, now, 1. / 120., 200., fingers, |(_, id), finger| {
+            Some(((fingers[finger].world[0] - f64::from(id) * 10.).abs(), 0.))
+        }).1
+    };
+
+    update(&mut engine, -0.01, &[finger(true, 100.)]);
+    assert!(hold(&engine, 0).head.is_none(), "the head still needs a tap in range");
+    update(&mut engine, 0., &[finger(true, 0.)]);
+    assert!(hold(&engine, 0).head.is_some());
+    update(&mut engine, 0.4, &[finger(false, 100.)]);
+    assert!(hold(&engine, 1).head.is_none(), "holding the screen cannot start another Hold");
+    let second = Finger { id: 18, ..finger(true, 10.) };
+    update(&mut engine, 0.41, &[finger(false, 100.), second]);
+    assert!(hold(&engine, 1).head.is_some());
+
+    let transferred = [Finger { id: 18, ..finger(false, 100.) }];
+    assert!(scores(&update(&mut engine, 0.9, &transferred)).is_empty());
+    assert_eq!(scores(&update(&mut engine, 1., &transferred)), [(0, Judgement::PerfectPlus as u8)]);
+    assert_eq!(scores(&update(&mut engine, 1.4, &transferred)), [(1, Judgement::PerfectPlus as u8)]);
+}
+
+#[test]
+fn milthm_mod_blocks_upload_with_default_gameplay_settings() {
+    use crate::config::Mods;
+    let config = Config::default();
+    assert!(config.is_official_play(Mods::empty()));
+    assert!(!config.is_official_play(Mods::MILTHM));
+}
+
+#[test]
+fn milthm_full_release_before_the_tail_is_a_miss_even_inside_the_normal_tail_leniency() {
+    let mut cfg = config();
+    cfg.mods.insert(crate::config::Mods::MILTHM);
+    let mut engine = Engine::new(vec![spec(0, 0., Kind::Hold)]);
+    step(&mut engine, &cfg, 0., &[finger(true, 0.)]);
+    assert!(scores(&step(&mut engine, &cfg, 0.85, &[finger(false, 0.)])).is_empty());
+    assert_eq!(scores(&step(&mut engine, &cfg, 0.9, &[])), [(0, Judgement::Miss as u8)]);
+    assert!(scores(&step(&mut engine, &cfg, 1., &[finger(true, 0.)])).is_empty());
+}
+
+#[test]
 fn separate_tail_extension_scores_second_part_and_missing_head_twice() {
     let mut cfg = config();
     cfg.hold_tail_judge = true;

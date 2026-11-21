@@ -1,5 +1,6 @@
 //! Logging, crash capture, retention, and diagnostic export utilities.
 
+use crate::config::DEFAULT_LOG_STORAGE_MIB;
 use chrono::{Duration, Local, NaiveDate};
 use colored::Colorize;
 use miniquad::{debug, error, info, trace, warn};
@@ -11,13 +12,16 @@ use std::{
     thread,
 };
 use tracing::{field::Visit, Level, Subscriber};
-use tracing_appender::rolling::{Builder, Rotation};
 use tracing_subscriber::{prelude::*, EnvFilter, Layer};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
+
+mod retention;
+use retention::{log_files, LogFiles};
 
 const LOG_FILE_PREFIX: &str = "phira";
 const LOG_FILE_FORMAT: &str = "%Y-%m-%d";
 const LOG_KEEP_DAYS: usize = 7;
+const MIB: u64 = 1024 * 1024;
 /// Size of the in-memory tail kept for crash exports. It survives even when
 /// the writer thread cannot drain its channel (wedged disk, hard crash).
 const TAIL_BUFFER_SIZE: usize = 64 * 1024;
@@ -30,6 +34,7 @@ pub struct CrashRecord {
 
 enum WriterMessage {
     Line(String),
+    SetLimit(u64),
     /// Acknowledged by the writer thread once everything before it hit the OS.
     Flush(mpsc::SyncSender<()>),
 }
@@ -42,29 +47,30 @@ pub struct LogManager {
 
 impl LogManager {
     pub fn new(dir: impl AsRef<Path>) -> io::Result<Self> {
+        Self::with_limit(dir, u64::from(DEFAULT_LOG_STORAGE_MIB) * MIB)
+    }
+
+    fn with_limit(dir: impl AsRef<Path>, limit: u64) -> io::Result<Self> {
         let dir = dir.as_ref().to_path_buf();
         fs::create_dir_all(&dir)?;
-        // Daily rotation and retention are delegated to tracing-appender; the
-        // file name carries the UTC date (rotation uses `now_utc`).
-        let appender = Builder::new()
-            .rotation(Rotation::DAILY)
-            .filename_prefix(LOG_FILE_PREFIX)
-            .filename_suffix("log")
-            .max_log_files(LOG_KEEP_DAYS)
-            .build(&dir)
-            .map_err(|it| io::Error::other(it.to_string()))?;
         let (tx, rx) = mpsc::channel();
+        let logs_dir = dir.clone();
         thread::Builder::new().name("log-writer".to_owned()).spawn(move || {
-            let mut appender = appender;
+            let mut files = LogFiles::new(logs_dir, limit.max(1));
             while let Ok(message) = rx.recv() {
                 match message {
                     WriterMessage::Line(line) => {
-                        if let Err(error) = appender.write_all(line.as_bytes()) {
+                        if let Err(error) = files.append(&line) {
                             eprintln!("failed to write log line: {error}");
                         }
                     }
+                    WriterMessage::SetLimit(limit) => {
+                        if let Err(error) = files.set_limit(limit) {
+                            eprintln!("failed to clean up logs: {error}");
+                        }
+                    }
                     WriterMessage::Flush(ack) => {
-                        let _ = appender.flush();
+                        files.flush();
                         let _ = ack.send(());
                     }
                 }
@@ -75,6 +81,10 @@ impl LogManager {
             tx,
             tail: Mutex::new(Vec::new()),
         })
+    }
+
+    pub fn set_limit_mib(&self, limit: u16) {
+        let _ = self.tx.send(WriterMessage::SetLimit(u64::from(limit.max(1)) * MIB));
     }
 
     pub fn path_for_date(&self, date: NaiveDate) -> PathBuf {
@@ -108,29 +118,22 @@ impl LogManager {
         self.flush();
         let today = Local::now().date_naive();
         // Rotation runs on UTC, so accept one day of slack around the local
-        // date range. Retention (max_log_files) already bounds the file count.
+        // date range.
         let first_kept = today - Duration::days(LOG_KEEP_DAYS as i64 - 1);
         let last_kept = today + Duration::days(1);
         let mut zip = ZipWriter::new(output);
         let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-        for entry in fs::read_dir(&self.dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            let Some(name) = path.file_name().and_then(|it| it.to_str()) else {
-                continue;
-            };
-            let Some(stem) = name.strip_prefix(&format!("{LOG_FILE_PREFIX}.")).and_then(|it| it.strip_suffix(".log")) else {
-                continue;
-            };
-            let Ok(date) = NaiveDate::parse_from_str(stem, LOG_FILE_FORMAT) else {
-                continue;
-            };
-            if date < first_kept || date > last_kept {
+        for log in log_files(&self.dir)? {
+            if log.date < first_kept || log.date > last_kept {
                 continue;
             }
-            let bytes = fs::read(&path)?;
-            zip.start_file(name, options)?;
-            zip.write_all(&bytes)?;
+            let mut file = match fs::File::open(&log.path) {
+                Ok(file) => file,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            };
+            zip.start_file(log.path.file_name().unwrap().to_string_lossy(), options)?;
+            io::copy(&mut file, &mut zip)?;
         }
         let tail = self.tail.lock().unwrap_or_else(|it| it.into_inner());
         zip.start_file("log-tail.txt", options)?;
@@ -190,10 +193,10 @@ pub fn set_crash_record(record: CrashRecord) {
     }
 }
 
-pub fn register_with_dir(dir: impl AsRef<Path>) {
+pub fn register_with_dir(dir: impl AsRef<Path>, limit_mib: u16) {
     // Failing to set up file logging must never keep the game from starting;
     // console logging through CustomLayer still works without a manager.
-    let manager = LogManager::new(dir).ok().map(Arc::new);
+    let manager = LogManager::with_limit(dir, u64::from(limit_mib.max(1)) * MIB).ok().map(Arc::new);
     if let Some(it) = &manager {
         let _ = MANAGER.set(it.clone());
     }
@@ -379,6 +382,48 @@ mod tests {
     use std::io::{Cursor, Read};
     use tempfile::tempdir;
     use zip::ZipArchive;
+
+    #[test]
+    fn startup_and_lowered_quota_prune_oldest_owned_logs() {
+        let dir = tempdir().unwrap();
+        let today = chrono::Utc::now().date_naive();
+        let old = dir.path().join(format!("phira.{}.log", today - Duration::days(2)));
+        let recent = dir.path().join(format!("phira.{}.log", today - Duration::days(1)));
+        let unrelated = dir.path().join("notes.log");
+        for path in [&old, &recent] {
+            std::fs::File::create(path).unwrap().set_len(1024 * 1024).unwrap();
+        }
+        std::fs::write(&unrelated, "keep").unwrap();
+
+        let manager = LogManager::with_limit(dir.path(), 2 * 1024 * 1024 - 1).unwrap();
+        manager.flush();
+        assert!(!old.exists());
+        assert!(recent.exists());
+        manager.append_line("latest").unwrap();
+        manager.set_limit_mib(1);
+        manager.flush();
+        assert!(!recent.exists());
+        assert_eq!(std::fs::read_to_string(unrelated).unwrap(), "keep");
+        assert_eq!(std::fs::read_to_string(manager.path_for_date(today)).unwrap(), "latest\n");
+    }
+
+    #[test]
+    fn same_day_rotation_keeps_the_newest_segment_within_quota() {
+        let dir = tempdir().unwrap();
+        let manager = LogManager::with_limit(dir.path(), 32).unwrap();
+        manager.append_line("first line").unwrap();
+        manager.append_line("second line").unwrap();
+        manager.append_line("latest line").unwrap();
+        manager.flush();
+
+        let logs = super::log_files(dir.path()).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(std::fs::read_to_string(&logs[0].path).unwrap(), "latest line\n");
+        let mut cursor = Cursor::new(Vec::new());
+        manager.write_zip(&mut cursor, "").unwrap();
+        let mut archive = ZipArchive::new(cursor).unwrap();
+        assert!(archive.by_name(logs[0].path.file_name().unwrap().to_str().unwrap()).is_ok());
+    }
 
     #[test]
     fn appends_lines_to_the_daily_file() {

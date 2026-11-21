@@ -10,6 +10,7 @@ pub(crate) mod event;
 pub use event::EventScene;
 
 mod main;
+mod lane_import;
 pub(crate) mod appearance_background;
 pub use main::{MainScene, APPEARANCE_UPDATED, BACKGROUND_UPDATED, BGM_UPDATED, BGM_VOLUME_UPDATED};
 

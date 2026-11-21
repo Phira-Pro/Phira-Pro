@@ -887,6 +887,10 @@ impl GameScene {
         if mode == GameMode::Course {
             config = crate::course::config(&config);
         }
+        if config.mods.contains(Mods::MILTHM) {
+            // Each sustained Hold has a single result based on its head.
+            config.hold_tail_judge = false;
+        }
         config.practice_active = mode == GameMode::Exercise;
         config.practice.sanitize();
         config.practice_multiplier = if config.practice_active {

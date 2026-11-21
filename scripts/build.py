@@ -66,12 +66,12 @@ def package_desktop(binary_dir, delivery, target, versions):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--platform", choices=sorted(DESKTOP | {"android", "ios"}), default=host_platform())
-    parser.add_argument("--package", action="store_true", help="Package a desktop ZIP with assets and license")
-    parser.add_argument("--skip-build", action="store_true", help="Package an existing desktop release build")
-    parser.add_argument("--output", type=Path, help="Desktop delivery directory; default ../dist/<platform>")
-    args = parser.parse_args()
     try:
+        parser.add_argument("--platform", choices=sorted(DESKTOP | {"android", "ios"}), default=host_platform())
+        parser.add_argument("--package", action="store_true", help="Package a desktop ZIP with assets and license")
+        parser.add_argument("--skip-build", action="store_true", help="Package an existing desktop release build")
+        parser.add_argument("--output", type=Path, help="Desktop delivery directory; default ../dist/<platform>")
+        args = parser.parse_args()
         versions = check_version()
         if args.platform not in DESKTOP | {"android", "ios"}:
             raise ValueError("Unsupported host; select --platform")
@@ -108,6 +108,8 @@ def main():
             run(["xcodebuild", "-project", "phira.xcodeproj", "-scheme", "phira", "-configuration", "Release",
                  "-sdk", "iphoneos", "-destination", "generic/platform=iOS", "-derivedDataPath", "build/dd",
                  "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO", "CODE_SIGN_IDENTITY=", "PRODUCT_BUNDLE_IDENTIFIER=org.flos.phirapro", "build"])
+    except KeyboardInterrupt:
+        parser.exit(130, "\nBuild cancelled (Ctrl+C).\n")
     except (ValueError, OSError, subprocess.CalledProcessError, StopIteration) as error:
         parser.exit(1, f"Build failed: {error}\n")
 

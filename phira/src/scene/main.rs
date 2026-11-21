@@ -1,4 +1,8 @@
-use super::{import_chart, L10N_LOCAL};
+use super::{
+    import_chart,
+    lane_import::{has_lane_entries, ImportDialog, LanePackage},
+    L10N_LOCAL,
+};
 use crate::{
     charts_view::NEED_UPDATE,
     data::LocalChart,
@@ -182,6 +186,8 @@ pub struct MainScene {
 
     idle_fps: IdleFps,
 
+    import_source: Option<Task<Result<ChartImportSource>>>,
+    lane_import: Option<ImportDialog>,
     import_task: Option<Task<Result<(LocalChart, ParseWarnings)>>>,
 
     // deeplink import
@@ -202,6 +208,41 @@ pub struct MainScene {
     batch_import_rx: Option<mpsc::Receiver<ImportChart>>,
     batch_imported_charts: Vec<ImportChart>,
     batch_import_total: usize,
+}
+
+enum ChartImportSource {
+    Native(File),
+    Lanes(LanePackage),
+    Batch { path: String, info: ExportInfo, count: usize },
+}
+
+fn read_import_source(path: String) -> Result<ChartImportSource> {
+    let file = File::open(&path).context("cannot open file")?;
+    let mut archive = zip::ZipArchive::new(BufReader::new(file))?;
+    let export_info = match archive.by_name("export.json") {
+        Err(zip::result::ZipError::FileNotFound) => None,
+        Err(err) => return Err(err.into()),
+        Ok(file) => Some(serde_json::from_reader(file)?),
+    };
+    if let Some(info) = export_info {
+        let mut count = 0;
+        for i in 0..archive.len() {
+            let file = archive.by_index(i)?;
+            if file.enclosed_name().is_some_and(|it| it.extension().is_some_and(|ext| ext == "zip")) {
+                count += 1;
+            }
+        }
+        return Ok(ChartImportSource::Batch { path, info, count });
+    }
+    let native_info = archive
+        .file_names()
+        .any(|name| matches!(name.rsplit(['/', '\\']).next(), Some("info.yml" | "info.txt" | "info.csv")));
+    if !native_info && has_lane_entries(&archive) {
+        return Ok(ChartImportSource::Lanes(LanePackage::read(archive)?));
+    }
+    let mut file = archive.into_inner().into_inner();
+    file.rewind()?;
+    Ok(ChartImportSource::Native(file))
 }
 
 enum ImportChart {
@@ -269,11 +310,10 @@ impl MainScene {
 
             background: TEX_BACKGROUND.with(|it| it.borrow().clone().unwrap()),
             #[cfg(feature = "video")]
-            background_video: super::appearance_background::BackgroundVideo::load(get_time())
-                .unwrap_or_else(|error| {
-                    tracing::warn!(?error, "failed to load background video");
-                    None
-                }),
+            background_video: super::appearance_background::BackgroundVideo::load(get_time()).unwrap_or_else(|error| {
+                tracing::warn!(?error, "failed to load background video");
+                None
+            }),
             bg_default: TEX_BACKGROUND_DEFAULT.with(|it| it.borrow().clone().unwrap()),
             bg_default_blur: TEX_BACKGROUND_BLUR_DEFAULT.with(|it| it.borrow().clone().unwrap()),
             btn_back: RectButton::new(),
@@ -282,6 +322,8 @@ impl MainScene {
             pages: Vec::new(),
             course_home_fade: None,
 
+            import_source: None,
+            lane_import: None,
             import_task: None,
 
             deeplink_pending: None,
@@ -355,10 +397,20 @@ impl Scene for MainScene {
     }
 
     fn touch(&mut self, tm: &mut TimeManager, touch: &Touch) -> Result<bool> {
+        if let Some(dialog) = &mut self.lane_import {
+            if let Some(confirmed) = dialog.touch(touch, tm.real_time() as f32) {
+                let dialog = self.lane_import.take().unwrap();
+                if confirmed {
+                    let (package, difficulty, layout) = dialog.into_conversion();
+                    self.import_task = Some(Task::new(async move { import_chart(package.convert(difficulty, layout)?).await }));
+                }
+            }
+            return Ok(true);
+        }
         if self.state.fader.transiting() {
             return Ok(false);
         }
-        if self.import_task.is_some() {
+        if self.import_task.is_some() || self.import_source.is_some() {
             return Ok(true);
         }
         if self.deeplink_dl.is_some() {
@@ -496,11 +548,10 @@ impl Scene for MainScene {
             TEX_BACKGROUND_BLUR.with(|it| *it.borrow_mut() = Some(blur));
             #[cfg(feature = "video")]
             {
-                self.background_video = super::appearance_background::BackgroundVideo::load(tm.real_time())
-                    .unwrap_or_else(|error| {
-                        show_error(error);
-                        None
-                    });
+                self.background_video = super::appearance_background::BackgroundVideo::load(tm.real_time()).unwrap_or_else(|error| {
+                    show_error(error);
+                    None
+                });
             }
         }
         #[cfg(feature = "video")]
@@ -534,12 +585,28 @@ impl Scene for MainScene {
                 self.import_task = None;
             }
         }
+        if let Some(source) = self.import_source.as_mut().and_then(Task::take) {
+            self.import_source = None;
+            match source {
+                Err(err) => show_error(err.context(itl!("import-failed"))),
+                Ok(ChartImportSource::Native(file)) => self.import_task = Some(Task::new(import_chart(file))),
+                Ok(ChartImportSource::Lanes(package)) => self.lane_import = Some(ImportDialog::new(package)),
+                Ok(ChartImportSource::Batch { path, info, count }) => {
+                    self.batch_import = Some((path, info));
+                    self.batch_import_total = count;
+                    confirm_dialog(itl!("batch-import"), itl!("batch-import-confirm", "count" => count), self.batch_import_confirm.clone());
+                }
+            }
+        }
+        if let Some(dialog) = &mut self.lane_import {
+            dialog.update();
+        }
         if let Some((id, file)) = take_file() {
             match id.as_str() {
                 "_import_auto" => {
                     let new_id = match File::open(&file).map(BufReader::new).map(zip::ZipArchive::new) {
                         Ok(Ok(zip)) => {
-                            if zip.file_names().any(|name| name.ends_with("click.png")) {
+                            if !has_lane_entries(&zip) && zip.file_names().any(|name| name.ends_with("click.png")) {
                                 "_import_respack"
                             } else {
                                 "_import"
@@ -550,43 +617,11 @@ impl Scene for MainScene {
                     return_file(new_id.to_owned(), file);
                 }
                 "_import" => {
-                    let export_info = (|| -> Result<Option<(ExportInfo, usize)>> {
-                        let file = File::open(&file)?;
-                        let mut archive = zip::ZipArchive::new(file)?;
-                        let export_info = match archive.by_name("export.json") {
-                            Err(zip::result::ZipError::FileNotFound) => {
-                                return Ok(None);
-                            }
-                            Err(err) => {
-                                return Err(err.into());
-                            }
-                            Ok(file) => serde_json::from_reader(file)?,
-                        };
-                        let mut count = 0;
-                        for i in 0..archive.len() {
-                            let file = archive.by_index(i)?;
-                            if file.enclosed_name().is_some_and(|it| it.extension().is_some_and(|ext| ext == "zip")) {
-                                count += 1;
-                            }
-                        }
-                        Ok(Some((export_info, count)))
-                    })();
-                    match export_info {
-                        Err(err) => {
-                            show_error(err.context(itl!("import-failed")));
-                        }
-                        Ok(None) => {
-                            self.import_task = Some(Task::new(async move {
-                                let file = File::open(&file).context("cannot open file")?;
-                                import_chart(file).await
-                            }));
-                        }
-                        Ok(Some((info, count))) => {
-                            self.batch_import = Some((file, info));
-                            self.batch_import_total = count;
-                            confirm_dialog(itl!("batch-import"), itl!("batch-import-confirm", "count" => count), self.batch_import_confirm.clone());
-                        }
-                    };
+                    if self.import_task.is_none() && self.import_source.is_none() && self.lane_import.is_none() && self.deeplink_dl.is_none() {
+                        self.import_source = Some(Task::new(async move { read_import_source(file) }));
+                    } else {
+                        return_file(id, file);
+                    }
                 }
                 "_import_respack" => {
                     let root = dir::respacks()?;
@@ -665,6 +700,8 @@ impl Scene for MainScene {
         // replaces the current dialog, and a pending deeplink can simply wait.
         if self.deeplink_dl.is_none()
             && self.import_task.is_none()
+            && self.import_source.is_none()
+            && self.lane_import.is_none()
             && self.deeplink_chart.is_none()
             && self.deeplink_scene.is_none()
             && DIALOG.with(|it| it.borrow().is_none())
@@ -733,7 +770,12 @@ impl Scene for MainScene {
             }
             self.deeplink_chart = None;
         }
-        if self.deeplink_confirm.load(Ordering::Relaxed) && self.deeplink_dl.is_none() && self.import_task.is_none() {
+        if self.deeplink_confirm.load(Ordering::Relaxed)
+            && self.deeplink_dl.is_none()
+            && self.import_task.is_none()
+            && self.import_source.is_none()
+            && self.lane_import.is_none()
+        {
             self.deeplink_confirm.store(false, Ordering::Relaxed);
             if let Some(target) = self.deeplink_pending.take() {
                 self.deeplink_dl = Some(deeplink::start_deeplink_download(target)?);
@@ -965,7 +1007,7 @@ impl Scene for MainScene {
             crate::hud::editor_render(ui);
         }
 
-        if self.import_task.is_some() {
+        if self.import_task.is_some() || self.import_source.is_some() {
             ui.full_loading(itl!("importing"), s.t);
         }
         if let Some(dl) = &mut self.deeplink_dl {
@@ -986,6 +1028,9 @@ impl Scene for MainScene {
             if p >= 1. {
                 self.course_home_fade = None;
             }
+        }
+        if let Some(dialog) = &mut self.lane_import {
+            dialog.render(ui, tm.real_time() as f32);
         }
         self.idle_fps.settle();
 

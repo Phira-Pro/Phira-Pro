@@ -54,6 +54,13 @@ thread_local! {
 
 const PAGE_NUM: u64 = 28;
 
+fn move_in_display_order<T>(items: &mut Vec<T>, from: usize, to: usize, descending: bool) {
+    let index = |position| if descending { items.len() - 1 - position } else { position };
+    let (from, to) = (index(from), index(to));
+    let item = items.remove(from);
+    items.insert(to, item);
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ChartListType {
     Local,
@@ -120,7 +127,7 @@ pub struct LibraryPage {
     order_meta_menu: Popup,
     need_show_order_meta_menu: bool,
 
-    order_rev: bool,
+    order_direction: Option<bool>,
     played_filter: usize,
     course_btn: DRectButton,
     course_start: DRectButton,
@@ -221,7 +228,7 @@ impl LibraryPage {
             order_meta_menu: Popup::new().with_size(0.5),
             need_show_order_meta_menu: false,
 
-            order_rev: true,
+            order_direction: None,
             played_filter: 0,
             course_btn: DRectButton::new(),
             course_start: DRectButton::new(),
@@ -296,6 +303,25 @@ impl LibraryPage {
         }
     }
 
+    fn descending(&self) -> bool {
+        self.order_direction.unwrap_or(matches!(self.current_order, ChartOrder::Default | ChartOrder::Rating))
+    }
+
+    fn order_label(&self, order: ChartOrder) -> Cow<'static, str> {
+        match (self.tabs.selected().ty, order) {
+            (ChartListType::Popular, ChartOrder::Default) => tl!("popular"),
+            (ChartListType::Local, ChartOrder::Default) => tl!("order-default"),
+            _ => order.label(),
+        }
+    }
+
+    fn note_page_order(&self) {
+        let ty = self.tabs.selected().ty;
+        if ty == ChartListType::Popular || (ty != ChartListType::Local && self.current_order.uses_local_data()) {
+            show_message(tl!("order-current-page"));
+        }
+    }
+
     pub fn load_online(&mut self) {
         if get_data().config.offline_mode {
             show_message(tl!("offline-mode")).error();
@@ -315,6 +341,8 @@ impl LibraryPage {
         self.tabs.selected_mut().view.clear();
         let page = self.current_page;
         let search = self.search_str.clone();
+        let chart_order = self.current_order;
+        let descending = self.descending();
         let order = {
             let order = match self.current_order {
                 ChartOrder::Default => "updated",
@@ -323,7 +351,7 @@ impl LibraryPage {
                 ChartOrder::Difficulty => "difficulty",
                 _ => "updated",
             };
-            if self.order_rev {
+            if descending {
                 format!("-{order}")
             } else {
                 order.to_owned()
@@ -369,13 +397,16 @@ impl LibraryPage {
             } else if show_unreviewed {
                 q = q.query("reviewed", "false").query("stableRequest", "false");
             }
-            let (remote_charts, count) = q
+            let (mut remote_charts, count) = q
                 .query("type", typ.to_string())
                 .query("division", division)
                 .page(page)
                 .page_num(PAGE_NUM)
                 .send()
                 .await?;
+            if popular {
+                chart_order.apply_popular(&mut remote_charts, descending);
+            }
             let total_page = if count == 0 { 0 } else { (count - 1) / PAGE_NUM + 1 };
             let charts: Vec<_> = remote_charts.iter().map(ChartDisplayItem::from_remote).collect();
             Ok((charts, remote_charts, total_page))
@@ -383,11 +414,9 @@ impl LibraryPage {
     }
 
     fn sync_local(&mut self, s: &SharedState) {
+        let descending = self.descending();
         let mut charts_local = s.charts_local.iter().collect::<Vec<_>>();
-        self.current_order.apply(&mut charts_local, |it| it);
-        if self.order_rev {
-            charts_local.reverse();
-        }
+        self.current_order.apply(&mut charts_local, descending, |it| it);
 
         let search_by_id = if let Some(id_str) = self.search_str.strip_prefix('#') {
             id_str.trim().parse::<i32>().ok()
@@ -448,10 +477,7 @@ impl LibraryPage {
                         None
                     }
                 }));
-                self.current_order.apply(&mut charts, |it| it.chart.as_ref().unwrap());
-                if self.order_rev {
-                    charts.reverse();
-                }
+                self.current_order.apply(&mut charts, descending, |it| it.chart.as_ref().unwrap());
             } else {
                 charts.extend(
                     charts_local
@@ -468,6 +494,7 @@ impl LibraryPage {
     fn on_order_update(&mut self, s: &mut SharedState) {
         let list = self.tabs.selected_mut();
         if list.ty == ChartListType::Local {
+            list.view.reset_scroll();
             self.sync_local(s);
         } else {
             self.current_page = 0;
@@ -483,9 +510,10 @@ impl LibraryPage {
     }
 
     fn update_order_meta_menu_options(&mut self) {
+        let direction = if self.descending() { tl!("order-desc") } else { tl!("order-asc") };
         self.order_meta_menu.set_options(vec![
-            tl!("order-by", "order" => self.current_order.label()),
-            if self.order_rev { tl!("order-desc") } else { tl!("order-asc") }.into(),
+            tl!("order-by", "order" => self.order_label(self.current_order)),
+            tl!("order-direction", "direction" => direction),
             format!("筛选：{}", ["全部", "未游玩", "已游玩", "未全连"][self.played_filter]),
         ]);
     }
@@ -509,6 +537,20 @@ impl LibraryPage {
             options.push(format!("{} {}", if all_in { '\u{2713}' } else { ' ' }, col.name));
         }
         Some(options)
+    }
+}
+
+#[cfg(test)]
+mod order_tests {
+    #[test]
+    fn reorders_the_same_visible_items_in_either_display_direction() {
+        let mut ascending = vec!["a", "b", "c", "d"];
+        super::move_in_display_order(&mut ascending, 0, 2, false);
+        assert_eq!(ascending, ["b", "c", "a", "d"]);
+
+        let mut descending = vec!["a", "b", "c", "d"];
+        super::move_in_display_order(&mut descending, 0, 2, true);
+        assert_eq!(descending, ["a", "d", "b", "c"]);
     }
 }
 
@@ -983,7 +1025,6 @@ impl Page for LibraryPage {
 
         if self.tabs.selected().ty == ChartListType::Local && self.current_order == ChartOrder::Rating {
             self.current_order = ChartOrder::Default;
-            self.order_rev = true;
         }
 
         self.tags.update(t);
@@ -1037,20 +1078,15 @@ impl Page for LibraryPage {
         }
         self.tags_last_show = self.tags.showing();
         self.rating_last_show = self.rating.showing();
+        let descending = self.descending();
         if let Some(task) = &mut self.online_task {
             if let Some(res) = task.take() {
                 match res {
                     Err(err) => show_error(err.context(tl!("failed-to-load-online"))),
                     Ok(mut res) => {
                         self.online_total_page = res.2;
-                        if matches!(
-                            self.current_order,
-                            ChartOrder::Composer | ChartOrder::Charter | ChartOrder::Score | ChartOrder::Accuracy | ChartOrder::Unplayed
-                        ) {
-                            self.current_order.apply(&mut res.0, |it| it.chart.as_ref().unwrap());
-                            if self.order_rev {
-                                res.0.reverse();
-                            }
+                        if self.current_order.uses_local_data() {
+                            self.current_order.apply(&mut res.0, descending, |it| it.chart.as_ref().unwrap());
                         }
                         res.0.retain(|it| {
                             let c = it.chart.as_ref().unwrap();
@@ -1225,9 +1261,11 @@ impl Page for LibraryPage {
             match self.order_meta_menu.selected() {
                 0 => {
                     self.need_show_order_menu = true;
+                    self.order_meta_menu.set_selected(usize::MAX);
                 }
                 1 => {
-                    self.order_rev = !self.order_rev;
+                    self.order_direction = Some(!self.descending());
+                    self.note_page_order();
                     self.update_order_meta_menu_options();
                     self.order_meta_menu.set_selected(usize::MAX);
                     self.on_order_update(s);
@@ -1243,15 +1281,7 @@ impl Page for LibraryPage {
         }
         if self.order_menu.changed() {
             self.current_order = self.order_menu_options[self.order_menu.selected()];
-            if self.tabs.selected().ty != ChartListType::Local
-                && matches!(
-                    self.current_order,
-                    ChartOrder::Composer | ChartOrder::Charter | ChartOrder::Score | ChartOrder::Accuracy | ChartOrder::Unplayed
-                )
-            {
-                show_message("在线谱库按服务分页；此项对当前页应用本地排序与成绩");
-            }
-            self.order_rev = matches!(self.current_order, ChartOrder::Default | ChartOrder::Rating);
+            self.note_page_order();
             self.order_meta_menu.set_selected(usize::MAX);
             self.update_order_meta_menu_options();
             self.on_order_update(s);
@@ -1364,10 +1394,19 @@ impl Page for LibraryPage {
         if self.online_pending_tos && get_data().terms_modified.is_some() {
             self.load_online();
         }
+        let descending = self.descending();
+        let expected_charts = self.current_fav_index.map_or(get_data().charts.len(), |index| get_data().collection_by_index(index).charts.len());
         let list = self.tabs.selected_mut();
         let view = &mut list.view;
+        let can_reorder = list.ty == ChartListType::Local
+            && self.current_order == ChartOrder::Default
+            && self.search_str.is_empty()
+            && self.played_filter == 0
+            && self.current_fav_index.is_none_or(|it| get_data().collection_by_index(it).is_owned())
+            && view.charts.as_ref().is_some_and(|charts| charts.len() == expected_charts + 1);
         if let Some((from, to)) = view.take_movement() {
-            if self.current_order != ChartOrder::Default && self.current_fav_index.is_none() {
+            if !can_reorder || from >= expected_charts || to >= expected_charts {
+                self.sync_local(s);
                 show_message(tl!("order-update-failed-sort")).error();
                 return Ok(());
             }
@@ -1376,8 +1415,7 @@ impl Page for LibraryPage {
                 let uuid = data.collection_uuids()[index];
                 let mut col = data.collection_info(&uuid).as_ref().clone();
                 let online = col.id.is_some();
-                let chart = col.charts.remove(from);
-                col.charts.insert(to, chart);
+                move_in_display_order(&mut col.charts, from, to, descending);
                 data.set_collection_info(&uuid, col)?;
                 let _ = save_data();
                 if online && !data.config.offline_mode {
@@ -1386,23 +1424,13 @@ impl Page for LibraryPage {
                     }
                 }
             } else {
-                if self.order_rev {
-                    let chart = data.charts.remove(data.charts.len() - from - 1);
-                    data.charts.insert(data.charts.len() - to, chart);
-                } else {
-                    let chart = data.charts.remove(from);
-                    data.charts.insert(to, chart);
-                }
+                move_in_display_order(&mut data.charts, from, to, descending);
                 let _ = save_data();
                 s.reload_local_charts();
             }
             show_message(tl!("order-updated")).ok();
         }
-        view.allow_edit(
-            list.ty == ChartListType::Local
-                && self.search_str.is_empty()
-                && self.current_fav_index.is_none_or(|it| get_data().collection_by_index(it).is_owned()),
-        );
+        view.allow_edit(can_reorder);
 
         if let Some(task) = &mut self.refresh_local_fav_task {
             if let Some(res) = task.take() {
@@ -1840,7 +1868,7 @@ impl Page for LibraryPage {
                     .unwrap_or(usize::MAX),
             );
             self.order_menu
-                .set_options(self.order_menu_options.iter().map(|it| it.label().into_owned()).collect());
+                .set_options(self.order_menu_options.iter().map(|&it| self.order_label(it).into_owned()).collect());
 
             let mut r = self.order_meta_menu.rect();
             r.w = 0.3;

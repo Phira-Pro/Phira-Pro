@@ -18,8 +18,11 @@ offline-mode = All online functionality is disabled due to Offline Mode (setting
 must-login = Please login to view online charts.
 
 order-by = Order by: { $order }
+order-default = Default order
+order-direction = Direction: { $direction }
 order-asc = Ascending
 order-desc = Descending
+order-current-page = This sort applies to the current page.
 order-updated = Order updated
 order-update-failed-sort = Order can only be updated in default sorting mode.
 fav-synced = Favorites synced

@@ -23,6 +23,36 @@ use uuid::Uuid;
 
 const MAX_IMPORT_RETRIES: u8 = 2;
 
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CharacterTextOverrides {
+    pub artist: Option<String>,
+    pub designer: Option<String>,
+    pub intro: Option<String>,
+}
+
+impl CharacterTextOverrides {
+    pub fn from_character(character: &Character) -> Self {
+        Self {
+            artist: Some(character.artist.clone()),
+            designer: Some(character.designer.clone()),
+            intro: Some(character.intro.clone()),
+        }
+    }
+
+    pub fn apply(&self, character: &mut Character) {
+        for (value, field) in [
+            (&self.artist, &mut character.artist),
+            (&self.designer, &mut character.designer),
+            (&self.intro, &mut character.intro),
+        ] {
+            if let Some(value) = value {
+                field.clone_from(value);
+            }
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BriefChartInfo {
@@ -135,6 +165,8 @@ pub struct Data {
     pub ignored_pro_release: Option<String>,
     pub character: Option<Character>,
     pub character_name_override: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub character_text_overrides: Option<CharacterTextOverrides>,
 
     pub enable_anys: bool,
     #[serde(default = "default_anys_gateway")]

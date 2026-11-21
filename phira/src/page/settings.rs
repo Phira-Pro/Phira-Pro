@@ -28,7 +28,7 @@ use macroquad::prelude::*;
 use once_cell::sync::Lazy;
 use prpr::ui::Dialog;
 use prpr::{
-    config::{Config, HealthFailureEffect},
+    config::{Config, HealthFailureEffect, LOG_STORAGE_LIMITS_MIB},
     core::BOLD_FONT,
     ext::{open_url, poll_future, semi_white, LocalTask, RectExt, SafeTexture},
     log::{self, LogManager},
@@ -1988,6 +1988,7 @@ struct DebugList {
     touch_size_slider: Slider,
     show_fps_btn: DRectButton,
     fps_position_btn: DRectButton,
+    log_storage_btn: ChooseButton,
     export_logs_btn: DRectButton,
     export_requested: bool,
     /// Give-up time (game time) for the async platform file picker.
@@ -2024,6 +2025,10 @@ impl DebugList {
             touch_size_slider: Slider::new(0.01..0.15, 0.005),
             show_fps_btn: DRectButton::new(),
             fps_position_btn: DRectButton::new(),
+            log_storage_btn: ChooseButton::new()
+                .with_options(LOG_STORAGE_LIMITS_MIB.iter().map(|mib| format!("{mib} MiB")).collect())
+                .with_selected(LOG_STORAGE_LIMITS_MIB.iter().position(|&mib| mib == get_data().config.log_storage_mib()).unwrap())
+                .with_compact_popup(),
             export_logs_btn: DRectButton::new(),
             export_requested: false,
             export_deadline: 0.,
@@ -2055,7 +2060,7 @@ impl DebugList {
             }
             return true;
         }
-        false
+        self.log_storage_btn.top_touch(_touch, _t)
     }
 
     pub fn touch(&mut self, touch: &Touch, t: f32) -> Result<Option<bool>> {
@@ -2075,6 +2080,9 @@ impl DebugList {
                 self.section_open[index] ^= true;
                 return Ok(Some(false));
             }
+        }
+        if self.log_storage_btn.touch(touch, t) {
+            return Ok(Some(false));
         }
         if self.export_logs_btn.touch(touch, t) {
             let name = format!("phira-logs-{}.zip", chrono::Local::now().format("%Y%m%d-%H%M%S"));
@@ -2148,10 +2156,19 @@ impl DebugList {
         Ok(None)
     }
 
-    pub fn update(&mut self, _t: f32) -> Result<bool> {
+    pub fn update(&mut self, t: f32) -> Result<bool> {
         if let Some(picker) = &mut self.picker {
             picker.update();
         }
+        self.log_storage_btn.update(t);
+        if self.log_storage_btn.changed() {
+            let limit = LOG_STORAGE_LIMITS_MIB[self.log_storage_btn.selected()];
+            get_data_mut().config.log_storage_mib = limit;
+            crate::apply_log_storage_limit(limit);
+            return Ok(true);
+        }
+        let saved = get_data().config.log_storage_mib();
+        self.log_storage_btn.set_selected(LOG_STORAGE_LIMITS_MIB.iter().position(|&mib| mib == saved).unwrap());
         if std::mem::take(&mut self.dirty) {
             return Ok(true);
         }
@@ -2205,6 +2222,7 @@ impl DebugList {
     }
 
     pub fn render_top(&mut self, ui: &mut Ui, t: f32) {
+        self.log_storage_btn.render_top(ui, t, 1.);
         if let Some(picker) = &mut self.picker {
             picker.render(ui, t);
         }
@@ -2313,6 +2331,10 @@ impl DebugList {
                 self.touch_size_slider
                     .render(ui, rr, t, config.touch_point_size, format!("{:.3}", config.touch_point_size));
             }
+        }
+        item! {
+            render_title(ui, tl!("item-log-storage"), Some(tl!("item-log-storage-sub")));
+            self.log_storage_btn.render(ui, rr, t);
         }
         item! {
             render_title(ui, tl!("item-export-logs"), Some(tl!("item-export-logs-sub")));

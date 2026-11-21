@@ -481,6 +481,10 @@ public class MainActivity extends AppCompatActivity {
         CrashLogRecorder.clear();
     }
 
+    public void setDiagnosticLogLimit(int mib) {
+        CrashLogRecorder.setStorageLimit(mib);
+    }
+
     public void choosePhoto() {
         runOnUiThread(() -> {
             Intent intent = new Intent(Intent.ACTION_GET_CONTENT);

@@ -30,6 +30,21 @@ pub(crate) fn set_refresh_rate(rate: u16) -> anyhow::Result<()> {
     prpr::frame_pacing::set_requested(rate);
     Ok(())
 }
+
+fn game_log_limit(mib: u16) -> u16 {
+    // Android stores game logs and logcat in separate directories.
+    if cfg!(target_os = "android") { mib / 2 } else { mib }
+}
+
+pub(crate) fn apply_log_storage_limit(mib: u16) {
+    if let Some(manager) = log::manager() {
+        manager.set_limit_mib(game_log_limit(mib));
+    }
+    #[cfg(target_os = "android")]
+    if let Err(error) = set_android_log_storage_limit(mib - game_log_limit(mib)) {
+        warn!(%error, "failed to update Android diagnostic log limit");
+    }
+}
 mod icons;
 mod images;
 mod login;
@@ -87,6 +102,21 @@ pub(crate) mod updates;
 pub(crate) mod songpacks;
 static CACHE_DIR: Mutex<Option<String>> = Mutex::new(None);
 pub static mut DATA: Option<Data> = None;
+
+#[cfg(target_os = "android")]
+fn set_android_log_storage_limit(mib: u16) -> Result<()> {
+    use anyhow::Context;
+    use jni::{jni_sig, jni_str, vm::JavaVM};
+
+    JavaVM::singleton()
+        .context("Android Java VM is unavailable")?
+        .attach_current_thread(|env| -> jni::errors::Result<()> {
+            let activity = unsafe { JObject::from_raw(env, ndk_context::android_context().context() as _) };
+            env.call_method(activity, jni_str!("setDiagnosticLogLimit"), jni_sig!("(I)V"), &[i32::from(mib).into()])?;
+            Ok(())
+        })
+        .map_err(anyhow::Error::from)
+}
 
 #[cfg(target_os = "android")]
 pub(crate) fn set_android_refresh_rate(refresh_rate: u16) -> Result<()> {
@@ -199,6 +229,7 @@ pub fn sync_data() {
     }
     set_prefered_locale(get_data().language.as_ref().and_then(|it| it.parse().ok()));
     let _ = client::set_access_token_sync(get_data().tokens.as_ref().map(|it| &*it.0));
+    apply_log_storage_limit(get_data().config.log_storage_mib());
 }
 
 pub fn set_data(data: Data) {
@@ -486,11 +517,11 @@ async fn the_main() -> Result<()> {
 
     startup::stage("saved data");
     let dir = dir::root()?;
-    log::register_with_dir(std::path::Path::new(&dir).join("logs"));
     let mut data: Data = std::fs::read_to_string(format!("{dir}/data.json"))
         .map_err(anyhow::Error::new)
         .and_then(|s| Ok(serde_json::from_str(&s)?))
         .unwrap_or_default();
+    log::register_with_dir(std::path::Path::new(&dir).join("logs"), game_log_limit(data.config.log_storage_mib()));
     startup::stage("saved data migration");
     data.init().await?;
     set_data(data);

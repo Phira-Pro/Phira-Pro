@@ -9,12 +9,14 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.util.Log;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -22,28 +24,47 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.regex.Pattern;
 
 /** Bounded, continuous app-only logcat capture. No root or storage permission. */
 final class CrashLogRecorder {
     private static final String TAG = "PhiraProLogs";
     private static final String DIRECTORY = Environment.DIRECTORY_DOWNLOADS + "/PhiraPro/logs/";
     private static final String PREFIX = "PhiraPro-";
-    private static final long MAX_BYTES = 8L * 1024 * 1024;
-    private static final int MAX_FILES = 8;
-    private static CrashLogRecorder instance;
+    private static final long MIB = 1024L * 1024;
+    private static final long SEGMENT_BYTES = 8 * MIB;
+    private static final long DEFAULT_STORAGE_BYTES = 32 * MIB;
+    private static final String STORAGE_LIMIT_KEY = "storageLimitBytes";
+    private static final Pattern LOG_NAMES = Pattern.compile("PhiraPro-[0-9]{8}-[0-9]{6}-[0-9]{3}-[0-9]+\\.log(?:\\.txt)?");
+    private static volatile CrashLogRecorder instance;
     private final Context context;
     private final Object lock = new Object();
+    private final Executor maintenance = Executors.newSingleThreadExecutor(task -> {
+        Thread thread = new Thread(task, "PhiraPro-log-retention");
+        thread.setDaemon(true);
+        return thread;
+    });
     private OutputStream output;
     private Uri currentUri;
     private File currentFile;
     private long bytes;
+    private long retainedBytes;
+    private long storageBytes;
+    private long lastFileTime;
+    private boolean publicLogsTracked;
     private String version = "unknown";
 
-    private CrashLogRecorder(Context context) { this.context = context.getApplicationContext(); }
+    private CrashLogRecorder(Context context) {
+        this.context = context.getApplicationContext();
+        long saved = context.getSharedPreferences("diagnostics", Context.MODE_PRIVATE).getLong(STORAGE_LIMIT_KEY, DEFAULT_STORAGE_BYTES);
+        storageBytes = saved >= SEGMENT_BYTES && saved <= 256 * MIB ? saved : DEFAULT_STORAGE_BYTES;
+    }
 
     static synchronized void start(Context context) {
         if (instance != null) return;
@@ -63,20 +84,35 @@ final class CrashLogRecorder {
         CrashLogRecorder recorder = instance;
         if (recorder == null) return;
         // Filesystem/MediaStore work must not stall UI or the native render loop.
-        new Thread(() -> {
+        recorder.maintenance.execute(() -> {
             synchronized (recorder.lock) {
                 try {
                     recorder.closeOutput();
                     recorder.currentUri = null;
                     recorder.currentFile = null;
-                    recorder.prune(true);
+                    recorder.prune(true, 0);
                     recorder.openOutput();
-                    recorder.write("Previous diagnostic logs cleared by user.\n");
+                    recorder.write("Previous diagnostic logs cleared by user.\n".getBytes(StandardCharsets.UTF_8));
                 } catch (Exception error) {
                     Log.w(TAG, "Cannot clear diagnostics", error);
                 }
             }
-        }, "PhiraPro-clear-logs").start();
+        });
+    }
+
+    static void setStorageLimit(int mib) {
+        CrashLogRecorder recorder = instance;
+        if (recorder == null) return;
+        long limit = Math.max(8, Math.min(256, mib)) * MIB;
+        recorder.maintenance.execute(() -> {
+            synchronized (recorder.lock) {
+                if (recorder.storageBytes == limit) return;
+                recorder.storageBytes = limit;
+                recorder.context.getSharedPreferences("diagnostics", Context.MODE_PRIVATE)
+                        .edit().putLong(STORAGE_LIMIT_KEY, limit).apply();
+                recorder.prune(false, 0);
+            }
+        });
     }
 
     private void capture() {
@@ -106,8 +142,17 @@ final class CrashLogRecorder {
     private void record(String text) {
         synchronized (lock) {
             try {
-                if (output == null || bytes >= MAX_BYTES) openOutput();
-                write(text + "\n");
+                byte[] data = (text + "\n").getBytes(StandardCharsets.UTF_8);
+                if (output == null || bytes + data.length > SEGMENT_BYTES || (currentUri != null && !publicLogsTracked)) openOutput();
+                int remaining = (int) (SEGMENT_BYTES - bytes);
+                if (data.length > remaining) {
+                    int end = remaining - 1;
+                    while ((data[end] & 0xc0) == 0x80) end--;
+                    data = Arrays.copyOf(data, end + 1);
+                    data[end] = '\n';
+                }
+                if (retainedBytes + bytes + data.length > storageBytes) prune(false, data.length);
+                write(data);
             } catch (Exception ignored) {
                 // A full/unavailable disk must never crash the application.
                 closeOutput();
@@ -115,8 +160,8 @@ final class CrashLogRecorder {
         }
     }
 
-    private void write(String text) throws java.io.IOException {
-        byte[] data = text.getBytes(StandardCharsets.UTF_8);
+    private void write(byte[] data) throws IOException {
+        if (retainedBytes + bytes + data.length > storageBytes) return;
         output.write(data);
         output.flush(); // Persist preceding records even on a native abort.
         bytes += data.length;
@@ -133,9 +178,12 @@ final class CrashLogRecorder {
         closeOutput();
         currentUri = null;
         currentFile = null;
-        String name = PREFIX + new SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.ROOT).format(new Date())
+        bytes = 0;
+        prune(false, 0);
+        lastFileTime = Math.max(System.currentTimeMillis(), lastFileTime + 1);
+        String name = PREFIX + new SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.ROOT).format(new Date(lastFileTime))
                 + "-" + android.os.Process.myPid() + ".log.txt";
-        if (Build.VERSION.SDK_INT >= 29) {
+        if (Build.VERSION.SDK_INT >= 29 && publicLogsTracked) {
             try {
                 ContentValues values = new ContentValues();
                 values.put(MediaStore.Downloads.DISPLAY_NAME, name);
@@ -155,45 +203,77 @@ final class CrashLogRecorder {
             currentFile = new File(directory, name);
             output = new FileOutputStream(currentFile);
         }
-        bytes = 0;
-        write("Phira Pro " + version + "; pid=" + android.os.Process.myPid()
+        byte[] header = ("Phira Pro " + version + "; pid=" + android.os.Process.myPid()
                 + "; Android=" + Build.VERSION.RELEASE + " (" + Build.VERSION.SDK_INT + ")"
                 + "; device=" + Build.MANUFACTURER + " " + Build.MODEL
                 + "; ABI=" + Arrays.toString(Build.SUPPORTED_ABIS)
-                + "\nLog directory: " + (currentFile != null ? currentFile.getParent() : DIRECTORY) + "\n");
-        prune(false);
+                + "\nLog directory: " + (currentFile != null ? currentFile.getParent() : DIRECTORY) + "\n").getBytes(StandardCharsets.UTF_8);
+        if (retainedBytes + header.length > storageBytes) prune(false, header.length);
+        write(header);
     }
 
-    private boolean ownLog(String name) {
-        // MediaStore may append .txt to text/plain files. Accept both names so
-        // rotation and cache cleanup also cover existing provider-renamed logs.
-        return name != null && name.matches("PhiraPro-[0-9]{8}-[0-9]{6}-[0-9]{3}-[0-9]+\\.log(?:\\.txt)?");
-    }
+    private static final class StoredLog {
+        final String name;
+        final long size;
+        final Uri uri;
+        final File file;
 
-    private void prune(boolean all) {
-        if (Build.VERSION.SDK_INT >= 29) {
-            // Query/delete only our rows in our exact directory. Never delete
-            // unrelated Downloads files, including documents selected via SAF.
-            List<Uri> logs = new ArrayList<>();
-            try (Cursor cursor = context.getContentResolver().query(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                    new String[] { MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME },
-                    MediaStore.Downloads.RELATIVE_PATH + "=? AND " + MediaStore.MediaColumns.OWNER_PACKAGE_NAME + "=?",
-                    new String[] { DIRECTORY, context.getPackageName() }, MediaStore.Downloads._ID + " DESC")) {
-                if (cursor != null) while (cursor.moveToNext()) {
-                    if (ownLog(cursor.getString(1))) logs.add(ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(0)));
-                }
-                for (int i = 0; i < logs.size(); i++) {
-                    Uri uri = logs.get(i);
-                    if ((all || i >= MAX_FILES) && !uri.equals(currentUri)) context.getContentResolver().delete(uri, null, null);
-                }
-            } catch (Exception error) { Log.w(TAG, "Cannot prune public logs", error); }
+        StoredLog(String name, long size, Uri uri, File file) {
+            this.name = name;
+            this.size = size;
+            this.uri = uri;
+            this.file = file;
         }
+    }
+
+    private boolean collectPublicLogs(List<StoredLog> logs) {
+        if (Build.VERSION.SDK_INT >= 29) {
+            try (Cursor cursor = context.getContentResolver().query(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    new String[] { MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME, MediaStore.Downloads.SIZE },
+                    MediaStore.Downloads.RELATIVE_PATH + "=? AND " + MediaStore.MediaColumns.OWNER_PACKAGE_NAME + "=?",
+                    new String[] { DIRECTORY, context.getPackageName() }, null)) {
+                if (cursor != null) while (cursor.moveToNext()) {
+                    String name = cursor.getString(1);
+                    if (name == null || !LOG_NAMES.matcher(name).matches()) continue;
+                    Uri uri = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(0));
+                    if (uri.equals(currentUri)) continue;
+                    long size = Math.max(0, cursor.getLong(2));
+                    // The provider may not have updated SIZE for a recently closed stream.
+                    try (ParcelFileDescriptor fd = context.getContentResolver().openFileDescriptor(uri, "r")) {
+                        if (fd != null && fd.getStatSize() >= 0) size = fd.getStatSize();
+                    } catch (IOException | SecurityException ignored) { }
+                    logs.add(new StoredLog(name, size, uri, null));
+                }
+                return cursor != null;
+            } catch (Exception ignored) {
+                // Keep private diagnostics working if shared storage is unavailable.
+            }
+        }
+        return false;
+    }
+
+    private void prune(boolean all, long incoming) {
+        List<StoredLog> logs = new ArrayList<>();
+        publicLogsTracked = collectPublicLogs(logs);
         for (File directory : new File[] { context.getExternalFilesDir("logs"), new File(context.getFilesDir(), "logs") }) {
             if (directory == null) continue;
-            File[] logs = directory.listFiles((dir, name) -> ownLog(name));
-            if (logs == null) continue;
-            Arrays.sort(logs, Comparator.comparing(File::getName).reversed());
-            for (int i = 0; i < logs.length; i++) if ((all || i >= MAX_FILES) && !logs[i].equals(currentFile)) logs[i].delete();
+            File[] files = directory.listFiles((dir, name) -> LOG_NAMES.matcher(name).matches());
+            if (files == null) continue;
+            for (File file : files) {
+                if (file.isFile() && !file.equals(currentFile)) logs.add(new StoredLog(file.getName(), file.length(), null, file));
+            }
+        }
+        Collections.sort(logs, (left, right) -> left.name.compareTo(right.name));
+        retainedBytes = 0;
+        for (StoredLog log : logs) retainedBytes += log.size;
+        for (StoredLog log : logs) {
+            if (!all && retainedBytes + bytes + incoming <= storageBytes) break;
+            try {
+                boolean deleted = log.file != null ? log.file.delete() : context.getContentResolver().delete(log.uri, null, null) > 0;
+                if (deleted) retainedBytes -= log.size;
+            } catch (SecurityException ignored) {
+                // Leave rows the app can no longer delete and account for their size.
+            }
         }
     }
 

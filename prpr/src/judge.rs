@@ -576,6 +576,19 @@ impl JudgeInner {
         self.accuracy_sum() / cnt as f64
     }
 
+    /// 从当前进度起，剩下的音符全部按 Perfect 判定的最终准确率上限。
+    ///
+    /// 满分权重恒为 1，所以上限 = (已判定的权重和 + 未判定音符数) / 总音符数；已漏掉的音符
+    /// 会永久压低上限，因此它只减不增。全部音符判定完之后与 [`Self::accuracy`] 相等。
+    pub fn max_accuracy(&self) -> f64 {
+        if self.num_of_notes == 0 {
+            return 1.;
+        }
+        let judged: u32 = self.counts.iter().sum();
+        let remaining = self.num_of_notes.saturating_sub(judged) as f64;
+        (self.accuracy_sum() + remaining) / self.num_of_notes as f64
+    }
+
     /// `no_combo_score` 为真时不把最大连击计入分数（分数 = 准确率 × 1,000,000）。
     pub fn score(&self, no_combo_score: bool) -> u32 {
         const TOTAL: u32 = 1000000;
@@ -978,6 +991,46 @@ mod tests {
         assert!(!cfg.is_official_play(crate::config::Mods::empty()));
         cfg.force_official_play(&mut crate::config::Mods::empty());
         assert!(!cfg.judge_grading.detailed);
+    }
+
+    #[test]
+    fn max_accuracy_treats_every_remaining_note_as_perfect() {
+        let mut j = JudgeInner::new(4);
+        assert!((j.max_accuracy() - 1.).abs() < 1e-12, "nothing judged yet");
+
+        // 漏掉一个：剩下三个全 Perfect 也只有 75%。
+        j.commit(Judgement::Miss, 0.);
+        assert!((j.max_accuracy() - 0.75).abs() < 1e-12);
+        assert!((j.real_time_accuracy() - 0.).abs() < 1e-12, "current accuracy is still 0");
+
+        // 打低（Great = 0.85）同样压上限，但比漏掉好一点。
+        j.commit(Judgement::Great, 0.);
+        assert!((j.max_accuracy() - (0.85 + 2.) / 4.).abs() < 1e-12);
+
+        // 全部判完：上限就是最终准度。
+        j.commit(Judgement::Perfect, 0.);
+        j.commit(Judgement::Perfect, 0.);
+        assert!((j.max_accuracy() - j.accuracy()).abs() < 1e-12);
+        assert!((j.accuracy() - 2.85 / 4.).abs() < 1e-12);
+    }
+
+    #[test]
+    fn max_accuracy_never_increases() {
+        let mut j = JudgeInner::new(6);
+        let mut last = j.max_accuracy();
+        for grade in [Judgement::Perfect, Judgement::Miss, Judgement::Great, Judgement::Perfect, Judgement::Good, Judgement::Meh] {
+            j.commit(grade, 0.);
+            let now = j.max_accuracy();
+            assert!(now <= last + 1e-12, "{now} > {last}");
+            last = now;
+        }
+        assert!((last - j.accuracy()).abs() < 1e-12, "the ceiling equals the final accuracy at the end");
+    }
+
+    #[test]
+    fn max_accuracy_of_an_empty_chart_is_full() {
+        // 没有音符时不该显示 0%，否则空谱面会看到一个假的 0。
+        assert!((JudgeInner::new(0).max_accuracy() - 1.).abs() < 1e-12);
     }
 
     #[test]
@@ -1425,6 +1478,12 @@ impl Judge {
     #[inline]
     pub fn real_time_accuracy(&self) -> f64 {
         self.inner.real_time_accuracy()
+    }
+
+    /// 剩余音符全部 Perfect 时本局能达到的最高准确率。
+    #[inline]
+    pub fn max_accuracy(&self) -> f64 {
+        self.inner.max_accuracy()
     }
 
     #[inline]

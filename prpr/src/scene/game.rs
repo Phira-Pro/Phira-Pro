@@ -1312,23 +1312,30 @@ impl GameScene {
                         .size(0.8)
                         .color(c)
                         .draw_using(&PGR_FONT);
+                    // 准度与「可达最高准确率」上下排，判定详情接在它们下面。
+                    let mut info_top = score_top + h;
                     if res.config.show_acc {
                         ui.text(format!("{:05.2}%", self.judge.real_time_accuracy() * 100.))
-                            .pos(1. - margin, score_top + h)
+                            .pos(1. - margin, info_top)
                             .anchor(1., 0.)
                             .size(0.4)
                             .color(Color { a: c.a * 0.7, ..c })
                             .draw_using(&PGR_FONT);
+                        info_top += 0.045;
+                    }
+                    // 练习模式只打区间内的一小段，`num_of_notes` 仍是整张谱，上限会低得
+                    // 没有意义（区间外的音符永远「未判定」），所以那里不显示。
+                    if res.config.show_max_acc && !res.config.practice_active {
+                        ui.text(format!("MAX {:05.2}%", self.judge.max_accuracy() * 100.))
+                            .pos(1. - margin, info_top)
+                            .anchor(1., 0.)
+                            .size(0.4)
+                            .color(Color { a: c.a * 0.55, ..c })
+                            .draw_using(&PGR_FONT);
+                        info_top += 0.045;
                     }
                     if res.config.show_judgement_details {
-                        judgement_details::draw(
-                            ui,
-                            res.config.judge_grading,
-                            self.judge.counts(),
-                            score_right,
-                            score_top + h + if res.config.show_acc { 0.045 } else { 0. },
-                            c.a,
-                        );
+                        judgement_details::draw(ui, res.config.judge_grading, self.judge.counts(), score_right, info_top, c.a);
                     }
                 });
 

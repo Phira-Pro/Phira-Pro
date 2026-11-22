@@ -350,6 +350,8 @@ pub struct Config {
     pub res_pack_path: Option<String>,
     pub sample_count: u32,
     pub show_acc: bool,
+    /// 在准度下面再显示「剩余音符全 Perfect 时的最高准确率」。
+    pub show_max_acc: bool,
     pub show_judgement_details: bool,
     pub show_perfect_combo: bool,
     pub show_avg_fps: bool,
@@ -545,6 +547,7 @@ impl Default for Config {
             res_pack_path: None,
             sample_count: 1,
             show_acc: false,
+            show_max_acc: false,
             show_judgement_details: false,
             show_perfect_combo: false,
             show_avg_fps: false,

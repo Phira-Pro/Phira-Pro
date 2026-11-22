@@ -120,6 +120,7 @@ mods-no-fail = ノーフェイル
 mods-no-fail-sub = クリア失敗になってもプレイは途中で終了しません。
 rate-failed = 評価スコア失敗
 rate-done = 評価スコア成功
+rate-pro-score-required = この譜面を評価する前に、Phira Proのスコアを提出してください。
 need-update = 譜面更新
 need-update-info-only-content = 譜面情報が更新されました。今すぐ同期しますか？
 need-update-content = 譜面が更新されました。お使いの端末が最新の状態でない場合、譜面をアップロードできません。今すぐ更新しますか？

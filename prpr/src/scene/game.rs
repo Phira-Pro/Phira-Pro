@@ -41,7 +41,7 @@ use crate::practice::{
 };
 use crate::{
     bin::BinaryReader,
-    config::{Config, Mods},
+    config::{ChordCap, Config, Mods},
     core::{copy_fbo, BadNote, BpmList, Chart, ChartExtra, Effect, JudgeLineKind, Matrix, NoteKind, Point, Resource, UIElement, Vector, PGR_FONT},
     ext::{parse_time, screen_aspect, semi_white, spawn_task, RectExt, SafeTexture, ScaleType},
     fs::FileSystem,
@@ -915,6 +915,22 @@ impl GameScene {
 
         tracing::info!("game loading: parse chart begins");
         let (mut chart, chart_bytes, chart_format) = Self::load_chart(fs.deref_mut(), &info).await?;
+        // Phira Pro：三压以上自动改成双压。
+        //
+        // 必须在 `OriginalNotes::capture` 之前做：练习的「恢复原谱」和临时改音符类型都以
+        // 转换后的谱面为基准。`GameMode::View`（回放播放 / 谱面查看）不转换——录制时记下的
+        // 音符下标属于录制方的谱面，删音符会让下标错位。
+        if mode != GameMode::View && config.chord_cap != ChordCap::Off {
+            let report = crate::core::chord_cap::apply(&mut chart.lines, config.chord_cap);
+            if !report.is_empty() {
+                tracing::info!(
+                    "chord cap {:?}: {} notes converted ({} blocked by held notes)",
+                    config.chord_cap,
+                    report.changed,
+                    report.blocked_by_holds
+                );
+            }
+        }
         info.format = Some(chart_format.clone());
         crate::extensions::chart_loaded(&chart, &info, &config, &chart_bytes);
         tracing::info!("game loading: chart parsed; preparing shaders and resources");
@@ -1988,7 +2004,11 @@ impl Scene for GameScene {
         let mut course_finished = false;
         // Capture the last Playing frame even when it transitions to Ending,
         // but never record ending/UI touches or the clamped fade-out clock.
-        let capture_replay = !tm.paused() && self.pause_rewind.is_none() && matches!(self.state, State::BeforeMusic | State::Playing);
+        // 开启三压转双压时不录制：回放按原谱下标回放，转过的谱面会让记录对不上。
+        let capture_replay = !tm.paused()
+            && self.pause_rewind.is_none()
+            && matches!(self.state, State::BeforeMusic | State::Playing)
+            && self.res.config.chord_cap == ChordCap::Off;
         let time = match self.state {
             State::Starting => {
                 if time >= Self::BEFORE_TIME {

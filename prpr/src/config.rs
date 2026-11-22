@@ -88,6 +88,28 @@ pub enum HealthFailureEffect {
     Slowdown,
 }
 
+/// Phira Pro：三压以上谱面自动改成双压。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ChordCap {
+    /// 不改动谱面。
+    #[default]
+    Off,
+    /// 保留两个音符，其余转成 Drag（物量与满分不变）。
+    ToDrag,
+    /// 保留两个音符，其余删除（物量和满分按双压结算）。
+    Delete,
+}
+
+impl ChordCap {
+    pub const ALL: [ChordCap; 3] = [Self::Off, Self::ToDrag, Self::Delete];
+
+    pub fn next(self) -> Self {
+        let i = Self::ALL.iter().position(|it| *it == self).unwrap_or(0);
+        Self::ALL[(i + 1) % Self::ALL.len()]
+    }
+}
+
 bitflags! {
     #[derive(Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq, Debug)]
     #[serde(transparent)]
@@ -233,6 +255,8 @@ pub struct Config {
     pub chart_debug_note: bool,
     /// Restore integral-based official Hold length for resource pack compatibility.
     pub legacy_hold_rendering: bool,
+    /// Phira Pro：三压以上自动改成双压。见 [`ChordCap`]。
+    pub chord_cap: ChordCap,
     /// Android editor only: bypass the WebView GPU compositor if it shows black.
     pub rpen_software_rendering: bool,
     pub disable_effect: bool,
@@ -459,6 +483,7 @@ impl Default for Config {
             chart_debug_line: false,
             chart_debug_note: false,
             legacy_hold_rendering: false,
+            chord_cap: ChordCap::Off,
             rpen_software_rendering: false,
             disable_effect: false,
             double_click_to_pause: true,
@@ -824,6 +849,10 @@ impl Config {
         if self.hold_tail_judge {
             items.push("hold_tail_judge");
         }
+        // 三压转双压把谱面难度降低了，成绩与官方不可比，只能留在本机。
+        if self.chord_cap != ChordCap::Off {
+            items.push("chord_cap");
+        }
         items
     }
 
@@ -865,6 +894,7 @@ impl Config {
                 "drag_protect" => self.drag_protect = false,
                 "flick_protect" => self.flick_protect = false,
                 "hold_tail_judge" => self.hold_tail_judge = false,
+                "chord_cap" => self.chord_cap = ChordCap::Off,
                 "hp_amount" => self.hp_amount = 1.,
                 "hp_scale" => self.hp_scale = 1.,
                 _ => {}
@@ -891,6 +921,7 @@ impl Config {
         self.drag_protect = false;
         self.flick_protect = false;
         self.hold_tail_judge = false;
+        self.chord_cap = ChordCap::Off;
         self.practice_ramp = false;
         self.mods
             .remove(Mods::FULLSCREEN_JUDGE | Mods::NO_FAIL | Mods::NO_COMBO_SCORE | Mods::STRICT_JUDGE | Mods::MILTHM);
@@ -1003,7 +1034,7 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, Mods, UNLIMITED_FPS};
+    use super::{ChordCap, Config, Mods, UNLIMITED_FPS};
 
     #[test]
     fn line_elision_defaults_on() {
@@ -1331,5 +1362,20 @@ mod tests {
         assert_eq!(changed.len(), items.len());
         assert!(conf.is_official_play(mods));
         assert!(!mods.intersects(Mods::UNRATED | Mods::STRICT_JUDGE));
+
+        // 三压转双压降低谱面难度，只能留在本机；两种模式都必须被拦下。
+        for mode in [ChordCap::ToDrag, ChordCap::Delete] {
+            let mut conf = Config::default();
+            conf.chord_cap = mode;
+            assert_eq!(conf.non_official_items(Mods::empty()), vec!["chord_cap"]);
+            assert!(!conf.is_official_play(Mods::empty()));
+            assert_eq!(conf.force_official_play(&mut Mods::empty()), vec!["chord_cap"]);
+            assert_eq!(conf.chord_cap, ChordCap::Off);
+            assert!(conf.is_official_play(Mods::empty()));
+        }
+        // 默认就是关闭，开关循环必须能回到关闭。
+        assert_eq!(ChordCap::Off.next(), ChordCap::ToDrag);
+        assert_eq!(ChordCap::ToDrag.next(), ChordCap::Delete);
+        assert_eq!(ChordCap::Delete.next(), ChordCap::Off);
     }
 }

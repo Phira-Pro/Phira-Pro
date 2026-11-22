@@ -1,5 +1,5 @@
 //! Course rules are applied to a session copy and never overwrite saved presets.
-use crate::config::{Config, JudgeAlgorithm, Mods};
+use crate::config::{ChordCap, Config, JudgeAlgorithm, Mods};
 
 /// Remaining LIFE in tenths of a point, carried between charts of one course.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,6 +23,8 @@ pub fn config(source: &Config) -> Config {
     c.speed = 1.;
     c.input_latency_compensation_ms = 0.;
     c.hold_tail_judge = false;
+    // 课题模式固定使用原谱：三压转双压属于降低难度，不在这里生效。
+    c.chord_cap = ChordCap::Off;
     c.drag_protect = true;
     c.flick_protect = true;
     c.practice_active = false;

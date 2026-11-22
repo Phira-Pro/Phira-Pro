@@ -180,6 +180,12 @@ impl JudgeLineCache {
             }
         }
     }
+
+    /// 供测试确认音符数量变化后缓存已经重建。
+    #[cfg(test)]
+    pub(crate) fn tracked_len(&self) -> usize {
+        self.update_order.len()
+    }
 }
 
 pub struct JudgeLine {

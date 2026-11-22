@@ -1,6 +1,7 @@
 //! Core module for prpr, submodules:
 //!   - [crate::core::anim]
 //!   - [crate::core::chart]
+//!   - [crate::core::chord_cap]
 //!   - [crate::core::effect]
 //!   - [crate::core::line]
 //!   - [crate::core::note]
@@ -39,6 +40,7 @@ pub use block_shader::{draw_disabled_zones, draw_zones, draw_zones_with_touches,
 
 mod block_timeline;
 mod chart;
+pub mod chord_cap;
 pub(crate) mod rpe_block;
 pub mod rpe_next_block;
 pub mod rpen_scene;

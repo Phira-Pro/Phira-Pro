@@ -28,7 +28,7 @@ use macroquad::prelude::*;
 use once_cell::sync::Lazy;
 use prpr::ui::Dialog;
 use prpr::{
-    config::{Config, HealthFailureEffect, LOG_STORAGE_LIMITS_MIB},
+    config::{ChordCap, Config, HealthFailureEffect, LOG_STORAGE_LIMITS_MIB},
     core::BOLD_FONT,
     ext::{open_url, poll_future, semi_white, LocalTask, RectExt, SafeTexture},
     log::{self, LogManager},
@@ -1520,6 +1520,8 @@ struct ChartList {
     show_avg_fps_btn: DRectButton,
     dc_pause_btn: DRectButton,
     dhint_btn: DRectButton,
+    /// 三压以上自动改双压：关闭 / 转 Drag / 删除。
+    chord_cap_btn: DRectButton,
     use_keyboard_btn: DRectButton,
     speed_slider: Slider,
     size_slider: Slider,
@@ -1563,6 +1565,7 @@ impl ChartList {
             show_avg_fps_btn: DRectButton::new(),
             dc_pause_btn: DRectButton::new(),
             dhint_btn: DRectButton::new(),
+            chord_cap_btn: DRectButton::new(),
             use_keyboard_btn: DRectButton::new(),
             speed_slider: Slider::new(if cfg!(flash) { 1.0..2.0 } else { 0.5..2.0 }, 0.01),
             size_slider: Slider::new(0.8..1.2, 0.005),
@@ -1625,6 +1628,10 @@ impl ChartList {
         }
         if self.dhint_btn.touch(touch, t) {
             config.double_hint ^= true;
+            return Ok(Some(true));
+        }
+        if self.chord_cap_btn.touch(touch, t) {
+            config.chord_cap = config.chord_cap.next();
             return Ok(Some(true));
         }
         // Phira Pro Flash（轻量版）：不提供键盘模式。
@@ -1800,6 +1807,15 @@ impl ChartList {
         item! {
             render_title(ui, tl!("item-dhint"), Some(tl!("item-dhint-sub")));
             render_switch(ui, rr, t, &mut self.dhint_btn, config.double_hint);
+        }
+        item! {
+            render_title(ui, tl!("item-chord-cap"), Some(tl!("item-chord-cap-sub")));
+            let label = match config.chord_cap {
+                ChordCap::Off => tl!("chord-cap-off"),
+                ChordCap::ToDrag => tl!("chord-cap-to-drag"),
+                ChordCap::Delete => tl!("chord-cap-delete"),
+            };
+            self.chord_cap_btn.render_text(ui, rr, t, label, 0.44, false);
         }
         // Phira Pro Flash（轻量版）：不提供键盘模式。
         if !cfg!(flash) {

@@ -43,6 +43,9 @@ pub use settings::SettingsPage;
 pub mod render;
 pub use render::RenderPage;
 
+pub mod replay_render;
+pub use replay_render::ReplayRenderPage;
+
 mod search_bar;
 
 mod transfer;

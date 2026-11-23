@@ -190,6 +190,12 @@ Android 制谱器会显示加载阶段，超时后可普通重试、使用默认
 - **渲染内核与扩展**：`prpr/src/chart_video/` 分离配置、时间轴、演出画面、音轨、编码器和会话。预留独立原生扩展实例、逐阶段回调、逐帧行为、分层绘制与音频处理接口，详见 [扩展约定](docs/development/chart-video-extensions.md)；脚本插件适配尚未接入。命令行示例 `prpr/examples/render_chart_video.rs` 支持 `FULL_PRESENTATION=1` 启用完整演出。实现及限制见 [谱面渲染](docs/development/pro-17-chart-video.md)。
 - **Android 构建**：`scripts/build-android-ffmpeg.sh` 会在 Gradle 构建时（任务 `ffmpegNdkBuild`）自动下载 x264 与 ffmpeg 源码并交叉编译成 `libffmpeg.so` 一起打进 APK，产物首次约需十几分钟，源码与中间结果缓存在 `target/android-ffmpeg`。渲染器的版本名为 `0.8.3-pro.18-render`（`applicationId` 与上游一致，安装会覆盖同名的官方包）。为了能启动这个内置的 ffmpeg 子进程，渲染器包的 `targetSdk` 是 28（Android 10+ 对 `targetSdk >= 29` 的应用禁止执行数据目录里的文件）。手机上渲染完成后视频会通过 MediaStore 存入系统「下载/PhiraPro」，可以直接在文件管理器里找到。
 
+### 回放渲染（PPR Render）
+
+- **把回放导出成视频**：从「设置 → 调试 → 回放渲染」进入。选择 Phira Pro 导出的 `.ppr` 回放（v3–v6，含 Zstandard 压缩的 v5／v6），页面会按回放记录的谱面引用、同名文件和应用谱面库自动匹配谱面；也可以从谱面库选择，或直接选谱面 ZIP。点「开始导出」后输出到 `data/render/`，Android 会经 MediaStore 保存到系统「下载/PhiraPro」。
+- **按回放录制内容渲染**：画面沿用 Phira Pro 的谱面、HUD、打击特效、开场加载与结算演出，但谱面阶段使用回放记录的判定、连击、长条状态和触点，不是自动演示；音轨由音乐、打击音和结算音乐按视频时钟离线合成。支持 720p / 1080p / 1440p / 2160p、30 / 60 / 120 / 240 FPS，可单独开关开场、结算、HUD、触点、音轨，以及 AP/FC、双押提示、打击特效、实时准确率和判定详情。导出过程显示帧数、速度与阶段，可取消；应用内也可用「预览回放画面」直接以同一套回放时钟查看。
+- **来源**：`phira/src/replay_render/` 移植自 PPR Render 1.0.0（GPL-3.0-only），原先独立分发的播放器／导出器现在作为 Phira Pro 的一个页面运行，不再需要单独的 APK。渲染内核仍是 `prpr`，与「谱面渲染」共用 `data/render/` 输出目录。
+
 ### 其他
 
 - iOS「设置 → 性能」提供 60／120 Hz 和「无上限」选项；「无上限」申请设备支持的最高刷新率。渲染沿用原版的 GLKViewController 驱动，不再暂停其驱动后额外调用 GLKView.display；前后台恢复时重新申请偏好帧率。

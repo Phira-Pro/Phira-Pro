@@ -57,6 +57,7 @@ mod ppsr_features;
 mod practice_tools;
 mod rate;
 mod replay;
+mod replay_render;
 mod resource;
 mod scene;
 mod startup;
@@ -606,6 +607,9 @@ async fn the_main() -> Result<()> {
     } else {
         None
     };
+    // 回放视频导出使用独立的绘制器，避免导出画面受界面字号缩放影响；
+    // 字体数据与主界面一致，导出时再临时取用。
+    replay_render::install_painter(TextPainter::new(font.clone(), fallback.clone()));
     let mut painter = TextPainter::new(font.clone(), fallback);
     if has_custom_font {
         painter.normalize_to(&reference);

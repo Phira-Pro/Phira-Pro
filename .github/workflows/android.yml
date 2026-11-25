@@ -128,6 +128,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(python scripts/version.py show --field pro_version)"
+          python scripts/package_licenses.py phira-android/app/build/outputs/apk/release/app-release.apk
           mkdir -p dist/android
           cp phira-android/app/build/outputs/apk/release/app-release.apk "dist/android/PhiraPro-v${VERSION}-android-arm64-v8a.apk"
 

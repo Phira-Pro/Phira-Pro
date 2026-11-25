@@ -32,6 +32,7 @@ const BUDGET: Duration = Duration::from_millis(45);
 
 struct Selected {
     local_path: String,
+    chart_id: Option<i32>,
     name: String,
     subtitle: String,
     difficulty: f32,
@@ -46,6 +47,7 @@ enum Job {
 pub struct RenderPage {
     prefs: Prefs,
     selected: Option<Selected>,
+    replay_file: Option<PathBuf>,
     pick_request: bool,
     category: settings::Category,
     scroll: Scroll,
@@ -55,6 +57,8 @@ pub struct RenderPage {
     resource_pack_selector: crate::popup::ChooseButton,
     fields: Vec<DRectButton>,
     pick: DRectButton,
+    pick_replay: DRectButton,
+    clear_replay: DRectButton,
     start: DRectButton,
     open: DRectButton,
     encoder_button: DRectButton,

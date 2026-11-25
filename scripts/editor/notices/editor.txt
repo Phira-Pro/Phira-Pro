@@ -1,0 +1,6 @@
+License scope in this Phira Pro distribution
+
+- pro/: Phira Pro integration contributions are designated GPL-3.0-only; see pro/LICENSE and pro/NOTICE.
+- src/ui/mod-runtime.mjs and src/ui/mod-modules.mjs: Phira Pro overlay contributions are designated GPL-3.0-only; see src/ui/LICENSE-Phira-Pro and src/ui/NOTICE-Phira-Pro.
+- Other RPEN files remain under PolyForm Noncommercial 1.0.0 (LICENSE), unless their own notices identify different terms. The original implementation preserved as src/ui/mod-runtime.upstream.mjs retains its upstream terms.
+- Third-party code, artwork, fonts and models retain their respective licenses and attribution notices.

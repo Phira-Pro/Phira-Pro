@@ -637,6 +637,7 @@ pub struct GameScene {
     pub hide_ui: bool,
     /// Only offline export opts into independent HUD indicators.
     pub(crate) video_indicators: Option<bool>,
+    pub(crate) video_life_bar: bool,
     pub res: Resource,
     /// Keep the original result-screen backdrop separate from the configurable
     /// gameplay background blur.
@@ -1080,6 +1081,7 @@ impl GameScene {
             mode,
             hide_ui: false,
             video_indicators: None,
+            video_life_bar: false,
             res,
             ending_background,
             chart,
@@ -1296,23 +1298,30 @@ impl GameScene {
                         .size(0.8)
                         .color(c)
                         .draw_using(&PGR_FONT);
+                    // 准度与「可达最高准确率」上下排，判定详情接在它们下面。
+                    let mut info_top = score_top + h;
                     if res.config.show_acc {
                         ui.text(format!("{:05.2}%", self.judge.real_time_accuracy() * 100.))
-                            .pos(1. - margin, score_top + h)
+                            .pos(1. - margin, info_top)
                             .anchor(1., 0.)
                             .size(0.4)
                             .color(Color { a: c.a * 0.7, ..c })
                             .draw_using(&PGR_FONT);
+                        info_top += 0.045;
+                    }
+                    // 练习模式只打区间内的一小段，`num_of_notes` 仍是整张谱，上限会低得
+                    // 没有意义（区间外的音符永远「未判定」），所以那里不显示。
+                    if res.config.show_max_acc && !res.config.practice_active {
+                        ui.text(format!("MAX {:05.2}%", self.judge.max_accuracy() * 100.))
+                            .pos(1. - margin, info_top)
+                            .anchor(1., 0.)
+                            .size(0.4)
+                            .color(Color { a: c.a * 0.55, ..c })
+                            .draw_using(&PGR_FONT);
+                        info_top += 0.045;
                     }
                     if res.config.show_judgement_details {
-                        judgement_details::draw(
-                            ui,
-                            res.config.judge_grading,
-                            self.judge.counts(),
-                            score_right,
-                            score_top + h + if res.config.show_acc { 0.045 } else { 0. },
-                            c.a,
-                        );
+                        judgement_details::draw(ui, res.config.judge_grading, self.judge.counts(), score_right, info_top, c.a);
                     }
                 });
 
@@ -2545,7 +2554,7 @@ impl Scene for GameScene {
         // The practice covers belong to the screen, not the chart camera; draw
         // them after switching so they stay pinned while zooming/panning.
         crate::core::hide_cover::draw(res);
-        if !self.hide_ui && res.config.hp_mode {
+        if res.config.hp_mode && (!self.hide_ui || self.video_life_bar) {
             let old_top = std::mem::replace(&mut ui.top, 1. / res.aspect_ratio);
             let opacity = res.alpha * self.video_entrance.map_or(1., |(_, hud)| hud);
             self.life_bar.draw(ui, &res.config, self.judge.hp(), res.time, opacity);

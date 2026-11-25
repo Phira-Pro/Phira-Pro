@@ -38,6 +38,9 @@ pub(super) fn load_prefs() -> Prefs {
         .unwrap_or_default();
     prefs.res = prefs.res.min(super::RESOLUTIONS.len() - 1);
     prefs.fps = prefs.fps.min(super::FPS_CHOICES.len() - 1);
+    if prefs.visuals.validate().is_err() {
+        prefs.visuals.life_capacity = VisualOptions::default().life_capacity;
+    }
     if prefs.presentation.validate().is_err() {
         prefs.presentation = PresentationOptions::default();
     }

@@ -1,5 +1,6 @@
 //! Real GameScene playback and management regression, confined to a temporary data root.
-use super::*;
+use super::{fixtures::{chart_fixture, local, wave}, *};
+use prpr::judge::Judgement as TJ;
 use crate::{
     data::{Data, LocalChart},
     replay::{JudgeEvent, Metadata, TouchEvent},
@@ -12,51 +13,6 @@ use prpr::{
 };
 use std::io::Write;
 
-async fn local<T>(future: impl std::future::Future<Output = T>) -> T {
-    let mut future = Box::pin(future);
-    loop {
-        if let Some(value) = prpr::ext::poll_future(future.as_mut()) {
-            return value;
-        }
-        next_frame().await;
-    }
-}
-fn wave(seconds: u32) -> Vec<u8> {
-    let n = 8000 * seconds * 2;
-    let mut b = Vec::new();
-    b.extend(b"RIFF");
-    b.extend((36 + n).to_le_bytes());
-    b.extend(b"WAVEfmt ");
-    b.extend(16u32.to_le_bytes());
-    b.extend(1u16.to_le_bytes());
-    b.extend(1u16.to_le_bytes());
-    b.extend(8000u32.to_le_bytes());
-    b.extend(16000u32.to_le_bytes());
-    b.extend(2u16.to_le_bytes());
-    b.extend(16u16.to_le_bytes());
-    b.extend(b"data");
-    b.extend(n.to_le_bytes());
-    b.resize(b.len() + n as usize, 0);
-    b
-}
-fn chart_fixture(root: &std::path::Path, name: &str) -> ChartInfo {
-    let directory = root.join("data/charts").join(name);
-    std::fs::create_dir_all(&directory).unwrap();
-    let info = ChartInfo {
-        name: "Replay transport QA".into(),
-        level: "IN 15".into(),
-        music: "song.wav".into(),
-        ..Default::default()
-    };
-    std::fs::write(directory.join("info.yml"), serde_yaml::to_string(&info).unwrap()).unwrap();
-    std::fs::write(directory.join("song.wav"), wave(12)).unwrap();
-    Image::gen_image_color(32, 32, Color::new(0.1, 0.2, 0.3, 1.)).export_png(directory.join("background.png").to_str().unwrap());
-    let note = |kind: u8, time: i32, hold: i32| serde_json::json!({"type":kind,"time":time,"positionX":0,"holdTime":hold,"speed":1,"floorPosition":time as f32/64.});
-    let event = |v: f32| serde_json::json!([{"startTime":0,"endTime":1000000,"start":v,"end":v,"start2":0.5,"end2":0.5}]);
-    let chart = serde_json::json!({"formatVersion":3,"offset":0,"numOfNotes":4,"judgeLineList":[{"bpm":120,"notesAbove":[note(1,64,0),note(3,128,192),note(1,384,0),note(1,512,0)],"notesBelow":[],"speedEvents":[{"startTime":0,"endTime":1000000,"value":1}],"judgeLineMoveEvents":event(0.5),"judgeLineRotateEvents":event(0.),"judgeLineDisappearEvents":event(1.)}]});
-    std::fs::write(directory.join("chart.json"), serde_json::to_vec(&chart).unwrap()).unwrap();
-    info
-}
 fn screenshot(painter: &mut TextPainter, scene: &mut ReplayScene, tm: &mut TimeManager, w: i32, h: i32, name: &str) -> Image {
     let mut ui = Ui::new(painter, Some((0, 0, w, h)));
     scene.render(tm, &mut ui).unwrap();
@@ -1259,14 +1215,14 @@ fn production_replay_transport_import_and_aspects() {
             let mut tm = TimeManager::manual(Box::new(move || source_clock.get()));
             Scene::enter(&mut scene, &mut tm, None).unwrap();
             // Frame stepping must preserve visible hit effects in both directions.
-            let original_frames = scene.replay.frames.clone();
-            let original_note = scene.replay.judges[0].note;
-            scene.replay.judges[0].note = scene.game_scene.chart.lines[0]
+            let original_frames = scene.playback.replay.frames.clone();
+            let original_note = scene.playback.replay.judges[0].note;
+            scene.playback.replay.judges[0].note = scene.game_scene.chart.lines[0]
                 .notes
                 .iter()
                 .position(|n| matches!(n.kind, prpr::core::NoteKind::Click))
                 .unwrap() as u32;
-            scene.replay.frames = vec![0., 0.99, 1.017, 1.04];
+            scene.playback.replay.frames = vec![0., 0.99, 1.017, 1.04];
             scene.game_scene.res.config.particle = true;
             for (from, button, target, name) in [(0.99, 5, 1.017, "forward"), (1.04, 4, 1.017, "backward")] {
                 scene.seek(from);
@@ -1284,8 +1240,8 @@ fn production_replay_transport_import_and_aspects() {
                 assert_eq!(scene.game_scene.judge.counts()[4], 1);
                 scene.game_scene.res.config.particle = true;
             }
-            scene.replay.frames = original_frames;
-            scene.replay.judges[0].note = original_note;
+            scene.playback.replay.frames = original_frames;
+            scene.playback.replay.judges[0].note = original_note;
             scene.checkpoints.clear();
 
             // A held contact becomes blocked while the region is active, stays
@@ -1304,8 +1260,8 @@ fn production_replay_transport_import_and_aspects() {
                 scale_events: vec![],
             });
             scene.fingers = false;
-            scene.replay.frames.push(1.5);
-            scene.replay.frames.sort_by(f64::total_cmp);
+            scene.playback.replay.frames.push(1.5);
+            scene.playback.replay.frames.sort_by(f64::total_cmp);
             scene.seek(3.5);
             assert_eq!(scene.game_scene.chart.blocked_touches.len(), 2, "seek must replay blocking before the area disappeared");
             scene.seek(1.5);
@@ -1318,7 +1274,7 @@ fn production_replay_transport_import_and_aspects() {
             scene.seek(3.5);
             assert_eq!(scene.game_scene.chart.blocked_touches.len(), 2, "checkpoint must retain sticky blocking");
             scene.game_scene.chart.block_areas.clear();
-            scene.replay.frames.retain(|t| *t != 1.5);
+            scene.playback.replay.frames.retain(|t| *t != 1.5);
             scene.checkpoints.clear();
             scene.seek(0.);
             scene.fingers = true;
@@ -1361,19 +1317,19 @@ fn production_replay_transport_import_and_aspects() {
                 click(&mut scene, &mut tm, position);
                 assert_eq!(scene.current, expected, "button {index}");
             }
-            let original_frames = std::mem::replace(&mut scene.replay.frames, (0..=1440).map(|i| i as f64 / 120.).collect());
+            let original_frames = std::mem::replace(&mut scene.playback.replay.frames, (0..=1440).map(|i| i as f64 / 120.).collect());
             scene.seek(3.);
             for (index, column, frame) in [(3, 0, 350), (4, 1, 349), (5, 2, 350), (6, 3, 360)] {
                 click_analysis(&mut scene, &mut tm, index, column, false);
                 assert!((scene.current - frame as f64 / 120.).abs() < 1e-9);
                 assert!(!scene.playing && !scene.frame_fallback);
             }
-            scene.replay.frames = vec![0., 12.];
+            scene.playback.replay.frames = vec![0., 12.];
             click_analysis(&mut scene, &mut tm, 5, 2, false);
             assert!((scene.current - (3. + 1. / 60.)).abs() < 1e-9 && scene.frame_fallback);
             click_analysis(&mut scene, &mut tm, 4, 1, false);
             assert!((scene.current - 3.).abs() < 1e-9);
-            scene.replay.frames = original_frames;
+            scene.playback.replay.frames = original_frames;
             click_analysis(&mut scene, &mut tm, 7, 4, false);
             assert_eq!(scene.a, Some(3.));
             scene.seek(5.);
@@ -1483,7 +1439,7 @@ fn production_replay_transport_import_and_aspects() {
             scene.seek(1.5);
             assert_eq!(scene.game_scene.judge.counts()[4], 1);
             scene.apply_touches(2.);
-            let &(pos, index) = scene.current_touches.get(&u64::MAX).unwrap();
+            let &(pos, index) = scene.playback.current_touches.get(&u64::MAX).unwrap();
             assert!((scene.touch_position(pos, index, 2.).x - 0.1).abs() < 0.001);
             scene.seek(3.);
             assert!(matches!(scene.game_scene.chart.lines[0].notes[1].judge, JudgeStatus::Hold(..)));
@@ -1495,12 +1451,12 @@ fn production_replay_transport_import_and_aspects() {
             assert_eq!(counts, [1, 0, 1, 1, 1, 0, 0, 0]);
             let score = scene.game_scene.judge.score(false);
             assert_eq!(score, tape.meta.result.as_ref().unwrap().score);
-            let last_time = scene.replay.judges.last().unwrap().t;
-            scene.replay.judges.last_mut().unwrap().t = 12.2;
+            let last_time = scene.playback.replay.judges.last().unwrap().t;
+            scene.playback.replay.judges.last_mut().unwrap().t = 12.2;
             assert!(scene.end() > 12.2);
             scene.seek(scene.end());
             assert_eq!(scene.game_scene.judge.counts(), counts);
-            scene.replay.judges.last_mut().unwrap().t = last_time;
+            scene.playback.replay.judges.last_mut().unwrap().t = last_time;
             scene.seek(1.5);
             assert_eq!(scene.game_scene.judge.counts().iter().sum::<u32>(), 1);
             scene.seek(8.5);

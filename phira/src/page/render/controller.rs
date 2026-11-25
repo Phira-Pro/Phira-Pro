@@ -22,6 +22,7 @@ impl RenderPage {
             resource_packs,
             resource_pack_selector,
             selected: None,
+            replay_file: None,
             pick_request: false,
             category: settings::Category::Output,
             scroll: Scroll::new(),
@@ -29,6 +30,8 @@ impl RenderPage {
             tabs: std::array::from_fn(|_| DRectButton::new().with_radius(0.006)),
             fields: settings::FIELDS.iter().map(|_| DRectButton::new().with_radius(0.006)).collect(),
             pick: DRectButton::new().with_radius(0.008),
+            pick_replay: DRectButton::new().with_radius(0.008),
+            clear_replay: DRectButton::new().with_radius(0.008),
             start: DRectButton::new().with_radius(0.008),
             open: DRectButton::new().with_radius(0.008),
             encoder_button: DRectButton::new().with_radius(0.006),
@@ -53,9 +56,10 @@ impl RenderPage {
     }
     fn output_path(&self) -> Option<PathBuf> {
         let selected = self.selected.as_ref()?;
+        let suffix = if self.replay_file.is_some() { "-replay" } else { "" };
         Some(
             self.out_dir()
-                .join(format!("{} [{:.1}].mp4", sanitize(&selected.name), selected.difficulty)),
+                .join(format!("{} [{:.1}]{suffix}.mp4", sanitize(&selected.name), selected.difficulty)),
         )
     }
     fn options(&self) -> Result<VideoOptions> {
@@ -101,7 +105,15 @@ impl RenderPage {
         let out = self.output_path().context("无法生成视频文件名")?;
         let options = self.options()?;
         options.validate()?;
-        self.job = Job::Loading(Box::pin(ChartVideoRenderer::new(chart, options, out)));
+        self.job = Job::Loading(if let Some(path) = self.replay_file.clone() {
+            let chart_id = self.selected.as_ref().and_then(|selected| selected.chart_id);
+            Box::pin(async move {
+                let replay = crate::scene::replay::VideoReplay::load(path, &chart, chart_id).await?;
+                ChartVideoRenderer::new_with_replay(chart, options, out, Box::new(replay)).await
+            })
+        } else {
+            Box::pin(ChartVideoRenderer::new(chart, options, out))
+        });
         Ok(())
     }
 
@@ -198,6 +210,7 @@ impl Page for RenderPage {
         if let Some(chart) = get_data().charts.iter().find(|c| c.local_path == local_path) {
             self.selected = Some(Selected {
                 local_path,
+                chart_id: chart.info.id,
                 name: chart.info.name.clone(),
                 difficulty: chart.info.difficulty,
                 subtitle: [chart.info.composer.as_str(), chart.info.level.as_str(), chart.info.charter.as_str()]
@@ -241,7 +254,11 @@ impl Page for RenderPage {
             }
         }
         if let Some((id, path)) = take_file() {
-            if id == "render-avatar" {
+            if id == "render-replay" {
+                if !path.is_empty() && !self.busy() {
+                    self.replay_file = Some(path.into());
+                }
+            } else if id == "render-avatar" {
                 if !path.is_empty() && !self.busy() {
                     self.prefs.presentation.result.avatar = Some(path.into());
                     self.changed();
@@ -278,7 +295,7 @@ impl Page for RenderPage {
             for button in self.tabs.iter_mut().chain(self.fields.iter_mut()) {
                 button.cancel(t);
             }
-            for button in [&mut self.pick, &mut self.start, &mut self.open, &mut self.encoder_button] {
+            for button in [&mut self.pick, &mut self.pick_replay, &mut self.clear_replay, &mut self.start, &mut self.open, &mut self.encoder_button] {
                 button.cancel(t);
             }
             return Ok(true);
@@ -298,6 +315,14 @@ impl Page for RenderPage {
         }
         if !self.busy() && self.pick.touch(touch, t) {
             self.pick_request = true;
+            return Ok(true);
+        }
+        if !self.busy() && self.clear_replay.touch(touch, t) {
+            self.replay_file = None;
+            return Ok(true);
+        }
+        if !self.busy() && self.pick_replay.touch(touch, t) {
+            request_file("render-replay");
             return Ok(true);
         }
         if self.open.touch(touch, t) {

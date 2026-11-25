@@ -75,6 +75,8 @@ preferred-sample-rate-default = System Default
 item-audio-buffer-size = Audio Buffer Size
 
 item-show-acc = Real-Time Accuracy
+item-show-max-acc = Maximum Accuracy
+item-show-max-acc-sub = Show the highest accuracy this run can still reach if every remaining note is Perfect. Notes you miss or hit late permanently lower that ceiling.
 item-show-avg-fps = Show AVG FPS
 item-show-avg-fps-sub = Display the average FPS on the results screen.
 item-ap-fc-indicator = AP/FC Indicator

@@ -81,6 +81,11 @@ async fn pixels(chart: &Path, options: VideoOptions, painter: &mut TextPainter, 
     assert_eq!(renderer.scene.res.config.show_acc, options.visuals.show_acc);
     assert_eq!(renderer.scene.res.config.show_judgement_details, options.visuals.show_judgement_details);
     assert_eq!(renderer.scene.res.config.show_perfect_combo, options.visuals.show_perfect_combo);
+    assert_eq!(renderer.scene.res.config.hp_mode, options.visuals.show_life_bar);
+    if options.visuals.show_life_bar {
+        assert_eq!(renderer.scene.res.config.hp_capacity(), options.visuals.life_capacity);
+        assert_eq!(renderer.scene.res.config.hp_color, options.visuals.life_color);
+    }
     if options.res_pack_path.is_some() {
         let texture = renderer.scene.res.res_pack.note_style.click.get_texture_data();
         assert_eq!((texture.width, texture.height), (24, 12));
@@ -102,6 +107,10 @@ fn save_video_png(bytes: &[u8], width: u32, height: u32, name: &str) {
     image::imageops::flip_vertical(&raw)
         .save(format!("target/render-resource-qa/{name}.png"))
         .unwrap();
+}
+
+fn red_pixels_at_top(pixels: impl Iterator<Item = [u8; 4]>) -> usize {
+    pixels.filter(|[r, g, b, _]| *r > 75 && r.saturating_sub(*g) > 35 && r.saturating_sub(*b) > 35).count()
 }
 
 #[test]
@@ -160,6 +169,15 @@ fn export_resource_pack_visuals_and_audio() {
                     "{name} must change actual pixels with the main HUD hidden"
                 );
             }
+            let mut life = options.clone();
+            life.visuals.show_life_bar = true;
+            life.visuals.life_capacity = 999;
+            let full = pixels(&chart, life.clone(), &mut painter, "life-999").await;
+            // GL readback is bottom-up. Inspect the upper 54 rows of the 640 × 360 frame.
+            let red_at_top = |frame: &[u8]| red_pixels_at_top(frame.chunks_exact(4).rev().take(640 * 54).map(|p| p.try_into().unwrap()));
+            assert!(red_at_top(&full) > red_at_top(&baseline) + 100, "LIFE must render with the main HUD hidden");
+            life.visuals.life_capacity = 1;
+            assert_ne!(pixels(&chart, life, &mut painter, "life-1").await, full, "life capacity must change the rendered number");
             let mut builtin = options.clone();
             builtin.res_pack_path = None;
             assert_ne!(pixels(&chart, builtin, &mut painter, "builtin").await, baseline);
@@ -181,6 +199,8 @@ fn export_resource_pack_visuals_and_audio() {
             export.visuals.show_acc = true;
             export.visuals.show_judgement_details = true;
             export.visuals.show_early_late = true;
+            export.visuals.show_life_bar = true;
+            export.visuals.life_capacity = 999;
             export.presentation.ending = true;
             export.presentation.ending_seconds = 2.;
             export.presentation.audio.ending_delay_seconds = 0.;
@@ -216,6 +236,7 @@ fn export_resource_pack_visuals_and_audio() {
                 .unwrap();
             assert!(status.success());
             let decoded_frame = image::open(screenshot).unwrap().into_rgba8();
+            assert!(red_pixels_at_top(decoded_frame.pixels().take(640 * 54).map(|p| p.0)) > 100, "LIFE must survive MP4 encoding");
             let raw = image::RgbaImage::from_raw(640, 360, reference.unwrap()).unwrap();
             let upright = image::imageops::flip_vertical(&raw);
             let difference = |expected: &image::RgbaImage| {

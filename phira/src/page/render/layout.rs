@@ -3,6 +3,7 @@ use macroquad::prelude::*;
 pub(super) struct Layout {
     pub outer: Rect,
     pub chart: Rect,
+    pub replay: Rect,
     pub tabs: Rect,
     pub settings: Rect,
     pub status: Rect,
@@ -13,7 +14,8 @@ impl Layout {
         let outer = Rect::new(content.x + 0.015, content.y + 0.01, content.w - 0.03, content.h - 0.02);
         let x = outer.x + 0.02;
         let w = outer.w - 0.04;
-        let chart = Rect::new(x, outer.y + 0.018, w, 0.09);
+        let chart = Rect::new(x, outer.y + 0.018, w * 0.55, 0.09);
+        let replay = Rect::new(chart.right() + 0.012, chart.y, w - chart.w - 0.012, chart.h);
         let tabs = Rect::new(x, chart.bottom() + 0.014, w, 0.065);
         let footer_y = outer.bottom() - 0.09;
         let button_w = ((w - 0.016) / 2.).min(0.5);
@@ -23,6 +25,7 @@ impl Layout {
         Self {
             outer,
             chart,
+            replay,
             tabs,
             settings,
             status,
@@ -39,6 +42,8 @@ mod tests {
             let content = Rect::new(-0.7, -1. / aspect + 0.15, 1.67, 2. / aspect - 0.18);
             let layout = Layout::new(content);
             assert!(layout.chart.bottom() < layout.tabs.y);
+            assert!(layout.chart.right() < layout.replay.x);
+            assert!(layout.replay.bottom() < layout.tabs.y);
             assert!(layout.tabs.bottom() < layout.settings.y);
             assert!(layout.settings.bottom() < layout.status.y);
             assert!(layout.status.bottom() < layout.footer[0].y);

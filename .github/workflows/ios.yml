@@ -97,6 +97,7 @@ jobs:
           mkdir -p out/Payload
           cp -R "$APP" out/Payload/
           (cd out && zip -qry "PhiraPro-v${VERSION}-ios-arm64-unsigned.ipa" Payload)
+          python scripts/package_licenses.py "out/PhiraPro-v${VERSION}-ios-arm64-unsigned.ipa"
 
           ls -lh "out/PhiraPro-v${VERSION}-ios-arm64-unsigned.ipa"
 

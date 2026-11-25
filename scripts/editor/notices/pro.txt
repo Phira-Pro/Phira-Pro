@@ -1,0 +1,6 @@
+Phira Pro editor integration
+
+The Phira Pro contributions in this directory are designated GPL-3.0-only.
+The complete license is in LICENSE. RPEN files used by this integration and
+third-party materials retain their own terms. This notice identifies the
+license scope of the contributions and does not grant rights in upstream code.

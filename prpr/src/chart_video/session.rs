@@ -25,6 +25,15 @@ use std::path::PathBuf;
 #[path = "session/tests.rs"]
 mod tests;
 
+/// A recorded input source for the same offline renderer used by autoplay.
+pub trait ReplayVideoSource {
+    fn configure(&self, config: &mut Config, info: &mut ChartInfo);
+    fn validate(&self, scene: &GameScene) -> Result<()>;
+    fn advance(&mut self, scene: &mut GameScene, chart_time: f64);
+    fn draw_touches(&self, scene: &GameScene, ui: &mut Ui);
+    fn hits(&self, scene: &GameScene) -> Vec<(f64, u32, u32)>;
+}
+
 pub struct ChartVideoRenderer {
     scene: GameScene,
     capture: RenderTarget,
@@ -44,6 +53,8 @@ pub struct ChartVideoRenderer {
     buf: Vec<u8>,
     extensions: ExtensionSet,
     previous_stage: Option<RenderStage>,
+    replay: Option<Box<dyn ReplayVideoSource>>,
+    music_rate: f64,
 }
 
 impl ChartVideoRenderer {
@@ -57,21 +68,25 @@ impl ChartVideoRenderer {
         out: PathBuf,
         extensions: Vec<Box<dyn RenderExtension>>,
     ) -> Result<Self> {
-        Self::load(source, options, Some(out), extensions, None).await
+        Self::load(source, options, Some(out), extensions, None, None).await
+    }
+
+    pub async fn new_with_replay(source: PathBuf, options: VideoOptions, out: PathBuf, replay: Box<dyn ReplayVideoSource>) -> Result<Self> {
+        Self::load(source, options, Some(out), vec![], None, Some(replay)).await
     }
 
     /// Preview uses the same renderer and clock, without FFmpeg or output files.
     pub async fn preview(source: PathBuf, options: VideoOptions) -> Result<Self> {
-        Self::load(source, options, None, vec![], None).await
+        Self::load(source, options, None, vec![], None, None).await
     }
 
     /// Embedded editor preview inherits native gameplay appearance, without
     /// persisting configuration or starting an interactive game session.
     pub async fn preview_with_config(source: PathBuf, options: VideoOptions, config: Config) -> Result<Self> {
-        Self::load(source, options, None, vec![], Some(config)).await
+        Self::load(source, options, None, vec![], Some(config), None).await
     }
 
-    async fn load(source: PathBuf, mut options: VideoOptions, out: Option<PathBuf>, extensions: Vec<Box<dyn RenderExtension>>, config: Option<Config>) -> Result<Self> {
+    async fn load(source: PathBuf, mut options: VideoOptions, out: Option<PathBuf>, extensions: Vec<Box<dyn RenderExtension>>, config: Option<Config>, replay: Option<Box<dyn ReplayVideoSource>>) -> Result<Self> {
         let mut extensions = ExtensionSet::new(extensions);
         for extension in &mut extensions.items {
             extension
@@ -81,6 +96,19 @@ impl ChartVideoRenderer {
         options.validate()?;
         let mut fs = fs_from_file(&source).context("无法打开谱面")?;
         let mut info = load_info(fs.as_mut()).await.context("无法读取谱面信息")?;
+        let mut config = config.unwrap_or_default();
+        if let Some(replay) = &replay {
+            replay.configure(&mut config, &mut info);
+            config.mods.remove(Mods::AUTOPLAY);
+            config.speed = config.speed.max(0.01);
+            if options.presentation.result.player_name.trim().is_empty() {
+                options.presentation.result.player_name = config.player_name.clone();
+            }
+        } else {
+            config.mods = Mods::AUTOPLAY;
+            config.offset = 0.;
+            config.speed = 1.;
+        }
         presentation::apply_metadata(&mut info, &options.presentation);
         if info.tip.as_ref().is_none_or(|tip| tip.trim().is_empty()) {
             info.tip = crate::config::TIPS
@@ -102,15 +130,11 @@ impl ChartVideoRenderer {
         } else {
             None
         };
-        let mut config = config.unwrap_or_default();
-        config.mods = Mods::AUTOPLAY;
         config.volume_music = 0.;
         config.volume_sfx = 0.;
         config.sample_count = options.sample_count.clamp(1, 8);
         config.show_fps = false;
         config.show_avg_fps = false;
-        config.offset = 0.;
-        config.speed = 1.;
         config.adjust_time = false;
         config.interactive = false;
         config.res_pack_path = options.res_pack_path.clone();
@@ -120,6 +144,11 @@ impl ChartVideoRenderer {
             .context("无法加载谱面场景")?;
         scene.hide_ui = !options.show_hud;
         scene.video_indicators = Some(options.visuals.show_early_late);
+        scene.video_life_bar = options.visuals.show_life_bar;
+        if let Some(replay) = &replay {
+            replay.validate(&scene)?;
+        }
+        let music_rate = scene.res.config.speed as f64;
         let avatar = if let Some(path) = &options.presentation.result.avatar {
             let bytes = std::fs::read(path).context("无法读取导出头像，请重新选择图片")?;
             let image = crate::loading_cpu::image(bytes).await.context("导出头像不是有效图片")?;
@@ -157,27 +186,23 @@ impl ChartVideoRenderer {
         };
         let start = options.start.clamp(0., scene.res.track_length);
         let end = options.end.unwrap_or(scene.res.track_length).clamp(start, scene.res.track_length);
-        let timeline = RenderTimeline::new(&options.presentation, options.fps, start, end - start)?;
+        let timeline = RenderTimeline::new(&options.presentation, options.fps, start / music_rate, (end - start) / music_rate)?;
         for extension in &mut extensions.items {
             extension
                 .prepare(&timeline, &assets)
                 .with_context(|| format!("渲染扩展 {} 准备失败", extension.id()))?;
         }
         let soundtrack = if out.is_some() {
-            let mut tracks = audio::soundtrack(&timeline, music, scene.res.res_pack.ending.clone(), &options.presentation.audio);
+            let mut tracks = audio::soundtrack(&timeline, music, scene.res.res_pack.ending.clone(), &options.presentation.audio, music_rate);
             if options.hitsound {
                 if let Some(playing) = timeline.segment(RenderStage::Playing) {
-                    for line in &scene.chart.lines {
-                        for note in &line.notes {
-                            if note.fake {
-                                continue;
-                            }
-                            let at = note.time + scene.offset() as f64 - start;
+                    let mut place = |time: f64, hitsound: &HitSound| {
+                            let at = (time + scene.offset() as f64 - start) / music_rate;
                             if at < 0. || at >= timeline.music_duration {
-                                continue;
+                                return;
                             }
-                            let clip = match &note.hitsound {
-                                HitSound::None => continue,
+                            let clip = match hitsound {
+                                HitSound::None => return,
                                 HitSound::Click => &scene.res.res_pack.sfx_click,
                                 HitSound::Drag => &scene.res.res_pack.sfx_drag,
                                 HitSound::Flick => &scene.res.res_pack.sfx_flick,
@@ -187,10 +212,19 @@ impl ChartVideoRenderer {
                                 clip: clip.clone(),
                                 at: playing.first_frame as f64 / options.fps as f64 + at,
                                 source_start: 0.,
+                                rate: 1.,
                                 duration: clip.length().min(timeline.music_duration - at),
                                 gain: options.presentation.audio.hitsound_volume,
                                 fade: 0.,
                             });
+                    };
+                    if let Some(replay) = &replay {
+                        for (time, line, note) in replay.hits(&scene) {
+                            place(time, &scene.chart.lines[line as usize].notes[note as usize].hitsound);
+                        }
+                    } else {
+                        for note in scene.chart.lines.iter().flat_map(|line| &line.notes).filter(|note| !note.fake) {
+                            place(note.time, &note.hitsound);
                         }
                     }
                 }
@@ -242,6 +276,8 @@ impl ChartVideoRenderer {
             buf,
             extensions,
             previous_stage: None,
+            replay,
+            music_rate,
         })
     }
 
@@ -333,6 +369,13 @@ impl ChartVideoRenderer {
     }
 
     fn advance_chart(&mut self, target: f64) {
+        if let Some(replay) = &mut self.replay {
+            self.scene.set_video_frame(target, 1., 0.);
+            replay.advance(&mut self.scene, target);
+            self.scene.tick_replay();
+            self.tm.seek_to(target);
+            return;
+        }
         if self.simulated_time.is_some_and(|previous| target + 1e-6 < previous) {
             self.scene.chart.reset();
             self.scene.judge.reset();
@@ -362,7 +405,7 @@ impl ChartVideoRenderer {
             && self.previous_stage != Some(RenderStage::Ending)
             && self.opts.presentation.playing
         {
-            self.advance_chart(self.timeline.music_start + self.timeline.music_duration - self.offset);
+            self.advance_chart((self.timeline.music_start + self.timeline.music_duration) * self.music_rate - self.offset);
         }
         if self.previous_stage != Some(context.stage) {
             for extension in &mut self.extensions.items {
@@ -389,7 +432,7 @@ impl ChartVideoRenderer {
         let opening = (context.stage == RenderStage::Opening && self.opts.presentation.playing)
             .then(|| presentation::animation::loading(context.stage_time, context.stage_duration, context.delta));
         let opening_scene = opening.as_ref().is_some_and(|frame| frame.reveal > 0.);
-        if let Some(music_time) = context.music_time {
+        if let Some(music_time) = context.music_time.map(|time| time * self.music_rate) {
             if context.stage != RenderStage::Entering {
                 self.advance_chart(music_time - self.offset);
             } else {
@@ -403,19 +446,22 @@ impl ChartVideoRenderer {
                 self.scene.tick_replay();
             }
             self.scene
-                .set_video_progress(self.timeline.hud_progress(&context, self.scene.res.track_length));
+                .set_video_progress(self.timeline.hud_progress(&context, self.scene.res.track_length / self.music_rate));
             self.scene.set_replay_frame_delta(if context.preview { 0. } else { context.delta as f32 });
             let mut ui = Ui::new(painter, viewport);
             self.scene.render(&mut self.tm, &mut ui)?;
+            if let Some(replay) = self.replay.as_ref().filter(|_| context.stage != RenderStage::Entering) {
+                replay.draw_touches(&self.scene, &mut ui);
+            }
         } else if opening_scene {
             let frame = opening.as_ref().unwrap();
-            let time = self.timeline.music_start - self.offset;
+            let time = self.timeline.music_start * self.music_rate - self.offset;
             self.scene.set_video_frame(time, frame.line, 0.);
             self.scene.set_video_entrance(frame.line, frame.hud);
             self.tm.seek_to(time);
             self.scene.tick_replay();
             self.scene
-                .set_video_progress(self.timeline.hud_progress(&context, self.scene.res.track_length));
+                .set_video_progress(self.timeline.hud_progress(&context, self.scene.res.track_length / self.music_rate));
             let mut ui = Ui::new(painter, viewport);
             self.scene.render(&mut self.tm, &mut ui)?;
         }
@@ -484,7 +530,11 @@ impl ChartVideoRenderer {
                 ..Default::default()
             }
         } else {
-            self.scene.judge.result(false)
+            let config = &self.scene.res.config;
+            let no_combo_score = config.has_mod(Mods::NO_COMBO_SCORE);
+            let mut result = self.scene.judge.result(no_combo_score);
+            result.score = self.scene.judge.displayed_score(no_combo_score, config.theoretical_score);
+            result
         }
     }
 

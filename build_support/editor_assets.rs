@@ -15,6 +15,14 @@ const PIN: &str = "scripts/editor/upstream.json";
 const MANIFEST: &str = "phira-pro-exclude.json";
 const OVERLAY: &str = "scripts/editor/overlay";
 const LOCK: &str = "scripts/editor/overlay.lock.json";
+const LICENSE: &str = "LICENSE";
+const NOTICE_FILES: [(&str, &str); 5] = [
+    ("scripts/editor/notices/editor.txt", "NOTICE"),
+    ("scripts/editor/notices/pro.txt", "pro/NOTICE"),
+    (LICENSE, "pro/LICENSE"),
+    ("scripts/editor/notices/overlay.txt", "src/ui/NOTICE-Phira-Pro"),
+    (LICENSE, "src/ui/LICENSE-Phira-Pro"),
+];
 const STAMP: &str = ".staged.json";
 const TARGET: &str = "assets/rpen-editor";
 const REQUIRED: [&str; 6] = [
@@ -34,6 +42,10 @@ pub fn ensure(root: &Path) {
     println!("cargo:rerun-if-changed={}", target.join(STAMP).display());
     println!("cargo:rerun-if-changed={}", root.join(OVERLAY).display());
     println!("cargo:rerun-if-changed={}", root.join(LOCK).display());
+    println!("cargo:rerun-if-env-changed=PHIRA_SKIP_EDITOR_ASSETS");
+    for (name, _) in NOTICE_FILES {
+        println!("cargo:rerun-if-changed={}", root.join(name).display());
+    }
 
     let Ok(pin) = fs::read_to_string(&pin_path) else {
         println!("cargo:warning=缺少 {PIN}，跳过制谱器前端准备");
@@ -67,6 +79,7 @@ fn staged(target: &Path, pin: &str, overlay: &str) -> bool {
     stamp["pin"].as_str() == Some(pin)
         && stamp["overlay"].as_str() == Some(overlay)
         && REQUIRED.iter().all(|name| target.join(name).is_file())
+        && NOTICE_FILES.iter().all(|(_, name)| target.join(name).is_file())
 }
 
 fn stage(root: &Path, target: &Path, pin: &str, overlay: &str) {
@@ -88,6 +101,7 @@ fn stage(root: &Path, target: &Path, pin: &str, overlay: &str) {
         fs::copy(cache.join(name), &destination).unwrap_or_else(|error| panic!("复制制谱器资源 {name} 失败: {error}"));
     }
     apply_overlay(root, &cache, &staging);
+    stage_notices(root, &staging);
     let manifest = serde_json::to_string_pretty(&upstream).unwrap() + "\n";
     fs::write(staging.join("UPSTREAM.json"), manifest).unwrap_or_else(|error| panic!("写入 UPSTREAM.json 失败: {error}"));
     remove(target);
@@ -96,6 +110,22 @@ fn stage(root: &Path, target: &Path, pin: &str, overlay: &str) {
     let stamp = serde_json::json!({ "pin": pin, "revision": revision, "overlay": overlay });
     let stamp = serde_json::to_string_pretty(&stamp).unwrap() + "\n";
     fs::write(target.join(STAMP), stamp).unwrap_or_else(|error| panic!("写入 {STAMP} 失败: {error}"));
+}
+
+fn stage_notices(root: &Path, staging: &Path) {
+    for (source, name) in NOTICE_FILES {
+        let target = staging.join(name);
+        let mut contents = fs::read(root.join(source))
+            .unwrap_or_else(|error| panic!("读取 {source} 失败: {error}"));
+        if name == "NOTICE" {
+            contents.extend_from_slice(b"\n");
+            contents.extend(fs::read(&target).unwrap_or_else(|error| panic!("读取 RPEN NOTICE 失败: {error}")));
+        } else if name == "pro/NOTICE" && target.is_file() {
+            // Once the fork ships its own notice, preserve its attribution verbatim.
+            continue;
+        }
+        fs::write(target, contents).unwrap_or_else(|error| panic!("写入 {name} 失败: {error}"));
+    }
 }
 
 /// Copies the local patches onto a staged checkout. Every patch mirrors the path it
@@ -189,6 +219,11 @@ fn overlay_fingerprint(root: &Path) -> String {
         let bytes = if is_text_file(name) { line_endings_to_lf(&bytes) } else { bytes };
         hash = fnv1a(hash, &(bytes.len() as u64).to_le_bytes());
         hash = fnv1a(hash, &bytes);
+    }
+    for (name, _) in NOTICE_FILES {
+        let bytes = fs::read(root.join(name)).unwrap_or_else(|error| panic!("读取 {name} 失败: {error}"));
+        hash = fnv1a(hash, name.as_bytes());
+        hash = fnv1a(hash, &line_endings_to_lf(&bytes));
     }
     match fs::read(root.join(LOCK)) {
         Ok(lock) => hash = fnv1a(hash, &line_endings_to_lf(&lock)),

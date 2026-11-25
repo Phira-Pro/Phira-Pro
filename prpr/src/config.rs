@@ -326,6 +326,8 @@ pub struct Config {
     pub res_pack_path: Option<String>,
     pub sample_count: u32,
     pub show_acc: bool,
+    /// 在准度下面再显示「剩余音符全 Perfect 时的最高准确率」。
+    pub show_max_acc: bool,
     pub show_judgement_details: bool,
     pub show_perfect_combo: bool,
     pub show_avg_fps: bool,
@@ -520,6 +522,7 @@ impl Default for Config {
             res_pack_path: None,
             sample_count: 1,
             show_acc: false,
+            show_max_acc: false,
             show_judgement_details: false,
             show_perfect_combo: false,
             show_avg_fps: false,
@@ -548,8 +551,8 @@ impl Config {
         }
     }
 
-    pub const MIN_HP_CAPACITY: u32 = 20;
-    pub const MAX_HP_CAPACITY: u32 = 500;
+    pub const MIN_HP_CAPACITY: u32 = 1;
+    pub const MAX_HP_CAPACITY: u32 = 999;
     pub(crate) const DEFAULT_HP_CAPACITY: u32 = 100;
     pub const MIN_HP_DAMAGE: f32 = 1.;
     pub const MAX_HP_DAMAGE: f32 = 10.;
@@ -1004,6 +1007,18 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::{Config, Mods, UNLIMITED_FPS};
+
+    #[test]
+    fn hp_capacity_bounds_survive_config_reload() {
+        let mut config = Config::default();
+        assert_eq!(config.hp_capacity(), 100);
+        for (requested, expected) in [(0, 1), (1, 1), (999, 999), (1000, 999)] {
+            config.set_hp_capacity(requested);
+            let saved = serde_json::to_string(&config).unwrap();
+            let restored: Config = serde_json::from_str(&saved).unwrap();
+            assert_eq!(restored.hp_capacity(), expected);
+        }
+    }
 
     #[test]
     fn line_elision_defaults_on() {

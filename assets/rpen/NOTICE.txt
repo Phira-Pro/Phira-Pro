@@ -1,3 +1,6 @@
+Required Notice: Copyright 2026 cmdysj.
+Required Notice: Re:PhiEdit Next is reconstructed from the original Re:PhiEdit (RPE) project using AI (GPT).
+
 RPEN shader presets and NoiseField/Ocean skin resources from kclg-YSJ/rpe-next, commit 1ee0fc3e3e434696f00cbb51d4107379913a6490.
 These files retain the PolyForm Noncommercial License 1.0.0; see LICENSE-RPEN.txt.
 They are separate resource files loaded at runtime and are not compiled into the

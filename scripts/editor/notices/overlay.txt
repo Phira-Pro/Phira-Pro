@@ -1,0 +1,8 @@
+Phira Pro editor overlay
+
+The original Phira Pro contributions in mod-runtime.mjs and mod-modules.mjs
+are designated GPL-3.0-only. The complete license is in LICENSE-Phira-Pro
+in the generated editor and in LICENSE at the root of the Phira Pro source.
+The upstream implementation preserved as mod-runtime.upstream.mjs and the
+RPEN modules called by this overlay retain their existing terms. This notice
+does not grant rights in upstream code.

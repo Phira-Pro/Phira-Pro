@@ -2,6 +2,7 @@
 use super::{Prefs, FPS_CHOICES, RESOLUTIONS};
 use anyhow::{bail, Result};
 use prpr::chart_video::{PresentationOptions, PresentationStyle};
+use prpr::config::HealthBarColor;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Category {
@@ -75,6 +76,9 @@ fields! {
     JudgementDetails => (Visuals, Toggle, "判定统计", "显示各档判定数量，可在主游玩界面关闭时单独显示"),
     PerfectCombo => (Visuals, Toggle, "Perfect 连击", "以 Perfect 连击替换主游玩界面的连击数，需要开启显示游玩界面"),
     EarlyLate => (Visuals, Toggle, "Early/Late 统计", "显示实际早晚判定数量，可在主游玩界面关闭时单独显示"),
+    LifeBar => (Visuals, Toggle, "显示血条", "自动播放时保持满血，可在隐藏主游玩界面时单独显示"),
+    LifeCapacity => (Visuals, Number, "最大血量", "1 到 999，开启显示血条后生效"),
+    LifeColor => (Visuals, Choice, "血条颜色", "切换视频中 LIFE 流光和文字描边的颜色"),
     Preset => (Flow, Choice, "画面预设", "切换流程预设，保留已填写的展示文字"),
     Font => (Flow, Font, "演出字体", "选择 TTF 或 OTF，仅用于开场与结算"),
     ResetFont => (Flow, Choice, "默认演出字体", "恢复内置演出字体"),
@@ -155,6 +159,17 @@ pub fn value(p: &Prefs, field: Field) -> String {
         Field::JudgementDetails => flag(p.visuals.show_judgement_details),
         Field::PerfectCombo => flag(p.visuals.show_perfect_combo),
         Field::EarlyLate => flag(p.visuals.show_early_late),
+        Field::LifeBar => flag(p.visuals.show_life_bar),
+        Field::LifeCapacity => p.visuals.life_capacity.to_string(),
+        Field::LifeColor => match p.visuals.life_color {
+            HealthBarColor::White => "白色",
+            HealthBarColor::Green => "绿色",
+            HealthBarColor::Blue => "蓝色",
+            HealthBarColor::Red => "红色",
+            HealthBarColor::Golden => "金色",
+            HealthBarColor::Rainbow => "彩色",
+        }
+        .into(),
         Field::Font => if presentation.font.is_some() {
             "已选择字体"
         } else {
@@ -237,7 +252,8 @@ pub fn input_value(p: &Prefs, field: Field) -> String {
 
 pub fn enabled(p: &Prefs, field: Field) -> bool {
     match field {
-        Field::PerfectCombo => p.hud,
+        Field::PerfectCombo => p.hud && !p.visuals.show_life_bar,
+        Field::LifeCapacity | Field::LifeColor => p.visuals.show_life_bar,
         Field::Score | Field::Accuracy | Field::Combo | Field::Perfect | Field::Good | Field::Bad | Field::Miss => p.presentation.result.custom,
         _ => true,
     }
@@ -273,6 +289,9 @@ fn change_inner(p: &mut Prefs, field: Field, input: Option<&str>) -> Result<()> 
         Field::JudgementDetails => p.visuals.show_judgement_details ^= true,
         Field::PerfectCombo => p.visuals.show_perfect_combo ^= true,
         Field::EarlyLate => p.visuals.show_early_late ^= true,
+        Field::LifeBar => p.visuals.show_life_bar ^= true,
+        Field::LifeCapacity => p.visuals.life_capacity = input.parse()?,
+        Field::LifeColor => p.visuals.life_color = p.visuals.life_color.next(),
         Field::Resolution => p.res = (p.res + 1) % RESOLUTIONS.len(),
         Field::Fps => p.fps = (p.fps + 1) % FPS_CHOICES.len(),
         Field::Preset => {
@@ -339,6 +358,7 @@ fn change_inner(p: &mut Prefs, field: Field, input: Option<&str>) -> Result<()> 
         Field::ResetFont => presentation.font = None,
         Field::Directory | Field::Avatar | Field::Font | Field::ResourcePack => bail!("该设置需要选择文件、目录或资源包"),
     }
+    p.visuals.validate()?;
     p.presentation.validate()
 }
 
@@ -362,5 +382,26 @@ mod tests {
         change(&mut p, Field::Preset, None).unwrap();
         assert_eq!(p.presentation.style, PresentationStyle::Phigros);
         assert!(p.presentation.opening && p.presentation.ending && p.hud);
+    }
+
+    #[test]
+    fn life_bar_settings_are_independent_and_persist() {
+        let mut p: Prefs = serde_yaml::from_str("visuals: {show_acc: true}").unwrap();
+        assert!(!p.visuals.show_life_bar);
+        assert_eq!(p.visuals.life_capacity, 100);
+        assert!(!enabled(&p, Field::LifeCapacity));
+        change(&mut p, Field::LifeBar, None).unwrap();
+        assert!(!p.hud);
+        assert!(enabled(&p, Field::LifeCapacity));
+        change(&mut p, Field::LifeCapacity, Some("1")).unwrap();
+        change(&mut p, Field::LifeCapacity, Some("999")).unwrap();
+        assert!(change(&mut p, Field::LifeCapacity, Some("1000")).is_err());
+        assert!(change(&mut p, Field::LifeCapacity, Some("0")).is_err());
+        change(&mut p, Field::LifeColor, None).unwrap();
+        let saved = serde_yaml::to_string(&p).unwrap();
+        let restored: Prefs = serde_yaml::from_str(&saved).unwrap();
+        assert!(restored.visuals.show_acc && restored.visuals.show_life_bar);
+        assert_eq!(restored.visuals.life_capacity, 999);
+        assert_eq!(restored.visuals.life_color, HealthBarColor::Golden);
     }
 }

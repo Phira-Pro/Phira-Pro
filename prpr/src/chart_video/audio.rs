@@ -10,18 +10,20 @@ pub struct AudioPlacement {
     pub clip: AudioClip,
     pub at: f64,
     pub source_start: f64,
+    pub rate: f64,
     pub duration: f64,
     pub gain: f32,
     pub fade: f64,
 }
 
-pub fn soundtrack(timeline: &RenderTimeline, music: Option<AudioClip>, ending: AudioClip, options: &AudioOptions) -> Vec<AudioPlacement> {
+pub fn soundtrack(timeline: &RenderTimeline, music: Option<AudioClip>, ending: AudioClip, options: &AudioOptions, music_rate: f64) -> Vec<AudioPlacement> {
     let mut tracks = vec![];
     if let (Some(segment), Some(clip)) = (timeline.segment(RenderStage::Playing), music) {
         tracks.push(AudioPlacement {
             clip,
             at: segment.first_frame as f64 / timeline.fps as f64,
-            source_start: timeline.music_start,
+            source_start: timeline.music_start * music_rate,
+            rate: music_rate,
             duration: timeline.music_duration.min(segment.frames as f64 / timeline.fps as f64),
             gain: options.music_volume,
             fade: options.fade_seconds,
@@ -35,6 +37,7 @@ pub fn soundtrack(timeline: &RenderTimeline, music: Option<AudioClip>, ending: A
             clip: ending,
             at: segment.first_frame as f64 / timeline.fps as f64 + options.ending_delay_seconds,
             source_start: 0.,
+            rate: 1.,
             duration,
             gain: options.ending_volume,
             fade: options.fade_seconds,
@@ -64,7 +67,7 @@ pub fn mix(duration: f64, tracks: Vec<AudioPlacement>) -> Result<Vec<Frame>> {
                 break;
             };
             let time = i as f64 / SAMPLE_RATE as f64;
-            if let Some(sample) = placement.clip.sample(placement.source_start + time) {
+            if let Some(sample) = placement.clip.sample(placement.source_start + time * placement.rate) {
                 let fade = envelope(time, placement.duration, placement.fade);
                 *output = *output + sample * (placement.gain * fade);
             }
@@ -124,7 +127,7 @@ mod tests {
         let timeline = RenderTimeline::new(&options, 30, 0., 2.).unwrap();
         let tone = AudioClip::from_raw(vec![Frame(0.25, -0.25); SAMPLE_RATE as usize * 2], SAMPLE_RATE);
         let ending = AudioClip::from_raw(vec![Frame(-0.5, 0.5); SAMPLE_RATE as usize * 6], SAMPLE_RATE);
-        let frames = mix(timeline.duration(), soundtrack(&timeline, Some(tone), ending, &options.audio)).unwrap();
+        let frames = mix(timeline.duration(), soundtrack(&timeline, Some(tone), ending, &options.audio, 1.)).unwrap();
         let at = |seconds: f64| frames[(seconds * SAMPLE_RATE as f64).round() as usize];
         for time in [0., 5.79, 5.81, 6.59, 8.61, 9.19, 10.28] {
             assert_eq!(at(time).0, 0., "time={time}");
@@ -145,5 +148,20 @@ mod tests {
         assert_eq!(&bytes[..4], b"RIFF");
         assert_eq!(bytes.len(), 44 + 4410 * 4);
         assert_eq!(u32::from_le_bytes(bytes[40..44].try_into().unwrap()), 4410 * 4);
+    }
+
+    #[test]
+    fn replay_speed_changes_music_position_without_shifting_presentation() {
+        let mut options = super::super::PresentationOptions::phigros();
+        options.audio.fade_seconds = 0.;
+        options.audio.ending_volume = 0.;
+        let timeline = RenderTimeline::new(&options, 30, 0.5, 1.).unwrap();
+        let music = AudioClip::from_raw((0..4 * SAMPLE_RATE).map(|i| Frame(i as f32 / SAMPLE_RATE as f32 / 4., 0.)).collect(), SAMPLE_RATE);
+        let silent = AudioClip::from_raw(vec![Frame::default(); SAMPLE_RATE as usize], SAMPLE_RATE);
+        let frames = mix(timeline.duration(), soundtrack(&timeline, Some(music), silent, &options.audio, 2.)).unwrap();
+        let start = timeline.segment(RenderStage::Playing).unwrap().first_frame as usize * SAMPLE_RATE as usize / 30;
+        assert_eq!(frames[start - 1].0, 0.);
+        assert!((frames[start].0 - 0.25).abs() < 1e-4);
+        assert!((frames[start + SAMPLE_RATE as usize / 2].0 - 0.5).abs() < 1e-4);
     }
 }

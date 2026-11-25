@@ -25,6 +25,7 @@ async fn load(start: PreviewStart) -> Result<(String, ChartVideoRenderer)> {
             double_hint: config.double_hint, particle: config.particle, show_acc: config.show_acc,
             show_judgement_details: config.show_judgement_details, show_perfect_combo: config.show_perfect_combo,
             show_early_late: config.show_early_late,
+            ..Default::default()
         },
         ..VideoOptions::default()
     };

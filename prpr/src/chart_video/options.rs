@@ -1,4 +1,5 @@
 //! Export-only configuration. These values never modify gameplay preferences.
+use crate::config::{Config, HealthBarColor};
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -51,6 +52,9 @@ pub struct VisualOptions {
     pub show_judgement_details: bool,
     pub show_perfect_combo: bool,
     pub show_early_late: bool,
+    pub show_life_bar: bool,
+    pub life_capacity: u32,
+    pub life_color: HealthBarColor,
 }
 
 impl Default for VisualOptions {
@@ -64,6 +68,9 @@ impl Default for VisualOptions {
             show_judgement_details: false,
             show_perfect_combo: false,
             show_early_late: false,
+            show_life_bar: false,
+            life_capacity: Config::DEFAULT_HP_CAPACITY,
+            life_color: HealthBarColor::default(),
         }
     }
 }
@@ -73,7 +80,17 @@ impl VisualOptions {
         self.offset_indicator.unwrap_or(show_hud)
     }
 
-    pub(super) fn apply(&self, config: &mut crate::config::Config, show_hud: bool) {
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            (Config::MIN_HP_CAPACITY..=Config::MAX_HP_CAPACITY).contains(&self.life_capacity),
+            "最大血量必须在 {} 到 {} 之间",
+            Config::MIN_HP_CAPACITY,
+            Config::MAX_HP_CAPACITY
+        );
+        Ok(())
+    }
+
+    pub(super) fn apply(&self, config: &mut Config, show_hud: bool) {
         config.offset_indicator = self.offset_visible(show_hud);
         config.ap_fc_indicator = self.ap_fc_indicator;
         config.double_hint = self.double_hint;
@@ -81,6 +98,12 @@ impl VisualOptions {
         config.show_acc = self.show_acc;
         config.show_judgement_details = self.show_judgement_details;
         config.show_perfect_combo = self.show_perfect_combo;
+        if self.show_life_bar {
+            config.hp_mode = true;
+            config.set_hp_capacity(self.life_capacity);
+            config.hp_color = self.life_color;
+            config.legacy_hp_damage = false;
+        }
     }
 }
 
@@ -93,6 +116,7 @@ impl VideoOptions {
         );
         ensure!(self.start.is_finite() && self.start >= 0., "起始时间无效");
         ensure!(self.end.is_none_or(|end| end.is_finite() && end > self.start), "结束时间必须晚于开始时间");
+        self.visuals.validate()?;
         self.presentation.validate()
     }
     pub fn frame_count(&self, duration: f64) -> u64 {

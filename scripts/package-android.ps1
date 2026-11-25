@@ -16,6 +16,8 @@ if (-not $SkipBuild) {
 }
 $apk = Join-Path $androidProject 'app\build\outputs\apk\release\app-release.apk'
 if (-not (Test-Path -LiteralPath $apk)) { throw 'Signed app-release.apk missing; configure the signing environment or keystore.properties' }
+& python (Join-Path $PSScriptRoot 'package_licenses.py') $apk
+if ($LASTEXITCODE -ne 0) { throw 'APK license verification failed' }
 $sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { $env:ANDROID_SDK_ROOT }
 if (-not $sdk) { throw 'Set ANDROID_HOME or ANDROID_SDK_ROOT to verify the APK signature' }
 $signer = Get-ChildItem -LiteralPath (Join-Path $sdk 'build-tools') -Directory |

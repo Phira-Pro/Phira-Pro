@@ -12,7 +12,7 @@ mod session;
 mod timeline;
 
 pub use options::*;
-pub use session::ChartVideoRenderer;
+pub use session::{ChartVideoRenderer, ReplayVideoSource};
 pub use timeline::{FrameContext, RenderStage, RenderTimeline, Segment};
 
 /// ffmpeg 可执行文件的候选列表（按优先级排列）。

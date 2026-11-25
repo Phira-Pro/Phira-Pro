@@ -6,7 +6,7 @@ mod library;
 mod preview;
 
 use crate::page::{NextPage, Page, SharedState};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use macroquad::prelude::*;
 use prpr::{
     ext::poll_future,
@@ -55,7 +55,9 @@ impl EditorPage {
 async fn prepare() -> Result<(EditorHost, PathBuf)> {
     let root = PathBuf::from(crate::dir::root()?).join("editor");
     let assets = root.join(format!("runtime-{}-raw-v2", env!("PHIRA_BUILD_NUMBER")));
-    let manifest = assets::load("files.json").await?;
+    let manifest = assets::load("files.json")
+        .await
+        .context("制谱器资源不可用，请使用包含 RPEN 制谱器的程序包")?;
     let index: serde_json::Value = serde_json::from_slice(&manifest)?;
     let names: Vec<String> = serde_json::from_value(index["files"].clone())?;
     // Comparing the manifest also detects rebuilt resources with the same build

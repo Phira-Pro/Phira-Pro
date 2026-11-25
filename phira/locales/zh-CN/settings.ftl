@@ -75,6 +75,8 @@ preferred-sample-rate-default = 系统默认
 item-audio-buffer-size = 音频缓冲区大小
 
 item-show-acc = 显示实时准度
+item-show-max-acc = 可达最高准度
+item-show-max-acc-sub = 在准度下方显示：剩余音符全部 Perfect 时本局能达到的最高准确率。漏掉或打低的音符会永久压低这个上限
 item-show-avg-fps = 显示平均帧率
 item-show-avg-fps-sub = 在结算界面显示平均帧率
 item-ap-fc-indicator = AP/FC（全完美/全连）指示器

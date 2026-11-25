@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		A1ADD1B4BCB545510451BDB6 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = F93F13E521EE9DDCA65DAACF /* assets */; };
+		94403F098DEC4EDF960A8E52 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 94403F098DEC4EDF960A8E53 /* LICENSE */; };
+		94403F098DEC4EDF960A8E54 /* THIRD-PARTY-NOTICES.md in Resources */ = {isa = PBXBuildFile; fileRef = 94403F098DEC4EDF960A8E55 /* THIRD-PARTY-NOTICES.md */; };
 		EE4BA9C929E02FBB00AFEF83 /* phira-main in CopyFiles */ = {isa = PBXBuildFile; fileRef = EE4BA9C829E02FBB00AFEF83 /* phira-main */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		EEE852872F62F124001C0FF4 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = EEE852862F62F124001C0FF4 /* LaunchScreen.storyboard */; };
 		EEE852912F650F6D001C0FF4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EEE852902F650F6D001C0FF4 /* Assets.xcassets */; };
@@ -34,6 +36,8 @@
 		EEE8528F2F650E6D001C0FF4 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Shared.xcconfig; path = xcode/Shared.xcconfig; sourceTree = "<group>"; };
 		EEE852902F650F6D001C0FF4 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = xcode/Assets.xcassets; sourceTree = "<group>"; };
 		F93F13E521EE9DDCA65DAACF /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		94403F098DEC4EDF960A8E53 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
+		94403F098DEC4EDF960A8E55 /* THIRD-PARTY-NOTICES.md */ = {isa = PBXFileReference; lastKnownFileType = text; path = "THIRD-PARTY-NOTICES.md"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -52,6 +56,8 @@
 				EEE852902F650F6D001C0FF4 /* Assets.xcassets */,
 				EEE852862F62F124001C0FF4 /* LaunchScreen.storyboard */,
 				F93F13E521EE9DDCA65DAACF /* assets */,
+				94403F098DEC4EDF960A8E53 /* LICENSE */,
+				94403F098DEC4EDF960A8E55 /* THIRD-PARTY-NOTICES.md */,
 				183B84EE73DCF4BDEE1B01E9 /* Products */,
 				EEE8528E2F650E61001C0FF4 /* LocalSigning.xcconfig */,
 				EEE8528F2F650E6D001C0FF4 /* Shared.xcconfig */,
@@ -113,6 +119,8 @@
 				EEE852872F62F124001C0FF4 /* LaunchScreen.storyboard in Resources */,
 				EEE852912F650F6D001C0FF4 /* Assets.xcassets in Resources */,
 				A1ADD1B4BCB545510451BDB6 /* assets in Resources */,
+				94403F098DEC4EDF960A8E52 /* LICENSE in Resources */,
+				94403F098DEC4EDF960A8E54 /* THIRD-PARTY-NOTICES.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

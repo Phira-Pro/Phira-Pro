@@ -79,7 +79,7 @@ Windows 的「迁移 RPE」通过原生目录选择器关联 RPE 主目录：RPE
 
 当前实现和验证范围见 [制谱工作台说明](docs/development/pro-18-editor.md)。RPEN 的第三方运行时效果需要播放器实现对应协议；编辑器中能运行的 JavaScript 模组不能据此认定可在原生试玩中执行。
 
-内置的 [Re:PhiEdit Next（RPEN）](https://github.com/kclg-YSJ/rpe-next) 原作者为 **cmdysj**，项目基于原 Re:PhiEdit（RPE）重构。当前编辑器同步至 **0.14.0**。Phira Pro 的宿主桥接、移动端适配与打包规则在独立的 [Pro fork](https://github.com/Phira-Pro/rpe-next) 维护，升级通过 Git 合并上游正式标签。前端不随本仓库分发，构建时按 `scripts/editor/upstream.json` 固定提交，排除 fork 内 `phira-pro-exclude.json` 指定的路径，其余受版本管理的资源打包进发行版，保留其独立的 PolyForm Noncommercial 1.0.0 许可证及 NOTICE 中的署名、来源和第三方声明；第三方内容适用各自的许可。Phira Pro 原生宿主代码按本仓库 GPL-3.0 许可证分发。
+内置的 [Re:PhiEdit Next（RPEN）](https://github.com/kclg-YSJ/rpe-next) 原作者为 **cmdysj**，项目基于原 Re:PhiEdit（RPE）重构。当前编辑器同步至 **0.14.0**。Phira Pro 的宿主桥接、移动端适配与打包规则在独立的 [Pro fork](https://github.com/Phira-Pro/rpe-next) 维护，升级通过 Git 合并上游正式标签。构建按 `scripts/editor/upstream.json` 固定提交生成前端，并应用 fork 的排除规则。RPEN 上游文件保留 PolyForm Noncommercial 1.0.0 和上游声明。Phira Pro 的原生宿主、`pro/` 集成和 overlay 中适用 GPL-3.0-only 的代码范围见[第三方声明](THIRD-PARTY-NOTICES.md)。
 
 0.13.2 新增的自定义判定线动画曲线在 Pro 试玩及存入本地谱面库时，转换为独立快照中的分段事件，RPEN 工程保留原定义。暂不支持转换的噪域或扩展曲线会明确提示使用编辑器预览；原生播放器尚未直接实现全部新曲线语义。RPEN 视频下载使用 Pro 保存通道，编码格式支持取决于系统网页视图。
 
@@ -104,6 +104,7 @@ Android 制谱器会显示加载阶段，超时后可普通重试、使用默认
 - **连击文字**：自定义连击数下方那行文字（最长 16 个字符）。
 - **Early/Late 跳字**：从「设置 → 谱面」开启，可选判定偏移指示器下方或游玩区域最下方，均水平居中。Great、Good、OK、Meh、Bad 等具有实际误差的非 Perfect 命中触发短暂跳字；Perfect+ / Perfect 不触发，无有效按下误差的 Miss 不伪造早晚方向。提示不改变计分或上传资格。
 - **实时判定偏移数字**：在「设置 → 谱面」单独开启，默认关闭。游玩时显示最近一次实际计时的击打偏移和本局平均偏移，单位为毫秒。负数表示偏早，正数表示偏晚。判定偏移条和 Early/Late 跳字可分别开启。
+- **可达最高准度**：在「设置 → 谱面」开启后，显示剩余音符全部达到 Perfect 时的最终准度上限。可与实时准度同时显示，分段练习期间隐藏。
 - **Milthm 判定模式**：在谱面详情的 Mod 列表开启。每根 Hold 都要单独点击条头，点中后可共用屏幕有效区域内的任意触点续按。所有触点提前抬起会判为 Miss，坚持到尾端自动结算。结算页显示空心雨滴徽标，成绩保存在本地历史。
 
 ### 练习与失败处理
@@ -118,7 +119,7 @@ Android 制谱器会显示加载阶段，超时后可普通重试、使用默认
 
 ### 血条
 
-- **血条模式**：谱面上沿显示红色 LIFE 流光，默认厚度 1.5×。血量数字和 LIFE 字样沿用原 COMBO 的字号，开启时隐藏连击。可在「设置 → 谱面」调整最大血量（20～500，默认 100）、宽度、厚度和颜色。「禁用回血」默认开启，整局只使用开场设定的血量。关闭后，正确打击音符会按原规则回血。扣血倍率为 1.0×～10.0×，Bad 或 Miss 每次扣除相同数值的血量，默认每次扣 1 点。「血条失败效果」默认选择「本家效果」：归零时立即停乐、整屏闪红转黑，再显示重试和退出按钮。选择「Phira Pro效果」可切回原来的音乐降调减速过渡。
+- **血条模式**：谱面上沿显示红色 LIFE 流光，默认厚度 1.5×。血量数字和 LIFE 字样沿用原 COMBO 的字号，开启时隐藏连击。可在「设置 → 谱面」调整最大血量（1～999，默认 100）、宽度、厚度和颜色。「禁用回血」默认开启，整局只使用开场设定的血量。关闭后，正确打击音符会按原规则回血。扣血倍率为 1.0×～10.0×，Bad 或 Miss 每次扣除相同数值的血量，默认每次扣 1 点。「血条失败效果」默认选择「本家效果」：归零时立即停乐、整屏闪红转黑，再显示重试和退出按钮。选择「Phira Pro效果」可切回原来的音乐降调减速过渡。
 
 ### 外观与界面
 
@@ -180,10 +181,12 @@ Android 制谱器会显示加载阶段，超时后可普通重试、使用默认
 ### 谱面渲染（视频导出）
 
 - **把谱面渲染成视频**：从「设置 → 调试 → 谱面渲染」进入独立页面。点击谱面卡片中的「选择」会打开独立选谱界面，挑一首后回到页面点「开始渲染」即可导出 mp4，输出到 `data/render/`（可改目录）。
+- **用回放渲染**：在同一页选择 `.ppr` 回放后，按录制的速度、判定和触点导出，并按实际打击时间合成音效。仍可使用页面里的分辨率、音轨、开场和结算设置。回放版文件名带 `-replay`。留空或点击「清除」后恢复自动游玩渲染。
 - **完整演出流程**：保留默认纯谱面导出，并提供「Phira 游玩界面」和「Phigros 完整演出」预设。开场加载、谱面自动播放、结算可分别开关，开场、游玩入场、退场和结算时长可独立设置。Phigros 风格加载与结算使用斜切曲绘、曲目信息、玩家资料、动态分数与判定统计；展示值不写入成绩记录。局内进度不受谱面偏移影响，完整播放的末帧填满进度条。
-- **分类设置与完整清单**：按输出、游玩画面、演出流程、开场、结算和音频分类，另有「参数总览」集中列出全部 56 项当前值。宽窗口双列设置，窄窗口单列设置；同排字段共用行高，资源包选择框与其他控件使用相同字号和高度，长文案按高度换行，底部操作与进度固定。完整字段见 [设置项清单](docs/development/chart-video-settings.md)。
+- **分类设置与完整清单**：按输出、游玩画面、演出流程、开场、结算和音频分类，另有「参数总览」集中列出全部 59 项当前值。宽窗口双列设置，窄窗口单列设置；同排字段共用行高，资源包选择框与其他控件使用相同字号和高度，长文案按高度换行，底部操作与进度固定。完整字段见 [设置项清单](docs/development/chart-video-settings.md)。
 - **独立渲染设置**：支持 720p / 1080p / 1440p / 2160p、30 / 60 / 120 / 240 FPS，以及演出字体、展示元数据、头像、RKS、课题牌子和自定义结算统计。资源包可跟随当前游玩选择，也可单独选择内置或已导入资源包，应用于音符、打击特效和资源包音效。音乐、打击音、结算音乐独立调节音量，支持结算音乐延迟，统一按视频时钟合成。设置保存在 `data/render.yml`，不改动游玩偏好；导出时不播放声音，可中途取消。
 - **独立画面开关**：渲染设置可单独调整偏移指示器、判定线 AP/FC 指示器、双押高亮、打击特效、准度、判定统计、Perfect Combo 与 Early/Late 显示。偏移、准度与判定统计可在隐藏主游玩界面时单独显示。
+- **视频血条**：在「游玩画面」开启「显示血条」，可为导出的视频设置最大血量（1～999，默认 100）和血条颜色。隐藏主游玩界面时也可显示血条，自动播放期间保持满血。
 - **演出排版与进度**：开场与结算采用宽度归一化坐标及画面比例补偿，长标题自动缩小字号。Loading 白块从左向右伸长后向右收拢；加载末尾采用 RPE Recorder 的 3 秒退场时序，由真实谱面判定线与局内 UI 连续入场，默认提示沿用游玩加载条目。空格参与字体回退，保持正常字间留白。结算昵称底板随文字宽度变化，课题牌子使用五色背景素材，保留独立 RKS 栏。设置页不显示画面预览，导出时保留阶段、帧数、进度与预计剩余时间。
 
 - **按需安装 FFmpeg**：Windows 页面会检测可用的 H.264/AAC 编码器，未安装时提供「下载并安装 FFmpeg」按钮，从 [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) 下载 essentials ZIP，显示下载进度并支持取消和失败重试。下载包通过完整性校验、解压与实际编码验证后，安装到 `data/tools/ffmpeg/` 并自动使用，不修改系统 PATH，不增大主程序包；已有系统 FFmpeg 时可直接使用。其他桌面端仍需自行安装带 libx264 与 AAC 的 `ffmpeg`；Android 包已内置静态 FFmpeg（见下文）。
@@ -216,7 +219,7 @@ python scripts/build.py
 
 构建或打包时可以用 `Ctrl+C` 取消。脚本会提示已取消，并返回退出码 `130`。
 
-Windows、Linux、macOS 在各自系统上使用 `python scripts/build.py --package` 构建 ZIP，版本和平台名称自动派生；包内包含程序、资源与许可证。更新日志保留在 `docs`。Android 使用 `python scripts/build.py --platform android`，iOS 在 macOS 上使用 `python scripts/build.py --platform ios`。GitHub Actions 提供手动运行的 Desktop Packages / Android APK / iOS IPA 工作流；发布与版本定义一致的 Release 后，Build Release Assets 自动构建并上传五个平台附件，上传时校验文件大小与 SHA-256。iOS 产物未签名，安装前需自行签名。发版步骤、环境与签名配置见 [构建说明](docs/development/build.md)。
+Windows、Linux、macOS 在各自系统上使用 `python scripts/build.py --package` 构建 ZIP，版本和平台名称自动派生。加 `--without-editor` 生成文件名带 `-no-editor` 的桌面包，省去 RPEN 前端和编辑器 overlay，保留播放器使用的 `assets/rpen/` 资源。Android 使用 `python scripts/build.py --platform android`，iOS 在 macOS 上使用 `python scripts/build.py --platform ios`。桌面 ZIP、Android APK 和 CI 生成的 iOS IPA 在交付前检查包内的许可证与声明。GitHub Actions 提供手动运行的 Desktop Packages / Android APK / iOS IPA 工作流；发布与版本定义一致的 Release 后，Build Release Assets 自动构建并上传五个平台附件，上传时校验文件大小与 SHA-256。iOS 产物未签名，安装前需自行签名。发版步骤、环境与签名配置见 [构建说明](docs/development/build.md)。
 
 ## 维护人员
 
@@ -224,12 +227,13 @@ Kenari_15（Baiji666）、IRENyaaa、霜月Frostine（QQ1816）、Terrysquid、R
 
 ## 授权与致谢
 
-本项目以 **GNU GPL-3.0** 授权（与上游一致），见 [LICENSE](LICENSE)。
+Phira Pro 的主程序和原生宿主采用 **GPL-3.0-only**，许可证全文见 [LICENSE](LICENSE)。生成的编辑器和播放器资源按下列范围保留各自的许可与声明。完整目录表见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
 
 - 基于 [TeamFlos/Phira](https://github.com/TeamFlos/phira) 开发，感谢 Phira 及其贡献者；
 - 特别感谢 [Phira Mod++](https://github.com/YiyiMo-git/Phira-Mod-New) 与 [Phira ad](https://github.com/Adai-add/PhiraiAd) 的功能探索及公开资料；
 - 内置字体 HarmonyOS Sans；
-- `assets/rpen/` 下的噪域皮肤与 shader 预设、内置 RPEN 制谱器前端为独立作品，按其 PolyForm Noncommercial 1.0.0 许可分发（见 [NOTICE](assets/rpen/NOTICE.txt)），不适用本项目的 GPL-3.0；这些资源以独立文件在运行时加载，不编译进主程序。
+- `assets/rpen/` 下的噪域皮肤与着色器预设保留 PolyForm Noncommercial 1.0.0 许可及其上游声明，见 [资源声明](assets/rpen/NOTICE.txt)。
+- `assets/rpen-editor/` 中来自 RPEN 的前端文件保留 PolyForm Noncommercial 1.0.0。`pro/` 和编辑器 overlay 中 Phira Pro 的贡献采用 GPL-3.0-only，包内随附各自的许可与声明。第三方代码、皮肤、字体和模型适用各自的条款。
 
 ### pro.18 输入与制谱修复
 

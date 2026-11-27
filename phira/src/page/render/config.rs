@@ -1,11 +1,18 @@
 use crate::dir;
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result};
 use prpr::chart_video::{PresentationOptions, VideoOptions, VisualOptions};
 use std::path::PathBuf;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(super) const RESOLUTION_PRESETS: [[u32; 2]; 12] = [
+    [1280, 720], [1920, 1080], [2560, 1440], [3840, 2160],
+    [960, 720], [1440, 1080], [1920, 1440], [2880, 2160],
+    [1080, 720], [1620, 1080], [2160, 1440], [3240, 2160],
+];
+const DEFAULT_RESOLUTION: [u32; 2] = RESOLUTION_PRESETS[1];
+
+#[derive(Clone, Copy, Default, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum Aspect {
+enum Aspect {
     #[default]
     Wide,
     Standard,
@@ -13,22 +20,37 @@ pub(super) enum Aspect {
     Custom,
 }
 
-impl Aspect {
-    pub fn next(self) -> Self {
-        match self {
-            Self::Wide => Self::Standard,
-            Self::Standard => Self::Classic,
-            Self::Classic => Self::Custom,
-            Self::Custom => Self::Wide,
-        }
-    }
+#[derive(Clone, serde::Deserialize)]
+#[serde(default)]
+struct LegacyResolution {
+    res: usize,
+    aspect: Aspect,
+    custom_aspect: [f64; 2],
+}
 
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Wide => "16:9",
-            Self::Standard => "4:3",
-            Self::Classic => "3:2",
-            Self::Custom => "自定义",
+impl Default for LegacyResolution {
+    fn default() -> Self {
+        Self { res: 1, aspect: Aspect::Wide, custom_aspect: [16., 9.] }
+    }
+}
+
+impl LegacyResolution {
+    fn dimensions(&self) -> [u32; 2] {
+        let index = self.res.min(3);
+        match self.aspect {
+            Aspect::Wide => RESOLUTION_PRESETS[index],
+            Aspect::Standard => RESOLUTION_PRESETS[index + 4],
+            Aspect::Classic => RESOLUTION_PRESETS[index + 8],
+            Aspect::Custom => {
+                let ratio = self.custom_aspect[0] / self.custom_aspect[1];
+                if !ratio.is_finite() || ratio <= 0. || self.custom_aspect[0] <= 0. {
+                    return RESOLUTION_PRESETS[index];
+                }
+                let base_height = f64::from(RESOLUTION_PRESETS[index][1]);
+                let height = base_height.min(7680. / ratio);
+                let even = |size: f64| ((size / 2.).round() * 2.) as u32;
+                [even((height * ratio).min(7680.)), even(height)]
+            }
         }
     }
 }
@@ -37,9 +59,9 @@ impl Aspect {
 #[serde(default)]
 pub(super) struct Prefs {
     pub out_dir: String,
-    pub res: usize,
-    pub aspect: Aspect,
-    pub custom_aspect: [f64; 2],
+    pub resolution: Option<[u32; 2]>,
+    #[serde(flatten, skip_serializing)]
+    legacy_resolution: LegacyResolution,
     pub fps: usize,
     pub hitsound: bool,
     pub hud: bool,
@@ -51,9 +73,8 @@ impl Default for Prefs {
     fn default() -> Self {
         Self {
             out_dir: String::new(),
-            res: 1,
-            aspect: Aspect::Wide,
-            custom_aspect: [16., 9.],
+            resolution: None,
+            legacy_resolution: LegacyResolution::default(),
             fps: 1,
             hitsound: true,
             hud: false,
@@ -65,38 +86,30 @@ impl Default for Prefs {
 }
 
 impl Prefs {
-    pub fn dimensions(&self) -> Result<(u32, u32)> {
-        let [width, height] = match self.aspect {
-            Aspect::Wide => [16., 9.],
-            Aspect::Standard => [4., 3.],
-            Aspect::Classic => [3., 2.],
-            Aspect::Custom => self.custom_aspect,
-        };
-        let ratio = width / height;
-        ensure!(width > 0. && height > 0. && ratio.is_finite() && ratio > 0., "画面比例需要两个正数");
-        let base = f64::from(super::RESOLUTION_HEIGHTS[self.res.min(super::RESOLUTION_HEIGHTS.len() - 1)]);
-        let max_width = f64::from(VideoOptions::MAX_WIDTH);
-        let h = base.min(max_width / ratio);
-        let w = (h * ratio).min(max_width);
-        let even = |size: f64| ((size / 2.).round() * 2.) as u32;
-        let (w, h) = (even(w), even(h));
-        ensure!(w >= VideoOptions::MIN_DIMENSION && h >= VideoOptions::MIN_DIMENSION, "此比例在当前分辨率下无法输出有效画面");
-        Ok((w, h))
+    pub fn dimensions(&self) -> [u32; 2] {
+        let [width, height] = self.resolution.unwrap_or_else(|| self.legacy_resolution.dimensions());
+        if VideoOptions::validate_dimensions(width, height).is_ok() {
+            [width, height]
+        } else {
+            DEFAULT_RESOLUTION
+        }
     }
 
-    pub fn custom_aspect_text(&self) -> String {
-        format!("{}:{}", self.custom_aspect[0], self.custom_aspect[1])
+    pub fn resolution_text(&self) -> String {
+        let [width, height] = self.dimensions();
+        format!("{width} × {height}")
     }
 
-    pub fn set_custom_aspect(&mut self, input: &str) -> Result<()> {
-        let (w, h) = input.split_once([':', '：']).context("请按宽:高输入，例如 21:9")?;
-        let parse = |value: &str| -> Result<f64> {
-            let value = value.trim().parse::<f64>().context("画面比例需要两个正数")?;
-            ensure!(value.is_finite() && value > 0., "画面比例需要两个正数");
-            Ok(value)
-        };
-        self.custom_aspect = [parse(w)?, parse(h)?];
-        self.aspect = Aspect::Custom;
+    pub fn resolution_choice(&self) -> usize {
+        RESOLUTION_PRESETS.iter().position(|&size| size == self.dimensions()).map_or(usize::MAX, |index| index + 1)
+    }
+
+    pub fn set_custom_resolution(&mut self, input: &str) -> Result<()> {
+        let (width, height) = input.split_once(['x', 'X', '×']).context("请按宽×高输入像素尺寸")?;
+        let parse = |value: &str| value.trim().parse::<u32>().context("宽高须为整数");
+        let [width, height] = [parse(width)?, parse(height)?];
+        VideoOptions::validate_dimensions(width, height)?;
+        self.resolution = Some([width, height]);
         Ok(())
     }
 }
@@ -108,11 +121,7 @@ pub(super) fn load_prefs() -> Prefs {
         .ok()
         .and_then(|v| serde_yaml::from_str(&v).ok())
         .unwrap_or_default();
-    prefs.res = prefs.res.min(super::RESOLUTION_HEIGHTS.len() - 1);
-    if prefs.dimensions().is_err() {
-        prefs.aspect = Aspect::Wide;
-        prefs.custom_aspect = Prefs::default().custom_aspect;
-    }
+    prefs.resolution = Some(prefs.dimensions());
     prefs.fps = prefs.fps.min(super::FPS_CHOICES.len() - 1);
     if prefs.presentation.validate().is_err() {
         prefs.presentation = PresentationOptions::default();

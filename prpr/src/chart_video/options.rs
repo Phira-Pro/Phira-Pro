@@ -94,18 +94,22 @@ impl VisualOptions {
 
 impl VideoOptions {
     pub const MIN_DIMENSION: u32 = 16;
-    pub const MAX_WIDTH: u32 = 7680;
-    pub const MAX_HEIGHT: u32 = 4320;
+    pub const MAX_DIMENSION: u32 = 8192;
+
+    pub fn validate_dimensions(width: u32, height: u32) -> Result<()> {
+        let range = Self::MIN_DIMENSION..=Self::MAX_DIMENSION;
+        ensure!(
+            range.contains(&width) && range.contains(&height),
+            "宽高须在 {} 到 {} 像素之间",
+            Self::MIN_DIMENSION,
+            Self::MAX_DIMENSION
+        );
+        Ok(())
+    }
 
     pub fn validate(&self) -> Result<()> {
         ensure!((1..=240).contains(&self.fps), "帧率必须在 1 到 240 之间");
-        ensure!(
-            (Self::MIN_DIMENSION..=Self::MAX_WIDTH).contains(&self.width)
-                && (Self::MIN_DIMENSION..=Self::MAX_HEIGHT).contains(&self.height)
-                && self.width % 2 == 0
-                && self.height % 2 == 0,
-            "分辨率需为有效偶数尺寸"
-        );
+        Self::validate_dimensions(self.width, self.height)?;
         ensure!(self.start.is_finite() && self.start >= 0., "起始时间无效");
         ensure!(self.end.is_none_or(|end| end.is_finite() && end > self.start), "结束时间必须晚于开始时间");
         self.presentation.validate()

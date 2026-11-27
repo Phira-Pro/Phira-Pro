@@ -268,7 +268,7 @@ fn export_resource_pack_visuals_and_audio() {
             export.presentation.audio.ending_delay_seconds = 0.;
             export.presentation.audio.fade_seconds = 0.;
             let output = PathBuf::from("target/render-resource-qa/custom-resource.mp4");
-            let mut renderer = local(ChartVideoRenderer::new(chart, export, output.clone())).await.unwrap();
+            let mut renderer = local(ChartVideoRenderer::new(chart.clone(), export.clone(), output.clone())).await.unwrap();
             let mut reference = None;
             while !renderer.finished() {
                 let frame = renderer.progress().0;
@@ -298,7 +298,7 @@ fn export_resource_pack_visuals_and_audio() {
                 .unwrap();
             assert!(status.success());
             let decoded_frame = image::open(screenshot).unwrap().into_rgba8();
-            assert!(red_pixels_at_top(decoded_frame.pixels().take(640 * 54).map(|p| p.0)) > 100, "LIFE must survive MP4 encoding");
+            assert!(red_pixels_at_top(decoded_frame.pixels().take(640 * 54).map(|p| p.0)) < 100, "autoplay export must omit LIFE");
             let raw = image::RgbaImage::from_raw(640, 360, reference.unwrap()).unwrap();
             let upright = image::imageops::flip_vertical(&raw);
             let difference = |expected: &image::RgbaImage| {
@@ -313,7 +313,7 @@ fn export_resource_pack_visuals_and_audio() {
             let upright_error = difference(&upright);
             assert!(upright_error < 8., "decoded MP4 must match the upright reference, error={upright_error}");
             assert!(upright_error < difference(&raw) / 4., "encoded output must have the same orientation as the saved previews");
-            let decoded = std::process::Command::new(ffmpeg)
+            let decoded = std::process::Command::new(&ffmpeg)
                 .args(["-v", "error", "-i"])
                 .arg(output)
                 .args(["-f", "s16le", "-ac", "1", "-ar", "44100", "pipe:1"])
@@ -331,6 +331,27 @@ fn export_resource_pack_visuals_and_audio() {
             assert!(peak(0.3) < 100, "silent chart music must stay silent");
             assert!(peak(1.05) > 2000, "custom click must be mixed into the MP4");
             assert!(peak(2.1) > 2000, "custom ending music must be mixed into the MP4");
+            let odd_export = VideoOptions {
+                width: 641,
+                height: 481,
+                end: Some(0.05),
+                presentation: Default::default(),
+                ..export
+            };
+            let odd_output = root.path().join("odd-resolution.mp4");
+            let mut renderer = local(ChartVideoRenderer::new(chart, odd_export, odd_output.clone())).await.unwrap();
+            renderer.render_next_frame(&mut painter).unwrap();
+            renderer.finish().unwrap();
+            let screenshot = root.path().join("odd-resolution.png");
+            let status = std::process::Command::new(&ffmpeg)
+                .args(["-v", "error", "-i"])
+                .arg(odd_output)
+                .args(["-frames:v", "1"])
+                .arg(&screenshot)
+                .status()
+                .unwrap();
+            assert!(status.success());
+            assert_eq!(image::image_dimensions(screenshot).unwrap(), (641, 481));
             println!(
                 "Custom texture, resource audio, independent indicators under autoplay, AP/FC, double highlighting, particles and encoded MP4 passed"
             );

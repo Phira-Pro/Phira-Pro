@@ -27,7 +27,6 @@ mod view;
 use config::*;
 
 type BoxFut<T> = Pin<Box<dyn Future<Output = T>>>;
-const RESOLUTION_HEIGHTS: [u32; 4] = [720, 1080, 1440, 2160];
 const FPS_CHOICES: [u32; 4] = [30, 60, 120, 240];
 const BUDGET: Duration = Duration::from_millis(45);
 
@@ -56,6 +55,7 @@ pub struct RenderPage {
     status_scroll: Scroll,
     tabs: [DRectButton; settings::CATEGORIES.len()],
     resource_packs: Vec<resource_pack::Choice>,
+    resolution_selector: crate::popup::ChooseButton,
     resource_pack_selector: crate::popup::ChooseButton,
     fields: Vec<DRectButton>,
     pick: DRectButton,

@@ -30,6 +30,8 @@ impl Encoder {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x0800_0000);
         }
+        // 4:2:0 requires even dimensions. Use 4:4:4 to preserve odd pixel sizes.
+        let pixel_format = if options.width % 2 == 0 && options.height % 2 == 0 { "yuv420p" } else { "yuv444p" };
         command
             .args([
                 "-hide_banner",
@@ -48,12 +50,16 @@ impl Encoder {
             .args(["-i", "pipe:0", "-i"])
             .arg(soundtrack)
             .args([
-                "-map", "0:v", "-map", "1:a", "-vf", "vflip", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a",
+                "-map", "0:v", "-map", "1:a", "-vf", "vflip", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", pixel_format, "-c:a",
                 "aac", "-b:a", "192k", "-t",
             ])
             .arg(format!("{duration:.9}"))
-            .args(["-movflags", "+faststart"])
-            .arg(out)
+            .args(["-movflags", "+faststart"]);
+        if options.width * options.height > 3840 * 2160 {
+            // Limit buffered frames and workers so large exports do not exhaust memory.
+            command.args(["-filter_threads", "1", "-threads:v", "2", "-tune", "zerolatency"]);
+        }
+        command.arg(out)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::inherit());

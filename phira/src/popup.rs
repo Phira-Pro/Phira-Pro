@@ -308,8 +308,13 @@ impl ChooseButton {
     }
 
     pub fn render(&mut self, ui: &mut Ui, r: Rect, t: f32) {
+        self.render_control(ui, r, t, None);
+    }
+
+    pub(crate) fn render_control(&mut self, ui: &mut Ui, r: Rect, t: f32, caption: Option<&str>) {
+        let caption = caption.unwrap_or_else(|| self.popup.options[self.popup.selected].0.as_str());
         self.btn
-            .render_text(ui, r, t, &self.popup.options[self.popup.selected].0, self.control_text_size.unwrap_or(self.popup.size), false);
+            .render_text(ui, r, t, caption, self.control_text_size.unwrap_or(self.popup.size), false);
         if self.need_to_show {
             let pad = 0.007;
             let mut rr = Rect::new(r.x, r.bottom() + pad, self.width.unwrap_or(r.w), self.height);

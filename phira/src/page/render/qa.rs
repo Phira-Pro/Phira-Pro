@@ -106,6 +106,22 @@ fn export_settings_controls_and_three_aspects() {
             }
             page.category = settings::Category::Output;
             snapshot(&mut page, &mut state, &mut painter, 1280, 720, "output-before-selection");
+            let point = center(&page.resolution_selector.control_for_test().inner);
+            tap(&mut page, &mut state, point);
+            snapshot(&mut page, &mut state, &mut painter, 1280, 720, "resolution-popup");
+            state.t += 0.5;
+            page.update(&mut state).unwrap();
+            snapshot(&mut page, &mut state, &mut painter, 1280, 720, "resolution-popup-open");
+            let popup = page.resolution_selector.popup_rect();
+            tap(&mut page, &mut state, vec2(popup.center().x, popup.y + 0.15));
+            page.update(&mut state).unwrap();
+            assert_eq!(page.prefs.dimensions(), [1280, 720]);
+            prpr::scene::return_input(format!("video-field-{}", settings::Field::Resolution as usize), "7891x6767".into());
+            page.update(&mut state).unwrap();
+            assert_eq!(page.prefs.dimensions(), [7891, 6767]);
+            state.t += 0.5;
+            page.update(&mut state).unwrap();
+            snapshot(&mut page, &mut state, &mut painter, 1280, 720, "resolution-custom");
             let point = center(&page.resource_pack_selector.control_for_test().inner);
             tap(&mut page, &mut state, point);
             snapshot(&mut page, &mut state, &mut painter, 1280, 720, "resource-popup");
@@ -132,6 +148,7 @@ fn export_settings_controls_and_three_aspects() {
             assert_eq!(page.prefs.visuals.offset_indicator, Some(true));
             assert!(!page.prefs.visuals.ap_fc_indicator && !page.prefs.visuals.double_hint);
             let restored = config::load_prefs();
+            assert_eq!(restored.dimensions(), [7891, 6767]);
             assert_eq!(restored.resource_pack, resource_pack::Selection::Builtin);
             assert_eq!(restored.visuals.offset_indicator, Some(true));
             assert!(!restored.visuals.ap_fc_indicator && !restored.visuals.double_hint);

@@ -306,7 +306,7 @@ impl RenderPage {
                 .multiline()
                 .color(semi_white(0.8 * alpha))
                 .draw();
-        } else if field == Field::ResourcePack {
+        } else if matches!(field, Field::Resolution | Field::ResourcePack) {
             if self.busy() {
                 ui.text(&value)
                     .pos(control.x, control.y)
@@ -315,7 +315,11 @@ impl RenderPage {
                     .max_width(control.w)
                     .draw();
             } else {
-                self.resource_pack_selector.render(ui, control, t);
+                if field == Field::Resolution {
+                    self.resolution_selector.render_control(ui, control, t, Some(&value));
+                } else {
+                    self.resource_pack_selector.render(ui, control, t);
+                }
             }
         } else {
             let busy = self.busy();

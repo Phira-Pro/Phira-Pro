@@ -1,5 +1,5 @@
 //! A single catalog drives category pages, editing and the complete parameter overview.
-use super::{Aspect, Prefs, FPS_CHOICES, RESOLUTION_HEIGHTS};
+use super::{Prefs, FPS_CHOICES};
 use anyhow::{bail, Result};
 use prpr::chart_video::{PresentationOptions, PresentationStyle};
 use prpr::config::HealthBarColor;
@@ -64,9 +64,7 @@ macro_rules! fields {
     };
 }
 fields! {
-    Resolution => (Output, Choice, "分辨率", "选择基准档位，实际像素尺寸随画面比例调整"),
-    Aspect => (Output, Choice, "画面比例", "16:9、4:3、3:2 或自定义"),
-    CustomAspect => (Output, Text, "自定义比例", "按宽:高输入，例如 21:9、9:16 或 1.85:1"),
+    Resolution => (Output, Choice, "分辨率", "选择预设或输入宽高"),
     Fps => (Output, Choice, "帧率", "逐帧离线渲染，不受屏幕刷新率限制"),
     Directory => (Output, Folder, "输出目录", "视频按谱面标题和难度命名"),
     ResourcePack => (Output, ResourcePack, "资源包", "默认跟随游玩设置，也可为视频单独选择，不改变游玩资源包"),
@@ -177,9 +175,7 @@ pub fn value(p: &Prefs, field: Field) -> String {
         }
         .into(),
         Field::ResetFont => "恢复默认".into(),
-        Field::Resolution => p.dimensions().map_or_else(|_| "无效比例".into(), |(w, h)| format!("{w} × {h}")),
-        Field::Aspect => p.aspect.label().into(),
-        Field::CustomAspect => p.custom_aspect_text(),
+        Field::Resolution => p.resolution_text(),
         Field::Fps => format!("{} FPS", FPS_CHOICES[p.fps.min(FPS_CHOICES.len() - 1)]),
         Field::Directory => {
             if p.out_dir.is_empty() {
@@ -289,9 +285,7 @@ fn change_inner(p: &mut Prefs, field: Field, input: Option<&str>) -> Result<()> 
         Field::EarlyLate => p.visuals.show_early_late ^= true,
         Field::PassRate => p.visuals.show_pass_rate ^= true,
         Field::LifeColor => p.visuals.life_color = p.visuals.life_color.next(),
-        Field::Resolution => p.res = (p.res + 1) % RESOLUTION_HEIGHTS.len(),
-        Field::Aspect => p.aspect = p.aspect.next(),
-        Field::CustomAspect => p.set_custom_aspect(input)?,
+        Field::Resolution => p.set_custom_resolution(input)?,
         Field::Fps => p.fps = (p.fps + 1) % FPS_CHOICES.len(),
         Field::Preset => {
             let next = if presentation.style == PresentationStyle::Phigros {
@@ -357,7 +351,6 @@ fn change_inner(p: &mut Prefs, field: Field, input: Option<&str>) -> Result<()> 
         Field::ResetFont => presentation.font = None,
         Field::Directory | Field::Avatar | Field::Font | Field::ResourcePack => bail!("该设置需要选择文件、目录或资源包"),
     }
-    p.dimensions()?;
     p.presentation.validate()
 }
 
@@ -366,27 +359,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn output_aspects_preserve_presets_and_support_custom_ratios() {
-        let mut prefs: Prefs = serde_yaml::from_str("res: 1").unwrap();
-        assert_eq!(prefs.dimensions().unwrap(), (1920, 1080));
-        change(&mut prefs, Field::Aspect, None).unwrap();
-        assert_eq!(prefs.dimensions().unwrap(), (1440, 1080));
-        change(&mut prefs, Field::Aspect, None).unwrap();
-        assert_eq!(prefs.dimensions().unwrap(), (1620, 1080));
-        change(&mut prefs, Field::CustomAspect, Some("21：9")).unwrap();
-        assert_eq!(prefs.aspect, Aspect::Custom);
-        assert_eq!(prefs.dimensions().unwrap(), (2520, 1080));
-        change(&mut prefs, Field::CustomAspect, Some("9:16")).unwrap();
-        assert_eq!(prefs.dimensions().unwrap(), (608, 1080));
-        for invalid in ["0:9", "1:-3", "NaN:2", "16x9", "1:10000"] {
-            assert!(change(&mut prefs, Field::CustomAspect, Some(invalid)).is_err());
-            assert_eq!(prefs.dimensions().unwrap(), (608, 1080));
+    fn custom_resolution_preserves_exact_pixels_and_rejects_invalid_values() {
+        let mut prefs: Prefs = serde_yaml::from_str("res: 1\naspect: standard").unwrap();
+        assert_eq!(prefs.dimensions(), [1440, 1080]);
+        let legacy: Prefs = serde_yaml::from_str("res: 1\naspect: custom\ncustom_aspect: [9, 16]").unwrap();
+        assert_eq!(legacy.dimensions(), [608, 1080]);
+
+        change(&mut prefs, Field::Resolution, Some("7891x6767")).unwrap();
+        assert_eq!(prefs.dimensions(), [7891, 6767]);
+        for invalid in ["4:3", "0x800", "8888x720", "800x-", "800.2x600"] {
+            assert!(change(&mut prefs, Field::Resolution, Some(invalid)).is_err());
+            assert_eq!(prefs.dimensions(), [7891, 6767]);
         }
-        change(&mut prefs, Field::CustomAspect, Some("10:1")).unwrap();
-        assert_eq!(prefs.dimensions().unwrap(), (7680, 768));
-        change(&mut prefs, Field::CustomAspect, Some("1.85:1")).unwrap();
         let reloaded: Prefs = serde_yaml::from_str(&serde_yaml::to_string(&prefs).unwrap()).unwrap();
-        assert_eq!(reloaded.dimensions().unwrap(), (1998, 1080));
+        assert_eq!(reloaded.dimensions(), [7891, 6767]);
     }
     #[test]
     fn catalog_ids_are_unique_and_invalid_edits_are_transactional() {

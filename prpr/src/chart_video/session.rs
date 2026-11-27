@@ -94,6 +94,18 @@ impl ChartVideoRenderer {
                 .with_context(|| format!("渲染扩展 {} 配置失败", extension.id()))?;
         }
         options.validate()?;
+        let (mut texture_limit, mut viewport_limit) = (0, [0i32; 2]);
+        unsafe {
+            use miniquad::gl::*;
+            const GL_MAX_VIEWPORT_DIMS: u32 = 0x0D3A;
+            glGetIntegerv(GL_MAX_TEXTURE_SIZE, &mut texture_limit);
+            glGetIntegerv(GL_MAX_VIEWPORT_DIMS, viewport_limit.as_mut_ptr());
+        }
+        anyhow::ensure!(
+            options.width as i32 <= texture_limit.min(viewport_limit[0])
+                && options.height as i32 <= texture_limit.min(viewport_limit[1]),
+            "分辨率超出当前设备的渲染上限"
+        );
         let mut fs = fs_from_file(&source).context("无法打开谱面")?;
         let mut info = load_info(fs.as_mut()).await.context("无法读取谱面信息")?;
         let mut config = config.unwrap_or_default();

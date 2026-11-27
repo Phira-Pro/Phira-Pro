@@ -17,9 +17,20 @@ impl RenderPage {
             .with_control_text_size(0.34)
             .with_options(resource_packs.iter().map(|choice| choice.label.clone()).collect())
             .with_selected(index);
+        let resolution_selector = crate::popup::ChooseButton::new()
+            .with_compact_popup()
+            .with_control_text_size(0.34)
+            .with_popup_height(0.50)
+            .with_options(
+                std::iter::once("自定义…".into())
+                    .chain(RESOLUTION_PRESETS.iter().map(|[width, height]| format!("{width} × {height}")))
+                    .collect(),
+            )
+            .with_selected(prefs.resolution_choice());
         Self {
             prefs,
             resource_packs,
+            resolution_selector,
             resource_pack_selector,
             selected: None,
             replay: None,
@@ -68,7 +79,7 @@ impl RenderPage {
         )
     }
     fn options(&self) -> Result<VideoOptions> {
-        let (width, height) = self.prefs.dimensions()?;
+        let [width, height] = self.prefs.dimensions();
         let pass_rate_path = self.selected.as_ref().filter(|_| self.has_ppr_replay() && self.prefs.visuals.show_pass_rate)
             .map(|item| crate::pass_rate::path(&item.local_path)).transpose()?;
         Ok(VideoOptions {
@@ -134,11 +145,6 @@ impl RenderPage {
         match kind {
             Kind::Text | Kind::Number => {
                 let input = inputbox::InputBox::new().default_text(settings::input_value(&self.prefs, field));
-                let input = if field == settings::Field::CustomAspect {
-                    input.title("自定义画面比例").prompt("按宽:高输入，例如 21:9、9:16 或 1.85:1")
-                } else {
-                    input
-                };
                 request_input(format!("video-field-{}", field as usize), input);
             }
             Kind::Folder => {
@@ -256,6 +262,25 @@ impl Page for RenderPage {
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
         self.scroll.update(s.t);
         self.status_scroll.update(s.t);
+        self.resolution_selector.update(s.t);
+        if self.resolution_selector.changed() && !self.busy() {
+            match self.resolution_selector.selected() {
+                0 => {
+                    self.resolution_selector.set_selected(self.prefs.resolution_choice());
+                    request_input(
+                        format!("video-field-{}", settings::Field::Resolution as usize),
+                        inputbox::InputBox::new()
+                            .title("自定义分辨率")
+                            .prompt("按宽×高输入像素尺寸")
+                            .default_text(self.prefs.resolution_text()),
+                    );
+                }
+                index => {
+                    self.prefs.resolution = Some(RESOLUTION_PRESETS[index - 1]);
+                    self.changed();
+                }
+            }
+        }
         self.resource_pack_selector.update(s.t);
         if self.resource_pack_selector.changed() && !self.busy() {
             if let Some(choice) = self.resource_packs.get(self.resource_pack_selector.selected()) {
@@ -274,7 +299,12 @@ impl Page for RenderPage {
             {
                 if !self.busy() {
                     match settings::change(&mut self.prefs, field, Some(&text)) {
-                        Ok(()) => self.changed(),
+                        Ok(()) => {
+                            if field == settings::Field::Resolution {
+                                self.resolution_selector.set_selected(self.prefs.resolution_choice());
+                            }
+                            self.changed();
+                        }
                         Err(err) => {
                             show_message(format!("设置未保存：{err}"));
                         }
@@ -315,7 +345,7 @@ impl Page for RenderPage {
 
     fn touch(&mut self, touch: &Touch, s: &mut SharedState) -> Result<bool> {
         let t = s.t;
-        if self.resource_pack_selector.top_touch(touch, t) {
+        if self.resolution_selector.top_touch(touch, t) || self.resource_pack_selector.top_touch(touch, t) {
             return Ok(true);
         }
         if self.scroll.touch(touch, t) || self.status_scroll.touch(touch, t) {
@@ -364,7 +394,9 @@ impl Page for RenderPage {
             return Ok(true);
         }
         if self.scroll.contains(touch) && !self.busy() {
-            if self.category == settings::Category::Output && self.resource_pack_selector.touch(touch, t) {
+            if self.category == settings::Category::Output
+                && (self.resolution_selector.touch(touch, t) || self.resource_pack_selector.touch(touch, t))
+            {
                 return Ok(true);
             }
             #[cfg(target_os = "windows")]
@@ -399,6 +431,7 @@ impl Page for RenderPage {
 
     fn render_top(&mut self, ui: &mut prpr::ui::Ui, s: &mut SharedState) -> Result<()> {
         self.resource_pack_selector.render_top(ui, s.t, 1.);
+        self.resolution_selector.render_top(ui, s.t, 1.);
         Ok(())
     }
 }

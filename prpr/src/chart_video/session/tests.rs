@@ -81,11 +81,7 @@ async fn pixels(chart: &Path, options: VideoOptions, painter: &mut TextPainter, 
     assert_eq!(renderer.scene.res.config.show_acc, options.visuals.show_acc);
     assert_eq!(renderer.scene.res.config.show_judgement_details, options.visuals.show_judgement_details);
     assert_eq!(renderer.scene.res.config.show_perfect_combo, options.visuals.show_perfect_combo);
-    assert_eq!(renderer.scene.res.config.hp_mode, options.visuals.show_life_bar);
-    if options.visuals.show_life_bar {
-        assert_eq!(renderer.scene.res.config.hp_capacity(), options.visuals.life_capacity);
-        assert_eq!(renderer.scene.res.config.hp_color, options.visuals.life_color);
-    }
+    assert!(!renderer.scene.res.config.hp_mode);
     if options.res_pack_path.is_some() {
         let texture = renderer.scene.res.res_pack.note_style.click.get_texture_data();
         assert_eq!((texture.width, texture.height), (24, 12));
@@ -111,6 +107,83 @@ fn save_video_png(bytes: &[u8], width: u32, height: u32, name: &str) {
 
 fn red_pixels_at_top(pixels: impl Iterator<Item = [u8; 4]>) -> usize {
     pixels.filter(|[r, g, b, _]| *r > 75 && r.saturating_sub(*g) > 35 && r.saturating_sub(*b) > 35).count()
+}
+
+#[test]
+#[ignore = "requires desktop OpenGL/audio"]
+fn recorded_overlays_are_composited_only_for_replay_video() {
+    struct RecordedReplay {
+        life: bool,
+        missed: bool,
+    }
+    impl ReplayVideoSource for RecordedReplay {
+        fn configure(&self, config: &mut Config, _: &mut ChartInfo) {
+            config.hp_mode = self.life;
+            config.set_hp_capacity(12);
+            config.hp_amount = 2.5;
+            config.hp_disable_healing = true;
+        }
+        fn validate(&self, _: &GameScene) -> Result<()> { Ok(()) }
+        fn advance(&mut self, scene: &mut GameScene, time: f64) {
+            if time >= 0.35 && !self.missed {
+                self.missed = true;
+                scene.judge.commit(0.35, crate::judge::Judgement::Miss, 0, 0, 0.);
+            }
+        }
+        fn draw_touches(&self, _: &GameScene, _: &mut Ui) {}
+        fn hits(&self, _: &GameScene) -> Vec<(f64, u32, u32)> { Vec::new() }
+    }
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let _guard = runtime.enter();
+    std::env::set_current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()).unwrap();
+    macroquad::Window::from_config(
+        Conf { headless: true, ..Default::default() },
+        async {
+            set_pc_assets_folder("assets");
+            next_frame().await;
+            crate::core::init_assets();
+            let dir = tempfile::tempdir().unwrap();
+            let (chart, _) = fixture(dir.path());
+            let path = dir.path().join("chart.passrate");
+            let mut data = crate::pass_rate::PassRate::new(2., Vec::new());
+            data.segments[0] = crate::pass_rate::Segment { attempts: 3, fc: 2, ap: 1, fc_rate: Some(66.7), ap_rate: Some(33.3) };
+            data.save(&path).unwrap();
+            let font = FontArc::try_from_vec(std::fs::read("assets/harmonyos.ttf").unwrap()).unwrap();
+            let mut painter = TextPainter::new(font, None);
+            let mut options = VideoOptions { width: 640, height: 480, start: 0.4, end: Some(0.6), sample_count: 1, pass_rate_path: Some(path), ..Default::default() };
+            options.visuals = serde_yaml::from_str("show_life_bar: true\nlife_capacity: 1").unwrap();
+            options.visuals.show_pass_rate = true;
+            let auto = local(ChartVideoRenderer::preview(chart.clone(), options.clone())).await.unwrap();
+            assert!(!auto.scene.res.config.show_pass_rate);
+            assert!(!auto.scene.res.config.hp_mode && !auto.scene.video_life_bar);
+            drop(auto);
+            let recorded = |life| Some(Box::new(RecordedReplay { life, missed: false }) as Box<dyn ReplayVideoSource>);
+            let mut replay = local(ChartVideoRenderer::load(chart.clone(), options.clone(), None, Vec::new(), None, recorded(true)))
+                .await.unwrap();
+            assert!(replay.scene.res.config.show_pass_rate);
+            assert!(replay.scene.res.config.hp_mode && replay.scene.video_life_bar);
+            assert_eq!(replay.scene.res.config.hp_capacity(), 12);
+            replay.render_next_frame(&mut painter).unwrap();
+            assert_eq!(replay.frame_bytes().len(), 640 * 480 * 4);
+            assert!((replay.scene.judge.hp() - 9.5 / 12.).abs() < 1e-6);
+            let with_rates = replay.frame_bytes().to_vec();
+            replay.render_next_frame(&mut painter).unwrap();
+            assert!((replay.scene.judge.hp() - 9.5 / 12.).abs() < 1e-6);
+            drop(replay);
+            options.visuals.show_pass_rate = false;
+            let mut replay = local(ChartVideoRenderer::load(chart.clone(), options.clone(), None, Vec::new(), None, recorded(true)))
+                .await.unwrap();
+            replay.render_next_frame(&mut painter).unwrap();
+            let with_life = replay.frame_bytes().to_vec();
+            assert!(with_rates != with_life, "The pass-rate HUD must change the frame");
+            drop(replay);
+            let mut replay = local(ChartVideoRenderer::load(chart, options, None, Vec::new(), None, recorded(false))).await.unwrap();
+            assert!(!replay.scene.res.config.hp_mode && !replay.scene.video_life_bar);
+            replay.render_next_frame(&mut painter).unwrap();
+            let red = |frame: &[u8]| red_pixels_at_top(frame.chunks_exact(4).rev().take(640 * 54).map(|p| p.try_into().unwrap()));
+            assert!(red(&with_life) > red(replay.frame_bytes()) + 100, "Recorded LIFE must appear even with the main HUD hidden");
+        },
+    );
 }
 
 #[test]
@@ -169,15 +242,6 @@ fn export_resource_pack_visuals_and_audio() {
                     "{name} must change actual pixels with the main HUD hidden"
                 );
             }
-            let mut life = options.clone();
-            life.visuals.show_life_bar = true;
-            life.visuals.life_capacity = 999;
-            let full = pixels(&chart, life.clone(), &mut painter, "life-999").await;
-            // GL readback is bottom-up. Inspect the upper 54 rows of the 640 × 360 frame.
-            let red_at_top = |frame: &[u8]| red_pixels_at_top(frame.chunks_exact(4).rev().take(640 * 54).map(|p| p.try_into().unwrap()));
-            assert!(red_at_top(&full) > red_at_top(&baseline) + 100, "LIFE must render with the main HUD hidden");
-            life.visuals.life_capacity = 1;
-            assert_ne!(pixels(&chart, life, &mut painter, "life-1").await, full, "life capacity must change the rendered number");
             let mut builtin = options.clone();
             builtin.res_pack_path = None;
             assert_ne!(pixels(&chart, builtin, &mut painter, "builtin").await, baseline);
@@ -199,8 +263,6 @@ fn export_resource_pack_visuals_and_audio() {
             export.visuals.show_acc = true;
             export.visuals.show_judgement_details = true;
             export.visuals.show_early_late = true;
-            export.visuals.show_life_bar = true;
-            export.visuals.life_capacity = 999;
             export.presentation.ending = true;
             export.presentation.ending_seconds = 2.;
             export.presentation.audio.ending_delay_seconds = 0.;

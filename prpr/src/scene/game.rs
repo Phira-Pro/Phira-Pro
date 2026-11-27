@@ -19,6 +19,7 @@ mod practice_ranges;
 mod render_layers;
 #[path = "game/video.rs"]
 mod video;
+mod pass_rate;
 
 #[cfg(test)]
 #[path = "game/chart_loading_tests.rs"]
@@ -605,6 +606,7 @@ pub enum GameMode {
     Normal,
     TweakOffset,
     Exercise,
+    PassRate,
     View,
     Course,
 }
@@ -618,6 +620,8 @@ enum State {
 }
 
 pub struct GameScene {
+    pass_rate: pass_rate::Session,
+    pass_rate_editor: Option<pass_rate::Editor>,
     life_bar: life_bar::LifeBar,
     should_exit: bool,
     next_scene: Option<NextScene>,
@@ -705,6 +709,8 @@ pub struct GameScene {
 
 macro_rules! reset {
     ($self:ident, $res:expr, $tm:ident) => {{
+        $self.pass_rate.finish();
+        $self.pass_rate.begin();
         $self.bad_notes.clear();
         $self.judge.reset();
         $self.life_bar.reset();
@@ -800,13 +806,13 @@ impl GameScene {
                     )
                     .await
                 } else {
-                    crate::parse::parse_rpe_options(
+                    crate::parse::parse_rpe_with_sidecar(
                         &String::from_utf8_lossy(&bytes),
                         fs,
-                        chart_extra,
+                        &info.chart,
                         info.use_rpe_170_speed.unwrap_or_default(),
-                        Some(&info.chart),
                         info.use_rpen.unwrap_or(true),
+                        extra.as_deref(),
                     )
                     .await
                 }
@@ -839,7 +845,7 @@ impl GameScene {
                 r.read()
             }
         }?;
-        if let Some(extra) = extra {
+        if let Some(extra) = extra.filter(|_| format != ChartFormat::Rpe) {
             let bpms = chart.bpm_list.borrow().elements().iter().map(|&(beat, _, bpm)| (beat, bpm)).collect();
             let mut extra = parse_extra_with_bpm(&extra, fs, Some(BpmList::new(bpms)))
                 .await
@@ -902,6 +908,10 @@ impl GameScene {
         match mode {
             GameMode::TweakOffset => {
                 config.mods.insert(Mods::AUTOPLAY);
+            }
+            GameMode::PassRate => {
+                config.speed = 1.;
+                config.mods.remove(Mods::NIGHTCORE);
             }
             GameMode::Exercise => {
                 // Practice owns its speed; global speed and Nightcore must not
@@ -1068,6 +1078,8 @@ impl GameScene {
         tracing::info!("game loading: audio ready");
         crate::core::reset_block_effects();
 
+        let pass_rate = pass_rate::Session::new(&res.config, mode == GameMode::Normal);
+        let pass_rate_editor = (mode == GameMode::PassRate).then(|| pass_rate::Editor::new(res.track_length, pass_rate.data.as_ref()));
         Ok(Self {
             life_bar: life_bar::LifeBar::default(),
             should_exit: false,
@@ -1080,6 +1092,8 @@ impl GameScene {
 
             mode,
             hide_ui: false,
+            pass_rate,
+            pass_rate_editor,
             video_indicators: None,
             video_life_bar: false,
             res,
@@ -1210,6 +1224,19 @@ impl GameScene {
         crate::viewport::map_position(point, self.res.camera.viewport.unwrap_or(self.res.last_vp), self.res.last_vp)
     }
 
+    fn pause_bounds(aspect_ratio: f32, progress: f32) -> Rect {
+        let bar = 0.015;
+        Rect::new(bar * 2.5 - 1., (-1. + 0.02 * 3.5) / aspect_ratio - (1. - progress) * 0.4, bar * 3., bar * 3.2)
+    }
+
+    fn displayed_pass_rate(&self) -> Option<crate::pass_rate::Segment> {
+        if !self.res.config.show_pass_rate || !matches!(self.mode, GameMode::Normal | GameMode::View) {
+            return None;
+        }
+        let data = self.pass_rate.data.as_ref()?;
+        Some(data.segments[data.index(self.res.time + f64::from(self.offset()))])
+    }
+
     fn ui(&mut self, ui: &mut Ui, tm: &mut TimeManager) -> Result<()> {
         let time = tm.now();
         let p = self.video_entrance.map_or_else(
@@ -1230,12 +1257,12 @@ impl GameScene {
             } as f32,
             |(_, hud)| hud,
         );
+        let pass_rate = if tm.paused() { None } else { self.displayed_pass_rate() };
         let res = &mut self.res;
         let eps = 2e-2 / res.aspect_ratio;
         let top = -1. / res.aspect_ratio;
-        let pause_w = 0.015;
-        let pause_h = pause_w * 3.2;
-        let pause_center = Point::new(pause_w * 4.0 - 1., top + eps * 3.5 - (1. - p) * 0.4 + pause_h / 2.);
+        let pause = Self::pause_bounds(res.aspect_ratio, p);
+        let pause_center = Point::new(pause.center().x, pause.center().y);
         if res.config.interactive
             && !tm.paused()
             && self.pause_rewind.is_none()
@@ -1330,13 +1357,12 @@ impl GameScene {
                 res,
                 UIElement::Pause,
                 legacy_aui.then(|| (pause_center.x, pause_center.y)),
-                (pause_center.x - pause_w * 1.5, pause_center.y - pause_h / 2.),
+                (pause.x, pause.y),
                 |ui, c| {
-                    crate::ui::draw_pause_icon(
-                        ui,
-                        Rect::new(pause_center.x - pause_w * 1.5, pause_center.y - pause_h / 2., pause_w * 3., pause_h),
-                        c,
-                    );
+                    crate::ui::draw_pause_icon(ui, pause, c);
+                    if let Some(segment) = pass_rate {
+                        pass_rate::draw_hud(ui, segment, pause, c);
+                    }
                 },
             );
             let displayed_combo = if res.config.show_perfect_combo {
@@ -1859,6 +1885,9 @@ impl Scene for GameScene {
         tm.speed = self.res.config.speed as _;
         tm.adjust_time = self.res.config.adjust_time;
         reset!(self, self.res, tm);
+        if self.mode == GameMode::PassRate {
+            tm.pause();
+        }
         set_camera(&self.res.camera);
         self.first_in = true;
         self.entered = true;
@@ -1884,6 +1913,9 @@ impl Scene for GameScene {
         Ok(())
     }
     fn pause(&mut self, tm: &mut TimeManager) -> Result<()> {
+        if let Some(editor) = &mut self.pass_rate_editor {
+            editor.suspend();
+        }
         self.background_pause(tm)?;
         #[cfg(target_env = "ohos")]
         miniquad::native::set_interceptor_state(false);
@@ -1896,6 +1928,19 @@ impl Scene for GameScene {
     }
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
+        if let Some(editor) = &mut self.pass_rate_editor {
+            if editor.playing {
+                editor.seek_preview(self.music.position());
+                if editor.preview_ended() {
+                    editor.playing = false;
+                    self.music.pause()?;
+                }
+            }
+            self.res.time = (editor.time() - f64::from(self.chart.offset + self.info_offset)).max(0.);
+            self.res.alpha = 1.;
+            self.tick_replay();
+            return Ok(());
+        }
         if self.has_flash_failure() {
             return self.update_failure(tm);
         }
@@ -2021,6 +2066,7 @@ impl Scene for GameScene {
                         self.practice_partial = retry.is_some() && start > self.exercise_range.start + 1e-6;
                     }
                     if retry.is_some() {
+                        self.pass_rate.start_at(start);
                         // 断点续练：判定只能向前跳，这里正好是从头快进到目标时刻。
                         self.music.seek_to(start)?;
                         self.judge.advance_to(&mut self.chart, start);
@@ -2074,6 +2120,7 @@ impl Scene for GameScene {
                 let t = time - self.ending_start_time();
                 course_finished = self.mode == GameMode::Course && t >= AFTER_TIME + 0.3;
                 if t >= AFTER_TIME + 0.3 && self.mode != GameMode::Course {
+                    self.pass_rate.finish();
                     let result = self.judge.result(self.res.config.has_mod(Mods::NO_COMBO_SCORE));
                     // 续练可能跳过一部分音符，血条模式需要完整判完谱面才计成绩。
                     let complete_life_run = !self.res.config.hp_mode || result.counts.iter().sum::<u32>() == result.num_of_notes;
@@ -2163,17 +2210,29 @@ impl Scene for GameScene {
                         }
                         GameMode::Course => unreachable!(),
                         GameMode::TweakOffset => Some(NextScene::PopWithResult(Box::new(None::<f32>))),
-                        GameMode::Exercise => None,
+                        GameMode::Exercise | GameMode::PassRate => None,
                     };
                 }
                 self.res.alpha = (1. - (t / AFTER_TIME).min(1.).powi(2)) as f32;
                 self.res.track_length
             }
         };
+        let music_time = time;
         let time = (time - offset as f64).max(0.);
         self.res.time = time;
         if !tm.paused() && self.pause_rewind.is_none() && self.mode != GameMode::View {
+            let from = self.judge.judgements.borrow().len();
             self.judge.update(&mut self.res, &mut self.chart, &mut self.bad_notes);
+            if self.pass_rate.recording() && self.failure.is_none() && matches!(self.state, State::BeforeMusic | State::Playing | State::Ending) {
+                self.pass_rate.advance(music_time.min(self.res.track_length));
+                let authored_offset = f64::from(self.chart.offset + self.info_offset);
+                for &(_, line, note, judgement, _, head) in self.judge.judgements.borrow().iter().skip(from) {
+                    if let Some(grade) = judgement.ok().or(head) {
+                        let note_time = self.chart.lines[line as usize].notes[note as usize].time;
+                        self.pass_rate.mark(note_time + authored_offset, grade);
+                    }
+                }
+            }
         } else {
             self.judge.observe_paused_input();
             // Pause hides hover and suspends the filter, while release events
@@ -2227,6 +2286,7 @@ impl Scene for GameScene {
             _ => false,
         };
         if failed && self.failure.is_none() && !self.res.config.mods.contains(Mods::NO_FAIL) {
+            self.pass_rate.finish();
             use crate::config::HealthFailureEffect;
             let effect = if empty_life { self.res.config.hp_failure_effect } else { HealthFailureEffect::Slowdown };
             self.state = State::Playing;
@@ -2366,6 +2426,38 @@ impl Scene for GameScene {
     }
 
     fn touch(&mut self, tm: &mut TimeManager, touch: &Touch) -> Result<bool> {
+        if let Some(editor) = &mut self.pass_rate_editor {
+            let was_playing = editor.playing;
+            match editor.touch(touch, tm) {
+                pass_rate::Action::None => {}
+                pass_rate::Action::Exit => {
+                    self.should_exit = true;
+                    editor.playing = false;
+                }
+                pass_rate::Action::Save => match editor.save(&mut self.pass_rate, &self.res.config) {
+                    Ok(()) => {
+                        self.should_exit = true;
+                        editor.playing = false;
+                    }
+                    Err(err) => crate::scene::show_error(err),
+                },
+                pass_rate::Action::Preview => {
+                    editor.playing = !editor.playing;
+                    if editor.playing {
+                        if editor.preview_ended() {
+                            editor.seek_preview(0.);
+                        }
+                        self.res.audio.recover_if_needed()?;
+                        self.music.seek_to(editor.time())?;
+                        self.music.play()?;
+                    }
+                }
+            }
+            if was_playing && !editor.playing {
+                self.music.pause()?;
+            }
+            return Ok(true);
+        }
         if self.has_flash_failure() {
             return Ok(false);
         }
@@ -2434,7 +2526,7 @@ impl Scene for GameScene {
             && !res.config.practice_active
             && res.camera.render_target.is_none()
             && !self.chart.has_block_areas()
-            && !self.effects.iter().any(|e| e.active());
+            && !self.chart.extra.effects.iter().chain(&self.effects).any(|e| e.active());
         if msaa {
             if let Some(target) = &mut res.chart_target {
                 target.prepare_chart();
@@ -2633,7 +2725,7 @@ impl Scene for GameScene {
 
         // Draw pause/practice/interaction controls only after the complete
         // chart composite so noise and shaders cannot capture or obscure them.
-        if !self.hide_ui {
+        if !self.hide_ui && self.mode != GameMode::PassRate {
             self.draw_controls(tm, ui)?;
         }
         if !self.rendered_first_frame {
@@ -2646,6 +2738,9 @@ impl Scene for GameScene {
             render_target: self.res.camera.render_target,
             ..ui.camera()
         });
+        if let Some(editor) = &mut self.pass_rate_editor {
+            editor.render(ui, tm.real_time() as f32, self.pass_rate.data.as_ref());
+        }
         if self.mode == GameMode::Course {
             // Fade the entire screen, not just notes/HUD, before the parent loads the next song.
             ui.fill_rect(ui.screen_rect(), crate::ext::semi_black(1. - self.res.alpha));
@@ -2659,6 +2754,7 @@ impl Scene for GameScene {
 
     fn next_scene(&mut self, tm: &mut TimeManager) -> NextScene {
         if self.should_exit {
+            self.pass_rate.finish();
             if tm.paused() {
                 tm.resume();
             }
@@ -2674,7 +2770,7 @@ impl Scene for GameScene {
                     }
                 }
                 // not sure if they need result. just keep it
-                GameMode::Exercise | GameMode::View | GameMode::Course => NextScene::Pop,
+                GameMode::Exercise | GameMode::PassRate | GameMode::View | GameMode::Course => NextScene::Pop,
                 GameMode::TweakOffset => NextScene::PopWithResult(Box::new(None::<f32>)),
             }
         } else if let Some(next_scene) = self.next_scene.take() {

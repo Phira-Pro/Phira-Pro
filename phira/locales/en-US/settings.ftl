@@ -506,3 +506,6 @@ item-aa-off = Off
 item-aa-fxaa = FXAA
 item-aa-msaa2 = MSAA 2×
 item-aa-msaa4 = MSAA 4×
+
+item-pass-rate = Show segment pass rates
+item-pass-rate-sub = Show the current segment's saved FC and AP rates during gameplay.

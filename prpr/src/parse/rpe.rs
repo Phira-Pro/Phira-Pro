@@ -948,7 +948,18 @@ pub async fn parse_rpe_options(
     chart_path: Option<&str>,
     use_rpen: bool,
 ) -> Result<Chart> {
-    parse_rpe_impl(source, fs, extra, use_rpe_170_speed, chart_path, use_rpen, true).await
+    parse_rpe_impl(source, fs, extra, use_rpe_170_speed, chart_path, use_rpen, true, None).await
+}
+
+pub(crate) async fn parse_rpe_with_sidecar(
+    source: &str,
+    fs: &mut dyn FileSystem,
+    chart_path: &str,
+    use_rpe_170_speed: bool,
+    use_rpen: bool,
+    sidecar: Option<&str>,
+) -> Result<Chart> {
+    parse_rpe_impl(source, fs, ChartExtra::default(), use_rpe_170_speed, Some(chart_path), use_rpen, true, sidecar).await
 }
 
 /// CPU-only analysis preserves note/line geometry while skipping GPU resources.
@@ -959,7 +970,7 @@ pub async fn parse_rpe_for_analysis(
     chart_path: Option<&str>,
     use_rpen: bool,
 ) -> Result<Chart> {
-    parse_rpe_impl(source, fs, ChartExtra::default(), use_rpe_170_speed, chart_path, use_rpen, false).await
+    parse_rpe_impl(source, fs, ChartExtra::default(), use_rpe_170_speed, chart_path, use_rpen, false, None).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -971,6 +982,7 @@ async fn parse_rpe_impl(
     chart_path: Option<&str>,
     use_rpen: bool,
     load_visuals: bool,
+    sidecar: Option<&str>,
 ) -> Result<Chart> {
     let raw: serde_json::Value = serde_json::from_slice(super::json_bytes(source.as_bytes())).with_context(|| ptl!("json-parse-failed"))?;
     let rpe: RPEChart = serde_json::from_value(super::rpen::legacy_source(&raw)).with_context(|| ptl!("json-parse-failed"))?;
@@ -985,6 +997,13 @@ async fn parse_rpe_impl(
         None => (super::block_area::load_external(fs, chart_path).await?, Vec::new()),
     };
     let bpms: Vec<_> = rpe.bpm_list.iter().map(|it| (it.start_time.beats(), it.bpm)).collect();
+    let extra = if let Some(sidecar) = sidecar {
+        super::extra::parse_extra_with_mirrors(sidecar, fs, Some(BpmList::new(bpms.clone())), use_rpen.then_some(&raw))
+            .await
+            .context("Failed to parse extra")?
+    } else {
+        extra
+    };
     let mut r = BpmList::new(bpms.clone());
     fn vec<T>(v: &Option<Vec<T>>) -> impl Iterator<Item = &T> {
         v.iter().flat_map(|it| it.iter())

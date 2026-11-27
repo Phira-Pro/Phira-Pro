@@ -1,7 +1,7 @@
 use super::*;
 use crate::{dir, get_data};
 use anyhow::{Context, Result};
-use prpr::scene::{request_file, request_input, return_file, return_input, show_error, show_message, take_file, take_input};
+use prpr::scene::{request_file, request_input, return_file, return_input, show_error, show_message, take_file, take_input, NextScene};
 use std::{borrow::Cow, time::Instant};
 
 impl RenderPage {
@@ -22,7 +22,8 @@ impl RenderPage {
             resource_packs,
             resource_pack_selector,
             selected: None,
-            replay_file: None,
+            replay: None,
+            pick_replay_request: false,
             pick_request: false,
             category: settings::Category::Output,
             scroll: Scroll::new(),
@@ -44,6 +45,10 @@ impl RenderPage {
     pub(super) fn busy(&self) -> bool {
         matches!(self.job, Job::Loading(_) | Job::Rendering { .. })
     }
+
+    pub(super) fn has_ppr_replay(&self) -> bool {
+        self.replay.as_ref().and_then(|replay| replay.path.extension()).is_some_and(|ext| ext == "ppr")
+    }
     fn out_dir(&self) -> PathBuf {
         if self.prefs.out_dir.is_empty() {
             data_root().join("render")
@@ -56,14 +61,16 @@ impl RenderPage {
     }
     fn output_path(&self) -> Option<PathBuf> {
         let selected = self.selected.as_ref()?;
-        let suffix = if self.replay_file.is_some() { "-replay" } else { "" };
+        let suffix = if self.replay.is_some() { "-replay" } else { "" };
         Some(
             self.out_dir()
                 .join(format!("{} [{:.1}]{suffix}.mp4", sanitize(&selected.name), selected.difficulty)),
         )
     }
     fn options(&self) -> Result<VideoOptions> {
-        let (width, height) = RESOLUTIONS[self.prefs.res];
+        let (width, height) = self.prefs.dimensions()?;
+        let pass_rate_path = self.selected.as_ref().filter(|_| self.has_ppr_replay() && self.prefs.visuals.show_pass_rate)
+            .map(|item| crate::pass_rate::path(&item.local_path)).transpose()?;
         Ok(VideoOptions {
             width,
             height,
@@ -73,6 +80,7 @@ impl RenderPage {
             sample_count: get_data().config.sample_count.max(1),
             res_pack_path: self.prefs.resource_pack.resolve(get_data(), &PathBuf::from(dir::respacks()?))?,
             visuals: self.prefs.visuals.clone(),
+            pass_rate_path,
             presentation: self.prefs.presentation.clone(),
             ..Default::default()
         })
@@ -105,7 +113,7 @@ impl RenderPage {
         let out = self.output_path().context("无法生成视频文件名")?;
         let options = self.options()?;
         options.validate()?;
-        self.job = Job::Loading(if let Some(path) = self.replay_file.clone() {
+        self.job = Job::Loading(if let Some(path) = self.replay.as_ref().map(|replay| replay.path.clone()) {
             let chart_id = self.selected.as_ref().and_then(|selected| selected.chart_id);
             Box::pin(async move {
                 let replay = crate::scene::replay::VideoReplay::load(path, &chart, chart_id).await?;
@@ -118,13 +126,21 @@ impl RenderPage {
     }
 
     fn activate_field(&mut self, field: settings::Field) -> Result<()> {
+        if field == settings::Field::PassRate && !self.has_ppr_replay() {
+            return Ok(());
+        }
         use settings::Kind;
         let (_, kind, _, _) = field.info();
         match kind {
-            Kind::Text | Kind::Number => request_input(
-                format!("video-field-{}", field as usize),
-                inputbox::InputBox::new().default_text(settings::input_value(&self.prefs, field)),
-            ),
+            Kind::Text | Kind::Number => {
+                let input = inputbox::InputBox::new().default_text(settings::input_value(&self.prefs, field));
+                let input = if field == settings::Field::CustomAspect {
+                    input.title("自定义画面比例").prompt("按宽:高输入，例如 21:9、9:16 或 1.85:1")
+                } else {
+                    input
+                };
+                request_input(format!("video-field-{}", field as usize), input);
+            }
             Kind::Folder => {
                 #[cfg(not(any(target_os = "android", target_os = "ios", target_env = "ohos")))]
                 if let Some(path) = rfd::FileDialog::new().set_title("选择视频输出目录").pick_folder() {
@@ -182,6 +198,21 @@ impl RenderPage {
 }
 
 impl Page for RenderPage {
+    fn next_scene(&mut self, _: &mut SharedState) -> NextScene {
+        if std::mem::take(&mut self.pick_replay_request) {
+            NextScene::Overlay(Box::new(ReplayManager::render_picker()))
+        } else {
+            NextScene::None
+        }
+    }
+
+    fn on_result(&mut self, result: Box<dyn std::any::Any>, _: &mut SharedState) -> Result<()> {
+        if let Ok(replay) = result.downcast::<RenderReplay>() {
+            self.replay = Some(*replay);
+        }
+        Ok(())
+    }
+
     fn enter(&mut self, _s: &mut SharedState) -> Result<()> {
         if !self.busy() {
             self.resource_packs = resource_pack::choices(get_data(), &PathBuf::from(dir::respacks()?), &self.prefs.resource_pack);
@@ -254,11 +285,7 @@ impl Page for RenderPage {
             }
         }
         if let Some((id, path)) = take_file() {
-            if id == "render-replay" {
-                if !path.is_empty() && !self.busy() {
-                    self.replay_file = Some(path.into());
-                }
-            } else if id == "render-avatar" {
+            if id == "render-avatar" {
                 if !path.is_empty() && !self.busy() {
                     self.prefs.presentation.result.avatar = Some(path.into());
                     self.changed();
@@ -318,11 +345,11 @@ impl Page for RenderPage {
             return Ok(true);
         }
         if !self.busy() && self.clear_replay.touch(touch, t) {
-            self.replay_file = None;
+            self.replay = None;
             return Ok(true);
         }
         if !self.busy() && self.pick_replay.touch(touch, t) {
-            request_file("render-replay");
+            self.pick_replay_request = true;
             return Ok(true);
         }
         if self.open.touch(touch, t) {

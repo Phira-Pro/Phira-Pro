@@ -17,6 +17,8 @@ pub struct VideoOptions {
     pub sample_count: u32,
     /// Resolved by the caller. None selects the built-in resource pack.
     pub res_pack_path: Option<String>,
+    #[serde(skip)]
+    pub pass_rate_path: Option<PathBuf>,
     pub visuals: VisualOptions,
     pub presentation: PresentationOptions,
 }
@@ -33,6 +35,7 @@ impl Default for VideoOptions {
             show_hud: false,
             sample_count: 4,
             res_pack_path: None,
+            pass_rate_path: None,
             visuals: VisualOptions::default(),
             presentation: PresentationOptions::default(),
         }
@@ -52,8 +55,7 @@ pub struct VisualOptions {
     pub show_judgement_details: bool,
     pub show_perfect_combo: bool,
     pub show_early_late: bool,
-    pub show_life_bar: bool,
-    pub life_capacity: u32,
+    pub show_pass_rate: bool,
     pub life_color: HealthBarColor,
 }
 
@@ -68,8 +70,7 @@ impl Default for VisualOptions {
             show_judgement_details: false,
             show_perfect_combo: false,
             show_early_late: false,
-            show_life_bar: false,
-            life_capacity: Config::DEFAULT_HP_CAPACITY,
+            show_pass_rate: false,
             life_color: HealthBarColor::default(),
         }
     }
@@ -80,16 +81,6 @@ impl VisualOptions {
         self.offset_indicator.unwrap_or(show_hud)
     }
 
-    pub fn validate(&self) -> Result<()> {
-        ensure!(
-            (Config::MIN_HP_CAPACITY..=Config::MAX_HP_CAPACITY).contains(&self.life_capacity),
-            "最大血量必须在 {} 到 {} 之间",
-            Config::MIN_HP_CAPACITY,
-            Config::MAX_HP_CAPACITY
-        );
-        Ok(())
-    }
-
     pub(super) fn apply(&self, config: &mut Config, show_hud: bool) {
         config.offset_indicator = self.offset_visible(show_hud);
         config.ap_fc_indicator = self.ap_fc_indicator;
@@ -98,25 +89,25 @@ impl VisualOptions {
         config.show_acc = self.show_acc;
         config.show_judgement_details = self.show_judgement_details;
         config.show_perfect_combo = self.show_perfect_combo;
-        if self.show_life_bar {
-            config.hp_mode = true;
-            config.set_hp_capacity(self.life_capacity);
-            config.hp_color = self.life_color;
-            config.legacy_hp_damage = false;
-        }
     }
 }
 
 impl VideoOptions {
+    pub const MIN_DIMENSION: u32 = 16;
+    pub const MAX_WIDTH: u32 = 7680;
+    pub const MAX_HEIGHT: u32 = 4320;
+
     pub fn validate(&self) -> Result<()> {
         ensure!((1..=240).contains(&self.fps), "帧率必须在 1 到 240 之间");
         ensure!(
-            (16..=7680).contains(&self.width) && (16..=4320).contains(&self.height) && self.width % 2 == 0 && self.height % 2 == 0,
+            (Self::MIN_DIMENSION..=Self::MAX_WIDTH).contains(&self.width)
+                && (Self::MIN_DIMENSION..=Self::MAX_HEIGHT).contains(&self.height)
+                && self.width % 2 == 0
+                && self.height % 2 == 0,
             "分辨率需为有效偶数尺寸"
         );
         ensure!(self.start.is_finite() && self.start >= 0., "起始时间无效");
         ensure!(self.end.is_none_or(|end| end.is_finite() && end > self.start), "结束时间必须晚于开始时间");
-        self.visuals.validate()?;
         self.presentation.validate()
     }
     pub fn frame_count(&self, duration: f64) -> u64 {

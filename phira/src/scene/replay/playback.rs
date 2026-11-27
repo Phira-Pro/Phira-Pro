@@ -46,6 +46,8 @@ pub(super) fn configure(replay: &Replay, config: &mut Config, info: &mut ChartIn
     }
     if let Some(gameplay) = &replay.gameplay {
         gameplay.apply(config);
+    } else {
+        config.hp_mode = false;
     }
     if !replay.gameplay.as_ref().is_some_and(|settings| settings.input_time_corrected) {
         config.input_latency_compensation_ms = 0.;
@@ -374,6 +376,51 @@ fn hit_sound(kind: u8, note: &NoteKind) -> bool {
 
 pub(crate) struct VideoReplay(Playback);
 
+#[cfg(test)]
+mod video_tests {
+    use super::*;
+
+    #[test]
+    fn video_replay_restores_the_life_rules_from_the_ppr() {
+        let mut tape = Replay {
+            speed: 1.,
+            settings: Some(Default::default()),
+            gameplay: Some(replay::Gameplay {
+                hp_mode: true,
+                hp_disable_healing: true,
+                hp_scale: 100. / 12.,
+                hp_amount: 2.5,
+                points_damage: true,
+                input_time_corrected: true,
+                use_keyboard: false,
+                note_scale: 1.,
+                flow_speed: 1.,
+                fade_strength: 0.,
+            }),
+            ..Default::default()
+        };
+        let mut config = Config::default();
+        let mut info = ChartInfo::default();
+        let decoded = replay::from_bytes(&replay::bytes(&tape).unwrap()).unwrap();
+        VideoReplay(Playback::new(decoded)).configure(&mut config, &mut info);
+        assert!(config.hp_mode && config.hp_disable_healing && !config.legacy_hp_damage);
+        assert_eq!(config.hp_capacity(), 12);
+        assert_eq!(config.hp_damage(), 2.5);
+
+        let gameplay = tape.gameplay.as_mut().unwrap();
+        gameplay.points_damage = false;
+        gameplay.hp_disable_healing = false;
+        let decoded = replay::from_bytes(&replay::bytes(&tape).unwrap()).unwrap();
+        VideoReplay(Playback::new(decoded)).configure(&mut config, &mut info);
+        assert!(config.hp_mode && config.legacy_hp_damage && !config.hp_disable_healing);
+
+        tape.gameplay = None;
+        let decoded = replay::from_bytes(&replay::bytes(&tape).unwrap()).unwrap();
+        VideoReplay(Playback::new(decoded)).configure(&mut config, &mut info);
+        assert!(!config.hp_mode);
+    }
+}
+
 impl VideoReplay {
     pub(crate) async fn load(path: PathBuf, chart: &Path, chart_id: Option<i32>) -> Result<Self> {
         let replay = tokio::task::spawn_blocking(move || replay::load(&path)).await?.context("读取回放失败")?;
@@ -409,6 +456,7 @@ impl ReplayVideoSource for VideoReplay {
             self.0.apply_judges(scene, time, false, false);
         }
         self.0.apply_judges(scene, chart_time, false, false);
+        scene.res.time = chart_time;
         self.0.apply_touches(scene, chart_time);
     }
 

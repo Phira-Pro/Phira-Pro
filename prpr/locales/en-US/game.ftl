@@ -78,3 +78,14 @@ practice-range-both = Line and note
 practice-range-tap = Tap judgement bands
 practice-range-hold = Hold judgement bands
 practice-range-tail = Hold tail window
+
+pass-rate-title = Segment pass rates
+pass-rate-fc = FC rate: { $rate }
+pass-rate-ap = AP rate: { $rate }
+pass-rate-empty = No records
+pass-rate-region = Segment { $number }    { $rates }
+pass-rate-add = Add
+pass-rate-delete = Delete
+pass-rate-undo = Undo
+pass-rate-preview = Preview
+pass-rate-pause = Pause

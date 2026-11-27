@@ -17,8 +17,14 @@ use prpr::{
 };
 use std::{borrow::Cow, path::PathBuf};
 
+pub(super) struct RenderReplay {
+    pub path: PathBuf,
+    pub title: String,
+}
+
 pub struct ReplayManager {
     standalone: bool,
+    pick_for_render: bool,
     key: Option<String>,
     items: Vec<Item>,
     library_revision: u64,
@@ -49,6 +55,7 @@ impl ReplayManager {
     pub fn new(key: Option<String>, standalone: bool) -> Self {
         let mut manager = Self {
             standalone,
+            pick_for_render: false,
             key,
             items: Vec::new(),
             library_revision: library::revision(),
@@ -76,6 +83,12 @@ impl ReplayManager {
             exit: false,
         };
         manager.reload();
+        manager
+    }
+
+    pub(super) fn render_picker() -> Self {
+        let mut manager = Self::new(None, true);
+        manager.pick_for_render = true;
         manager
     }
     fn reload(&mut self) {
@@ -473,7 +486,12 @@ impl ReplayManager {
                         self.find_chart(path, Some(preferred));
                     }
                 } else if let Some(item) = items.get(i) {
-                    if self.multi {
+                    if self.pick_for_render {
+                        self.next = Some(NextScene::PopWithResult(Box::new(RenderReplay {
+                            path: item.path.clone(),
+                            title: layout::title(item),
+                        })));
+                    } else if self.multi {
                         if !self.chosen.remove(&item.path) {
                             self.chosen.insert(item.path.clone());
                         }

@@ -57,6 +57,7 @@
     (2, "item-aspect-ratio"),
     (2, "item-offset-indicator"),
     (2, "item-timing-offset"),
+    (2, "item-pass-rate"),
     (2, "judgement-settings"),
     (2, "replays-settings"),
     (2, "item-hp-mode"),

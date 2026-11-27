@@ -181,3 +181,7 @@ ldb-empty = No scores yet
 mods-note-behavior = Note behavior
 mods-note-behavior-sub = Cycle Original, Tap, Drag and Flick. Convert every note; results remain available, but the play is unranked
 mods-note-original = Original
+
+pass-rate-edit = Record segment pass rates
+pass-rate-export = Export PassRate file
+pass-rate-no-layout = Save a segment layout first

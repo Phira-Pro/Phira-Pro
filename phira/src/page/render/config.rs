@@ -1,12 +1,45 @@
 use crate::dir;
-use prpr::chart_video::{PresentationOptions, VisualOptions};
+use anyhow::{ensure, Context, Result};
+use prpr::chart_video::{PresentationOptions, VideoOptions, VisualOptions};
 use std::path::PathBuf;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Aspect {
+    #[default]
+    Wide,
+    Standard,
+    Classic,
+    Custom,
+}
+
+impl Aspect {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Wide => Self::Standard,
+            Self::Standard => Self::Classic,
+            Self::Classic => Self::Custom,
+            Self::Custom => Self::Wide,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Wide => "16:9",
+            Self::Standard => "4:3",
+            Self::Classic => "3:2",
+            Self::Custom => "自定义",
+        }
+    }
+}
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub(super) struct Prefs {
     pub out_dir: String,
     pub res: usize,
+    pub aspect: Aspect,
+    pub custom_aspect: [f64; 2],
     pub fps: usize,
     pub hitsound: bool,
     pub hud: bool,
@@ -19,6 +52,8 @@ impl Default for Prefs {
         Self {
             out_dir: String::new(),
             res: 1,
+            aspect: Aspect::Wide,
+            custom_aspect: [16., 9.],
             fps: 1,
             hitsound: true,
             hud: false,
@@ -26,6 +61,43 @@ impl Default for Prefs {
             visuals: Default::default(),
             presentation: PresentationOptions::default(),
         }
+    }
+}
+
+impl Prefs {
+    pub fn dimensions(&self) -> Result<(u32, u32)> {
+        let [width, height] = match self.aspect {
+            Aspect::Wide => [16., 9.],
+            Aspect::Standard => [4., 3.],
+            Aspect::Classic => [3., 2.],
+            Aspect::Custom => self.custom_aspect,
+        };
+        let ratio = width / height;
+        ensure!(width > 0. && height > 0. && ratio.is_finite() && ratio > 0., "画面比例需要两个正数");
+        let base = f64::from(super::RESOLUTION_HEIGHTS[self.res.min(super::RESOLUTION_HEIGHTS.len() - 1)]);
+        let max_width = f64::from(VideoOptions::MAX_WIDTH);
+        let h = base.min(max_width / ratio);
+        let w = (h * ratio).min(max_width);
+        let even = |size: f64| ((size / 2.).round() * 2.) as u32;
+        let (w, h) = (even(w), even(h));
+        ensure!(w >= VideoOptions::MIN_DIMENSION && h >= VideoOptions::MIN_DIMENSION, "此比例在当前分辨率下无法输出有效画面");
+        Ok((w, h))
+    }
+
+    pub fn custom_aspect_text(&self) -> String {
+        format!("{}:{}", self.custom_aspect[0], self.custom_aspect[1])
+    }
+
+    pub fn set_custom_aspect(&mut self, input: &str) -> Result<()> {
+        let (w, h) = input.split_once([':', '：']).context("请按宽:高输入，例如 21:9")?;
+        let parse = |value: &str| -> Result<f64> {
+            let value = value.trim().parse::<f64>().context("画面比例需要两个正数")?;
+            ensure!(value.is_finite() && value > 0., "画面比例需要两个正数");
+            Ok(value)
+        };
+        self.custom_aspect = [parse(w)?, parse(h)?];
+        self.aspect = Aspect::Custom;
+        Ok(())
     }
 }
 pub(super) fn data_root() -> PathBuf {
@@ -36,11 +108,12 @@ pub(super) fn load_prefs() -> Prefs {
         .ok()
         .and_then(|v| serde_yaml::from_str(&v).ok())
         .unwrap_or_default();
-    prefs.res = prefs.res.min(super::RESOLUTIONS.len() - 1);
-    prefs.fps = prefs.fps.min(super::FPS_CHOICES.len() - 1);
-    if prefs.visuals.validate().is_err() {
-        prefs.visuals.life_capacity = VisualOptions::default().life_capacity;
+    prefs.res = prefs.res.min(super::RESOLUTION_HEIGHTS.len() - 1);
+    if prefs.dimensions().is_err() {
+        prefs.aspect = Aspect::Wide;
+        prefs.custom_aspect = Prefs::default().custom_aspect;
     }
+    prefs.fps = prefs.fps.min(super::FPS_CHOICES.len() - 1);
     if prefs.presentation.validate().is_err() {
         prefs.presentation = PresentationOptions::default();
     }

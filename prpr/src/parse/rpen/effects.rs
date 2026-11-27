@@ -84,6 +84,7 @@ pub fn identity(e: &Value) -> Result<String> {
         "oldtv" => "old_tv".into(),
         "oilpainting" => "oil_painting".into(),
         "heateffect" => "heat_distortion".into(),
+        "two_tones" | "twotone" | "twotones" => "two_tone".into(),
         _ => name,
     };
     if flag(&e["clone"]) && NAMES[..10].contains(&name.as_str()) {
@@ -95,9 +96,37 @@ pub fn identity(e: &Value) -> Result<String> {
 struct Parameter {
     name: String,
     kind: UniformType,
+    normalize_rgba: bool,
     track: Track,
     time: f64,
 }
+
+fn vec4_parameter(value: &Value, normalize_rgba: bool) -> Vec4 {
+    let component = |i: usize| number(&value[i], 0.) as f32;
+    let color = vec4(component(0), component(1), component(2), component(3));
+    if normalize_rgba && color.abs().max_element() > 1. {
+        color / 255.
+    } else {
+        color
+    }
+}
+
+fn is_two_tone(name: &str, source: &str) -> bool {
+    if name == "two_tone" {
+        return true;
+    }
+    // RPEN exports built-in shaders as files, optionally with a legacy or
+    // collision suffix. Use the export marker before matching those suffixes.
+    if !source.lines().any(|line| line.trim() == "// @rpen-builtin") {
+        return false;
+    }
+    let stem = name
+        .rsplit_once('_')
+        .filter(|(_, suffix)| suffix.parse::<u32>().is_ok())
+        .map_or(name, |(stem, _)| stem);
+    stem.strip_suffix("_legacy").unwrap_or(stem) == "two_tone"
+}
+
 impl Uniform for Parameter {
     fn uniform_pair(&self) -> (String, UniformType) {
         (self.name.clone(), self.kind)
@@ -115,27 +144,59 @@ impl Uniform for Parameter {
             UniformType::Int1 => m.set_uniform(&self.name, if v.is_boolean() { i32::from(flag(&v)) } else { number(&v, 0.) as i32 }),
             UniformType::Float2 => m.set_uniform(&self.name, vec2(a(0), a(1))),
             UniformType::Float3 => m.set_uniform(&self.name, vec3(a(0), a(1), a(2))),
-            UniformType::Float4 => m.set_uniform(&self.name, vec4(a(0), a(1), a(2), a(3))),
+            UniformType::Float4 => m.set_uniform(&self.name, vec4_parameter(&v, self.normalize_rgba)),
             _ => m.set_uniform(&self.name, number(&v, 0.) as f32),
         }
     }
 }
 
+pub(crate) fn shader_events(raw: &Value) -> impl Iterator<Item = (&Value, Option<usize>)> {
+    let roots = [&raw["effects"], &raw["shaderEvents"], &raw["META"]["effects"]]
+        .into_iter()
+        .flat_map(|events| events.as_array().into_iter().flatten())
+        .map(|event| (event, None));
+    let attached = raw["judgeLineList"].as_array().into_iter().flatten().enumerate().flat_map(|(i, line)| {
+        line["extended"]["paintEvents"].as_array().into_iter().flatten().map(move |event| (event, Some(i)))
+    });
+    roots.chain(attached).filter(|(event, _)| shader_event(event))
+}
+
+fn effect_key(mut event: Value) -> String {
+    event.sort_all_objects();
+    event.to_string()
+}
+
+pub(crate) fn remove_mirrored_effects(sidecar: &mut Vec<Value>, chart: &Value) {
+    if sidecar.is_empty() {
+        return;
+    }
+    let mut copies = HashMap::<_, usize>::new();
+    for (event, owner) in shader_events(chart) {
+        let mut event = event.clone();
+        if let Some(line) = owner {
+            // The editor flattens line-attached events in the sidecar.
+            let fields = event.as_object_mut().unwrap();
+            for (from, to) in [("startTime", "start"), ("endTime", "end")] {
+                if let Some(time) = fields.remove(from) {
+                    fields.insert(to.into(), time);
+                }
+            }
+            fields.insert("line".into(), Value::from(line));
+        }
+        *copies.entry(effect_key(event)).or_default() += 1;
+    }
+    sidecar.retain(|event| {
+        let Some(count) = copies.get_mut(&effect_key(event.clone())) else { return true };
+        if *count == 0 {
+            return true;
+        }
+        *count -= 1;
+        false
+    });
+}
+
 pub async fn load_effects(raw: &Value, bpm: &mut BpmList, fs: &mut dyn FileSystem) -> Result<Vec<Effect>> {
-    let mut events: Vec<(Value, Option<usize>)> = Vec::new();
-    for a in [&raw["effects"], &raw["shaderEvents"], &raw["META"]["effects"]] {
-        events.extend(a.as_array().into_iter().flatten().filter(|e| shader_event(e)).map(|e| (e.clone(), None)));
-    }
-    for (i, line) in raw["judgeLineList"].as_array().into_iter().flatten().enumerate() {
-        events.extend(
-            line["extended"]["paintEvents"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|e| shader_event(e))
-                .map(|e| (e.clone(), Some(i))),
-        );
-    }
+    let mut events: Vec<_> = shader_events(raw).collect();
     events.sort_by(|(a, _), (b, _)| {
         number(&a["order"], 0.).total_cmp(&number(&b["order"], 0.)).then_with(|| {
             beat(a.get("startTime").or_else(|| a.get("start")).unwrap_or(&Value::from(0)))
@@ -180,6 +241,7 @@ pub async fn load_effects(raw: &Value, bpm: &mut BpmList, fs: &mut dyn FileSyste
         } else {
             preset(base).await?
         };
+        let two_tone = is_two_tone(base, &source);
         let declared: HashMap<_, _> = uniform_re
             .captures_iter(&source)
             .map(|c| {
@@ -210,6 +272,7 @@ pub async fn load_effects(raw: &Value, bpm: &mut BpmList, fs: &mut dyn FileSyste
             vars.push(Box::new(Parameter {
                 name: k.clone(),
                 kind,
+                normalize_rgba: two_tone && matches!(k.as_str(), "color1" | "color2"),
                 track,
                 time: 0.,
             }));

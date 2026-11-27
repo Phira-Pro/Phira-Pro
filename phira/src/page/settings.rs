@@ -1538,6 +1538,7 @@ struct ChartList {
     offset_indicator_btn: DRectButton,
     timing_offset_btn: DRectButton,
     early_late_btn: DRectButton,
+    pass_rate_btn: DRectButton,
     early_late_position_btn: DRectButton,
     hp_mode_btn: DRectButton,
     hp_disable_healing_btn: DRectButton,
@@ -1577,6 +1578,7 @@ impl ChartList {
             offset_indicator_btn: DRectButton::new(),
             timing_offset_btn: DRectButton::new(),
             early_late_btn: DRectButton::new(),
+            pass_rate_btn: DRectButton::new(),
             early_late_position_btn: DRectButton::new(),
             hp_mode_btn: DRectButton::new(),
             hp_disable_healing_btn: DRectButton::new(),
@@ -1672,6 +1674,10 @@ impl ChartList {
         }
         if self.early_late_btn.touch(touch, t) {
             config.show_early_late ^= true;
+            return Ok(Some(true));
+        }
+        if self.pass_rate_btn.touch(touch, t) {
+            config.show_pass_rate ^= true;
             return Ok(Some(true));
         }
         if config.show_early_late && self.early_late_position_btn.touch(touch, t) {
@@ -1866,6 +1872,10 @@ impl ChartList {
         item! {
             render_title(ui, tl!("item-early-late"), Some(tl!("item-early-late-sub")));
             render_switch(ui, rr, t, &mut self.early_late_btn, config.show_early_late);
+        }
+        item! {
+            render_title(ui, tl!("item-pass-rate"), Some(tl!("item-pass-rate-sub")));
+            render_switch(ui, rr, t, &mut self.pass_rate_btn, config.show_pass_rate);
         }
         if config.show_early_late {
             item! {

@@ -490,6 +490,7 @@ pub struct SongScene {
     autocomplete_task: Option<Task<Result<String>>>,
 
     export_task: Option<mpsc::Receiver<Result<()>>>,
+    export_pass_rate: Option<std::path::PathBuf>,
     pack_view: Option<pack::PackView>,
 }
 
@@ -705,6 +706,7 @@ impl SongScene {
             autocomplete_task: None,
 
             export_task: None,
+            export_pass_rate: None,
         }
     }
 
@@ -1036,6 +1038,8 @@ impl SongScene {
         if let Some(local_path) = &self.local_path {
             self.menu_options.push("exercise");
             self.menu_options.push("offset");
+            self.menu_options.push("pass-rate-edit");
+            self.menu_options.push("pass-rate-export");
             if get_data()
                 .charts
                 .iter()
@@ -1227,6 +1231,9 @@ impl SongScene {
             }
             let mut config = run_config;
             config.practice_local_path = Some(practice_source);
+            if matches!(mode, GameMode::Normal | GameMode::PassRate) {
+                config.pass_rate_path = Some(crate::pass_rate::path(config.practice_local_path.as_deref().unwrap())?);
+            }
             config.player_name = get_data()
                 .me
                 .as_ref()
@@ -2660,6 +2667,19 @@ impl Scene for SongScene {
                 "offset" => {
                     self.launch(GameMode::TweakOffset, false)?;
                 }
+                "pass-rate-edit" => {
+                    self.launch(GameMode::PassRate, false)?;
+                }
+                "pass-rate-export" => {
+                    let path = crate::pass_rate::path(self.local_path.as_deref().unwrap())?;
+                    if path.is_file() {
+                        if request_export(format!("{}.passrate", sanitize(&self.info.name))) {
+                            self.export_pass_rate = Some(path);
+                        }
+                    } else {
+                        show_message(tl!("pass-rate-no-layout")).warn();
+                    }
+                }
                 "unlock" => {
                     self.launch(GameMode::Normal, true)?;
                 }
@@ -2696,12 +2716,14 @@ impl Scene for SongScene {
                     request_input("stabilize-deny-reason", InputBox::new().mode(InputMode::Multiline));
                 }
                 "export" => {
+                    self.export_pass_rate = None;
                     request_export(format!("{}.zip", sanitize(&self.info.name)));
                 }
                 _ => {}
             }
         }
         if let Some(config) = take_export() {
+            let pass_rate = self.export_pass_rate.take();
             fn export_inner(path: String, output: File) -> Result<()> {
                 let charts = dir::charts()?;
                 compress_folder(Path::new(&format!("{charts}/{path}")), &mut BufWriter::new(output))?;
@@ -2714,7 +2736,14 @@ impl Scene for SongScene {
                     let path = self.local_path.clone().unwrap();
                     let (tx, rx) = mpsc::sync_channel(1);
                     std::thread::spawn(move || {
-                        let result = export_inner(path, config.file);
+                        let mut output = config.file;
+                        let result = match pass_rate {
+                            Some(path) => File::open(path)
+                                .and_then(|mut source| std::io::copy(&mut source, &mut output))
+                                .map(|_| ())
+                                .map_err(Into::into),
+                            None => export_inner(path, output),
+                        };
                         if result.is_err() {
                             if let Err(err) = (config.deleter)() {
                                 warn!("failed to delete export file: {:?}", err);

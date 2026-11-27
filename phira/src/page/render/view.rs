@@ -57,8 +57,8 @@ impl RenderPage {
                     .draw();
             });
             let r = layout.replay;
-            let selected = self.replay_file.is_some();
-            let name = self.replay_file.as_ref().and_then(|path| path.file_name()).and_then(|name| name.to_str()).unwrap_or("自动游玩");
+            let selected = self.replay.is_some();
+            let name = self.replay.as_ref().map_or("自动游玩", |replay| replay.title.as_str());
             let clear_width = if selected { 0.12 } else { 0. };
             let pick = Rect::new(r.x, r.y, r.w - clear_width, r.h);
             self.pick_replay.build(ui, t, pick, |ui, path| {
@@ -264,7 +264,11 @@ impl RenderPage {
 
     fn render_field(&mut self, ui: &mut Ui, t: f32, width: f32, field: Field, overview: bool, height: f32) -> f32 {
         let (_, kind, name, help) = field.info();
-        let enabled = settings::enabled(&self.prefs, field);
+        let enabled = settings::enabled(&self.prefs, field) && match field {
+            Field::PassRate => self.has_ppr_replay(),
+            Field::LifeColor => self.replay.is_some(),
+            _ => true,
+        };
         let value = self.field_value(field);
         let control_w = (width * 0.43).min(0.5);
         let label_w = width - control_w - 0.035;

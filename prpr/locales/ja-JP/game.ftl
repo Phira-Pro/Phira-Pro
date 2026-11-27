@@ -68,3 +68,14 @@ game-over = Game Over
 ex-time-out-of-range = 対象外の時間です
 ex-invalid-format = フォーマットが正しくありません
 ex-time-set = セットアップに成功しました
+
+pass-rate-title = 区間達成率の記録
+pass-rate-fc = FC 率：{ $rate }
+pass-rate-ap = AP 率：{ $rate }
+pass-rate-empty = 記録なし
+pass-rate-region = 区間 { $number }    { $rates }
+pass-rate-add = 追加
+pass-rate-delete = 削除
+pass-rate-undo = 元に戻す
+pass-rate-preview = プレビュー
+pass-rate-pause = 一時停止

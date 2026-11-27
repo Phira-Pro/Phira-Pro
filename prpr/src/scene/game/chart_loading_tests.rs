@@ -182,3 +182,130 @@ fn editor_sidecars_load_in_production_with_chart_tempo_and_embedded_effects() {
         },
     );
 }
+
+#[test]
+#[ignore = "requires desktop OpenGL/audio; run separately with --ignored --test-threads=1"]
+fn two_tone_colors_survive_the_optimized_chart_pass() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let _runtime = runtime.enter();
+    std::env::set_current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()).unwrap();
+    macroquad::Window::from_config(
+        Conf {
+            window_title: "Two-tone shader regression".into(),
+            headless: true,
+            window_width: 640,
+            window_height: 360,
+            ..Default::default()
+        },
+        async {
+            set_pc_assets_folder("assets");
+            next_frame().await;
+            crate::core::init_assets();
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::copy("assets/ending.ogg", dir.path().join("song.ogg")).unwrap();
+            let preset = std::fs::read_to_string("assets/rpen/shaders/two_tone_pr.glsl").unwrap();
+            std::fs::write(dir.path().join("two_tone-legacy-3.glsl"), format!("// @rpen-builtin\n{preset}")).unwrap();
+            let font = crate::ui::FontArc::try_from_vec(std::fs::read("assets/harmonyos.ttf").unwrap()).unwrap();
+            let mut painter = crate::ui::TextPainter::new(font, None);
+            let background_bytes: Vec<_> = (0..16 * 9)
+                .flat_map(|i| if i % 16 < 8 { [0, 0, 0, 255] } else { [255, 255, 255, 255] })
+                .collect();
+            let background: SafeTexture = Texture2D::from_rgba8(16, 9, &background_bytes).into();
+            for (shader, global) in [("two_tones", false), ("/two_tone-legacy-3.glsl", true)] {
+                let chart = json!({
+                    "META": {"RPEVersion": 240, "offset": 0},
+                    "BPMList": [{"bpm": 120, "startTime": [0,0,1]}],
+                    "judgeLineList": [],
+                    "effects": [{
+                        "shader": shader, "start": [0,0,1], "end": [8,0,1], "global": global,
+                        "vars": {"color1": [16,32,64,255], "color2": [1.,0.5,0.25,1.]}
+                    }]
+                });
+                std::fs::write(dir.path().join("chart.json"), chart.to_string()).unwrap();
+                let extra = json!({"bpm": 120, "effects": chart["effects"]});
+                std::fs::write(dir.path().join("extra.json"), extra.to_string()).unwrap();
+                let fs = Box::new(crate::fs::ExternalFileSystem(std::sync::Arc::new(crate::dir::Dir::new(dir.path()).unwrap())));
+                let info = ChartInfo { music: "song.ogg".into(), background_dim: 0., ..Default::default() };
+                let mut config = Config::default();
+                config.sample_count = 1;
+                config.volume_music = 0.;
+                config.particle = false;
+                let mut game = finish(GameScene::new(GameMode::Normal, info, config, fs, None, background.clone(), background.clone(), None, None, None))
+                    .await
+                    .unwrap();
+                let mut tm = TimeManager::default();
+                assert_eq!(game.effects.len() + game.chart.extra.effects.len(), 1);
+                game.enter(&mut tm, None).unwrap();
+                game.hide_ui = true;
+                game.res.time = 1.;
+                game.res.alpha = 1.;
+                game.tick_replay();
+                for optimized in [false, true] {
+                    game.res.config.effect_render_optimized = optimized;
+                    game.render(&mut tm, &mut Ui::new(&mut painter, None)).unwrap();
+                    unsafe { get_internal_gl() }.flush();
+                    let data = get_screen_data();
+                    let y = data.height as usize / 2;
+                    let width = data.width as usize;
+                    for (x, expected) in [(width / 4, [16, 32, 64]), (width * 3 / 4, [255, 128, 64])] {
+                        let pixel = &data.bytes[(y * width + x) * 4..][..3];
+                        assert!(
+                            pixel.iter().zip(expected).all(|(&a, b)| a.abs_diff(b) <= 2),
+                            "shader={shader}, optimized={optimized}, x={x}, actual={pixel:?}, expected={expected:?}"
+                        );
+                    }
+                    next_frame().await;
+                }
+            }
+            #[cfg(feature = "video")]
+            if let Some(path) = std::env::var_os("PHIRA_TEST_MIRRORED_SHADER_CHART") {
+                verify_archive_shader_frames(path.into(), &mut painter).await;
+            }
+        },
+    );
+}
+
+#[cfg(feature = "video")]
+async fn verify_archive_shader_frames(path: std::path::PathBuf, painter: &mut crate::ui::TextPainter) {
+    use crate::chart_video::{ChartVideoRenderer, VideoOptions};
+    use crate::scene::LoadingScene;
+    let time: f64 = std::env::var("PHIRA_TEST_SHADER_TIME").unwrap().parse().unwrap();
+    let options = VideoOptions { width: 640, height: 360, start: time, end: Some(time + 0.1), sample_count: 1, ..Default::default() };
+    let assert_multiple_colors = |label: &str, bytes: &[u8]| {
+        let mut colors = std::collections::HashMap::new();
+        for pixel in bytes.chunks_exact(4) {
+            *colors.entry([pixel[0], pixel[1], pixel[2]]).or_insert(0usize) += 1;
+        }
+        let mut frequent = colors.into_iter().filter(|(_, count)| *count > 100).collect::<Vec<_>>();
+        frequent.sort_unstable_by_key(|(_, count)| std::cmp::Reverse(*count));
+        println!("{label}: dominant colors {frequent:?}");
+        assert!(frequent.len() > 1, "{label}: effect flattened the frame");
+    };
+
+    let mut fs = crate::fs::fs_from_file(&path).unwrap();
+    let info = finish(crate::fs::load_info(fs.as_mut())).await.unwrap();
+    let (illustration, background, _) = finish(LoadingScene::load(fs.as_mut(), &info.illustration)).await.unwrap();
+    let mut config = Config::default();
+    config.sample_count = 1;
+    config.volume_music = 0.;
+    config.particle = false;
+    let mut game = finish(GameScene::new(GameMode::Normal, info, config.clone(), fs, None, background, illustration, None, None, None))
+        .await
+        .unwrap();
+    game.hide_ui = true;
+    let mut tm = TimeManager::default();
+    game.enter(&mut tm, None).unwrap();
+    game.res.time = time - f64::from(game.offset());
+    game.res.alpha = 1.;
+    game.tick_replay();
+    game.render(&mut tm, &mut Ui::new(painter, None)).unwrap();
+    unsafe { get_internal_gl() }.flush();
+    assert_multiple_colors("Gameplay", &get_screen_data().bytes);
+    drop(game);
+
+    let mut renderer = finish(ChartVideoRenderer::preview_with_config(path, options, config)).await.unwrap();
+    renderer.preview_music_frame(painter, time, false).unwrap();
+    assert_multiple_colors("RPEN native preview", renderer.frame_bytes());
+    renderer.render_next_frame(painter).unwrap();
+    assert_multiple_colors("Chart video frame", renderer.frame_bytes());
+}

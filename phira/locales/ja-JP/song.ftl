@@ -179,3 +179,7 @@ ldb-empty = 記録がありません
 mods-note-behavior = ノーツの種類を変更
 mods-note-behavior-sub = 元の種類、Tap、Drag、Flick の順に切り替えます。すべてのノーツが変わります。プレイとリザルト表示はできますが、スコアは記録されません。
 mods-note-original = 元の種類
+
+pass-rate-edit = 区間達成率を記録
+pass-rate-export = PassRate ファイルをエクスポート
+pass-rate-no-layout = 先に譜面の区間を保存してください

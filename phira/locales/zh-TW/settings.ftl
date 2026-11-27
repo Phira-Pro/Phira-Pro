@@ -412,3 +412,6 @@ item-aa-off = 關閉
 item-aa-fxaa = FXAA
 item-aa-msaa2 = MSAA 2×
 item-aa-msaa4 = MSAA 4×
+
+item-pass-rate = 顯示段落通過率
+item-pass-rate-sub = 遊玩時顯示目前段落已記錄的 FC 率與 AP 率。

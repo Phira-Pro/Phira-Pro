@@ -9,6 +9,7 @@ mod expression;
 mod presets;
 mod trajectory;
 pub use effects::load_effects;
+pub(super) use effects::remove_mirrored_effects;
 pub use trajectory::Trajectory;
 
 pub fn features(chart: &Value) -> bool {

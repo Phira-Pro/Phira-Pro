@@ -298,6 +298,9 @@ pub struct Config {
     #[serde(skip)]
     pub practice_local_path: Option<String>,
     #[serde(skip)]
+    pub pass_rate_path: Option<std::path::PathBuf>,
+    pub show_pass_rate: bool,
+    #[serde(skip)]
     pub practice_multiplier: f64,
     /// 变速练习的起始速度。
     pub practice_speed_start: f32,
@@ -499,6 +502,8 @@ impl Default for Config {
             practice: Default::default(),
             practice_active: false,
             practice_local_path: None,
+            pass_rate_path: None,
+            show_pass_rate: false,
             practice_multiplier: 1.,
             practice_speed_start: 0.7,
             practice_speed_step: 0.1,

@@ -7,7 +7,7 @@ const RH: f32 = 0.19;
 pub(super) fn entry_top(i: usize, n: usize, h: f32) -> f32 {
     (i as f32 * (RH + GAP)).min((n as f32 * (RH + GAP) + 0.25 - h).max(0.))
 }
-fn title(i: &Item) -> String {
+pub(super) fn title(i: &Item) -> String {
     if i.meta.name.is_empty() {
         i.path.file_name().unwrap_or_default().to_string_lossy().into_owned()
     } else {
@@ -40,7 +40,7 @@ impl ReplayManager {
         let w = a.w - 0.05;
         let bw = (w - 3. * GAP) / 4.;
         let top = a.y + 0.025;
-        ui.text("回放管理").pos(x, top + 0.014).size(0.52).draw();
+        ui.text(if self.pick_for_render { "选择渲染回放" } else { "回放管理" }).pos(x, top + 0.014).size(0.52).draw();
         let (search, close) = self.search_icons.get_or_insert_with(|| {
             (
                 SafeTexture::from(Texture2D::from_file_with_format(include_bytes!("../../../../assets/search.png"), None)),
@@ -50,16 +50,15 @@ impl ReplayManager {
         let r = crate::page::search_bar::rect(a.right() - 0.025, top, crate::page::search_bar::HEIGHT, self.query.is_empty());
         crate::page::search_bar::render(ui, &mut self.buttons[13], &mut self.search_clear, r, t, &self.query, search, close);
         let mut y = top + 0.115;
-        for (c, (i, s)) in [
+        let toolbar = [
             (1, "导入回放"),
             (2, "刷新列表"),
             (14, ["最新录制", "曲名排序", "占用空间", "重要优先"][self.sort]),
             (15, if self.multi { "完成多选" } else { "多选回放" }),
-        ]
-        .iter()
-        .enumerate()
-        {
-            self.buttons[*i].render_text(ui, Rect::new(x + c as f32 * (bw + GAP), y, bw, BH), t, *s, 0.35, *i == 15 && self.multi);
+        ];
+        let toolbar = if self.pick_for_render { &toolbar[1..3] } else { &toolbar[..] };
+        for (c, &(i, s)) in toolbar.iter().enumerate() {
+            self.buttons[i].render_text(ui, Rect::new(x + c as f32 * (bw + GAP), y, bw, BH), t, s, 0.35, i == 15 && self.multi);
         }
         y += BH + GAP;
         for (c, s) in ["全部回放", "自己录制", "导入回放", "缺少谱面"].iter().enumerate() {
@@ -88,7 +87,7 @@ impl ReplayManager {
             y += h + 0.02;
         }
         let footer = a.bottom() - BH - 0.025;
-        if !crate::plugins::replay_analysis::available().is_empty() {
+        if !self.pick_for_render && !crate::plugins::replay_analysis::available().is_empty() {
             self.buttons[20].render_text(ui, Rect::new(x, footer, bw, BH), t, "PRCA", 0.36, false);
         }
         if self.standalone {
@@ -221,7 +220,7 @@ impl ReplayManager {
                         y += h + GAP;
                     }
                     if items.is_empty() {
-                        ui.text("暂无回放，请导入文件或调整搜索条件")
+                        ui.text(if self.pick_for_render { "暂无可选回放，可在回放文件管理中导入" } else { "暂无回放，请导入文件或调整搜索条件" })
                             .pos(0.025, 0.035)
                             .size(0.37)
                             .max_width(w - 0.05)

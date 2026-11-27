@@ -1,5 +1,5 @@
 //! A single catalog drives category pages, editing and the complete parameter overview.
-use super::{Prefs, FPS_CHOICES, RESOLUTIONS};
+use super::{Aspect, Prefs, FPS_CHOICES, RESOLUTION_HEIGHTS};
 use anyhow::{bail, Result};
 use prpr::chart_video::{PresentationOptions, PresentationStyle};
 use prpr::config::HealthBarColor;
@@ -64,7 +64,9 @@ macro_rules! fields {
     };
 }
 fields! {
-    Resolution => (Output, Choice, "分辨率", "视频输出尺寸"),
+    Resolution => (Output, Choice, "分辨率", "选择基准档位，实际像素尺寸随画面比例调整"),
+    Aspect => (Output, Choice, "画面比例", "16:9、4:3、3:2 或自定义"),
+    CustomAspect => (Output, Text, "自定义比例", "按宽:高输入，例如 21:9、9:16 或 1.85:1"),
     Fps => (Output, Choice, "帧率", "逐帧离线渲染，不受屏幕刷新率限制"),
     Directory => (Output, Folder, "输出目录", "视频按谱面标题和难度命名"),
     ResourcePack => (Output, ResourcePack, "资源包", "默认跟随游玩设置，也可为视频单独选择，不改变游玩资源包"),
@@ -76,9 +78,8 @@ fields! {
     JudgementDetails => (Visuals, Toggle, "判定统计", "显示各档判定数量，可在主游玩界面关闭时单独显示"),
     PerfectCombo => (Visuals, Toggle, "Perfect 连击", "以 Perfect 连击替换主游玩界面的连击数，需要开启显示游玩界面"),
     EarlyLate => (Visuals, Toggle, "Early/Late 统计", "显示实际早晚判定数量，可在主游玩界面关闭时单独显示"),
-    LifeBar => (Visuals, Toggle, "显示血条", "自动播放时保持满血，可在隐藏主游玩界面时单独显示"),
-    LifeCapacity => (Visuals, Number, "最大血量", "1 到 999，开启显示血条后生效"),
-    LifeColor => (Visuals, Choice, "血条颜色", "切换视频中 LIFE 流光和文字描边的颜色"),
+    PassRate => (Visuals, Toggle, "显示段落通过率", "选择 .ppr 回放后可显示该谱面的本地 FC 和 AP 通过率"),
+    LifeColor => (Visuals, Choice, "血条颜色", "仅对录制时开启血条的回放生效"),
     Preset => (Flow, Choice, "画面预设", "切换流程预设，保留已填写的展示文字"),
     Font => (Flow, Font, "演出字体", "选择 TTF 或 OTF，仅用于开场与结算"),
     ResetFont => (Flow, Choice, "默认演出字体", "恢复内置演出字体"),
@@ -159,8 +160,7 @@ pub fn value(p: &Prefs, field: Field) -> String {
         Field::JudgementDetails => flag(p.visuals.show_judgement_details),
         Field::PerfectCombo => flag(p.visuals.show_perfect_combo),
         Field::EarlyLate => flag(p.visuals.show_early_late),
-        Field::LifeBar => flag(p.visuals.show_life_bar),
-        Field::LifeCapacity => p.visuals.life_capacity.to_string(),
+        Field::PassRate => flag(p.visuals.show_pass_rate),
         Field::LifeColor => match p.visuals.life_color {
             HealthBarColor::White => "白色",
             HealthBarColor::Green => "绿色",
@@ -177,10 +177,9 @@ pub fn value(p: &Prefs, field: Field) -> String {
         }
         .into(),
         Field::ResetFont => "恢复默认".into(),
-        Field::Resolution => {
-            let (w, h) = RESOLUTIONS[p.res.min(RESOLUTIONS.len() - 1)];
-            format!("{w} × {h}")
-        }
+        Field::Resolution => p.dimensions().map_or_else(|_| "无效比例".into(), |(w, h)| format!("{w} × {h}")),
+        Field::Aspect => p.aspect.label().into(),
+        Field::CustomAspect => p.custom_aspect_text(),
         Field::Fps => format!("{} FPS", FPS_CHOICES[p.fps.min(FPS_CHOICES.len() - 1)]),
         Field::Directory => {
             if p.out_dir.is_empty() {
@@ -252,8 +251,7 @@ pub fn input_value(p: &Prefs, field: Field) -> String {
 
 pub fn enabled(p: &Prefs, field: Field) -> bool {
     match field {
-        Field::PerfectCombo => p.hud && !p.visuals.show_life_bar,
-        Field::LifeCapacity | Field::LifeColor => p.visuals.show_life_bar,
+        Field::PerfectCombo => p.hud,
         Field::Score | Field::Accuracy | Field::Combo | Field::Perfect | Field::Good | Field::Bad | Field::Miss => p.presentation.result.custom,
         _ => true,
     }
@@ -289,10 +287,11 @@ fn change_inner(p: &mut Prefs, field: Field, input: Option<&str>) -> Result<()> 
         Field::JudgementDetails => p.visuals.show_judgement_details ^= true,
         Field::PerfectCombo => p.visuals.show_perfect_combo ^= true,
         Field::EarlyLate => p.visuals.show_early_late ^= true,
-        Field::LifeBar => p.visuals.show_life_bar ^= true,
-        Field::LifeCapacity => p.visuals.life_capacity = input.parse()?,
+        Field::PassRate => p.visuals.show_pass_rate ^= true,
         Field::LifeColor => p.visuals.life_color = p.visuals.life_color.next(),
-        Field::Resolution => p.res = (p.res + 1) % RESOLUTIONS.len(),
+        Field::Resolution => p.res = (p.res + 1) % RESOLUTION_HEIGHTS.len(),
+        Field::Aspect => p.aspect = p.aspect.next(),
+        Field::CustomAspect => p.set_custom_aspect(input)?,
         Field::Fps => p.fps = (p.fps + 1) % FPS_CHOICES.len(),
         Field::Preset => {
             let next = if presentation.style == PresentationStyle::Phigros {
@@ -358,13 +357,37 @@ fn change_inner(p: &mut Prefs, field: Field, input: Option<&str>) -> Result<()> 
         Field::ResetFont => presentation.font = None,
         Field::Directory | Field::Avatar | Field::Font | Field::ResourcePack => bail!("该设置需要选择文件、目录或资源包"),
     }
-    p.visuals.validate()?;
+    p.dimensions()?;
     p.presentation.validate()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn output_aspects_preserve_presets_and_support_custom_ratios() {
+        let mut prefs: Prefs = serde_yaml::from_str("res: 1").unwrap();
+        assert_eq!(prefs.dimensions().unwrap(), (1920, 1080));
+        change(&mut prefs, Field::Aspect, None).unwrap();
+        assert_eq!(prefs.dimensions().unwrap(), (1440, 1080));
+        change(&mut prefs, Field::Aspect, None).unwrap();
+        assert_eq!(prefs.dimensions().unwrap(), (1620, 1080));
+        change(&mut prefs, Field::CustomAspect, Some("21：9")).unwrap();
+        assert_eq!(prefs.aspect, Aspect::Custom);
+        assert_eq!(prefs.dimensions().unwrap(), (2520, 1080));
+        change(&mut prefs, Field::CustomAspect, Some("9:16")).unwrap();
+        assert_eq!(prefs.dimensions().unwrap(), (608, 1080));
+        for invalid in ["0:9", "1:-3", "NaN:2", "16x9", "1:10000"] {
+            assert!(change(&mut prefs, Field::CustomAspect, Some(invalid)).is_err());
+            assert_eq!(prefs.dimensions().unwrap(), (608, 1080));
+        }
+        change(&mut prefs, Field::CustomAspect, Some("10:1")).unwrap();
+        assert_eq!(prefs.dimensions().unwrap(), (7680, 768));
+        change(&mut prefs, Field::CustomAspect, Some("1.85:1")).unwrap();
+        let reloaded: Prefs = serde_yaml::from_str(&serde_yaml::to_string(&prefs).unwrap()).unwrap();
+        assert_eq!(reloaded.dimensions().unwrap(), (1998, 1080));
+    }
     #[test]
     fn catalog_ids_are_unique_and_invalid_edits_are_transactional() {
         let mut p = Prefs::default();
@@ -385,23 +408,13 @@ mod tests {
     }
 
     #[test]
-    fn life_bar_settings_are_independent_and_persist() {
-        let mut p: Prefs = serde_yaml::from_str("visuals: {show_acc: true}").unwrap();
-        assert!(!p.visuals.show_life_bar);
-        assert_eq!(p.visuals.life_capacity, 100);
-        assert!(!enabled(&p, Field::LifeCapacity));
-        change(&mut p, Field::LifeBar, None).unwrap();
-        assert!(!p.hud);
-        assert!(enabled(&p, Field::LifeCapacity));
-        change(&mut p, Field::LifeCapacity, Some("1")).unwrap();
-        change(&mut p, Field::LifeCapacity, Some("999")).unwrap();
-        assert!(change(&mut p, Field::LifeCapacity, Some("1000")).is_err());
-        assert!(change(&mut p, Field::LifeCapacity, Some("0")).is_err());
+    fn life_color_survives_old_render_preferences() {
+        let mut p: Prefs = serde_yaml::from_str("visuals: {show_acc: true, show_life_bar: true, life_capacity: 1}").unwrap();
         change(&mut p, Field::LifeColor, None).unwrap();
         let saved = serde_yaml::to_string(&p).unwrap();
         let restored: Prefs = serde_yaml::from_str(&saved).unwrap();
-        assert!(restored.visuals.show_acc && restored.visuals.show_life_bar);
-        assert_eq!(restored.visuals.life_capacity, 999);
+        assert!(restored.visuals.show_acc);
+        assert!(!saved.contains("show_life_bar") && !saved.contains("life_capacity"));
         assert_eq!(restored.visuals.life_color, HealthBarColor::Golden);
     }
 }

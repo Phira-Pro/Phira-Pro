@@ -55,6 +55,7 @@ mod plugins;
 mod popup;
 mod ppsr_features;
 mod practice_tools;
+mod pass_rate;
 mod rate;
 mod replay;
 mod resource;

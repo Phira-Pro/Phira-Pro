@@ -519,3 +519,6 @@ item-aa-off = オフ
 item-aa-fxaa = FXAA
 item-aa-msaa2 = MSAA 2×
 item-aa-msaa4 = MSAA 4×
+
+item-pass-rate = 区間達成率を表示
+item-pass-rate-sub = プレイ中に現在の区間の FC 率と AP 率を表示します。

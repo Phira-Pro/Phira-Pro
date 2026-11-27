@@ -180,3 +180,7 @@ ldb-empty = 暫無成績
 mods-note-behavior = 音符行為
 mods-note-behavior-sub = 循環選擇原始、Tap、Drag、Flick。轉換全部音符，仍可遊玩與結算，本局不計成績
 mods-note-original = 原始
+
+pass-rate-edit = 記錄分段通過率
+pass-rate-export = 匯出 PassRate 檔案
+pass-rate-no-layout = 請先儲存譜面的分段

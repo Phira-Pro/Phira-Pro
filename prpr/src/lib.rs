@@ -19,6 +19,7 @@ pub mod hotkeys;
 pub mod loading_cpu;
 pub mod loading_work;
 pub mod practice;
+pub mod pass_rate;
 pub mod render_elision;
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]

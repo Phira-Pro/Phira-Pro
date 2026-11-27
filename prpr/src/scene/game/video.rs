@@ -9,7 +9,15 @@ impl GameScene {
         if let Some(early_late) = self.video_indicators {
             let old_top = std::mem::replace(&mut ui.top, 1. / self.res.aspect_ratio);
             let alpha = self.res.alpha * self.video_entrance.map_or(1., |(_, hud)| hud);
-            ui.alpha(alpha, |ui| self.draw_video_indicators(ui, early_late));
+            ui.alpha(alpha, |ui| {
+                self.draw_video_indicators(ui, early_late);
+                if self.hide_ui {
+                    if let Some(segment) = self.displayed_pass_rate() {
+                        let pause = Self::pause_bounds(self.res.aspect_ratio, self.video_entrance.map_or(1., |(_, hud)| hud));
+                        pass_rate::draw_hud(ui, segment, pause, WHITE);
+                    }
+                }
+            });
             ui.top = old_top;
         }
         Ok(())

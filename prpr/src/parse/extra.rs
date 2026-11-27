@@ -2,6 +2,7 @@ use super::RPE_TWEEN_MAP;
 use anyhow::{Context, Result};
 use macroquad::prelude::{Color, Vec2};
 use serde::Deserialize;
+use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
 
 use super::L10N_LOCAL;
@@ -152,7 +153,7 @@ struct Extra {
     #[serde(default)]
     bpm: Option<BpmForm>,
     #[serde(default)]
-    effects: Vec<ExtEffect>,
+    effects: Vec<Value>,
     #[serde(default)]
     videos: Vec<ExtVideo>,
 }
@@ -207,10 +208,24 @@ fn decode_extra(source: &str, chart_bpm: Option<BpmList>) -> Result<(Extra, BpmL
 /// Empty editor sidecars need no tempo. Timed content may inherit the chart's
 /// complete tempo map; an explicit sidecar BPM always takes precedence.
 pub async fn parse_extra_with_bpm(source: &str, fs: &mut dyn FileSystem, chart_bpm: Option<BpmList>) -> Result<ChartExtra> {
-    let (ext, mut r) = decode_extra(source, chart_bpm)?;
+    parse_extra_with_mirrors(source, fs, chart_bpm, None).await
+}
+
+pub(super) async fn parse_extra_with_mirrors(
+    source: &str,
+    fs: &mut dyn FileSystem,
+    chart_bpm: Option<BpmList>,
+    embedded_chart: Option<&Value>,
+) -> Result<ChartExtra> {
+    let chart_tempo = embedded_chart.and_then(|_| chart_bpm.as_ref().map(|bpm| bpm.elements().to_vec()));
+    let (mut ext, mut r) = decode_extra(source, chart_bpm)?;
+    if let Some(chart) = embedded_chart.filter(|_| chart_tempo.as_deref() == Some(r.elements())) {
+        super::rpen::remove_mirrored_effects(&mut ext.effects, chart);
+    }
     let mut effects = Vec::new();
     let mut global_effects = Vec::new();
     for (id, effect) in ext.effects.into_iter().enumerate() {
+        let effect: ExtEffect = serde_json::from_value(effect).with_context(|| ptl!("effect-location", "id" => id))?;
         (if effect.global { &mut global_effects } else { &mut effects }).push(
             parse_effect(&mut r, effect, fs)
                 .await
@@ -262,15 +277,17 @@ mod tests {
 
     #[test]
     fn timed_extra_inherits_all_tempo_changes_and_honors_explicit_bpm() {
-        let effect = r#""effects":[{"start":[4,0,1],"end":[8,0,1],"shader":"vignette"}]"#;
-        let source = format!("{{{effect}}}");
+        let effects = r#""effects":[{"start":[4,0,1],"end":[8,0,1],"shader":"vignette"}]"#;
+        let source = format!("{{{effects}}}");
         let (extra, mut bpm) = decode_extra(&source, Some(BpmList::new(vec![(0., 120.), (4., 60.)]))).unwrap();
-        assert_eq!(bpm.time(&extra.effects[0].start), 2.);
-        assert_eq!(bpm.time(&extra.effects[0].end), 6.);
+        let effect = ExtEffect::deserialize(&extra.effects[0]).unwrap();
+        assert_eq!(bpm.time(&effect.start), 2.);
+        assert_eq!(bpm.time(&effect.end), 6.);
         for explicit in ["60", r#"[{"time":[0,0,1],"bpm":60}]"#] {
-            let (extra, mut bpm) = decode_extra(&format!("{{\"bpm\":{explicit},{effect}}}"), Some(BpmList::new(vec![(0., 120.)]))).unwrap();
-            assert_eq!(bpm.time(&extra.effects[0].start), 4.);
-            assert_eq!(bpm.time(&extra.effects[0].end), 8.);
+            let (extra, mut bpm) = decode_extra(&format!("{{\"bpm\":{explicit},{effects}}}"), Some(BpmList::new(vec![(0., 120.)]))).unwrap();
+            let effect = ExtEffect::deserialize(&extra.effects[0]).unwrap();
+            assert_eq!(bpm.time(&effect.start), 4.);
+            assert_eq!(bpm.time(&effect.end), 8.);
         }
         assert!(decode_extra(&source, None).is_err());
     }

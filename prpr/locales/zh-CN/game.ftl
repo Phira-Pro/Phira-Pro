@@ -78,3 +78,14 @@ practice-range-both = 判定线与音符
 practice-range-tap = Tap 判定档位
 practice-range-hold = Hold 判定档位
 practice-range-tail = Hold 尾部范围
+
+pass-rate-title = 记录分段通过率
+pass-rate-fc = FC率：{ $rate }
+pass-rate-ap = AP率：{ $rate }
+pass-rate-empty = 暂无记录
+pass-rate-region = 第 { $number } 段    { $rates }
+pass-rate-add = 添加
+pass-rate-delete = 删除
+pass-rate-undo = 撤销
+pass-rate-preview = 预览
+pass-rate-pause = 暂停

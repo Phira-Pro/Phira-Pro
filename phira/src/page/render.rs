@@ -1,5 +1,6 @@
 //! Categorized chart-video settings and export task coordination.
 use super::{Page, SharedState};
+use super::replays::{RenderReplay, ReplayManager};
 use anyhow::Result;
 use macroquad::{prelude::*, window::get_internal_gl};
 use prpr::{
@@ -26,7 +27,7 @@ mod view;
 use config::*;
 
 type BoxFut<T> = Pin<Box<dyn Future<Output = T>>>;
-const RESOLUTIONS: [(u32, u32); 4] = [(1280, 720), (1920, 1080), (2560, 1440), (3840, 2160)];
+const RESOLUTION_HEIGHTS: [u32; 4] = [720, 1080, 1440, 2160];
 const FPS_CHOICES: [u32; 4] = [30, 60, 120, 240];
 const BUDGET: Duration = Duration::from_millis(45);
 
@@ -47,7 +48,8 @@ enum Job {
 pub struct RenderPage {
     prefs: Prefs,
     selected: Option<Selected>,
-    replay_file: Option<PathBuf>,
+    replay: Option<RenderReplay>,
+    pick_replay_request: bool,
     pick_request: bool,
     category: settings::Category,
     scroll: Scroll,

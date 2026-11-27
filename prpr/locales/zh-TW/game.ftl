@@ -69,3 +69,14 @@ practice-debug-input = 觸點視覺化
 practice-title = 練習
 
 practice-settings = 練習設定
+
+pass-rate-title = 記錄分段通過率
+pass-rate-fc = FC 率：{ $rate }
+pass-rate-ap = AP 率：{ $rate }
+pass-rate-empty = 暫無紀錄
+pass-rate-region = 第 { $number } 段    { $rates }
+pass-rate-add = 新增
+pass-rate-delete = 刪除
+pass-rate-undo = 復原
+pass-rate-preview = 預覽
+pass-rate-pause = 暫停
